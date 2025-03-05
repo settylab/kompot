@@ -1,0 +1,17 @@
+include LICENSE
+include README.md
+include requirements.txt
+include setup.py
+include setup.cfg
+include pyproject.toml
+include MANIFEST.in
+
+recursive-include tests *
+recursive-include examples *
+recursive-include kompot *.pyi
+recursive-include kompot py.typed
+
+recursive-exclude * __pycache__
+recursive-exclude * *.py[cod]
+recursive-exclude * *.so
+recursive-exclude * .DS_Store
