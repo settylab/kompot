@@ -29,6 +29,7 @@ setup(
         'jax>=0.3.0',
         'jaxlib>=0.3.0',
         'mellon>=1.5.0',
+        'importlib-resources>=5.0.0;python_version<"3.9"',
     ],
     classifiers=[
         'Development Status :: 3 - Alpha',

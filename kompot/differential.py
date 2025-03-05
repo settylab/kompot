@@ -10,6 +10,7 @@ from scipy.stats import norm as normal
 from scipy.sparse import csr_matrix
 
 import mellon
+from mellon.parameters import compute_landmarks
 from .utils import compute_mahalanobis_distance, find_landmarks
 
 logger = logging.getLogger("kompot")
@@ -53,6 +54,9 @@ class DifferentialAbundance:
         pvalue_threshold: float = 1e-3,
         n_landmarks: Optional[int] = None,
         jit_compile: bool = False,
+        density_predictor1: Optional[Any] = None,
+        density_predictor2: Optional[Any] = None,
+        random_state: Optional[int] = None,
     ):
         """
         Initialize DifferentialAbundance.
@@ -67,11 +71,23 @@ class DifferentialAbundance:
             Number of landmarks to use for approximation. If None, use all points, by default None.
         jit_compile : bool, optional
             Whether to use JAX just-in-time compilation, by default False.
+        density_predictor1 : Any, optional
+            Precomputed density predictor for condition 1, typically from DensityEstimator.predict
+        density_predictor2 : Any, optional
+            Precomputed density predictor for condition 2, typically from DensityEstimator.predict
+        random_state : int, optional
+            Random seed for reproducible landmark selection when n_landmarks is specified.
+            Controls the random selection of points when using approximation, by default None.
         """
         self.log_fold_change_threshold = log_fold_change_threshold
         self.pvalue_threshold = pvalue_threshold
         self.n_landmarks = n_landmarks
         self.jit_compile = jit_compile
+        self.random_state = random_state
+        
+        # Set random seed for reproducible landmark selection if specified
+        if random_state is not None:
+            np.random.seed(random_state)
         
         # These will be populated after fitting
         self.log_density_condition1 = None
@@ -84,9 +100,11 @@ class DifferentialAbundance:
         self.log_fold_change_pvalue = None
         self.log_fold_change_direction = None
         
-        # Density estimators will be created during fitting
+        # Density estimators or predictors
         self.density_estimator_condition1 = None
         self.density_estimator_condition2 = None
+        self.density_predictor1 = density_predictor1
+        self.density_predictor2 = density_predictor2
         
     def fit(
         self, 
@@ -111,43 +129,47 @@ class DifferentialAbundance:
         self
             The fitted instance.
         """
-        # Configure density estimator defaults
-        estimator_defaults = {
-            'd_method': 'fractal',
-            'predictor_with_uncertainty': True,
-            'optimizer': 'advi',
-        }
-        
-        # Update defaults with user-provided values
-        estimator_defaults.update(density_kwargs)
-        
-        # Prepare landmarks if requested
-        if self.n_landmarks is not None:
-            # Combine data for landmark selection
-            X_combined = np.vstack([X_condition1, X_condition2])
-            landmarks, _ = find_landmarks(X_combined, n_clusters=self.n_landmarks)
-            estimator_defaults['landmarks'] = landmarks
-            estimator_defaults['gp_type'] = 'fixed'
-            
-        # Fit density estimators for both conditions
-        logger.info("Fitting density estimator for condition 1...")
-        self.density_estimator_condition1 = mellon.DensityEstimator(**estimator_defaults)
-        self.density_estimator_condition1.fit(X_condition1)
-        
-        logger.info("Fitting density estimator for condition 2...")
-        self.density_estimator_condition2 = mellon.DensityEstimator(**estimator_defaults)
-        self.density_estimator_condition2.fit(X_condition2)
-        
         # Combine data for predictions
         X_all = np.vstack([X_condition1, X_condition2])
         
+        if self.density_predictor1 is None or self.density_predictor2 is None:
+            # Configure density estimator defaults
+            estimator_defaults = {
+                'd_method': 'fractal',
+                'predictor_with_uncertainty': True,
+                'optimizer': 'advi',
+            }
+            
+            # Update defaults with user-provided values
+            estimator_defaults.update(density_kwargs)
+            
+            # Prepare landmarks if requested
+            if self.n_landmarks is not None:
+                # Use mellon's compute_landmarks function to get properly distributed landmarks
+                # Note: compute_landmarks has its own internal random seed, 
+                # we've already set np.random.seed in the constructor if random_state was provided
+                landmarks = compute_landmarks(X_all, gp_type='fixed', n_landmarks=self.n_landmarks)
+                estimator_defaults['landmarks'] = landmarks
+                estimator_defaults['gp_type'] = 'fixed'
+                
+            # Fit density estimators for both conditions
+            logger.info("Fitting density estimator for condition 1...")
+            self.density_estimator_condition1 = mellon.DensityEstimator(**estimator_defaults)
+            self.density_estimator_condition1.fit(X_condition1)
+            self.density_predictor1 = self.density_estimator_condition1.predict
+            
+            logger.info("Fitting density estimator for condition 2...")
+            self.density_estimator_condition2 = mellon.DensityEstimator(**estimator_defaults)
+            self.density_estimator_condition2.fit(X_condition2)
+            self.density_predictor2 = self.density_estimator_condition2.predict
+        
         # Compute log densities and uncertainties
         logger.info("Computing log densities and uncertainties...")
-        self.log_density_condition1 = self.density_estimator_condition1.predict(X_all, normalize=True)
-        self.log_density_condition2 = self.density_estimator_condition2.predict(X_all, normalize=True)
+        self.log_density_condition1 = self.density_predictor1(X_all, normalize=True)
+        self.log_density_condition2 = self.density_predictor2(X_all, normalize=True)
         
-        self.log_density_uncertainty_condition1 = self.density_estimator_condition1.predict.uncertainty(X_all)
-        self.log_density_uncertainty_condition2 = self.density_estimator_condition2.predict.uncertainty(X_all)
+        self.log_density_uncertainty_condition1 = self.density_predictor1.uncertainty(X_all)
+        self.log_density_uncertainty_condition2 = self.density_predictor2.uncertainty(X_all)
         
         # Compute log fold change and uncertainty
         self.log_fold_change = self.log_density_condition2 - self.log_density_condition1
@@ -194,15 +216,15 @@ class DifferentialAbundance:
             - 'log_fold_change_pvalue': P-values for the log fold change
             - 'log_fold_change_direction': Direction of change ('up', 'down', or 'neutral')
         """
-        if self.density_estimator_condition1 is None or self.density_estimator_condition2 is None:
+        if self.density_predictor1 is None or self.density_predictor2 is None:
             raise ValueError("Model not fitted. Call fit() first.")
         
         # Compute log densities and uncertainties
-        log_density_condition1 = self.density_estimator_condition1.predict(X_new, normalize=True)
-        log_density_condition2 = self.density_estimator_condition2.predict(X_new, normalize=True)
+        log_density_condition1 = self.density_predictor1(X_new, normalize=True)
+        log_density_condition2 = self.density_predictor2(X_new, normalize=True)
         
-        log_density_uncertainty_condition1 = self.density_estimator_condition1.predict.uncertainty(X_new)
-        log_density_uncertainty_condition2 = self.density_estimator_condition2.predict.uncertainty(X_new)
+        log_density_uncertainty_condition1 = self.density_predictor1.uncertainty(X_new)
+        log_density_uncertainty_condition2 = self.density_predictor2.uncertainty(X_new)
         
         # Compute log fold change and uncertainty
         log_fold_change = log_density_condition2 - log_density_condition1
@@ -274,6 +296,11 @@ class DifferentialExpression:
         precomputed_densities: Optional[Dict[str, np.ndarray]] = None,
         eps: float = 1e-12,
         jit_compile: bool = False,
+        function_predictor1: Optional[Any] = None,
+        function_predictor2: Optional[Any] = None,
+        density_predictor1: Optional[Any] = None,
+        density_predictor2: Optional[Any] = None,
+        random_state: Optional[int] = None,
     ):
         """
         Initialize DifferentialExpression.
@@ -297,12 +324,28 @@ class DifferentialExpression:
             Small constant for numerical stability, by default 1e-12.
         jit_compile : bool, optional
             Whether to use JAX just-in-time compilation, by default False.
+        function_predictor1 : Any, optional
+            Precomputed function predictor for condition 1, typically from FunctionEstimator.predict
+        function_predictor2 : Any, optional
+            Precomputed function predictor for condition 2, typically from FunctionEstimator.predict
+        density_predictor1 : Any, optional
+            Precomputed density predictor for condition 1, typically from DensityEstimator.predict
+        density_predictor2 : Any, optional
+            Precomputed density predictor for condition 2, typically from DensityEstimator.predict
+        random_state : int, optional
+            Random seed for reproducible landmark selection when n_landmarks is specified.
+            Controls the random selection of points when using approximation, by default None.
         """
         self.n_landmarks = n_landmarks
         self.use_empirical_variance = use_empirical_variance
         self.compute_weighted_fold_change = compute_weighted_fold_change
         self.eps = eps
         self.jit_compile = jit_compile
+        self.random_state = random_state
+        
+        # Set random seed for reproducible landmark selection if specified
+        if random_state is not None:
+            np.random.seed(random_state)
         
         # These will be populated after fitting
         self.condition1_imputed = None
@@ -318,11 +361,17 @@ class DifferentialExpression:
         self.lfc_stds = None
         self.bidirectionality = None
         
-        # Expression estimators will be created during fitting
+        # Function estimators or predictors
         self.expression_estimator_condition1 = None
         self.expression_estimator_condition2 = None
+        self.function_predictor1 = function_predictor1
+        self.function_predictor2 = function_predictor2
+        
+        # Differential abundance and density information
         self.differential_abundance = differential_abundance
         self.precomputed_densities = precomputed_densities
+        self.density_predictor1 = density_predictor1
+        self.density_predictor2 = density_predictor2
         
     def fit(
         self, 
@@ -367,12 +416,19 @@ class DifferentialExpression:
         self
             The fitted instance.
         """
-        # Determine if we need to compute differential abundance for weighting
+        # Combine data for predictions
+        X_all = np.vstack([X_condition1, X_condition2])
+        
+        # Determine if we need to compute/use density information for weighting
+        use_density_information = self.compute_weighted_fold_change
+        have_density_predictors = self.density_predictor1 is not None and self.density_predictor2 is not None
+        
         if compute_differential_abundance is None:
             compute_differential_abundance = (
-                self.compute_weighted_fold_change and 
+                use_density_information and 
                 self.differential_abundance is None and 
-                self.precomputed_densities is None
+                self.precomputed_densities is None and
+                not have_density_predictors
             )
         
         if compute_differential_abundance:
@@ -383,56 +439,58 @@ class DifferentialExpression:
             )
             self.differential_abundance.fit(X_condition1, X_condition2)
         
-        # Configure function estimator defaults
-        estimator_defaults = {
-            'sigma': sigma,
-            'optimizer': 'advi',
-            'predictor_with_uncertainty': True,
-        }
-        
-        # Update defaults with user-provided values
-        estimator_defaults.update(function_kwargs)
-        
-        # Prepare landmarks if requested
-        if self.n_landmarks is not None:
-            # Combine data for landmark selection
-            X_combined = np.vstack([X_condition1, X_condition2])
-            landmarks, _ = find_landmarks(X_combined, n_clusters=self.n_landmarks)
-            estimator_defaults['landmarks'] = landmarks
-            estimator_defaults['gp_type'] = 'fixed'
+        # Create or use function predictors
+        if self.function_predictor1 is None or self.function_predictor2 is None:
+            # Configure function estimator defaults
+            estimator_defaults = {
+                'sigma': sigma,
+                'optimizer': 'advi',
+                'predictor_with_uncertainty': True,
+            }
             
-        # If ls is provided, use it directly
-        if ls is not None:
-            estimator_defaults['ls'] = ls
+            # Update defaults with user-provided values
+            estimator_defaults.update(function_kwargs)
             
-        # Fit expression estimators for both conditions
-        logger.info("Fitting expression estimator for condition 1...")
-        self.expression_estimator_condition1 = mellon.FunctionEstimator(**estimator_defaults)
-        self.expression_estimator_condition1.fit(X_condition1, y_condition1)
-        
-        # Update ls for condition 2 based on condition 1 if not provided
-        if ls is None and 'ls' not in function_kwargs:
-            # Get ls from condition 1 and use it for condition 2
-            ls_cond1 = self.expression_estimator_condition1.predict.cov_func.ls
-            estimator_defaults['ls'] = ls_cond1 * 1.0  # Can scale if needed
-        
-        logger.info("Fitting expression estimator for condition 2...")
-        self.expression_estimator_condition2 = mellon.FunctionEstimator(**estimator_defaults)
-        self.expression_estimator_condition2.fit(X_condition2, y_condition2)
-        
-        # Combine data for predictions
-        X_all = np.vstack([X_condition1, X_condition2])
+            # Prepare landmarks if requested
+            if self.n_landmarks is not None:
+                # Use mellon's compute_landmarks function to get properly distributed landmarks
+                # Note: compute_landmarks has its own internal random seed, 
+                # we've already set np.random.seed in the constructor if random_state was provided
+                landmarks = compute_landmarks(X_all, gp_type='fixed', n_landmarks=self.n_landmarks)
+                estimator_defaults['landmarks'] = landmarks
+                estimator_defaults['gp_type'] = 'fixed'
+                
+            # If ls is provided, use it directly
+            if ls is not None:
+                estimator_defaults['ls'] = ls
+                
+            # Fit expression estimators for both conditions
+            logger.info("Fitting expression estimator for condition 1...")
+            self.expression_estimator_condition1 = mellon.FunctionEstimator(**estimator_defaults)
+            self.expression_estimator_condition1.fit(X_condition1, y_condition1)
+            self.function_predictor1 = self.expression_estimator_condition1.predict
+            
+            # Update ls for condition 2 based on condition 1 if not provided
+            if ls is None and 'ls' not in function_kwargs:
+                # Get ls from condition 1 and use it for condition 2
+                ls_cond1 = self.function_predictor1.cov_func.ls
+                estimator_defaults['ls'] = ls_cond1 * 1.0  # Can scale if needed
+            
+            logger.info("Fitting expression estimator for condition 2...")
+            self.expression_estimator_condition2 = mellon.FunctionEstimator(**estimator_defaults)
+            self.expression_estimator_condition2.fit(X_condition2, y_condition2)
+            self.function_predictor2 = self.expression_estimator_condition2.predict
         
         # Predict expression for all points
         logger.info("Predicting gene expression for both conditions...")
-        self.condition1_imputed = self.expression_estimator_condition1.predict(X_all)
-        self.condition2_imputed = self.expression_estimator_condition2.predict(X_all)
+        self.condition1_imputed = self.function_predictor1(X_all)
+        self.condition2_imputed = self.function_predictor2(X_all)
         
         # Compute uncertainties
         logger.info("Computing uncertainties...")
         # Ensure covariance is computed with with_uncertainty=True
-        self.condition1_uncertainty = self.expression_estimator_condition1.predict.covariance(X_all, diag=True)
-        self.condition2_uncertainty = self.expression_estimator_condition2.predict.covariance(X_all, diag=True)
+        self.condition1_uncertainty = self.function_predictor1.covariance(X_all, diag=True)
+        self.condition2_uncertainty = self.function_predictor2.covariance(X_all, diag=True)
         
         # Compute fold change
         self.fold_change = self.condition2_imputed - self.condition1_imputed
@@ -508,6 +566,10 @@ class DifferentialExpression:
                 # Use precomputed densities
                 log_density_condition1 = self.precomputed_densities['log_density_condition1']
                 log_density_condition2 = self.precomputed_densities['log_density_condition2']
+            elif self.density_predictor1 is not None and self.density_predictor2 is not None:
+                # Use density predictors
+                log_density_condition1 = self.density_predictor1(X_all, normalize=True)
+                log_density_condition2 = self.density_predictor2(X_all, normalize=True)
             else:
                 # Skip weighted fold change calculation
                 logger.warning("Cannot compute weighted fold change: no density information available")
@@ -534,18 +596,33 @@ class DifferentialExpression:
             Cell states. Shape (n_cells, n_features).
         """
         # Get covariance matrices
-        if self.n_landmarks is not None and hasattr(self.expression_estimator_condition1.predict, 'landmarks'):
-            # For landmark-based approximation, we need to be selective
-            idx = np.arange(len(X))[:self.n_landmarks]
-            cov1 = self.expression_estimator_condition1.predict.covariance(X[idx], diag=False)
-            cov2 = self.expression_estimator_condition2.predict.covariance(X[idx], diag=False)
+        # Determine if we have landmarks
+        has_landmarks = False
+        landmarks = None
+        
+        # Check function predictor for landmarks
+        if hasattr(self.function_predictor1, 'landmarks') and self.function_predictor1.landmarks is not None:
+            has_landmarks = True
+            landmarks = self.function_predictor1.landmarks
+        # Check estimator for landmarks
+        elif (hasattr(self.expression_estimator_condition1, 'landmarks') and 
+              self.expression_estimator_condition1.landmarks is not None):
+            has_landmarks = True
+            landmarks = self.expression_estimator_condition1.landmarks
+              
+        if has_landmarks and landmarks is not None:
+            # For landmark-based approximation, use the actual landmarks
+            cov1 = self.function_predictor1.covariance(landmarks, diag=False)
+            cov2 = self.function_predictor2.covariance(landmarks, diag=False)
             
-            # Subset fold change to landmarks
-            fold_change_subset = self.fold_change[idx]
+            # We need to use the function predictors to get fold changes at landmark points
+            landmarks_pred1 = self.function_predictor1(landmarks)
+            landmarks_pred2 = self.function_predictor2(landmarks)
+            fold_change_subset = landmarks_pred2 - landmarks_pred1
         else:
             # Use all points
-            cov1 = self.expression_estimator_condition1.predict.covariance(X, diag=False)
-            cov2 = self.expression_estimator_condition2.predict.covariance(X, diag=False)
+            cov1 = self.function_predictor1.covariance(X, diag=False)
+            cov2 = self.function_predictor2.covariance(X, diag=False)
             fold_change_subset = self.fold_change
         
         # Average the covariance matrices
@@ -553,8 +630,12 @@ class DifferentialExpression:
         
         # Add empirical adjustments if needed
         if self.use_empirical_variance:
-            if self.n_landmarks is not None:
-                diag_adjust = (self.condition1_error_squares[idx] + self.condition2_error_squares[idx]) / 2
+            if has_landmarks and landmarks is not None:
+                # We need to compute error squares for landmarks
+                # This is a bit of a simplification, ideally we'd predict the error squares at landmarks
+                diag_adjust = np.ones(len(landmarks)) * np.mean(
+                    self.condition1_error_squares + self.condition2_error_squares
+                ) / 2
             else:
                 diag_adjust = (self.condition1_error_squares + self.condition2_error_squares) / 2
         else:
@@ -606,16 +687,16 @@ class DifferentialExpression:
             - 'weighted_mean_log_fold_change': Only if compute_weighted_fold_change is True
               and density information is available
         """
-        if self.expression_estimator_condition1 is None or self.expression_estimator_condition2 is None:
+        if self.function_predictor1 is None or self.function_predictor2 is None:
             raise ValueError("Model not fitted. Call fit() first.")
         
         # Predict expression for both conditions
-        condition1_imputed = self.expression_estimator_condition1.predict(X_new)
-        condition2_imputed = self.expression_estimator_condition2.predict(X_new)
+        condition1_imputed = self.function_predictor1(X_new)
+        condition2_imputed = self.function_predictor2(X_new)
         
         # Compute uncertainties
-        condition1_uncertainty = self.expression_estimator_condition1.predict.covariance(X_new, diag=True)
-        condition2_uncertainty = self.expression_estimator_condition2.predict.covariance(X_new, diag=True)
+        condition1_uncertainty = self.function_predictor1.covariance(X_new, diag=True)
+        condition2_uncertainty = self.function_predictor2.covariance(X_new, diag=True)
         
         # Compute fold change
         fold_change = condition2_imputed - condition1_imputed
@@ -639,16 +720,28 @@ class DifferentialExpression:
         }
         
         # Compute weighted fold change if needed and possible
-        if self.compute_weighted_fold_change and density_predictions is not None:
-            log_density_diff = np.exp(
-                np.abs(
-                    density_predictions['log_density_condition2'] - 
-                    density_predictions['log_density_condition1']
-                )
-            )
+        if self.compute_weighted_fold_change:
+            density_data = None
             
-            # Weight the fold changes by density difference
-            weighted_fold_change = fold_change * log_density_diff[:, np.newaxis]
-            result['weighted_mean_log_fold_change'] = np.sum(weighted_fold_change, axis=0) / np.sum(log_density_diff)
+            # Try to get density information from various sources
+            if density_predictions is not None:
+                density_data = density_predictions
+            elif self.density_predictor1 is not None and self.density_predictor2 is not None:
+                density_data = {
+                    'log_density_condition1': self.density_predictor1(X_new, normalize=True),
+                    'log_density_condition2': self.density_predictor2(X_new, normalize=True)
+                }
+            
+            if density_data is not None:
+                log_density_diff = np.exp(
+                    np.abs(
+                        density_data['log_density_condition2'] - 
+                        density_data['log_density_condition1']
+                    )
+                )
+                
+                # Weight the fold changes by density difference
+                weighted_fold_change = fold_change * log_density_diff[:, np.newaxis]
+                result['weighted_mean_log_fold_change'] = np.sum(weighted_fold_change, axis=0) / np.sum(log_density_diff)
         
         return result

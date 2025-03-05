@@ -1,13 +1,15 @@
 #!/usr/bin/env python
 
 """
-Basic example demonstrating how to use Kompot for differential abundance and expression analysis.
+Basic example demonstrating how to use Kompot for differential abundance and expression analysis
+with both the original API and the new scverse-compatible AnnData API.
 """
 
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 import umap
+import pandas as pd
 
 # Import Kompot
 import sys
@@ -54,15 +56,20 @@ X_condition1, y_condition1, X_condition2, y_condition2, diff_genes = generate_sa
 
 # Combine data for visualization
 X_combined = np.vstack([X_condition1, X_condition2])
-condition_labels = np.array(['Condition 1'] * len(X_condition1) + ['Condition 2'] * len(X_condition2))
+condition_labels = np.array(['Condition1'] * len(X_condition1) + ['Condition2'] * len(X_condition2))
 
 # Create a UMAP embedding for visualization
 print("Creating UMAP embedding for visualization...")
 umap_reducer = umap.UMAP(n_components=2, random_state=42)
 X_umap = umap_reducer.fit_transform(X_combined)
 
+print("\n==========================================")
+print("PART 1: Using the original Kompot API")
+print("==========================================")
+
 # 1. Differential Abundance Analysis
 print("\n1. Running Differential Abundance Analysis...")
+# Method 1: Create estimators and fit them
 diff_abundance = kompot.DifferentialAbundance(n_landmarks=200)
 diff_abundance.fit(X_condition1, X_condition2)
 
@@ -81,50 +88,15 @@ plt.title('Differential Abundance: Log Fold Change')
 plt.tight_layout()
 plt.savefig('diff_abundance_log_fold_change.png')
 
-# Visualize z-scores
-plt.figure(figsize=(10, 8))
-plt.scatter(
-    X_umap[:, 0], 
-    X_umap[:, 1], 
-    c=diff_abundance.log_fold_change_zscore,
-    cmap='RdBu_r',
-    alpha=0.7,
-    s=5
-)
-plt.colorbar(label='Z-score')
-plt.title('Differential Abundance: Z-scores')
-plt.tight_layout()
-plt.savefig('diff_abundance_zscores.png')
-
 # 2. Differential Expression Analysis
 print("\n2. Running Differential Expression Analysis...")
 
-# Method 1: Using the density estimator from the previous step (most efficient)
-print("Method 1: Using pre-computed differential abundance...")
+# Using the density estimator from the previous step (most efficient)
 diff_expression = kompot.DifferentialExpression(
     n_landmarks=200,
     differential_abundance=diff_abundance  # Re-use the density estimator we already computed
 )
 diff_expression.fit(
-    X_condition1, y_condition1, 
-    X_condition2, y_condition2
-)
-
-# Method 2: Computing everything from scratch (simpler but less efficient)
-print("Method 2: Computing everything from scratch...")
-diff_expression_scratch = kompot.DifferentialExpression(n_landmarks=200)
-diff_expression_scratch.fit(
-    X_condition1, y_condition1, 
-    X_condition2, y_condition2
-)
-
-# Method 3: Disabling weighted fold change computation
-print("Method 3: Without weighted fold change computation...")
-diff_expression_no_weight = kompot.DifferentialExpression(
-    n_landmarks=200,
-    compute_weighted_fold_change=False
-)
-diff_expression_no_weight.fit(
     X_condition1, y_condition1, 
     X_condition2, y_condition2
 )
@@ -162,51 +134,115 @@ plt.legend()
 plt.tight_layout()
 plt.savefig('top_genes_mahalanobis.png')
 
-# Check if our known differential genes are detected
-known_diff_mahalanobis = diff_expression.mahalanobis_distances[diff_genes]
-other_genes_mahalanobis = np.delete(diff_expression.mahalanobis_distances, diff_genes)
+print("\n==========================================")
+print("PART 2: Using the scverse-compatible AnnData API")
+print("==========================================")
 
-plt.figure(figsize=(8, 6))
-plt.hist(other_genes_mahalanobis, bins=20, alpha=0.5, label='Non-Differential Genes')
-plt.hist(known_diff_mahalanobis, bins=20, alpha=0.5, label='Known Differential Genes')
-plt.xlabel('Mahalanobis Distance')
-plt.ylabel('Frequency')
-plt.title('Distribution of Mahalanobis Distances')
-plt.legend()
-plt.tight_layout()
-plt.savefig('mahalanobis_distribution.png')
+# Convert the data to AnnData format
+try:
+    import anndata
+    
+    # Create an AnnData object with all data
+    print("\nCreating AnnData object...")
+    # Create a combined expression matrix
+    y_combined = np.vstack([y_condition1, y_condition2])
+    
+    # Create gene names
+    gene_names = [f"gene_{i}" for i in range(y_combined.shape[1])]
+    
+    # Create metadata
+    obs = pd.DataFrame({
+        'condition': condition_labels,
+        'is_condition1': np.array([True] * len(X_condition1) + [False] * len(X_condition2)),
+        'is_condition2': np.array([False] * len(X_condition1) + [True] * len(X_condition2)),
+    })
+    
+    var = pd.DataFrame(index=gene_names)
+    var['is_diff_gene'] = [i in diff_genes for i in range(len(gene_names))]
+    
+    # Create the AnnData object
+    adata = anndata.AnnData(
+        X=y_combined,
+        obs=obs,
+        var=var
+    )
+    
+    # Add cell states to obsm
+    adata.obsm['X_pca'] = X_combined
+    adata.obsm['X_umap'] = X_umap
+    
+    # Run the complete analysis workflow
+    print("\n3. Running complete differential analysis with AnnData API...")
+    adata = kompot.run_differential_analysis(
+        adata, 
+        groupby='condition', 
+        condition1='Condition1', 
+        condition2='Condition2',
+        obsm_key='X_pca',
+        n_landmarks=200,
+        generate_html_report=True,
+        report_dir='kompot_report',
+        open_browser=False  # Set to False for headless environments
+    )
+    
+    # Compare the results between the original API and the AnnData API
+    print("\n4. Comparing results between original API and AnnData API...")
+    
+    # Get top genes from both approaches
+    top_genes_original = np.argsort(diff_expression.mahalanobis_distances)[-10:]
+    top_genes_anndata = adata.var.sort_values('kompot_de_mahalanobis', ascending=False).index[:10]
+    
+    print(f"Top 10 genes by original API: {top_genes_original}")
+    print(f"Top 10 genes by AnnData API: {[int(g.split('_')[1]) for g in top_genes_anndata]}")
+    
+    # Plot gene expression for a top differential gene
+    top_gene = top_genes_anndata[0]
+    top_gene_idx = int(top_gene.split('_')[1])
+    
+    # Compare the original and anndata results for this gene
+    plt.figure(figsize=(12, 6))
+    
+    # Original API result
+    plt.subplot(1, 2, 1)
+    plt.scatter(
+        X_umap[:, 0], 
+        X_umap[:, 1], 
+        c=diff_expression.fold_change[:, top_gene_idx],
+        cmap='RdBu_r',
+        alpha=0.7,
+        s=5
+    )
+    plt.colorbar(label='Log Fold Change')
+    plt.title(f'Original API: Log Fold Change for {top_gene}')
+    
+    # AnnData API result
+    plt.subplot(1, 2, 2)
+    plt.scatter(
+        X_umap[:, 0], 
+        X_umap[:, 1], 
+        c=adata.layers['kompot_de_fold_change'][:, top_gene_idx],
+        cmap='RdBu_r',
+        alpha=0.7,
+        s=5
+    )
+    plt.colorbar(label='Log Fold Change')
+    plt.title(f'AnnData API: Log Fold Change for {top_gene}')
+    
+    plt.tight_layout()
+    plt.savefig('comparison_anndata_api.png')
+    
+    print("\nAnnData API workflow complete. Results are stored in the AnnData object.")
+    print("Key results locations:")
+    print("  - Gene scores: adata.var['kompot_de_mahalanobis']")
+    print("  - Cell scores: adata.obs['kompot_da_log_fold_change']")
+    print("  - Imputed expression: adata.layers['kompot_de_condition1_imputed']")
+    print("  - Log fold changes: adata.layers['kompot_de_fold_change']")
+    print("  - Full models: adata.uns['kompot_da']['model'] and adata.uns['kompot_de']['model']")
+    
+    print("\nHTML report generated at: kompot_report/index.html")
+    
+except ImportError:
+    print("\nAnnData is not installed. Skipping the AnnData API example.")
+    print("To run the AnnData example, install anndata: pip install anndata")
 
 print("\nAnalysis complete. Visualizations saved to current directory.")
-print(f"Known differential genes: {diff_genes}")
-print(f"Top genes by Mahalanobis distance: {top_gene_indices}")
-
-# Compute precision/recall statistics for the different methods
-top_n = 10
-methods = {
-    "With pre-computed differential abundance": diff_expression,
-    "Computed from scratch": diff_expression_scratch,
-    "Without weighted fold change": diff_expression_no_weight
-}
-
-print(f"\nEvaluation metrics (top {top_n} genes):")
-for name, model in methods.items():
-    top_genes = np.argsort(model.mahalanobis_distances)[-top_n:]
-    true_positives = len(set(top_genes) & set(diff_genes))
-    precision = true_positives / top_n
-    recall = true_positives / len(diff_genes)
-    f1_score = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
-    
-    print(f"\n{name}:")
-    print(f"  Precision: {precision:.2f}")
-    print(f"  Recall: {recall:.2f}")
-    print(f"  F1 Score: {f1_score:.2f}")
-    
-    if name == "Without weighted fold change":
-        print("  Weighted mean log fold change: Not computed")
-    else:
-        # Check if any of the actual differential genes are in top weighted fold changes
-        gene_ranks_by_weighted_fold_change = np.argsort(np.abs(model.weighted_mean_log_fold_change))[::-1]
-        top_by_wfc = gene_ranks_by_weighted_fold_change[:top_n]
-        wfc_true_positives = len(set(top_by_wfc) & set(diff_genes))
-        wfc_precision = wfc_true_positives / top_n
-        print(f"  Top genes by weighted fold change - Precision: {wfc_precision:.2f}")

@@ -1,6 +1,6 @@
 # Kompot
 
-Kompot is a Python package for differential abundance and gene expression analysis using Mahalanobis distance with JAX backend.
+Kompot is a Python package for differential abundance and gene expression analysis using Gaussian Process models with JAX backend.
 
 ## Overview
 
@@ -15,6 +15,7 @@ Key features:
 - Support for covariance matrices and optional landmarks
 - JAX-accelerated computations
 - Empirical variance estimation
+- **Full scverse compatibility with direct AnnData integration**
 
 ## Installation
 
@@ -23,6 +24,8 @@ pip install kompot
 ```
 
 ## Usage Example
+
+### Original NumPy-based API
 
 ```python
 import numpy as np
@@ -55,6 +58,63 @@ fold_change = diff_expression.fold_change
 fold_change_zscores = diff_expression.fold_change_zscores
 mahalanobis_distances = diff_expression.mahalanobis_distances
 weighted_mean_log_fold_change = diff_expression.weighted_mean_log_fold_change
+
+# Generate HTML report
+kompot.generate_report(
+    diff_expression, 
+    output_dir="report", 
+    condition1_name="Control", 
+    condition2_name="Treatment"
+)
+```
+
+### scverse-compatible AnnData API
+
+```python
+import kompot
+import anndata
+
+# Load or create AnnData object
+adata = anndata.read_h5ad("my_data.h5ad")
+
+# Run full differential analysis workflow
+adata = kompot.run_differential_analysis(
+    adata,
+    groupby="condition",              # Column in adata.obs with condition labels  
+    condition1="control",             # First condition label
+    condition2="treatment",           # Second condition label
+    obsm_key="X_pca",                 # Cell states in adata.obsm
+    layer="counts",                   # Optional: use specific layer (otherwise uses adata.X)
+    n_landmarks=200,                  # Number of landmarks for approximation
+    generate_html_report=True         # Generate interactive HTML report
+)
+
+# Results are stored in the AnnData object:
+# - Gene scores: adata.var['kompot_de_mahalanobis']
+# - Cell scores: adata.obs['kompot_da_log_fold_change']
+# - Imputed expression: adata.layers['kompot_de_condition1_imputed']
+# - Log fold changes: adata.layers['kompot_de_fold_change']
+# - Full models: adata.uns['kompot_da']['model'] and adata.uns['kompot_de']['model']
+
+# Alternatively, run specific analyses:
+# Just differential abundance
+kompot.compute_differential_abundance(
+    adata,
+    groupby="condition",
+    condition1="control",
+    condition2="treatment",
+    obsm_key="X_pca"
+)
+
+# Just differential expression
+kompot.compute_differential_expression(
+    adata,
+    groupby="condition", 
+    condition1="control",
+    condition2="treatment",
+    obsm_key="X_pca",
+    layer="counts"
+)
 ```
 
 For a more detailed example, see the [basic example script](examples/basic_example.py) in the examples directory.
@@ -80,6 +140,14 @@ Computes differential expression between two conditions:
 - **Mahalanobis distances** for statistical significance
 - **Weighted mean log fold change** using density differences
 - Support for **empirical variance estimation**
+
+### AnnData Integration
+
+- Direct support for operating on AnnData objects
+- Automatic extraction of cell states and gene expression
+- Storage of results in standard AnnData locations
+- HTML report generation from AnnData objects
+- Full compatibility with the scverse ecosystem
 
 ## License
 

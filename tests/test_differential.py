@@ -34,6 +34,10 @@ def test_differential_abundance_fit():
     assert np.isfinite(diff_abundance.log_fold_change).all()
     assert np.isfinite(diff_abundance.log_fold_change_zscore).all()
     assert np.all(diff_abundance.log_fold_change_direction != '')
+    
+    # Check that density predictors are set
+    assert diff_abundance.density_predictor1 is not None
+    assert diff_abundance.density_predictor2 is not None
 
 
 def test_differential_abundance_predict():
@@ -97,6 +101,10 @@ def test_differential_expression_fit():
     assert np.isfinite(diff_expression.mahalanobis_distances).all()
     assert np.isfinite(diff_expression.weighted_mean_log_fold_change).all()
     
+    # Check that function predictors are set
+    assert diff_expression.function_predictor1 is not None
+    assert diff_expression.function_predictor2 is not None
+    
     # Test with disabled weighted fold change
     diff_expression_no_weight = DifferentialExpression(compute_weighted_fold_change=False)
     diff_expression_no_weight.fit(X_condition1, y_condition1, X_condition2, y_condition2)
@@ -133,6 +141,19 @@ def test_differential_expression_fit():
     
     # Should have weighted fold change using custom density
     assert diff_expression_custom_density.weighted_mean_log_fold_change is not None
+    
+    # Test with pre-computed density predictors
+    diff_expression_with_predictors = DifferentialExpression(
+        density_predictor1=diff_abundance.density_predictor1,
+        density_predictor2=diff_abundance.density_predictor2
+    )
+    
+    diff_expression_with_predictors.fit(
+        X_condition1, y_condition1, X_condition2, y_condition2
+    )
+    
+    # Should have weighted fold change using density predictors
+    assert diff_expression_with_predictors.weighted_mean_log_fold_change is not None
     
 
 def test_differential_expression_predict():
@@ -192,3 +213,43 @@ def test_differential_expression_predict():
     
     # Should not include weighted fold change even when density predictions are provided
     assert 'weighted_mean_log_fold_change' not in predictions_no_weight
+    
+    # Test with precomputed density predictors
+    diff_expression_with_predictors = DifferentialExpression(
+        density_predictor1=diff_abundance.density_predictor1,
+        density_predictor2=diff_abundance.density_predictor2
+    )
+    diff_expression_with_predictors.fit(X_condition1, y_condition1, X_condition2, y_condition2)
+    
+    # Predict without providing explicit density predictions
+    predictions_with_predictors = diff_expression_with_predictors.predict(X_new)
+    
+    # Should be able to compute weighted fold change using stored density predictors
+    assert 'weighted_mean_log_fold_change' in predictions_with_predictors
+    assert np.isfinite(predictions_with_predictors['weighted_mean_log_fold_change']).all()
+    
+    # Test with precomputed function predictors
+    # First train a model to get function predictors
+    diff_expression_for_predictors = DifferentialExpression()
+    diff_expression_for_predictors.fit(X_condition1, y_condition1, X_condition2, y_condition2)
+    
+    # Create a new model using the function predictors from the first model
+    diff_expression_with_function_predictors = DifferentialExpression(
+        function_predictor1=diff_expression_for_predictors.function_predictor1,
+        function_predictor2=diff_expression_for_predictors.function_predictor2,
+        density_predictor1=diff_abundance.density_predictor1,
+        density_predictor2=diff_abundance.density_predictor2
+    )
+    
+    # No need to fit since we're using precomputed predictors, but we call fit to compute metrics
+    diff_expression_with_function_predictors.fit(X_condition1, y_condition1, X_condition2, y_condition2)
+    
+    # Predict using precomputed function predictors
+    predictions_function_predictors = diff_expression_with_function_predictors.predict(X_new)
+    
+    # Should include all metrics
+    assert 'condition1_imputed' in predictions_function_predictors
+    assert 'condition2_imputed' in predictions_function_predictors
+    assert 'fold_change' in predictions_function_predictors
+    assert 'fold_change_zscores' in predictions_function_predictors
+    assert 'weighted_mean_log_fold_change' in predictions_function_predictors

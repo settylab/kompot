@@ -122,3 +122,8 @@ dmypy.json
 *.jpeg
 *.svg
 *.pdf
+
+# Project specific
+data/
+Mellon/
+.virtual_documents/
