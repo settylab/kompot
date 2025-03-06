@@ -69,16 +69,20 @@ print("==========================================")
 
 # 1. Differential Abundance Analysis
 print("\n1. Running Differential Abundance Analysis...")
-# Method 1: Create estimators and fit them
+# Create estimators and fit them
 diff_abundance = kompot.DifferentialAbundance(n_landmarks=200)
 diff_abundance.fit(X_condition1, X_condition2)
+
+# Run prediction on the combined data to compute fold changes
+X_combined = np.vstack([X_condition1, X_condition2])
+abundance_results = diff_abundance.predict(X_combined)
 
 # Visualize log fold changes
 plt.figure(figsize=(10, 8))
 plt.scatter(
     X_umap[:, 0], 
     X_umap[:, 1], 
-    c=diff_abundance.log_fold_change,
+    c=abundance_results['log_fold_change'],
     cmap='RdBu_r',
     alpha=0.7,
     s=5
@@ -88,12 +92,49 @@ plt.title('Differential Abundance: Log Fold Change')
 plt.tight_layout()
 plt.savefig('diff_abundance_log_fold_change.png')
 
+# Demonstrate using condition-specific results
+condition1_results = diff_abundance.get_condition1_results()
+condition2_results = diff_abundance.get_condition2_results()
+
+# Create a visualization to show which cells come from which condition
+plt.figure(figsize=(15, 6))
+
+# Condition 1 cells
+plt.subplot(1, 2, 1)
+plt.scatter(
+    X_umap[diff_abundance.condition1_indices, 0], 
+    X_umap[diff_abundance.condition1_indices, 1], 
+    c=condition1_results['log_fold_change'],
+    cmap='RdBu_r',
+    alpha=0.7,
+    s=5
+)
+plt.colorbar(label='Log Fold Change (Density)')
+plt.title('Condition 1 Cells: Density Fold Change')
+
+# Condition 2 cells
+plt.subplot(1, 2, 2)
+plt.scatter(
+    X_umap[diff_abundance.condition2_indices, 0], 
+    X_umap[diff_abundance.condition2_indices, 1], 
+    c=condition2_results['log_fold_change'],
+    cmap='RdBu_r',
+    alpha=0.7,
+    s=5
+)
+plt.colorbar(label='Log Fold Change (Density)')
+plt.title('Condition 2 Cells: Density Fold Change')
+
+plt.tight_layout()
+plt.savefig('diff_abundance_by_condition.png')
+
 # 2. Differential Expression Analysis
 print("\n2. Running Differential Expression Analysis...")
 
 # Using the density estimator from the previous step (most efficient)
 diff_expression = kompot.DifferentialExpression(
     n_landmarks=200,
+    compute_weighted_fold_change=True,  # Explicitly enable weighted fold change calculation
     differential_abundance=diff_abundance  # Re-use the density estimator we already computed
 )
 diff_expression.fit(
@@ -101,13 +142,17 @@ diff_expression.fit(
     X_condition2, y_condition2
 )
 
+# Run prediction to compute fold changes and other metrics
+# Compute Mahalanobis distances as well
+expression_results = diff_expression.predict(X_combined, compute_mahalanobis=True)
+
 # Visualize fold changes for a specific gene
 gene_idx = diff_genes[0]  # Pick the first differentially expressed gene
 plt.figure(figsize=(10, 8))
 plt.scatter(
     X_umap[:, 0], 
     X_umap[:, 1], 
-    c=diff_expression.fold_change[:, gene_idx],
+    c=expression_results['fold_change'][:, gene_idx],
     cmap='RdBu_r',
     alpha=0.7,
     s=5
@@ -117,15 +162,63 @@ plt.title(f'Differential Expression: Log Fold Change for Gene {gene_idx}')
 plt.tight_layout()
 plt.savefig(f'diff_expression_gene_{gene_idx}_fold_change.png')
 
+# Demonstrate cell condition labeling in prediction
+print("\nDemonstrating cell condition labeling for prediction...")
+# Create a smaller set of cells for prediction
+X_new = np.vstack([X_condition1[:50], X_condition2[:50]])
+# Create condition labels (0 for condition1, 1 for condition2)
+cell_labels = np.array([0] * 50 + [1] * 50)
+
+# Make prediction with cell condition labels
+prediction = diff_expression.predict(X_new, cell_condition_labels=cell_labels)
+
+# Visualize the condition-specific mean fold changes
+plt.figure(figsize=(10, 6))
+width = 0.35
+x = np.arange(len(diff_genes[:5]))  # Just show the first 5 differential genes for clarity
+
+# Regular mean fold change
+plt.bar(
+    x - width,
+    prediction['mean_log_fold_change'][diff_genes[:5]],
+    width=width,
+    label='All Cells Mean Fold Change'
+)
+
+# Condition 1 cells mean fold change
+plt.bar(
+    x,
+    prediction['condition1_cells_mean_fold_change'][diff_genes[:5]],
+    width=width,
+    label='Condition 1 Cells Mean Fold Change'
+)
+
+# Condition 2 cells mean fold change
+plt.bar(
+    x + width,
+    prediction['condition2_cells_mean_fold_change'][diff_genes[:5]],
+    width=width,
+    label='Condition 2 Cells Mean Fold Change'
+)
+
+plt.axhline(y=0, color='r', linestyle='--')
+plt.xlabel('Differential Gene Index')
+plt.ylabel('Log Fold Change')
+plt.title('Mean Fold Change by Cell Condition')
+plt.legend()
+plt.tight_layout()
+plt.savefig('fold_change_by_cell_condition.png')
+
 # Visualize Mahalanobis distances
 plt.figure(figsize=(10, 6))
-top_gene_indices = np.argsort(diff_expression.mahalanobis_distances)[-20:]  # Top 20 genes
+mahalanobis_distances = expression_results['mahalanobis_distances']
+top_gene_indices = np.argsort(mahalanobis_distances)[-20:]  # Top 20 genes
 sns.barplot(
     x=top_gene_indices,
-    y=diff_expression.mahalanobis_distances[top_gene_indices],
+    y=mahalanobis_distances[top_gene_indices],
     palette='viridis'
 )
-plt.axhline(y=np.median(diff_expression.mahalanobis_distances), color='r', linestyle='--', label='Median')
+plt.axhline(y=np.median(mahalanobis_distances), color='r', linestyle='--', label='Median')
 plt.xticks(rotation=45)
 plt.xlabel('Gene Index')
 plt.ylabel('Mahalanobis Distance')
@@ -133,6 +226,31 @@ plt.title('Top 20 Genes by Mahalanobis Distance')
 plt.legend()
 plt.tight_layout()
 plt.savefig('top_genes_mahalanobis.png')
+
+# Visualize mean and weighted mean log fold changes
+plt.figure(figsize=(10, 6))
+width = 0.35
+x = np.arange(len(diff_genes))  # Just show the differential genes
+
+plt.bar(
+    x - width/2,
+    expression_results['mean_log_fold_change'][diff_genes],
+    width=width,
+    label='Mean Log Fold Change'
+)
+plt.bar(
+    x + width/2,
+    expression_results['weighted_mean_log_fold_change'][diff_genes],
+    width=width,
+    label='Weighted Mean Log Fold Change'
+)
+plt.axhline(y=0, color='r', linestyle='--')
+plt.xlabel('Differential Gene Index')
+plt.ylabel('Log Fold Change')
+plt.title('Mean vs Weighted Mean Log Fold Change')
+plt.legend()
+plt.tight_layout()
+plt.savefig('mean_vs_weighted_mean_log_fold_change.png')
 
 print("\n==========================================")
 print("PART 2: Using the scverse-compatible AnnData API")
@@ -188,8 +306,10 @@ try:
     # Compare the results between the original API and the AnnData API
     print("\n4. Comparing results between original API and AnnData API...")
     
-    # Get top genes from both approaches
-    top_genes_original = np.argsort(diff_expression.mahalanobis_distances)[-10:]
+    # Get top genes from both approaches - use consistent ordering for both
+    # Original API - sort in descending order to match AnnData API
+    top_genes_original = np.argsort(-diff_expression.mahalanobis_distances)[:10]
+    # AnnData API - already sorts in descending order
     top_genes_anndata = adata.var.sort_values('kompot_de_mahalanobis', ascending=False).index[:10]
     
     print(f"Top 10 genes by original API: {top_genes_original}")
@@ -207,7 +327,7 @@ try:
     plt.scatter(
         X_umap[:, 0], 
         X_umap[:, 1], 
-        c=diff_expression.fold_change[:, top_gene_idx],
+        c=expression_results['fold_change'][:, top_gene_idx],
         cmap='RdBu_r',
         alpha=0.7,
         s=5

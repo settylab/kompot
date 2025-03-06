@@ -38,15 +38,30 @@ print("Running differential abundance analysis...")
 diff_abundance = kompot.DifferentialAbundance(n_landmarks=n_landmarks)
 diff_abundance.fit(X_condition1, X_condition2)
 
+# Combined data for prediction
+X_combined = np.vstack([X_condition1, X_condition2])
+
 print("Running differential expression analysis...")
 diff_expression = kompot.DifferentialExpression(
     n_landmarks=n_landmarks,
-    differential_abundance=diff_abundance
+    compute_weighted_fold_change=True,  # Explicitly enable weighted fold change
+    differential_abundance=diff_abundance  # Re-use the density estimator we already computed
 )
 diff_expression.fit(
     X_condition1, y_condition1,
     X_condition2, y_condition2
 )
+
+# Compute fold changes and metrics for abundance and expression
+abundance_results = diff_abundance.predict(X_combined)
+expression_results = diff_expression.predict(X_combined, compute_mahalanobis=True)
+
+# Store class attributes for backward compatibility (will be used by reporter)
+diff_abundance.log_fold_change = abundance_results['log_fold_change']
+diff_abundance.log_fold_change_direction = abundance_results['log_fold_change_direction']
+diff_expression.fold_change = expression_results['fold_change']
+diff_expression.mahalanobis_distances = expression_results['mahalanobis_distances']
+diff_expression.weighted_mean_log_fold_change = expression_results['weighted_mean_log_fold_change']
 
 # Option 1: Using the convenience function
 print("Generating report using convenience function...")

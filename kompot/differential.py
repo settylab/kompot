@@ -8,6 +8,7 @@ from typing import Tuple, List, Optional, Union, Dict, Any
 import logging
 from scipy.stats import norm as normal
 from scipy.sparse import csr_matrix
+from tqdm.auto import tqdm
 
 import mellon
 from mellon.parameters import compute_landmarks
@@ -85,9 +86,15 @@ class DifferentialAbundance:
         self.jit_compile = jit_compile
         self.random_state = random_state
         
-        # Set random seed for reproducible landmark selection if specified
-        if random_state is not None:
-            np.random.seed(random_state)
+        # Store random_state for reproducible landmark selection if specified
+        # We don't need to set np.random.seed here anymore as we'll pass the 
+        # random_state directly to compute_landmarks
+        
+        # Store condition sizes and indices
+        self.n_condition1 = None
+        self.n_condition2 = None
+        self.condition1_indices = None
+        self.condition2_indices = None
         
         # These will be populated after fitting
         self.log_density_condition1 = None
@@ -101,8 +108,6 @@ class DifferentialAbundance:
         self.log_fold_change_direction = None
         
         # Density estimators or predictors
-        self.density_estimator_condition1 = None
-        self.density_estimator_condition2 = None
         self.density_predictor1 = density_predictor1
         self.density_predictor2 = density_predictor2
         
@@ -113,7 +118,10 @@ class DifferentialAbundance:
         **density_kwargs
     ):
         """
-        Fit density estimators and compute differential abundance metrics.
+        Fit density estimators for both conditions.
+        
+        This method only creates the estimators and does not compute fold changes.
+        Call predict() to compute fold changes on any set of points.
         
         Parameters
         ----------
@@ -129,8 +137,11 @@ class DifferentialAbundance:
         self
             The fitted instance.
         """
-        # Combine data for predictions
-        X_all = np.vstack([X_condition1, X_condition2])
+        # Store original condition sizes for indexing
+        self.n_condition1 = len(X_condition1)
+        self.n_condition2 = len(X_condition2)
+        self.condition1_indices = np.arange(self.n_condition1)
+        self.condition2_indices = np.arange(self.n_condition1, self.n_condition1 + self.n_condition2)
         
         if self.density_predictor1 is None or self.density_predictor2 is None:
             # Configure density estimator defaults
@@ -146,58 +157,37 @@ class DifferentialAbundance:
             # Prepare landmarks if requested
             if self.n_landmarks is not None:
                 # Use mellon's compute_landmarks function to get properly distributed landmarks
-                # Note: compute_landmarks has its own internal random seed, 
-                # we've already set np.random.seed in the constructor if random_state was provided
-                landmarks = compute_landmarks(X_all, gp_type='fixed', n_landmarks=self.n_landmarks)
+                # Pass the random_state parameter directly to ensure reproducible results
+                X_combined = np.vstack([X_condition1, X_condition2])
+                landmarks = compute_landmarks(
+                    X_combined, 
+                    n_landmarks=self.n_landmarks,
+                    random_state=self.random_state
+                )
                 estimator_defaults['landmarks'] = landmarks
-                estimator_defaults['gp_type'] = 'fixed'
                 
             # Fit density estimators for both conditions
             logger.info("Fitting density estimator for condition 1...")
-            self.density_estimator_condition1 = mellon.DensityEstimator(**estimator_defaults)
-            self.density_estimator_condition1.fit(X_condition1)
-            self.density_predictor1 = self.density_estimator_condition1.predict
+            density_estimator_condition1 = mellon.DensityEstimator(**estimator_defaults)
+            density_estimator_condition1.fit(X_condition1)
+            self.density_predictor1 = density_estimator_condition1.predict
             
             logger.info("Fitting density estimator for condition 2...")
-            self.density_estimator_condition2 = mellon.DensityEstimator(**estimator_defaults)
-            self.density_estimator_condition2.fit(X_condition2)
-            self.density_predictor2 = self.density_estimator_condition2.predict
-        
-        # Compute log densities and uncertainties
-        logger.info("Computing log densities and uncertainties...")
-        self.log_density_condition1 = self.density_predictor1(X_all, normalize=True)
-        self.log_density_condition2 = self.density_predictor2(X_all, normalize=True)
-        
-        self.log_density_uncertainty_condition1 = self.density_predictor1.uncertainty(X_all)
-        self.log_density_uncertainty_condition2 = self.density_predictor2.uncertainty(X_all)
-        
-        # Compute log fold change and uncertainty
-        self.log_fold_change = self.log_density_condition2 - self.log_density_condition1
-        self.log_fold_change_uncertainty = self.log_density_uncertainty_condition1 + self.log_density_uncertainty_condition2
-        
-        # Compute z-scores
-        sd = np.sqrt(self.log_fold_change_uncertainty + 1e-16)
-        self.log_fold_change_zscore = self.log_fold_change / sd
-        
-        # Compute p-values
-        self.log_fold_change_pvalue = np.minimum(
-            normal.logcdf(self.log_fold_change_zscore), 
-            normal.logcdf(-self.log_fold_change_zscore)
-        ) + np.log(2)
-        
-        # Determine direction of change based on thresholds
-        self.log_fold_change_direction = np.full(len(self.log_fold_change), 'neutral', dtype=object)
-        significant = (np.abs(self.log_fold_change) > self.log_fold_change_threshold) & \
-                     (self.log_fold_change_pvalue < np.log(self.pvalue_threshold))
-        
-        self.log_fold_change_direction[significant & (self.log_fold_change > 0)] = 'up'
-        self.log_fold_change_direction[significant & (self.log_fold_change < 0)] = 'down'
+            density_estimator_condition2 = mellon.DensityEstimator(**estimator_defaults)
+            density_estimator_condition2.fit(X_condition2)
+            self.density_predictor2 = density_estimator_condition2.predict
+            logger.info("Density estimators fitted. Call predict() to compute fold changes.")
+        else:
+            logger.info("Density estimators have already been fitted. Call predict() to compute fold changes.")
         
         return self
     
     def predict(self, X_new: np.ndarray) -> Dict[str, np.ndarray]:
         """
         Predict log density and log fold change for new points.
+        
+        This method now computes all fold changes and related metrics, which were
+        previously computed in the fit method.
         
         Parameters
         ----------
@@ -248,14 +238,80 @@ class DifferentialAbundance:
         log_fold_change_direction[significant & (log_fold_change > 0)] = 'up'
         log_fold_change_direction[significant & (log_fold_change < 0)] = 'down'
         
-        return {
+        # Store predictions for the current points
+        # This is to maintain compatibility with code that accesses these attributes
+        if hasattr(self, 'condition1_indices') and self.condition1_indices is not None:
+            # If called after fit(), we'll update the class-level attributes for backward compatibility
+            # Only update attributes if we're predicting on the original training points
+            if len(X_new) == (self.n_condition1 + self.n_condition2):
+                self.log_density_condition1 = log_density_condition1
+                self.log_density_condition2 = log_density_condition2
+                self.log_density_uncertainty_condition1 = log_density_uncertainty_condition1
+                self.log_density_uncertainty_condition2 = log_density_uncertainty_condition2
+                self.log_fold_change = log_fold_change
+                self.log_fold_change_uncertainty = log_fold_change_uncertainty
+                self.log_fold_change_zscore = log_fold_change_zscore
+                self.log_fold_change_pvalue = log_fold_change_pvalue
+                self.log_fold_change_direction = log_fold_change_direction
+        
+        # Compute mean log fold change
+        mean_log_fold_change = np.mean(log_fold_change)
+        
+        result = {
             'log_density_condition1': log_density_condition1,
             'log_density_condition2': log_density_condition2,
             'log_fold_change': log_fold_change,
             'log_fold_change_uncertainty': log_fold_change_uncertainty,
             'log_fold_change_zscore': log_fold_change_zscore,
             'log_fold_change_pvalue': log_fold_change_pvalue,
-            'log_fold_change_direction': log_fold_change_direction
+            'log_fold_change_direction': log_fold_change_direction,
+            'mean_log_fold_change': mean_log_fold_change
+        }
+        
+        return result
+        
+    def get_condition1_results(self) -> Dict[str, np.ndarray]:
+        """
+        Return results for condition 1 cells only.
+        
+        Returns
+        -------
+        dict
+            Dictionary containing results specific to condition 1 cells.
+        """
+        if self.n_condition1 is None or self.condition1_indices is None:
+            raise ValueError("Model not fitted. Call fit() first.")
+            
+        return {
+            'log_density_condition1': self.log_density_condition1[:self.n_condition1],
+            'log_density_condition2': self.log_density_condition2[:self.n_condition1],
+            'log_fold_change': self.log_fold_change[:self.n_condition1],
+            'log_fold_change_uncertainty': self.log_fold_change_uncertainty[:self.n_condition1],
+            'log_fold_change_zscore': self.log_fold_change_zscore[:self.n_condition1],
+            'log_fold_change_pvalue': self.log_fold_change_pvalue[:self.n_condition1],
+            'log_fold_change_direction': self.log_fold_change_direction[:self.n_condition1],
+        }
+    
+    def get_condition2_results(self) -> Dict[str, np.ndarray]:
+        """
+        Return results for condition 2 cells only.
+        
+        Returns
+        -------
+        dict
+            Dictionary containing results specific to condition 2 cells.
+        """
+        if self.n_condition2 is None or self.condition2_indices is None:
+            raise ValueError("Model not fitted. Call fit() first.")
+            
+        return {
+            'log_density_condition1': self.log_density_condition1[self.n_condition1:],
+            'log_density_condition2': self.log_density_condition2[self.n_condition1:],
+            'log_fold_change': self.log_fold_change[self.n_condition1:],
+            'log_fold_change_uncertainty': self.log_fold_change_uncertainty[self.n_condition1:],
+            'log_fold_change_zscore': self.log_fold_change_zscore[self.n_condition1:],
+            'log_fold_change_pvalue': self.log_fold_change_pvalue[self.n_condition1:],
+            'log_fold_change_direction': self.log_fold_change_direction[self.n_condition1:],
         }
 
 
@@ -301,6 +357,7 @@ class DifferentialExpression:
         density_predictor1: Optional[Any] = None,
         density_predictor2: Optional[Any] = None,
         random_state: Optional[int] = None,
+        batch_size: int = 100,
     ):
         """
         Initialize DifferentialExpression.
@@ -335,6 +392,10 @@ class DifferentialExpression:
         random_state : int, optional
             Random seed for reproducible landmark selection when n_landmarks is specified.
             Controls the random selection of points when using approximation, by default None.
+        batch_size : int, optional
+            Number of genes to process in each batch during Mahalanobis distance computation.
+            Smaller values use less memory but are slower, by default 100. Increase for
+            faster computation if you have sufficient memory.
         """
         self.n_landmarks = n_landmarks
         self.use_empirical_variance = use_empirical_variance
@@ -342,10 +403,18 @@ class DifferentialExpression:
         self.eps = eps
         self.jit_compile = jit_compile
         self.random_state = random_state
+        self.batch_size = batch_size
         
-        # Set random seed for reproducible landmark selection if specified
-        if random_state is not None:
-            np.random.seed(random_state)
+        # Store random_state for reproducible landmark selection if specified
+        # We don't need to set np.random.seed here anymore as we'll pass the 
+        # random_state directly to compute_landmarks
+        
+        # Store condition sizes and indices
+        self.n_condition1 = None
+        self.n_condition2 = None
+        self.condition1_indices = None
+        self.condition2_indices = None
+        self.mean_log_fold_change = None
         
         # These will be populated after fitting
         self.condition1_imputed = None
@@ -381,12 +450,14 @@ class DifferentialExpression:
         y_condition2: np.ndarray,
         sigma: float = 1.0,
         ls: Optional[float] = None,
-        compute_mahalanobis: bool = True,
         compute_differential_abundance: bool = None,
         **function_kwargs
     ):
         """
-        Fit expression estimators and compute differential expression metrics.
+        Fit function estimators for both conditions.
+        
+        This method only creates the estimators and does not compute fold changes.
+        Call predict() to compute fold changes on any set of points.
         
         Parameters
         ----------
@@ -402,8 +473,6 @@ class DifferentialExpression:
             Noise level for function estimator, by default 1.0.
         ls : float, optional
             Length scale for the GP kernel. If None, it will be estimated, by default None.
-        compute_mahalanobis : bool, optional
-            Whether to compute Mahalanobis distances, by default True.
         compute_differential_abundance : bool, optional
             Whether to compute differential abundance if not already provided. If None,
             will compute only if compute_weighted_fold_change is True and neither
@@ -416,8 +485,14 @@ class DifferentialExpression:
         self
             The fitted instance.
         """
-        # Combine data for predictions
-        X_all = np.vstack([X_condition1, X_condition2])
+        # Store original condition sizes for indexing
+        self.n_condition1 = len(X_condition1)
+        self.n_condition2 = len(X_condition2)
+        self.condition1_indices = np.arange(self.n_condition1)
+        self.condition2_indices = np.arange(self.n_condition1, self.n_condition1 + self.n_condition2)
+        
+        # Create combined data for landmarks only
+        X_combined = np.vstack([X_condition1, X_condition2])
         
         # Determine if we need to compute/use density information for weighting
         use_density_information = self.compute_weighted_fold_change
@@ -435,7 +510,8 @@ class DifferentialExpression:
             # Compute differential abundance to get density information for weighting
             self.differential_abundance = DifferentialAbundance(
                 n_landmarks=self.n_landmarks,
-                jit_compile=self.jit_compile
+                jit_compile=self.jit_compile,
+                random_state=self.random_state
             )
             self.differential_abundance.fit(X_condition1, X_condition2)
         
@@ -454,9 +530,13 @@ class DifferentialExpression:
             # Prepare landmarks if requested
             if self.n_landmarks is not None:
                 # Use mellon's compute_landmarks function to get properly distributed landmarks
-                # Note: compute_landmarks has its own internal random seed, 
-                # we've already set np.random.seed in the constructor if random_state was provided
-                landmarks = compute_landmarks(X_all, gp_type='fixed', n_landmarks=self.n_landmarks)
+                # Pass the random_state parameter directly to ensure reproducible results
+                landmarks = compute_landmarks(
+                    X_combined, 
+                    gp_type='fixed', 
+                    n_landmarks=self.n_landmarks,
+                    random_state=self.random_state
+                )
                 estimator_defaults['landmarks'] = landmarks
                 estimator_defaults['gp_type'] = 'fixed'
                 
@@ -481,108 +561,8 @@ class DifferentialExpression:
             self.expression_estimator_condition2.fit(X_condition2, y_condition2)
             self.function_predictor2 = self.expression_estimator_condition2.predict
         
-        # Predict expression for all points
-        logger.info("Predicting gene expression for both conditions...")
-        self.condition1_imputed = self.function_predictor1(X_all)
-        self.condition2_imputed = self.function_predictor2(X_all)
-        
-        # Compute uncertainties
-        logger.info("Computing uncertainties...")
-        # Ensure covariance is computed with with_uncertainty=True
-        self.condition1_uncertainty = self.function_predictor1.covariance(X_all, diag=True)
-        self.condition2_uncertainty = self.function_predictor2.covariance(X_all, diag=True)
-        
-        # Compute fold change
-        self.fold_change = self.condition2_imputed - self.condition1_imputed
-        
-        # Compute fold change statistics
-        self.lfc_stds = np.std(self.fold_change, axis=0)
-        self.bidirectionality = np.minimum(
-            np.quantile(self.fold_change, 0.95, axis=0),
-            -np.quantile(self.fold_change, 0.05, axis=0)
-        )
-        
-        # Compute empirical error squares if needed
-        if self.use_empirical_variance:
-            logger.info("Computing empirical error squares...")
-            # For condition 1
-            mask1 = np.arange(len(X_condition1))
-            error_squares1 = np.square(
-                self.condition1_imputed[mask1] - y_condition1
-            )
-            fest1 = mellon.FunctionEstimator(
-                **{**estimator_defaults, 'ls': estimator_defaults.get('ls', 1.0) * 2.0}
-            )
-            fest1.fit(X_condition1, error_squares1)
-            self.condition1_error_squares = np.clip(
-                fest1.predict(X_all),
-                self.eps,
-                None
-            )
-            
-            # For condition 2
-            mask2 = np.arange(len(X_condition2))
-            error_squares2 = np.square(
-                self.condition2_imputed[mask2] - y_condition2
-            )
-            fest2 = mellon.FunctionEstimator(
-                **{**estimator_defaults, 'ls': estimator_defaults.get('ls', 1.0) * 2.0}
-            )
-            fest2.fit(X_condition2, error_squares2)
-            self.condition2_error_squares = np.clip(
-                fest2.predict(X_all),
-                self.eps,
-                None
-            )
-        
-        # Compute fold change z-scores
-        variance_base = self.condition1_uncertainty + self.condition2_uncertainty
-        if self.use_empirical_variance and self.condition1_error_squares is not None:
-            diag_adjustments = (self.condition1_error_squares + self.condition2_error_squares) / 2
-            variance = variance_base + diag_adjustments
-        else:
-            variance = variance_base
-            
-        # Ensure variance has the right shape for broadcasting
-        if len(variance.shape) == 1:
-            # Reshape to (n_samples, 1) for broadcasting with fold_change
-            variance = variance[:, np.newaxis]
-            
-        stds = np.sqrt(variance + self.eps)
-        self.fold_change_zscores = self.fold_change / stds
-        
-        # Compute Mahalanobis distances if requested
-        if compute_mahalanobis:
-            logger.info("Computing Mahalanobis distances...")
-            self._compute_mahalanobis_distances(X_all)
-
-        # Compute weighted mean log fold change if needed
-        if self.compute_weighted_fold_change:
-            if self.differential_abundance is not None:
-                # Use differential_abundance object
-                log_density_condition1 = self.differential_abundance.log_density_condition1
-                log_density_condition2 = self.differential_abundance.log_density_condition2
-            elif self.precomputed_densities is not None:
-                # Use precomputed densities
-                log_density_condition1 = self.precomputed_densities['log_density_condition1']
-                log_density_condition2 = self.precomputed_densities['log_density_condition2']
-            elif self.density_predictor1 is not None and self.density_predictor2 is not None:
-                # Use density predictors
-                log_density_condition1 = self.density_predictor1(X_all, normalize=True)
-                log_density_condition2 = self.density_predictor2(X_all, normalize=True)
-            else:
-                # Skip weighted fold change calculation
-                logger.warning("Cannot compute weighted fold change: no density information available")
-                return self
-                
-            # Compute weights from density differences
-            log_density_diff = np.exp(
-                np.abs(log_density_condition2 - log_density_condition1)
-            )
-            
-            # Weight the fold changes by density difference
-            weighted_fold_change = self.fold_change * log_density_diff[:, np.newaxis]
-            self.weighted_mean_log_fold_change = np.sum(weighted_fold_change, axis=0) / np.sum(log_density_diff)
+        # The fit method now only creates estimators and doesn't compute fold changes
+        logger.info("Function estimators fitted. Call predict() to compute fold changes.")
         
         return self
         
@@ -641,29 +621,120 @@ class DifferentialExpression:
         else:
             diag_adjust = None
             
-        # Compute Mahalanobis distance for each gene
+        # Compute Mahalanobis distance for each gene using batched computation
         n_genes = fold_change_subset.shape[1]
         mahalanobis_distances = np.zeros(n_genes)
+
+        # Use the batch size from the class instance
+        batch_size = self.batch_size
+        logger.info(f"Using batch size of {batch_size} for Mahalanobis distance computation")
+
+        # Convert to jax arrays for faster processing
+        jax_combined_cov = jnp.array(combined_cov)
         
-        for gene in range(n_genes):
-            gene_diff = fold_change_subset[:, gene]
-            mahalanobis_distances[gene] = compute_mahalanobis_distance(
-                gene_diff, 
-                combined_cov,
-                diag_adjustments=diag_adjust[:, gene] if diag_adjust is not None else None,
-                eps=self.eps,
-                jit_compile=self.jit_compile
-            )
+        # Compute the Cholesky decomposition once for all genes
+        # Add small constant to diagonal for numerical stability
+        adjusted_cov = jax_combined_cov + jnp.eye(jax_combined_cov.shape[0]) * self.eps
+
+        # Try to compute Mahalanobis distances with batching
+        try:
+            logger.info("Computing Cholesky decomposition...")
+            chol_sigma = jnp.linalg.cholesky(adjusted_cov)
+            
+            # Define optimized computation functions
+            def _compute_mahalanobis_single(diffs, chol):
+                """Compute Mahalanobis distance with precomputed Cholesky decomposition."""
+                # Solve the triangular system
+                right_term = jax.scipy.linalg.solve_triangular(chol, diffs, lower=True)
+                # Compute the squared distance
+                return jnp.sum(right_term**2)
+            
+            # JIT compile if enabled
+            if self.jit_compile:
+                compute_fn = jax.jit(_compute_mahalanobis_single)
+            else:
+                compute_fn = _compute_mahalanobis_single
+            
+            # Vectorize the function to handle multiple genes at once
+            compute_mahalanobis_vmap = jax.vmap(compute_fn, in_axes=(1, None))
+            
+            # Process genes in batches
+            successful = False
+            
+            try:
+                for start_idx in tqdm(range(0, n_genes, batch_size), desc="Computing Mahalanobis distances"):
+                    end_idx = min(start_idx + batch_size, n_genes)
+                    batch_diffs = jnp.array(fold_change_subset[:, start_idx:end_idx])
+                    
+                    # Compute distances for this batch
+                    batch_results = compute_mahalanobis_vmap(batch_diffs, chol_sigma)
+                    
+                    # Store results
+                    mahalanobis_distances[start_idx:end_idx] = np.sqrt(np.array(batch_results))
+                
+                successful = True
+                logger.info(f"Computed Mahalanobis distances for {n_genes} genes using batched processing")
+            
+            except Exception as e:
+                # Check if it's a memory error (XlaRuntimeError with RESOURCE_EXHAUSTED)
+                if "RESOURCE_EXHAUSTED" in str(e) or "Out of memory" in str(e):
+                    # If we hit a JAX-specific out-of-memory error, try with a smaller batch size
+                    reduced_batch_size = max(1, batch_size // 5)  # Try with 20% of original batch size
+                    logger.warning(f"JAX out of memory error with batch size {batch_size}. Trying with reduced batch size {reduced_batch_size}.")
+                    
+                    try:
+                        for start_idx in tqdm(range(0, n_genes, reduced_batch_size), desc="Computing with reduced batch size"):
+                            end_idx = min(start_idx + reduced_batch_size, n_genes)
+                            batch_diffs = jnp.array(fold_change_subset[:, start_idx:end_idx])
+                            
+                            # Compute distances for this batch
+                            batch_results = compute_mahalanobis_vmap(batch_diffs, chol_sigma)
+                            
+                            # Store results
+                            mahalanobis_distances[start_idx:end_idx] = np.sqrt(np.array(batch_results))
+                        
+                        successful = True
+                        logger.info(f"Successfully completed with reduced batch size {reduced_batch_size}")
+                        logger.info(f"SUGGESTION: For future runs with similar data, use batch_size={reduced_batch_size}")
+                    except Exception as inner_e:
+                        error_msg = (f"Failed with reduced batch size: {str(inner_e)}. "
+                                    f"Try manually setting batch_size={max(1, reduced_batch_size // 2)} or "
+                                    f"disable Mahalanobis distance calculation with compute_mahalanobis=False")
+                        logger.error(error_msg)
+                        raise RuntimeError(error_msg) from inner_e
+                else:
+                    # Log if it's not a memory error
+                    error_msg = f"Batched computation error (not memory-related): {str(e)}"
+                    logger.error(error_msg)
+                    raise RuntimeError(error_msg) from e
+            
+            # If processing failed, provide helpful suggestions rather than falling back to per-gene
+            if not successful:
+                error_msg = ("Failed to compute Mahalanobis distances. Try manually reducing batch_size "
+                            "or disable Mahalanobis distance calculation with compute_mahalanobis=False")
+                logger.error(error_msg)
+                raise RuntimeError(error_msg)
+        
+        except Exception as e:
+            error_msg = (f"Cholesky decomposition failed: {e}. "
+                        f"Try disable Mahalanobis distance calculation with compute_mahalanobis=False")
+            logger.error(error_msg)
+            raise RuntimeError(error_msg) from e
             
         self.mahalanobis_distances = mahalanobis_distances
         
     def predict(
         self, 
         X_new: np.ndarray, 
-        density_predictions: Optional[Dict[str, np.ndarray]] = None
+        density_predictions: Optional[Dict[str, np.ndarray]] = None,
+        cell_condition_labels: Optional[np.ndarray] = None,
+        compute_mahalanobis: bool = False
     ) -> Dict[str, np.ndarray]:
         """
         Predict gene expression and differential metrics for new points.
+        
+        This method now computes all fold changes and related metrics, which were
+        previously computed in the fit method.
         
         Parameters
         ----------
@@ -675,6 +746,13 @@ class DifferentialExpression:
             mean log fold change. Should contain:
             - 'log_density_condition1': Log density for condition 1
             - 'log_density_condition2': Log density for condition 2
+        cell_condition_labels : np.ndarray, optional
+            Optional array specifying which cells belong to which condition. If provided,
+            should be an array of integers where 0 indicates condition1 and 1 indicates condition2.
+            This allows for condition-specific analysis without relying on the order of cells.
+        compute_mahalanobis : bool, optional
+            Whether to compute Mahalanobis distances. This can be computationally expensive,
+            so it's optional in the predict method. Default is False.
             
         Returns
         -------
@@ -684,8 +762,14 @@ class DifferentialExpression:
             - 'condition2_imputed': Imputed expression for condition 2
             - 'fold_change': Fold change between conditions
             - 'fold_change_zscores': Z-scores for the fold changes
+            - 'mean_log_fold_change': Mean log fold change across all cells
             - 'weighted_mean_log_fold_change': Only if compute_weighted_fold_change is True
               and density information is available
+            - 'mahalanobis_distances': Only if compute_mahalanobis is True
+              
+            If cell_condition_labels is provided, also includes:
+            - 'condition1_cells_mean_log_fold_change': Mean log fold change for condition 1 cells
+            - 'condition2_cells_mean_log_fold_change': Mean log fold change for condition 2 cells
         """
         if self.function_predictor1 is None or self.function_predictor2 is None:
             raise ValueError("Model not fitted. Call fit() first.")
@@ -701,23 +785,106 @@ class DifferentialExpression:
         # Compute fold change
         fold_change = condition2_imputed - condition1_imputed
         
+        # Compute fold change statistics
+        lfc_stds = np.std(fold_change, axis=0)
+        
+        # Compute empirical error squares if needed for variance adjustment
+        if self.use_empirical_variance:
+            logger.info("Computing empirical error squares for prediction...")
+            # These computations are only supported for predictions when
+            # we've already computed error squares in a previous call to predict
+            if hasattr(self, 'condition1_error_squares') and self.condition1_error_squares is not None:
+                # Use the existing error squares models to predict for new points
+                # We'd need to have methods to predict error squares for new points
+                # For now, use a simpler approach - use the original condition uncertainty
+                error_squares1 = condition1_uncertainty
+                error_squares2 = condition2_uncertainty
+            else:
+                # Fall back to base uncertainty
+                error_squares1 = condition1_uncertainty
+                error_squares2 = condition2_uncertainty
+                logger.warning("Empirical variance requested but error squares not available. Using base uncertainty.")
+        
         # Compute fold change z-scores
         variance_base = condition1_uncertainty + condition2_uncertainty
         
-        # Ensure variance has the right shape for broadcasting
-        if len(variance_base.shape) == 1:
-            # Reshape to (n_samples, 1) for broadcasting with fold_change
-            variance_base = variance_base[:, np.newaxis]
+        # Apply empirical variance adjustment if needed
+        if self.use_empirical_variance:
+            if len(error_squares1.shape) == 1:
+                # Reshape for broadcasting
+                error_squares1 = error_squares1[:, np.newaxis]
+                error_squares2 = error_squares2[:, np.newaxis]
+            diag_adjustments = (error_squares1 + error_squares2) / 2
+            variance = variance_base + diag_adjustments
+        else:
+            variance = variance_base
             
-        stds = np.sqrt(variance_base + self.eps)
+        # Ensure variance has the right shape for broadcasting
+        if len(variance.shape) == 1:
+            # Reshape to (n_samples, 1) for broadcasting with fold_change
+            variance = variance[:, np.newaxis]
+            
+        stds = np.sqrt(variance + self.eps)
         fold_change_zscores = fold_change / stds
+        
+        # Compute bidirectionality
+        bidirectionality = np.minimum(
+            np.quantile(fold_change, 0.95, axis=0),
+            -np.quantile(fold_change, 0.05, axis=0)
+        )
+        
+        # Compute mean log fold change
+        mean_log_fold_change = np.mean(fold_change, axis=0)
+        
+        # Store predictions for the current points
+        # This is to maintain compatibility with code that accesses these attributes
+        if hasattr(self, 'condition1_indices') and self.condition1_indices is not None:
+            # If called after fit(), we'll update the class-level attributes for backward compatibility
+            # Only update attributes if we're predicting on the original training points
+            if len(X_new) == (self.n_condition1 + self.n_condition2):
+                self.condition1_imputed = condition1_imputed
+                self.condition2_imputed = condition2_imputed
+                self.condition1_uncertainty = condition1_uncertainty
+                self.condition2_uncertainty = condition2_uncertainty
+                self.fold_change = fold_change
+                self.fold_change_zscores = fold_change_zscores
+                self.mean_log_fold_change = mean_log_fold_change
+                self.lfc_stds = lfc_stds
+                self.bidirectionality = bidirectionality
         
         result = {
             'condition1_imputed': condition1_imputed,
             'condition2_imputed': condition2_imputed,
             'fold_change': fold_change,
-            'fold_change_zscores': fold_change_zscores
+            'fold_change_zscores': fold_change_zscores,
+            'mean_log_fold_change': mean_log_fold_change,
+            'lfc_stds': lfc_stds,
+            'bidirectionality': bidirectionality
         }
+        
+        # Compute Mahalanobis distances if requested
+        if compute_mahalanobis:
+            logger.info("Computing Mahalanobis distances...")
+            self._compute_mahalanobis_distances(X_new)
+            if hasattr(self, 'mahalanobis_distances'):
+                result['mahalanobis_distances'] = self.mahalanobis_distances
+            
+        # If condition labels are provided, compute condition-specific metrics
+        if cell_condition_labels is not None:
+            # Validate cell_condition_labels
+            if len(cell_condition_labels) != len(X_new):
+                raise ValueError("cell_condition_labels must have same length as X_new")
+            
+            # Compute condition-specific metrics
+            condition1_mask = cell_condition_labels == 0
+            condition2_mask = cell_condition_labels == 1
+            
+            # Compute mean fold change for each condition
+            if np.any(condition1_mask):
+                result['condition1_cells_mean_log_fold_change'] = np.mean(fold_change[condition1_mask], axis=0)
+            
+            if np.any(condition2_mask):
+                result['condition2_cells_mean_log_fold_change'] = np.mean(fold_change[condition2_mask], axis=0)
         
         # Compute weighted fold change if needed and possible
         if self.compute_weighted_fold_change:
@@ -731,6 +898,19 @@ class DifferentialExpression:
                     'log_density_condition1': self.density_predictor1(X_new, normalize=True),
                     'log_density_condition2': self.density_predictor2(X_new, normalize=True)
                 }
+            elif self.differential_abundance is not None:
+                # Use the differential abundance predictor
+                da_preds = self.differential_abundance.predict(X_new)
+                density_data = {
+                    'log_density_condition1': da_preds['log_density_condition1'],
+                    'log_density_condition2': da_preds['log_density_condition2']
+                }
+            elif self.precomputed_densities is not None:
+                # Try to use precomputed densities, but warn if shapes don't match
+                if len(self.precomputed_densities['log_density_condition1']) == len(X_new):
+                    density_data = self.precomputed_densities
+                else:
+                    logger.warning("Precomputed densities shape doesn't match X_new. Skipping weighted fold change.")
             
             if density_data is not None:
                 log_density_diff = np.exp(
@@ -743,5 +923,48 @@ class DifferentialExpression:
                 # Weight the fold changes by density difference
                 weighted_fold_change = fold_change * log_density_diff[:, np.newaxis]
                 result['weighted_mean_log_fold_change'] = np.sum(weighted_fold_change, axis=0) / np.sum(log_density_diff)
+                
+                # Update class attribute for backward compatibility
+                if hasattr(self, 'condition1_indices') and self.condition1_indices is not None:
+                    if len(X_new) == (self.n_condition1 + self.n_condition2):
+                        self.weighted_mean_log_fold_change = result['weighted_mean_log_fold_change']
         
         return result
+        
+    def get_condition1_results(self) -> Dict[str, np.ndarray]:
+        """
+        Return results for condition 1 cells only.
+        
+        Returns
+        -------
+        dict
+            Dictionary containing results specific to condition 1 cells.
+        """
+        if self.n_condition1 is None or self.condition1_indices is None:
+            raise ValueError("Model not fitted. Call fit() first.")
+            
+        return {
+            'condition1_imputed': self.condition1_imputed[:self.n_condition1],
+            'condition2_imputed': self.condition2_imputed[:self.n_condition1],
+            'fold_change': self.fold_change[:self.n_condition1],
+            'fold_change_zscores': self.fold_change_zscores[:self.n_condition1],
+        }
+    
+    def get_condition2_results(self) -> Dict[str, np.ndarray]:
+        """
+        Return results for condition 2 cells only.
+        
+        Returns
+        -------
+        dict
+            Dictionary containing results specific to condition 2 cells.
+        """
+        if self.n_condition2 is None or self.condition2_indices is None:
+            raise ValueError("Model not fitted. Call fit() first.")
+            
+        return {
+            'condition1_imputed': self.condition1_imputed[self.n_condition1:],
+            'condition2_imputed': self.condition2_imputed[self.n_condition1:],
+            'fold_change': self.fold_change[self.n_condition1:],
+            'fold_change_zscores': self.fold_change_zscores[self.n_condition1:],
+        }
