@@ -603,7 +603,15 @@ class DifferentialExpression:
             # Use all points
             cov1 = self.function_predictor1.covariance(X, diag=False)
             cov2 = self.function_predictor2.covariance(X, diag=False)
-            fold_change_subset = self.fold_change
+            
+            # Make sure self.fold_change is not None before using it
+            if hasattr(self, 'fold_change') and self.fold_change is not None:
+                fold_change_subset = self.fold_change
+            else:
+                # If fold_change isn't available, compute it directly
+                condition1_imputed = self.function_predictor1(X)
+                condition2_imputed = self.function_predictor2(X)
+                fold_change_subset = condition2_imputed - condition1_imputed
         
         # Average the covariance matrices
         combined_cov = (cov1 + cov2) / 2
@@ -739,9 +747,9 @@ class DifferentialExpression:
         ----------
         fold_change : np.ndarray
             Expression fold change for each cell and gene. Shape (n_cells, n_genes).
-        log_density_condition1 : np.ndarray
+        log_density_condition1 : np.ndarray or pandas.Series
             Log density for condition 1. Shape (n_cells,).
-        log_density_condition2 : np.ndarray
+        log_density_condition2 : np.ndarray or pandas.Series
             Log density for condition 2. Shape (n_cells,).
             
         Returns
@@ -749,13 +757,22 @@ class DifferentialExpression:
         np.ndarray
             Weighted mean log fold change for each gene. Shape (n_genes,).
         """
+        # Convert pandas Series to numpy arrays if needed
+        if hasattr(log_density_condition1, 'to_numpy'):
+            log_density_condition1 = log_density_condition1.to_numpy()
+        if hasattr(log_density_condition2, 'to_numpy'):
+            log_density_condition2 = log_density_condition2.to_numpy()
+            
         # Calculate the density difference (weight) for each cell
         log_density_diff = np.exp(
             np.abs(log_density_condition2 - log_density_condition1)
         )
         
+        # Create a weights array with shape (n_cells, 1) for broadcasting
+        weights = log_density_diff.reshape(-1, 1)
+        
         # Weight the fold changes by density difference
-        weighted_fold_change = fold_change * log_density_diff[:, np.newaxis]
+        weighted_fold_change = fold_change * weights
         
         # Compute the weighted mean
         return np.sum(weighted_fold_change, axis=0) / np.sum(log_density_diff)

@@ -357,16 +357,22 @@ try:
     plt.colorbar(label='Log Fold Change')
     plt.title(f'Original API: Log Fold Change for {top_gene}')
     
-    # AnnData API result
+    # AnnData API result - find the fold change layer (with the new more descriptive names)
     plt.subplot(1, 2, 2)
-    plt.scatter(
-        X_umap[:, 0], 
-        X_umap[:, 1], 
-        c=adata.layers['kompot_de_fold_change'][:, top_gene_idx],
-        cmap='RdBu_r',
-        alpha=0.7,
-        s=5
-    )
+    # Find layers that contain 'fold_change'
+    fold_change_layers = [layer for layer in adata.layers.keys() if 'fold_change' in layer]
+    if fold_change_layers:
+        fold_change_layer = fold_change_layers[0]  # Use the first matching layer
+        plt.scatter(
+            X_umap[:, 0], 
+            X_umap[:, 1], 
+            c=adata.layers[fold_change_layer][:, top_gene_idx],
+            cmap='RdBu_r',
+            alpha=0.7,
+            s=5
+        )
+    else:
+        plt.text(0.5, 0.5, "Fold change layer not found", ha='center', va='center')
     plt.colorbar(label='Log Fold Change')
     plt.title(f'AnnData API: Log Fold Change for {top_gene}')
     
@@ -375,11 +381,33 @@ try:
     
     print("\nAnnData API workflow complete. Results are stored in the AnnData object.")
     print("Key results locations:")
-    print("  - Gene scores: adata.var['kompot_de_mahalanobis']")
-    print("  - Cell scores: adata.obs['kompot_da_log_fold_change']")
-    print("  - Imputed expression: adata.layers['kompot_de_condition1_imputed']")
-    print("  - Log fold changes: adata.layers['kompot_de_fold_change']")
+    
+    # Find and print the actual column/layer names that exist in the data
+    mahalanobis_col = next((col for col in adata.var.columns if 'mahalanobis' in col), None)
+    fold_change_obs = next((col for col in adata.obs.columns if 'log_fold_change' in col), None)
+    imputed_layer = next((layer for layer in adata.layers.keys() if 'imputed' in layer), None)
+    fold_change_layer = next((layer for layer in adata.layers.keys() if 'fold_change' in layer), None)
+    
+    print(f"  - Gene scores: adata.var['{mahalanobis_col}']" if mahalanobis_col else "  - Gene scores: Not found")
+    print(f"  - Cell scores: adata.obs['{fold_change_obs}']" if fold_change_obs else "  - Cell scores: Not found")
+    print(f"  - Imputed expression: adata.layers['{imputed_layer}']" if imputed_layer else "  - Imputed expression: Not found")
+    print(f"  - Log fold changes: adata.layers['{fold_change_layer}']" if fold_change_layer else "  - Log fold changes: Not found")
     print("  - Full models: Available in the returned results dictionary, not stored in AnnData")
+    
+    # Print the log density columns
+    print("\nLog density columns in AnnData:")
+    for col in adata.obs.columns:
+        if 'log_density' in col:
+            print(f"  - {col}")
+    
+    # Print the weighted mean fold change - look for the column with the condition names
+    weighted_lfc_cols = [col for col in adata.var.columns if 'weighted_lfc' in col]
+    if weighted_lfc_cols:
+        weighted_col = weighted_lfc_cols[0]  # Use the first weighted LFC column found
+        print(f"\nWeighted mean fold change computed successfully! (column: {weighted_col})")
+        print("First few genes with weighted mean LFC values:")
+        for gene, value in adata.var[weighted_col].iloc[:5].items():
+            print(f"  - {gene}: {value:.4f}")
     
     print("\nHTML report generated at: kompot_report/index.html")
     

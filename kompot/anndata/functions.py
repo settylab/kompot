@@ -13,6 +13,12 @@ from ..reporter import HTMLReporter
 logger = logging.getLogger("kompot")
 
 
+def _sanitize_name(name):
+    """Convert a string to a valid column/key name by replacing invalid characters."""
+    # Replace spaces, slashes, and other common problematic characters
+    return str(name).replace(' ', '_').replace('/', '_').replace('\\', '_').replace('-', '_').replace('.', '_')
+
+
 def compute_differential_abundance(
     adata,
     groupby: str,
@@ -137,11 +143,19 @@ def compute_differential_abundance(
     X_for_prediction = adata.obsm[obsm_key]
     abundance_results = diff_abundance.predict(X_for_prediction)
     
-    # Assign values to masked cells
-    adata.obs[f"{result_key}_log_fold_change"] = abundance_results['log_fold_change']
+    # Sanitize condition names for use in column names
+    cond1_safe = _sanitize_name(condition1)
+    cond2_safe = _sanitize_name(condition2)
+    
+    # Assign values to masked cells with more descriptive column names
+    adata.obs[f"{result_key}_log_fold_change_{cond2_safe}_vs_{cond1_safe}"] = abundance_results['log_fold_change']
     adata.obs[f"{result_key}_log_fold_change_zscore"] = abundance_results['log_fold_change_zscore']
     adata.obs[f"{result_key}_log_fold_change_pvalue"] = abundance_results['log_fold_change_pvalue']
     adata.obs[f"{result_key}_log_fold_change_direction"] = abundance_results['log_fold_change_direction']
+    
+    # Store log densities for each condition with descriptive names
+    adata.obs[f"{result_key}_log_density_{cond1_safe}"] = abundance_results['log_density_condition1']
+    adata.obs[f"{result_key}_log_density_{cond2_safe}"] = abundance_results['log_density_condition2']
     
     # Store parameters in adata.uns, but NOT the model (too large for serialization)
     adata.uns[result_key] = {
@@ -161,6 +175,8 @@ def compute_differential_abundance(
         "log_fold_change_zscore": abundance_results['log_fold_change_zscore'],
         "log_fold_change_pvalue": abundance_results['log_fold_change_pvalue'],
         "log_fold_change_direction": abundance_results['log_fold_change_direction'],
+        "log_density_condition1": abundance_results['log_density_condition1'],
+        "log_density_condition2": abundance_results['log_density_condition2'],
         "mean_log_fold_change": abundance_results['mean_log_fold_change'],
         "model": diff_abundance,
     }
@@ -281,8 +297,26 @@ def compute_differential_expression(
     if groupby not in adata.obs:
         raise ValueError(f"Column '{groupby}' not found in adata.obs. Available columns: {list(adata.obs.columns)}")
 
-    if differential_abundance_key is not None and differential_abundance_key not in adata.obs:
-        raise ValueError(f"Column '{differential_abundance_key}' not found in adata.obs. Available columns: {list(adata.obs.columns)}")
+    # Check if differential_abundance_key-related columns exist instead of the key itself
+    if differential_abundance_key is not None:
+        # Sanitize condition names for use in column names
+        cond1_safe = _sanitize_name(condition1)
+        cond2_safe = _sanitize_name(condition2)
+        
+        # Check for condition-specific column names
+        specific_cols = [f"{differential_abundance_key}_log_density_{cond1_safe}", 
+                       f"{differential_abundance_key}_log_density_{cond2_safe}"]
+        # Check for generic column names (for backward compatibility)
+        generic_cols = [f"{differential_abundance_key}_log_density_condition1", 
+                      f"{differential_abundance_key}_log_density_condition2"]
+        
+        has_specific = all(col in adata.obs for col in specific_cols)
+        has_generic = all(col in adata.obs for col in generic_cols)
+        
+        if not (has_specific or has_generic):
+            raise ValueError(f"Log density columns not found in adata.obs. "
+                           f"Looked for either {specific_cols} or {generic_cols}. "
+                           f"Available columns: {list(adata.obs.columns)}")
     
     # Make a copy if requested
     if copy:
@@ -362,13 +396,33 @@ def compute_differential_expression(
     
     # Separately compute weighted fold changes if needed
     if differential_abundance_key is not None:
-        density_log_fold_changes = adata.obs[differential_abundance_key]
+        # Sanitize condition names for use in column names
+        cond1_safe = _sanitize_name(condition1)
+        cond2_safe = _sanitize_name(condition2)
+        
+        # Get log densities from adata with descriptive names
+        density_col1 = f"{differential_abundance_key}_log_density_{cond1_safe}"
+        density_col2 = f"{differential_abundance_key}_log_density_{cond2_safe}"
+        
+        if density_col1 in adata.obs and density_col2 in adata.obs:
+            log_density_condition1 = adata.obs[density_col1]
+            log_density_condition2 = adata.obs[density_col2]
+        else:
+            # Fall back to generic names for backward compatibility
+            generic_col1 = f"{differential_abundance_key}_log_density_condition1"
+            generic_col2 = f"{differential_abundance_key}_log_density_condition2"
+            
+            if generic_col1 in adata.obs and generic_col2 in adata.obs:
+                log_density_condition1 = adata.obs[generic_col1]
+                log_density_condition2 = adata.obs[generic_col2]
+            else:
+                raise ValueError(f"Log density columns not found in adata.obs. Expected: {density_col1}, {density_col2} or {generic_col1}, {generic_col2}")
         
         # Use the standalone method to compute weighted mean fold change
         expression_results['weighted_mean_log_fold_change'] = diff_expression.compute_weighted_mean_fold_change(
             expression_results['fold_change'],
-            density_results['log_density_condition1'],
-            density_results['log_density_condition2']
+            log_density_condition1,
+            log_density_condition2
         )
     
     
@@ -378,15 +432,28 @@ def compute_differential_expression(
             adata.var[f"{result_key}_mahalanobis"] = pd.Series(np.nan, index=adata.var_names)
             adata.var.loc[selected_genes, f"{result_key}_mahalanobis"] = expression_results['mahalanobis_distances']
         
-        if differential_abundance_key is not None:
-            # Initialize with np.nan of appropriate shape
-            adata.var[f"{result_key}_weighted_lfc"] = pd.Series(np.nan, index=adata.var_names)
-            adata.var.loc[selected_genes, f"{result_key}_weighted_lfc"] = expression_results['weighted_mean_log_fold_change']
+        # Sanitize condition names for use in column names
+        cond1_safe = _sanitize_name(condition1)
+        cond2_safe = _sanitize_name(condition2)
         
-        # Initialize with np.nan of appropriate shape
+        if differential_abundance_key is not None:
+            # Initialize with np.nan of appropriate shape - use more descriptive column name
+            column_name = f"{result_key}_weighted_lfc_{cond2_safe}_vs_{cond1_safe}"
+            adata.var[column_name] = pd.Series(np.nan, index=adata.var_names)
+            adata.var.loc[selected_genes, column_name] = expression_results['weighted_mean_log_fold_change']
+        
+        # Initialize with np.nan of appropriate shape - use more descriptive column names
+        # Add mean log fold change with descriptive name
+        mean_lfc_column = f"{result_key}_mean_lfc_{cond2_safe}_vs_{cond1_safe}"
+        adata.var[mean_lfc_column] = pd.Series(np.nan, index=adata.var_names)
+        adata.var.loc[selected_genes, mean_lfc_column] = expression_results['mean_log_fold_change']
+        
+        # Standard deviation of log fold change
         adata.var[f"{result_key}_lfc_std"] = pd.Series(np.nan, index=adata.var_names)
-        adata.var[f"{result_key}_bidirectionality"] = pd.Series(np.nan, index=adata.var_names)
         adata.var.loc[selected_genes, f"{result_key}_lfc_std"] = expression_results['lfc_stds']
+        
+        # Bidirectionality score
+        adata.var[f"{result_key}_bidirectionality"] = pd.Series(np.nan, index=adata.var_names)
         adata.var.loc[selected_genes, f"{result_key}_bidirectionality"] = expression_results['bidirectionality']
         
         # Add cell-gene level results
@@ -395,23 +462,51 @@ def compute_differential_expression(
         # Process the data to match the shape of the full gene set
         if n_selected_genes < len(adata.var_names):
             # We need to expand the imputed data to the full gene set
-            if f"{result_key}_condition1_imputed" not in adata.layers:
-                adata.layers[f"{result_key}_condition1_imputed"] = np.zeros_like(adata.X)
-            if f"{result_key}_condition2_imputed" not in adata.layers:
-                adata.layers[f"{result_key}_condition2_imputed"] = np.zeros_like(adata.X)
-            if f"{result_key}_fold_change" not in adata.layers:
-                adata.layers[f"{result_key}_fold_change"] = np.zeros_like(adata.X)
+            # Sanitize condition names for use in layer names
+            cond1_safe = _sanitize_name(condition1)
+            cond2_safe = _sanitize_name(condition2)
+            
+            # Create descriptive layer names
+            imputed1_key = f"{result_key}_imputed_{cond1_safe}"
+            imputed2_key = f"{result_key}_imputed_{cond2_safe}"
+            fold_change_key = f"{result_key}_fold_change_{cond2_safe}_vs_{cond1_safe}"
+            
+            if imputed1_key not in adata.layers:
+                adata.layers[imputed1_key] = np.zeros_like(adata.X)
+            if imputed2_key not in adata.layers:
+                adata.layers[imputed2_key] = np.zeros_like(adata.X)
+            if fold_change_key not in adata.layers:
+                adata.layers[fold_change_key] = np.zeros_like(adata.X)
+            
+            # Convert JAX arrays to NumPy arrays if needed
+            condition1_imputed = np.array(expression_results['condition1_imputed'])
+            condition2_imputed = np.array(expression_results['condition2_imputed'])
+            fold_change = np.array(expression_results['fold_change'])
             
             # Map the imputed values to the correct positions
             for i, gene in enumerate(selected_genes):
                 gene_idx = list(adata.var_names).index(gene)
-                adata.layers[f"{result_key}_condition1_imputed"][:, gene_idx] = expression_results['condition1_imputed'][:, i]
-                adata.layers[f"{result_key}_condition2_imputed"][:, gene_idx] = expression_results['condition2_imputed'][:, i]
-                adata.layers[f"{result_key}_fold_change"][:, gene_idx] = expression_results['fold_change'][:, i]
+                adata.layers[imputed1_key][:, gene_idx] = condition1_imputed[:, i]
+                adata.layers[imputed2_key][:, gene_idx] = condition2_imputed[:, i]
+                adata.layers[fold_change_key][:, gene_idx] = fold_change[:, i]
         else:
-            adata.layers[f"{result_key}_condition1_imputed"] = expression_results['condition1_imputed']
-            adata.layers[f"{result_key}_condition2_imputed"] = expression_results['condition2_imputed']
-            adata.layers[f"{result_key}_fold_change"] = expression_results['fold_change']
+            # Convert JAX arrays to NumPy arrays if needed
+            condition1_imputed = np.array(expression_results['condition1_imputed'])
+            condition2_imputed = np.array(expression_results['condition2_imputed'])
+            fold_change = np.array(expression_results['fold_change'])
+            
+            # Sanitize condition names for use in layer names
+            cond1_safe = _sanitize_name(condition1)
+            cond2_safe = _sanitize_name(condition2)
+            
+            # Create descriptive layer names
+            imputed1_key = f"{result_key}_imputed_{cond1_safe}"
+            imputed2_key = f"{result_key}_imputed_{cond2_safe}"
+            fold_change_key = f"{result_key}_fold_change_{cond2_safe}_vs_{cond1_safe}"
+            
+            adata.layers[imputed1_key] = condition1_imputed
+            adata.layers[imputed2_key] = condition2_imputed
+            adata.layers[fold_change_key] = fold_change
         
         # Store model and parameters in adata.uns
         adata.uns[result_key] = {
@@ -424,7 +519,7 @@ def compute_differential_expression(
                 "genes": genes,
                 "n_landmarks": n_landmarks,
                 "use_empirical_variance": use_empirical_variance,
-                "compute_weighted_fold_change": compute_weighted_fold_change,
+                "differential_abundance_key": differential_abundance_key,
             },
         }
         
@@ -588,6 +683,29 @@ def run_differential_analysis(
     expression_result = None
     if compute_expression:
         logger.info("Computing differential expression...")
+        # Check if the abundance_key log density fields exist
+        diff_abund_key = abundance_key if compute_abundance else None
+        
+        # Make sure log density columns exist if we're trying to use differential abundance key
+        if diff_abund_key is not None:
+            # Sanitize condition names for use in column names
+            cond1_safe = _sanitize_name(condition1)
+            cond2_safe = _sanitize_name(condition2)
+            
+            # Check for condition-specific column names
+            specific_cols = [f"{diff_abund_key}_log_density_{cond1_safe}", f"{diff_abund_key}_log_density_{cond2_safe}"]
+            # Check for generic column names (for backward compatibility)
+            generic_cols = [f"{diff_abund_key}_log_density_condition1", f"{diff_abund_key}_log_density_condition2"]
+            
+            has_specific = all(col in adata.obs for col in specific_cols)
+            has_generic = all(col in adata.obs for col in generic_cols)
+            
+            if not (has_specific or has_generic):
+                logger.warning(f"Log density columns not found in adata.obs. "
+                              f"Looked for either {specific_cols} or {generic_cols}. "
+                              f"Will not compute weighted mean fold changes.")
+                diff_abund_key = None
+        
         expression_result = compute_differential_expression(
             adata,
             groupby=groupby,
@@ -599,7 +717,7 @@ def run_differential_analysis(
             n_landmarks=n_landmarks,
             jit_compile=jit_compile,
             random_state=random_state,
-            differential_abundance_key=abundance_key if compute_abundance else None,
+            differential_abundance_key=diff_abund_key,
             inplace=True,
             result_key=expression_key,
             **expression_kwargs
