@@ -38,11 +38,18 @@ def generate_test_data(n_cells=100, n_genes=20, n_landmarks=10):
     diff_abundance = DifferentialAbundance(n_landmarks=n_landmarks)
     diff_abundance.fit(X_condition1, X_condition2)
     
+    # Run prediction on abundance to compute fold changes
+    X_combined = np.vstack([X_condition1, X_condition2])
+    abundance_results = diff_abundance.predict(X_combined)
+    
     diff_expression = DifferentialExpression(
         n_landmarks=n_landmarks,
         differential_abundance=diff_abundance
     )
     diff_expression.fit(X_condition1, y_condition1, X_condition2, y_condition2)
+    
+    # Run prediction to compute fold changes and other metrics
+    expression_results = diff_expression.predict(X_combined, compute_mahalanobis=True)
     
     return diff_expression, gene_names
 

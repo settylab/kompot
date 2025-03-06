@@ -72,11 +72,18 @@ def generate_test_data_with_anndata(n_cells=100, n_genes=20, n_landmarks=10):
     diff_abundance = DifferentialAbundance(n_landmarks=n_landmarks)
     diff_abundance.fit(X_condition1, X_condition2)
     
+    # Run prediction on abundance to compute fold changes
+    X_combined = np.vstack([X_condition1, X_condition2])
+    abundance_results = diff_abundance.predict(X_combined)
+    
     diff_expression = DifferentialExpression(
         n_landmarks=n_landmarks,
         differential_abundance=diff_abundance
     )
     diff_expression.fit(X_condition1, y_condition1, X_condition2, y_condition2)
+    
+    # Run prediction to compute fold changes and other metrics
+    expression_results = diff_expression.predict(X_combined, compute_mahalanobis=True)
     
     # Create a real AnnData object
     adata = create_test_anndata(n_cells=n_cells, n_genes=n_genes)
@@ -212,16 +219,26 @@ def test_specific_gene_plots():
     diff_abundance = DifferentialAbundance(n_landmarks=n_landmarks)
     diff_abundance.fit(X_condition1, X_condition2)
     
+    # Run prediction on abundance to compute fold changes
+    X_combined = np.vstack([X_condition1, X_condition2])
+    abundance_results = diff_abundance.predict(X_combined)
+    
     diff_expr = DifferentialExpression(
         n_landmarks=n_landmarks,
         differential_abundance=diff_abundance
     )
     diff_expr.fit(X_condition1, y_condition1, X_condition2, y_condition2)
     
-    # Manually add condition1_imputed and condition2_imputed attributes
-    # for testing gene-specific plots
+    # Run prediction to compute fold changes and other metrics
+    expression_results = diff_expr.predict(X_combined, compute_mahalanobis=True)
+    
+    # Also manually add condition1_imputed and condition2_imputed attributes 
+    # for testing gene-specific plots (they're already populated by the predict call,
+    # but we make sure they have the shape the test expects)
     diff_expr.condition1_imputed = y_condition1
     diff_expr.condition2_imputed = y_condition2
+    diff_expr.fold_change = expression_results['fold_change']
+    diff_expr.fold_change_zscores = expression_results['fold_change_zscores']
     
     with tempfile.TemporaryDirectory() as temp_dir:
         # Create reporter

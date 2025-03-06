@@ -129,8 +129,8 @@ def test_differential_expression_fit():
     assert diff_expression.mean_log_fold_change is not None
     assert diff_expression.weighted_mean_log_fold_change is not None
     
-    # Test with disabled weighted fold change (default behavior now)
-    diff_expression_no_weight = DifferentialExpression()
+    # Test with disabled weighted fold change (must be explicitly disabled)
+    diff_expression_no_weight = DifferentialExpression(compute_weighted_fold_change=False)
     diff_expression_no_weight.fit(X_condition1, y_condition1, X_condition2, y_condition2)
     
     # Run predict

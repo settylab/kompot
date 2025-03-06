@@ -137,19 +137,13 @@ def compute_differential_abundance(
     X_for_prediction = adata.obsm[obsm_key]
     abundance_results = diff_abundance.predict(X_for_prediction)
     
-        # Add results to adata.obs
-    adata.obs[f"{result_key}_log_fold_change"] = np.nan
-    adata.obs[f"{result_key}_log_fold_change_zscore"] = np.nan
-    adata.obs[f"{result_key}_log_fold_change_pvalue"] = np.nan
-    adata.obs[f"{result_key}_log_fold_change_direction"] = ""
-    
     # Assign values to masked cells
     adata.obs[f"{result_key}_log_fold_change"] = abundance_results['log_fold_change']
     adata.obs[f"{result_key}_log_fold_change_zscore"] = abundance_results['log_fold_change_zscore']
     adata.obs[f"{result_key}_log_fold_change_pvalue"] = abundance_results['log_fold_change_pvalue']
     adata.obs[f"{result_key}_log_fold_change_direction"] = abundance_results['log_fold_change_direction']
     
-    # Store model and parameters in adata.uns
+    # Store parameters in adata.uns, but NOT the model (too large for serialization)
     adata.uns[result_key] = {
         "params": {
             "groupby": groupby,
@@ -182,8 +176,6 @@ def compute_differential_expression(
     genes: Optional[List[str]] = None,
     n_landmarks: Optional[int] = None,
     use_empirical_variance: bool = False,
-    compute_weighted_fold_change: bool = True,
-    compute_differential_abundance: bool = True,
     differential_abundance_key: Optional[str] = None,
     sigma: float = 1.0,
     ls: Optional[float] = None,
@@ -226,14 +218,9 @@ def compute_differential_expression(
         by default None.
     use_empirical_variance : bool, optional
         Whether to use empirical variance for uncertainty estimation, by default False.
-    compute_weighted_fold_change : bool, optional
-        Whether to compute weighted mean log fold change, by default False.
-        When True, density information is required.
-    compute_differential_abundance : bool, optional
-        Whether to compute differential abundance if not already provided, by default True.
     differential_abundance_key : str, optional
-        Key in adata.uns where differential abundance results are stored, by default None.
-        If not None, will reuse existing results instead of computing new ones.
+        Key in adata.obs where abundance log-fold changes are stored, by default None.
+        Will be used for weighted mean log-fold change computation.
     sigma : float, optional
         Noise level for function estimator, by default 1.0.
     ls : float, optional
@@ -286,17 +273,20 @@ def compute_differential_expression(
         raise ImportError(
             "Please install anndata and scipy: pip install anndata scipy"
         )
-    
-    # Make a copy if requested
-    if copy:
-        adata = adata.copy()
-    
+
     # Extract cell states
     if obsm_key not in adata.obsm:
         raise ValueError(f"Key '{obsm_key}' not found in adata.obsm. Available keys: {list(adata.obsm.keys())}")
     
     if groupby not in adata.obs:
         raise ValueError(f"Column '{groupby}' not found in adata.obs. Available columns: {list(adata.obs.columns)}")
+
+    if differential_abundance_key is not None and differential_abundance_key not in adata.obs:
+        raise ValueError(f"Column '{differential_abundance_key}' not found in adata.obs. Available columns: {list(adata.obs.columns)}")
+    
+    # Make a copy if requested
+    if copy:
+        adata = adata.copy()
     
     # Create masks for each condition
     mask1 = adata.obs[groupby] == condition1
@@ -344,29 +334,11 @@ def compute_differential_expression(
     else:
         selected_genes = adata.var_names.tolist()
     
-    # Get differential abundance if needed
-    differential_abundance = None
-    if compute_weighted_fold_change:
-        if differential_abundance_key is not None and differential_abundance_key in adata.uns:
-            # Reuse existing differential abundance results
-            differential_abundance = adata.uns[differential_abundance_key]["model"]
-            logger.info(f"Using existing differential abundance results from adata.uns['{differential_abundance_key}']")
-        elif compute_differential_abundance:
-            # Compute new differential abundance
-            logger.info("Computing differential abundance for weighting...")
-            differential_abundance = DifferentialAbundance(
-                n_landmarks=n_landmarks,
-                jit_compile=jit_compile,
-                random_state=random_state
-            )
-            differential_abundance.fit(X_condition1, X_condition2)
     
     # Initialize and fit DifferentialExpression
     diff_expression = DifferentialExpression(
         n_landmarks=n_landmarks,
         use_empirical_variance=use_empirical_variance,
-        compute_weighted_fold_change=compute_weighted_fold_change,
-        differential_abundance=differential_abundance,
         jit_compile=jit_compile,
         random_state=random_state,
         batch_size=batch_size
@@ -378,74 +350,35 @@ def compute_differential_expression(
         X_condition2, expr2,
         sigma=sigma,
         ls=ls,
-        compute_differential_abundance=False,  # We've already handled this above
         **function_kwargs
     )
     
-    # Prepare results to store in AnnData
-    all_cells_mask = mask1 | mask2
-    
-    # Run prediction on the cells in the original order from AnnData
-    # First, get indices for each condition in the original anndata object
-    condition1_indices = np.where(mask1)[0]
-    condition2_indices = np.where(mask2)[0]
-    
-    # Run the prediction on the original data for the relevant cells only
-    X_for_prediction = adata.obsm[obsm_key][all_cells_mask]
-    
-    # Create condition labels matching the order in all_cells_mask
-    # This helps the model correctly interpret the prediction results
-    cell_condition_labels = np.zeros(len(X_for_prediction), dtype=int)
-    
-    # Map the condition indices to the order in all_cells_mask
-    # This requires finding where in all_cells_mask each condition's cells appear
-    condition2_mask_in_relevant = np.isin(np.where(all_cells_mask)[0], condition2_indices)
-    cell_condition_labels[condition2_mask_in_relevant] = 1
-    
-    # Prepare density predictions if we need weighted fold changes
-    density_predictions = None
-    if compute_weighted_fold_change and differential_abundance is not None:
-        # Run density prediction using the same ordering
-        density_results = differential_abundance.predict(
-            X_for_prediction,
-            cell_condition_labels=cell_condition_labels
-        )
-        density_predictions = {
-            'log_density_condition1': density_results['log_density_condition1'],
-            'log_density_condition2': density_results['log_density_condition2']
-        }
-    
     # Run prediction to compute fold changes, metrics, and Mahalanobis distances
+    X_for_prediction = adata.obsm[obsm_key]
     expression_results = diff_expression.predict(
         X_for_prediction, 
         compute_mahalanobis=compute_mahalanobis,
-        cell_condition_labels=cell_condition_labels,
-        density_predictions=density_predictions
     )
     
-    # Store results for backward compatibility
-    diff_expression.condition1_imputed = expression_results['condition1_imputed']
-    diff_expression.condition2_imputed = expression_results['condition2_imputed']
-    diff_expression.fold_change = expression_results['fold_change']
-    diff_expression.fold_change_zscores = expression_results['fold_change_zscores']
-    diff_expression.lfc_stds = expression_results['lfc_stds']
-    diff_expression.bidirectionality = expression_results['bidirectionality']
-    diff_expression.mean_log_fold_change = expression_results['mean_log_fold_change']
-    
-    if compute_mahalanobis:
-        diff_expression.mahalanobis_distances = expression_results['mahalanobis_distances']
+    # Separately compute weighted fold changes if needed
+    if differential_abundance_key is not None:
+        density_log_fold_changes = adata.obs[differential_abundance_key]
         
-    if compute_weighted_fold_change and 'weighted_mean_log_fold_change' in expression_results:
-        diff_expression.weighted_mean_log_fold_change = expression_results['weighted_mean_log_fold_change']
+        # Use the standalone method to compute weighted mean fold change
+        expression_results['weighted_mean_log_fold_change'] = diff_expression.compute_weighted_mean_fold_change(
+            expression_results['fold_change'],
+            density_results['log_density_condition1'],
+            density_results['log_density_condition2']
+        )
+    
     
     if inplace:
         # Add gene-level metrics to adata.var
-        # Initialize with np.nan of appropriate shape
-        adata.var[f"{result_key}_mahalanobis"] = pd.Series(np.nan, index=adata.var_names)
         if compute_mahalanobis:
+            adata.var[f"{result_key}_mahalanobis"] = pd.Series(np.nan, index=adata.var_names)
             adata.var.loc[selected_genes, f"{result_key}_mahalanobis"] = expression_results['mahalanobis_distances']
         
-        if compute_weighted_fold_change and 'weighted_mean_log_fold_change' in expression_results:
+        if differential_abundance_key is not None:
             # Initialize with np.nan of appropriate shape
             adata.var[f"{result_key}_weighted_lfc"] = pd.Series(np.nan, index=adata.var_names)
             adata.var.loc[selected_genes, f"{result_key}_weighted_lfc"] = expression_results['weighted_mean_log_fold_change']
@@ -457,8 +390,6 @@ def compute_differential_expression(
         adata.var.loc[selected_genes, f"{result_key}_bidirectionality"] = expression_results['bidirectionality']
         
         # Add cell-gene level results
-        all_cells_mask = mask1 | mask2
-        n_cells = np.sum(all_cells_mask)
         n_selected_genes = len(selected_genes)
         
         # Process the data to match the shape of the full gene set
@@ -474,32 +405,13 @@ def compute_differential_expression(
             # Map the imputed values to the correct positions
             for i, gene in enumerate(selected_genes):
                 gene_idx = list(adata.var_names).index(gene)
-                adata.layers[f"{result_key}_condition1_imputed"][all_cells_mask, gene_idx] = expression_results['condition1_imputed'][:, i]
-                adata.layers[f"{result_key}_condition2_imputed"][all_cells_mask, gene_idx] = expression_results['condition2_imputed'][:, i]
-                adata.layers[f"{result_key}_fold_change"][all_cells_mask, gene_idx] = expression_results['fold_change'][:, i]
+                adata.layers[f"{result_key}_condition1_imputed"][:, gene_idx] = expression_results['condition1_imputed'][:, i]
+                adata.layers[f"{result_key}_condition2_imputed"][:, gene_idx] = expression_results['condition2_imputed'][:, i]
+                adata.layers[f"{result_key}_fold_change"][:, gene_idx] = expression_results['fold_change'][:, i]
         else:
-            # We're using all genes, so we can directly assign the arrays
-            # Create arrays with proper shape regardless of X's type (sparse, dense, etc)
-            n_total_cells = adata.n_obs
-            n_total_genes = adata.n_vars
-            
-            # Initialize empty arrays for all cells and genes
-            cond1_imputed = np.zeros((n_total_cells, n_total_genes), dtype=np.float32)
-            cond2_imputed = np.zeros((n_total_cells, n_total_genes), dtype=np.float32)
-            fold_change = np.zeros((n_total_cells, n_total_genes), dtype=np.float32)
-            
-            # Fill in values for the cells in the analysis
-            cell_indices = np.where(all_cells_mask)[0]
-            
-            # Assign all at once for efficiency
-            cond1_imputed[cell_indices] = expression_results['condition1_imputed']
-            cond2_imputed[cell_indices] = expression_results['condition2_imputed']
-            fold_change[cell_indices] = expression_results['fold_change']
-            
-            # Assign to AnnData layers
-            adata.layers[f"{result_key}_condition1_imputed"] = cond1_imputed
-            adata.layers[f"{result_key}_condition2_imputed"] = cond2_imputed
-            adata.layers[f"{result_key}_fold_change"] = fold_change
+            adata.layers[f"{result_key}_condition1_imputed"] = expression_results['condition1_imputed']
+            adata.layers[f"{result_key}_condition2_imputed"] = expression_results['condition2_imputed']
+            adata.layers[f"{result_key}_fold_change"] = expression_results['fold_change']
         
         # Store model and parameters in adata.uns
         adata.uns[result_key] = {
@@ -514,34 +426,28 @@ def compute_differential_expression(
                 "use_empirical_variance": use_empirical_variance,
                 "compute_weighted_fold_change": compute_weighted_fold_change,
             },
-            "model": diff_expression,
         }
         
-        if copy:
-            return adata
-        else:
-            return None
-    else:
-        # Return results as a dictionary
-        result_dict = {
-            "lfc_stds": expression_results['lfc_stds'],
-            "bidirectionality": expression_results['bidirectionality'],
-            "mean_log_fold_change": expression_results['mean_log_fold_change'],
-            "condition1_imputed": expression_results['condition1_imputed'],
-            "condition2_imputed": expression_results['condition2_imputed'],
-            "fold_change": expression_results['fold_change'],
-            "fold_change_zscores": expression_results['fold_change_zscores'],
-            "model": diff_expression,
-        }
+    # Return results as a dictionary
+    result_dict = {
+        "lfc_stds": expression_results['lfc_stds'],
+        "bidirectionality": expression_results['bidirectionality'],
+        "mean_log_fold_change": expression_results['mean_log_fold_change'],
+        "condition1_imputed": expression_results['condition1_imputed'],
+        "condition2_imputed": expression_results['condition2_imputed'],
+        "fold_change": expression_results['fold_change'],
+        "fold_change_zscores": expression_results['fold_change_zscores'],
+        "model": diff_expression,
+    }
+    
+    # Add optional result fields
+    if compute_mahalanobis:
+        result_dict["mahalanobis_distances"] = expression_results['mahalanobis_distances']
         
-        # Add optional result fields
-        if compute_mahalanobis:
-            result_dict["mahalanobis_distances"] = expression_results['mahalanobis_distances']
-            
-        if compute_weighted_fold_change and 'weighted_mean_log_fold_change' in expression_results:
-            result_dict["weighted_mean_log_fold_change"] = expression_results['weighted_mean_log_fold_change']
-            
-        return result_dict
+    if 'weighted_mean_log_fold_change' in expression_results:
+        result_dict["weighted_mean_log_fold_change"] = expression_results['weighted_mean_log_fold_change']
+        
+    return result_dict
 
 
 def run_differential_analysis(
@@ -564,7 +470,7 @@ def run_differential_analysis(
     report_dir: str = "kompot_report",
     open_browser: bool = True,
     **kwargs
-) -> "AnnData":
+) -> Dict[str, Any]:
     """
     Run a complete differential analysis workflow on an AnnData object.
     
@@ -623,9 +529,11 @@ def run_differential_analysis(
         
     Returns
     -------
-    AnnData
-        The AnnData object with analysis results added. If copy is True, this is a
-        new object; otherwise, it's the input object modified in place.
+    Dict[str, Any]
+        Dictionary containing:
+            - "adata": The AnnData object with analysis results added (a new object if copy=True)
+            - "differential_abundance": The DifferentialAbundance model if compute_abundance=True
+            - "differential_expression": The DifferentialExpression model if compute_expression=True
     
     Notes
     -----
@@ -659,9 +567,10 @@ def run_differential_analysis(
     ]}
     
     # Run differential abundance if requested
+    abundance_result = None
     if compute_abundance:
         logger.info("Computing differential abundance...")
-        compute_differential_abundance(
+        abundance_result = compute_differential_abundance(
             adata,
             groupby=groupby,
             condition1=condition1,
@@ -676,9 +585,10 @@ def run_differential_analysis(
         )
     
     # Run differential expression if requested
+    expression_result = None
     if compute_expression:
         logger.info("Computing differential expression...")
-        compute_differential_expression(
+        expression_result = compute_differential_expression(
             adata,
             groupby=groupby,
             condition1=condition1,
@@ -696,9 +606,10 @@ def run_differential_analysis(
         )
     
     # Generate HTML report if requested
-    if generate_html_report and compute_expression:
+    if generate_html_report and compute_expression and expression_result is not None:
         logger.info("Generating HTML report...")
-        diff_expr = adata.uns[expression_key]["model"]
+        # Get the model from the expression_result
+        diff_expr = expression_result["model"]
         report_path = generate_report(
             diff_expr,
             output_dir=report_dir,
@@ -709,8 +620,13 @@ def run_differential_analysis(
             **report_kwargs
         )
         logger.info(f"HTML report generated at: {report_path}")
-    
-    return adata
+        
+    # Return the results along with the AnnData
+    return {
+        "adata": adata,
+        "differential_abundance": abundance_result["model"] if abundance_result else None,
+        "differential_expression": expression_result["model"] if expression_result else None,
+    }
 
 
 def generate_report(

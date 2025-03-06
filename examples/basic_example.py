@@ -172,34 +172,53 @@ cell_labels = np.array([0] * 50 + [1] * 50)
 # Make prediction with cell condition labels
 prediction = diff_expression.predict(X_new, cell_condition_labels=cell_labels)
 
-# Visualize the condition-specific mean fold changes
+# Visualize condition-specific mean fold changes
+# First check if condition-specific fold changes are available in the prediction
+has_condition_specific = (
+    'condition1_cells_mean_fold_change' in prediction and 
+    'condition2_cells_mean_fold_change' in prediction
+)
+
 plt.figure(figsize=(10, 6))
 width = 0.35
 x = np.arange(len(diff_genes[:5]))  # Just show the first 5 differential genes for clarity
 
-# Regular mean fold change
-plt.bar(
-    x - width,
-    prediction['mean_log_fold_change'][diff_genes[:5]],
-    width=width,
-    label='All Cells Mean Fold Change'
-)
-
-# Condition 1 cells mean fold change
-plt.bar(
-    x,
-    prediction['condition1_cells_mean_fold_change'][diff_genes[:5]],
-    width=width,
-    label='Condition 1 Cells Mean Fold Change'
-)
-
-# Condition 2 cells mean fold change
-plt.bar(
-    x + width,
-    prediction['condition2_cells_mean_fold_change'][diff_genes[:5]],
-    width=width,
-    label='Condition 2 Cells Mean Fold Change'
-)
+if has_condition_specific:
+    # Regular mean fold change
+    plt.bar(
+        x - width,
+        prediction['mean_log_fold_change'][diff_genes[:5]],
+        width=width,
+        label='All Cells Mean Fold Change'
+    )
+    
+    # Condition 1 cells mean fold change
+    plt.bar(
+        x,
+        prediction['condition1_cells_mean_fold_change'][diff_genes[:5]],
+        width=width,
+        label='Condition 1 Cells Mean Fold Change'
+    )
+    
+    # Condition 2 cells mean fold change
+    plt.bar(
+        x + width,
+        prediction['condition2_cells_mean_fold_change'][diff_genes[:5]],
+        width=width,
+        label='Condition 2 Cells Mean Fold Change'
+    )
+else:
+    # If condition-specific metrics aren't available, just show the overall mean
+    print("Condition-specific fold changes not available in the prediction results.")
+    print("This could be because cell_condition_labels weren't provided or weren't properly set.")
+    
+    # Regular mean fold change
+    plt.bar(
+        x,
+        prediction['mean_log_fold_change'][diff_genes[:5]],
+        width=width,
+        label='Mean Fold Change'
+    )
 
 plt.axhline(y=0, color='r', linestyle='--')
 plt.xlabel('Differential Gene Index')
@@ -291,7 +310,7 @@ try:
     
     # Run the complete analysis workflow
     print("\n3. Running complete differential analysis with AnnData API...")
-    adata = kompot.run_differential_analysis(
+    results = kompot.run_differential_analysis(
         adata, 
         groupby='condition', 
         condition1='Condition1', 
@@ -305,6 +324,9 @@ try:
     
     # Compare the results between the original API and the AnnData API
     print("\n4. Comparing results between original API and AnnData API...")
+    
+    # Extract the AnnData object from the results
+    adata = results["adata"]
     
     # Get top genes from both approaches - use consistent ordering for both
     # Original API - sort in descending order to match AnnData API
@@ -357,7 +379,7 @@ try:
     print("  - Cell scores: adata.obs['kompot_da_log_fold_change']")
     print("  - Imputed expression: adata.layers['kompot_de_condition1_imputed']")
     print("  - Log fold changes: adata.layers['kompot_de_fold_change']")
-    print("  - Full models: adata.uns['kompot_da']['model'] and adata.uns['kompot_de']['model']")
+    print("  - Full models: Available in the returned results dictionary, not stored in AnnData")
     
     print("\nHTML report generated at: kompot_report/index.html")
     

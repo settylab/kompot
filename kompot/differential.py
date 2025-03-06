@@ -723,6 +723,43 @@ class DifferentialExpression:
             
         self.mahalanobis_distances = mahalanobis_distances
         
+    def compute_weighted_mean_fold_change(
+        self,
+        fold_change: np.ndarray,
+        log_density_condition1: np.ndarray,
+        log_density_condition2: np.ndarray
+    ) -> np.ndarray:
+        """
+        Compute weighted mean fold change using density differences as weights.
+        
+        This utility method can be used independently of the predict method to compute
+        weighted mean fold changes from expression and density log fold changes.
+        
+        Parameters
+        ----------
+        fold_change : np.ndarray
+            Expression fold change for each cell and gene. Shape (n_cells, n_genes).
+        log_density_condition1 : np.ndarray
+            Log density for condition 1. Shape (n_cells,).
+        log_density_condition2 : np.ndarray
+            Log density for condition 2. Shape (n_cells,).
+            
+        Returns
+        -------
+        np.ndarray
+            Weighted mean log fold change for each gene. Shape (n_genes,).
+        """
+        # Calculate the density difference (weight) for each cell
+        log_density_diff = np.exp(
+            np.abs(log_density_condition2 - log_density_condition1)
+        )
+        
+        # Weight the fold changes by density difference
+        weighted_fold_change = fold_change * log_density_diff[:, np.newaxis]
+        
+        # Compute the weighted mean
+        return np.sum(weighted_fold_change, axis=0) / np.sum(log_density_diff)
+
     def predict(
         self, 
         X_new: np.ndarray, 
@@ -913,16 +950,12 @@ class DifferentialExpression:
                     logger.warning("Precomputed densities shape doesn't match X_new. Skipping weighted fold change.")
             
             if density_data is not None:
-                log_density_diff = np.exp(
-                    np.abs(
-                        density_data['log_density_condition2'] - 
-                        density_data['log_density_condition1']
-                    )
+                # Use the utility method to compute the weighted mean
+                result['weighted_mean_log_fold_change'] = self.compute_weighted_mean_fold_change(
+                    fold_change,
+                    density_data['log_density_condition1'],
+                    density_data['log_density_condition2']
                 )
-                
-                # Weight the fold changes by density difference
-                weighted_fold_change = fold_change * log_density_diff[:, np.newaxis]
-                result['weighted_mean_log_fold_change'] = np.sum(weighted_fold_change, axis=0) / np.sum(log_density_diff)
                 
                 # Update class attribute for backward compatibility
                 if hasattr(self, 'condition1_indices') and self.condition1_indices is not None:
