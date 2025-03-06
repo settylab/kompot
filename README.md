@@ -149,6 +149,24 @@ Computes differential expression between two conditions:
 - HTML report generation from AnnData objects
 - Full compatibility with the scverse ecosystem
 
+## Documentation
+
+Documentation is available in the `docs/` directory. To build the documentation locally:
+
+```bash
+# Install doc dependencies
+pip install -e ".[docs]"
+
+# Build docs
+cd docs
+make html
+
+# View docs
+open build/html/index.html  # macOS
+# or: xdg-open build/html/index.html  # Linux
+# or: start build/html/index.html  # Windows
+```
+
 ## License
 
 GNU General Public License v3 (GPLv3)

@@ -31,6 +31,17 @@ setup(
         'mellon>=1.5.0',
         'importlib-resources>=5.0.0;python_version<"3.9"',
     ],
+    extras_require={
+        'docs': [
+            'sphinx>=7.0.0',
+            'nbsphinx>=0.9.0',
+            'furo>=2024.0.0',
+            'sphinx-autodocgen>=1.0.0',
+            'sphinx-github-style>=1.2.0',
+            'lxml[html_clean]',
+            'IPython',
+        ],
+    },
     classifiers=[
         'Development Status :: 3 - Alpha',
         'Intended Audience :: Science/Research',
