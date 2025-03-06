@@ -418,11 +418,13 @@ def compute_differential_expression(
             else:
                 raise ValueError(f"Log density columns not found in adata.obs. Expected: {density_col1}, {density_col2} or {generic_col1}, {generic_col2}")
         
-        # Use the standalone method to compute weighted mean fold change
+        # Calculate log density difference directly
+        log_density_diff = np.exp(np.abs(log_density_condition2 - log_density_condition1))
+        
+        # Use the standalone method to compute weighted mean fold change with pre-computed difference
         expression_results['weighted_mean_log_fold_change'] = diff_expression.compute_weighted_mean_fold_change(
             expression_results['fold_change'],
-            log_density_condition1,
-            log_density_condition2
+            log_density_diff=log_density_diff
         )
     
     

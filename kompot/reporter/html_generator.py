@@ -126,12 +126,30 @@ class HTMLReporter:
             # Run prediction to compute fold changes and metrics
             _ = diff_expr.predict(X_combined, compute_mahalanobis=True)
         
+        # Determine number of genes
+        if gene_names is not None:
+            n_genes = len(gene_names)
+        elif hasattr(diff_expr, 'fold_change') and diff_expr.fold_change is not None:
+            n_genes = diff_expr.fold_change.shape[1]  # Get number of genes from fold_change
+        else:
+            # Default to a small number if we can't determine
+            n_genes = 50
+            logger.warning(f"Could not determine number of genes. Using default: {n_genes}")
+            
         # Now extract metrics from the populated model
-        fc = np.mean(diff_expr.fold_change, axis=0)  # Get mean across samples for each gene
-        fc_zscores = np.mean(diff_expr.fold_change_zscores, axis=0)  # Get mean across samples for each gene
+        # Handle cases where the attributes could be None or not set
+        if hasattr(diff_expr, 'fold_change') and diff_expr.fold_change is not None:
+            fc = np.mean(diff_expr.fold_change, axis=0)  # Get mean across samples for each gene
+        else:
+            fc = np.zeros(n_genes)  # Default to zeros if not available
+            
+        if hasattr(diff_expr, 'fold_change_zscores') and diff_expr.fold_change_zscores is not None:
+            fc_zscores = np.mean(diff_expr.fold_change_zscores, axis=0)  # Get mean across samples for each gene
+        else:
+            fc_zscores = np.zeros(n_genes)  # Default to zeros if not available
         
         # Check if Mahalanobis distances have been computed
-        if diff_expr.mahalanobis_distances is None:
+        if not hasattr(diff_expr, 'mahalanobis_distances') or diff_expr.mahalanobis_distances is None:
             logger.warning("Mahalanobis distances not computed. Using zeros.")
             m_distances = np.zeros(fc.shape[0])
         else:
@@ -142,10 +160,21 @@ class HTMLReporter:
             wfc = diff_expr.weighted_mean_log_fold_change  # Already correct shape (n_genes,)
         else:
             logger.info("Weighted fold change not computed. Using regular fold change.")
-            wfc = np.mean(diff_expr.fold_change, axis=0)
+            if hasattr(diff_expr, 'fold_change') and diff_expr.fold_change is not None:
+                wfc = np.mean(diff_expr.fold_change, axis=0)
+            else:
+                wfc = np.zeros(n_genes)  # Default to zeros if not available
             
-        lfc_stds = diff_expr.lfc_stds  # Already correct shape (n_genes,)
-        bidir = diff_expr.bidirectionality  # Already correct shape (n_genes,)
+        # Handle additional metrics
+        if hasattr(diff_expr, 'lfc_stds') and diff_expr.lfc_stds is not None:
+            lfc_stds = diff_expr.lfc_stds  # Already correct shape (n_genes,)
+        else:
+            lfc_stds = np.zeros(n_genes)  # Default to zeros if not available
+            
+        if hasattr(diff_expr, 'bidirectionality') and diff_expr.bidirectionality is not None:
+            bidir = diff_expr.bidirectionality  # Already correct shape (n_genes,)
+        else:
+            bidir = np.zeros(n_genes)  # Default to zeros if not available
         
         # Generate gene names if not provided
         if gene_names is None:
@@ -427,9 +456,25 @@ class HTMLReporter:
                 comp_key = f"{data['condition1']}_vs_{data['condition2']}"
                 
                 # Extract the imputed values for this gene
-                if hasattr(diff_expr, "condition1_imputed") and hasattr(diff_expr, "condition2_imputed"):
-                    cond1_values = diff_expr.condition1_imputed[gene_idx].tolist() if gene_idx < len(diff_expr.condition1_imputed) else []
-                    cond2_values = diff_expr.condition2_imputed[gene_idx].tolist() if gene_idx < len(diff_expr.condition2_imputed) else []
+                if (hasattr(diff_expr, "condition1_imputed") and diff_expr.condition1_imputed is not None and 
+                    hasattr(diff_expr, "condition2_imputed") and diff_expr.condition2_imputed is not None):
+                    
+                    # Check dimensions and bounds
+                    if (len(diff_expr.condition1_imputed.shape) > 1 and 
+                        gene_idx < diff_expr.condition1_imputed.shape[1]):
+                        cond1_values = diff_expr.condition1_imputed[:, gene_idx].tolist()
+                    else:
+                        cond1_values = []
+                    
+                    if (len(diff_expr.condition2_imputed.shape) > 1 and 
+                        gene_idx < diff_expr.condition2_imputed.shape[1]):
+                        cond2_values = diff_expr.condition2_imputed[:, gene_idx].tolist()
+                    else:
+                        cond2_values = []
+                else:
+                    # If imputed values are not available
+                    cond1_values = []
+                    cond2_values = []
                     
                     # Add to the gene data dictionary
                     gene_data[gene_name][comp_key] = {

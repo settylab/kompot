@@ -374,7 +374,7 @@ class DifferentialExpression:
             Pre-computed differential abundance object. If None, a new one will be created
             when needed, by default None.
         precomputed_densities : Dict[str, np.ndarray], optional
-            Pre-computed densities for both conditions. If provided, should contain:
+            Pre-computed densities for both conditions. Only needed for wheighted log-fold change. If provided, should contain:
             - 'log_density_condition1': Log density for condition 1
             - 'log_density_condition2': Log density for condition 2
         eps : float, optional
@@ -412,8 +412,6 @@ class DifferentialExpression:
         # Store condition sizes and indices
         self.n_condition1 = None
         self.n_condition2 = None
-        self.condition1_indices = None
-        self.condition2_indices = None
         self.mean_log_fold_change = None
         
         # These will be populated after fitting
@@ -488,11 +486,6 @@ class DifferentialExpression:
         # Store original condition sizes for indexing
         self.n_condition1 = len(X_condition1)
         self.n_condition2 = len(X_condition2)
-        self.condition1_indices = np.arange(self.n_condition1)
-        self.condition2_indices = np.arange(self.n_condition1, self.n_condition1 + self.n_condition2)
-        
-        # Create combined data for landmarks only
-        X_combined = np.vstack([X_condition1, X_condition2])
         
         # Determine if we need to compute/use density information for weighting
         use_density_information = self.compute_weighted_fold_change
@@ -531,6 +524,7 @@ class DifferentialExpression:
             if self.n_landmarks is not None:
                 # Use mellon's compute_landmarks function to get properly distributed landmarks
                 # Pass the random_state parameter directly to ensure reproducible results
+                X_combined = np.vstack([X_condition1, X_condition2])
                 landmarks = compute_landmarks(
                     X_combined, 
                     gp_type='fixed', 
@@ -566,7 +560,7 @@ class DifferentialExpression:
         
         return self
         
-    def _compute_mahalanobis_distances(self, X: np.ndarray):
+    def _compute_mahalanobis_distances(self, X: np.ndarray, fold_change=None):
         """
         Compute Mahalanobis distances for each gene.
         
@@ -574,6 +568,9 @@ class DifferentialExpression:
         ----------
         X : np.ndarray
             Cell states. Shape (n_cells, n_features).
+        fold_change : np.ndarray, optional
+            Pre-computed fold change matrix. If None, will try to use self.fold_change.
+            Shape (n_cells, n_genes).
         """
         # Get covariance matrices
         # Determine if we have landmarks
@@ -604,11 +601,15 @@ class DifferentialExpression:
             cov1 = self.function_predictor1.covariance(X, diag=False)
             cov2 = self.function_predictor2.covariance(X, diag=False)
             
-            # Make sure self.fold_change is not None before using it
-            if hasattr(self, 'fold_change') and self.fold_change is not None:
+            # Use the provided fold_change if available
+            if fold_change is not None:
+                fold_change_subset = fold_change
+            # Otherwise, use self.fold_change if it exists and is not None
+            elif hasattr(self, 'fold_change') and self.fold_change is not None:
                 fold_change_subset = self.fold_change
+            # If neither is available, compute it directly (which shouldn't happen with our changes)
             else:
-                # If fold_change isn't available, compute it directly
+                # This branch should only be executed in rare cases where this method is called directly
                 condition1_imputed = self.function_predictor1(X)
                 condition2_imputed = self.function_predictor2(X)
                 fold_change_subset = condition2_imputed - condition1_imputed
@@ -734,8 +735,9 @@ class DifferentialExpression:
     def compute_weighted_mean_fold_change(
         self,
         fold_change: np.ndarray,
-        log_density_condition1: np.ndarray,
-        log_density_condition2: np.ndarray
+        log_density_condition1: np.ndarray = None,
+        log_density_condition2: np.ndarray = None,
+        log_density_diff: np.ndarray = None
     ) -> np.ndarray:
         """
         Compute weighted mean fold change using density differences as weights.
@@ -747,26 +749,36 @@ class DifferentialExpression:
         ----------
         fold_change : np.ndarray
             Expression fold change for each cell and gene. Shape (n_cells, n_genes).
-        log_density_condition1 : np.ndarray or pandas.Series
-            Log density for condition 1. Shape (n_cells,).
-        log_density_condition2 : np.ndarray or pandas.Series
-            Log density for condition 2. Shape (n_cells,).
+        log_density_condition1 : np.ndarray or pandas.Series, optional
+            Log density for condition 1. Shape (n_cells,). Can be omitted if log_density_diff is provided.
+        log_density_condition2 : np.ndarray or pandas.Series, optional
+            Log density for condition 2. Shape (n_cells,). Can be omitted if log_density_diff is provided.
+        log_density_diff : np.ndarray, optional
+            Pre-computed log density difference. If provided, log_density_condition1 and 
+            log_density_condition2 are ignored. Shape (n_cells,).
             
         Returns
         -------
         np.ndarray
             Weighted mean log fold change for each gene. Shape (n_genes,).
         """
-        # Convert pandas Series to numpy arrays if needed
-        if hasattr(log_density_condition1, 'to_numpy'):
-            log_density_condition1 = log_density_condition1.to_numpy()
-        if hasattr(log_density_condition2, 'to_numpy'):
-            log_density_condition2 = log_density_condition2.to_numpy()
+        if log_density_diff is None:
+            if log_density_condition1 is None or log_density_condition2 is None:
+                raise ValueError("Either log_density_diff or both log_density_condition1 and log_density_condition2 must be provided")
             
-        # Calculate the density difference (weight) for each cell
-        log_density_diff = np.exp(
-            np.abs(log_density_condition2 - log_density_condition1)
-        )
+            # Convert pandas Series to numpy arrays if needed
+            if hasattr(log_density_condition1, 'to_numpy'):
+                log_density_condition1 = log_density_condition1.to_numpy()
+            if hasattr(log_density_condition2, 'to_numpy'):
+                log_density_condition2 = log_density_condition2.to_numpy()
+                
+            # Calculate the density difference (weight) for each cell
+            log_density_diff = np.exp(
+                np.abs(log_density_condition2 - log_density_condition1)
+            )
+        elif hasattr(log_density_diff, 'to_numpy'):
+            # Convert pandas Series to numpy arrays if needed
+            log_density_diff = log_density_diff.to_numpy()
         
         # Create a weights array with shape (n_cells, 1) for broadcasting
         weights = log_density_diff.reshape(-1, 1)
@@ -919,7 +931,9 @@ class DifferentialExpression:
         # Compute Mahalanobis distances if requested
         if compute_mahalanobis:
             logger.info("Computing Mahalanobis distances...")
-            self._compute_mahalanobis_distances(X_new)
+            # Pass the already computed fold_change to avoid recomputing it
+            # This gets around the issue when fold_change instance attribute isn't set yet
+            self._compute_mahalanobis_distances(X_new, fold_change)
             if hasattr(self, 'mahalanobis_distances'):
                 result['mahalanobis_distances'] = self.mahalanobis_distances
             
@@ -967,11 +981,15 @@ class DifferentialExpression:
                     logger.warning("Precomputed densities shape doesn't match X_new. Skipping weighted fold change.")
             
             if density_data is not None:
-                # Use the utility method to compute the weighted mean
+                # Calculate log density difference directly
+                log_density_diff = np.exp(
+                    np.abs(density_data['log_density_condition2'] - density_data['log_density_condition1'])
+                )
+                
+                # Use the utility method to compute the weighted mean with pre-computed difference
                 result['weighted_mean_log_fold_change'] = self.compute_weighted_mean_fold_change(
                     fold_change,
-                    density_data['log_density_condition1'],
-                    density_data['log_density_condition2']
+                    log_density_diff=log_density_diff
                 )
                 
                 # Update class attribute for backward compatibility
