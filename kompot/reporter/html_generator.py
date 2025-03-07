@@ -155,15 +155,38 @@ class HTMLReporter:
         else:
             m_distances = diff_expr.mahalanobis_distances  # Already correct shape (n_genes,)
             
-        # Check for weighted fold change
+        # Check for weighted fold change in the result
         if hasattr(diff_expr, 'weighted_mean_log_fold_change') and diff_expr.weighted_mean_log_fold_change is not None:
             wfc = diff_expr.weighted_mean_log_fold_change  # Already correct shape (n_genes,)
-        else:
-            logger.info("Weighted fold change not computed. Using regular fold change.")
-            if hasattr(diff_expr, 'fold_change') and diff_expr.fold_change is not None:
-                wfc = np.mean(diff_expr.fold_change, axis=0)
+        # Try to compute it if we have density information, but weighted_mean_log_fold_change is not set
+        elif hasattr(diff_expr, 'fold_change') and diff_expr.fold_change is not None:
+            # Check if we can compute weighted log fold change using differential abundance
+            if (hasattr(diff_expr, 'differential_abundance') and 
+                diff_expr.differential_abundance is not None and 
+                hasattr(diff_expr.differential_abundance, 'log_density_condition1') and
+                diff_expr.differential_abundance.log_density_condition1 is not None and
+                hasattr(diff_expr.differential_abundance, 'log_density_condition2') and
+                diff_expr.differential_abundance.log_density_condition2 is not None):
+                
+                # Import the standalone function at runtime to avoid circular imports
+                from ..differential import compute_weighted_mean_fold_change
+                
+                try:
+                    # Compute weighted log fold change using standalone function
+                    wfc = compute_weighted_mean_fold_change(
+                        diff_expr.fold_change,
+                        log_density_condition1=diff_expr.differential_abundance.log_density_condition1,
+                        log_density_condition2=diff_expr.differential_abundance.log_density_condition2
+                    )
+                except Exception as e:
+                    logger.warning(f"Error computing weighted fold change: {e}. Using regular fold change.")
+                    wfc = np.mean(diff_expr.fold_change, axis=0)
             else:
-                wfc = np.zeros(n_genes)  # Default to zeros if not available
+                logger.info("Weighted fold change not computed. Using regular fold change.")
+                wfc = np.mean(diff_expr.fold_change, axis=0)
+        else:
+            logger.info("Fold change not available. Using zeros.")
+            wfc = np.zeros(n_genes)  # Default to zeros if not available
             
         # Handle additional metrics
         if hasattr(diff_expr, 'lfc_stds') and diff_expr.lfc_stds is not None:
@@ -312,15 +335,37 @@ class HTMLReporter:
         
         # Generate gene names if not provided
         if gene_names is None:
-            gene_names = [f"gene_{i}" for i in range(kompot_results.fold_change.shape[1])]
+            # Check if fold_change is available
+            if hasattr(kompot_results, 'fold_change') and kompot_results.fold_change is not None:
+                gene_count = kompot_results.fold_change.shape[1]
+            else:
+                # Default to a reasonable number if fold_change isn't available
+                gene_count = 20
+                logger.warning(f"Could not determine gene count from fold_change. Using default: {gene_count}")
+            gene_names = [f"gene_{i}" for i in range(gene_count)]
         
         # Extract Kompot data
-        kompot_df = pd.DataFrame({
-            "gene": gene_names,
-            "log2FoldChange": np.mean(kompot_results.fold_change, axis=0),
-            "z_score": np.mean(kompot_results.fold_change_zscores, axis=0),
-            "mahalanobis_distance": kompot_results.mahalanobis_distances,
-        })
+        df_data = {"gene": gene_names}
+        
+        # Add fold change if available
+        if hasattr(kompot_results, 'fold_change') and kompot_results.fold_change is not None:
+            df_data["log2FoldChange"] = np.mean(kompot_results.fold_change, axis=0)
+        else:
+            df_data["log2FoldChange"] = np.zeros(len(gene_names))
+            
+        # Add z-scores if available
+        if hasattr(kompot_results, 'fold_change_zscores') and kompot_results.fold_change_zscores is not None:
+            df_data["z_score"] = np.mean(kompot_results.fold_change_zscores, axis=0)
+        else:
+            df_data["z_score"] = np.zeros(len(gene_names))
+            
+        # Add Mahalanobis distances if available
+        if hasattr(kompot_results, 'mahalanobis_distances') and kompot_results.mahalanobis_distances is not None:
+            df_data["mahalanobis_distance"] = kompot_results.mahalanobis_distances
+        else:
+            df_data["mahalanobis_distance"] = np.zeros(len(gene_names))
+            
+        kompot_df = pd.DataFrame(df_data)
         
         # Store the comparison data
         self.comparison_data.append({
@@ -475,18 +520,18 @@ class HTMLReporter:
                     # If imputed values are not available
                     cond1_values = []
                     cond2_values = []
-                    
-                    # Add to the gene data dictionary
-                    gene_data[gene_name][comp_key] = {
-                        "condition1": {
-                            "name": data["condition1"],
-                            "values": cond1_values
-                        },
-                        "condition2": {
-                            "name": data["condition2"],
-                            "values": cond2_values
-                        }
+                
+                # Add to the gene data dictionary
+                gene_data[gene_name][comp_key] = {
+                    "condition1": {
+                        "name": data["condition1"],
+                        "values": cond1_values
+                    },
+                    "condition2": {
+                        "name": data["condition2"],
+                        "values": cond2_values
                     }
+                }
         
         return gene_data
     

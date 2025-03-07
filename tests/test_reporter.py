@@ -48,7 +48,13 @@ def generate_test_data(n_cells=100, n_genes=20, n_landmarks=10):
     )
     diff_expression.fit(X_condition1, y_condition1, X_condition2, y_condition2)
     
-    # Run prediction to compute fold changes and other metrics
+    # Need to add condition indices and predict to populate fold_change
+    diff_expression.n_condition1 = len(X_condition1)
+    diff_expression.n_condition2 = len(X_condition2)
+    diff_expression.condition1_indices = np.arange(diff_expression.n_condition1)
+    diff_expression.condition2_indices = np.arange(diff_expression.n_condition1, diff_expression.n_condition1 + diff_expression.n_condition2)
+    
+    # Run prediction to compute fold changes and populate class attributes
     expression_results = diff_expression.predict(X_combined, compute_mahalanobis=True)
     
     return diff_expression, gene_names

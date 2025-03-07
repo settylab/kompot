@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 from typing import Optional, Union, Dict, Any, List, Tuple
 
-from ..differential import DifferentialAbundance, DifferentialExpression
+from ..differential import DifferentialAbundance, DifferentialExpression, compute_weighted_mean_fold_change
 from ..reporter import HTMLReporter
 
 logger = logging.getLogger("kompot")
@@ -421,8 +421,8 @@ def compute_differential_expression(
         # Calculate log density difference directly
         log_density_diff = np.exp(np.abs(log_density_condition2 - log_density_condition1))
         
-        # Use the standalone method to compute weighted mean fold change with pre-computed difference
-        expression_results['weighted_mean_log_fold_change'] = diff_expression.compute_weighted_mean_fold_change(
+        # Use the standalone function to compute weighted mean fold change with pre-computed difference
+        expression_results['weighted_mean_log_fold_change'] = compute_weighted_mean_fold_change(
             expression_results['fold_change'],
             log_density_diff=log_density_diff
         )

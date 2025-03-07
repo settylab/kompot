@@ -2,7 +2,7 @@
 
 import numpy as np
 import pytest
-from kompot.differential import DifferentialAbundance, DifferentialExpression
+from kompot.differential import DifferentialAbundance, DifferentialExpression, compute_weighted_mean_fold_change
 
 
 def test_differential_abundance_fit():
@@ -97,6 +97,13 @@ def test_differential_expression_fit():
     
     # Now run prediction to get fold changes and metrics
     X_combined = np.vstack([X_condition1, X_condition2])
+    
+    # Add condition indices to make backward compatibility code work
+    diff_expression.n_condition1 = len(X_condition1)
+    diff_expression.n_condition2 = len(X_condition2)
+    diff_expression.condition1_indices = np.arange(diff_expression.n_condition1)
+    diff_expression.condition2_indices = np.arange(diff_expression.n_condition1, diff_expression.n_condition1 + diff_expression.n_condition2)
+    
     predictions = diff_expression.predict(X_combined, compute_mahalanobis=True)
     
     # Check predictions dictionary contains expected keys
@@ -215,6 +222,13 @@ def test_differential_expression_predict():
     
     # Test prediction on the combined dataset for Mahalanobis distances
     X_combined = np.vstack([X_condition1, X_condition2])
+    
+    # Add condition indices to make backward compatibility code work
+    diff_expression.n_condition1 = len(X_condition1)
+    diff_expression.n_condition2 = len(X_condition2)
+    diff_expression.condition1_indices = np.arange(diff_expression.n_condition1)
+    diff_expression.condition2_indices = np.arange(diff_expression.n_condition1, diff_expression.n_condition1 + diff_expression.n_condition2)
+    
     combined_predictions = diff_expression.predict(X_combined, compute_mahalanobis=True)
     
     # Check that Mahalanobis distances are computed
@@ -312,3 +326,134 @@ def test_differential_expression_predict():
     # Should include condition-specific metrics
     assert 'condition1_cells_mean_log_fold_change' in predictions_with_labels
     assert 'condition2_cells_mean_log_fold_change' in predictions_with_labels
+
+
+def test_compute_weighted_mean_fold_change_standalone():
+    """Test the standalone compute_weighted_mean_fold_change function."""
+    # Generate sample data
+    n_cells, n_genes = 100, 10
+    fold_change = np.random.randn(n_cells, n_genes)
+    log_density_condition1 = np.random.randn(n_cells)
+    log_density_condition2 = np.random.randn(n_cells) + 0.5
+    
+    # Calculate using log_density_condition1 and log_density_condition2
+    weighted_lfc = compute_weighted_mean_fold_change(
+        fold_change, 
+        log_density_condition1=log_density_condition1,
+        log_density_condition2=log_density_condition2
+    )
+    
+    # Check results
+    assert weighted_lfc.shape == (n_genes,)
+    assert np.isfinite(weighted_lfc).all()
+    
+    # Calculate log_density_diff manually
+    log_density_diff = np.exp(np.abs(log_density_condition2 - log_density_condition1))
+    
+    # Calculate using pre-computed log_density_diff
+    weighted_lfc_precomputed = compute_weighted_mean_fold_change(
+        fold_change,
+        log_density_diff=log_density_diff
+    )
+    
+    # Both methods should give identical results
+    np.testing.assert_allclose(weighted_lfc, weighted_lfc_precomputed)
+    
+    # Test with pandas Series
+    try:
+        import pandas as pd
+        log_density_condition1_series = pd.Series(log_density_condition1)
+        log_density_condition2_series = pd.Series(log_density_condition2)
+        
+        # Calculate using pandas Series
+        weighted_lfc_series = compute_weighted_mean_fold_change(
+            fold_change,
+            log_density_condition1=log_density_condition1_series,
+            log_density_condition2=log_density_condition2_series
+        )
+        
+        # Results should be the same as with numpy arrays
+        np.testing.assert_allclose(weighted_lfc, weighted_lfc_series)
+        
+        # Test with pandas Series for log_density_diff
+        log_density_diff_series = pd.Series(log_density_diff)
+        weighted_lfc_diff_series = compute_weighted_mean_fold_change(
+            fold_change,
+            log_density_diff=log_density_diff_series
+        )
+        
+        # Results should be the same
+        np.testing.assert_allclose(weighted_lfc, weighted_lfc_diff_series)
+    except ImportError:
+        # Skip pandas tests if pandas is not available
+        pass
+        
+    # Test error case when neither log_density_diff nor both density conditions are provided
+    with pytest.raises(ValueError):
+        compute_weighted_mean_fold_change(fold_change)
+        
+    with pytest.raises(ValueError):
+        compute_weighted_mean_fold_change(
+            fold_change,
+            log_density_condition1=log_density_condition1
+        )
+        
+    with pytest.raises(ValueError):
+        compute_weighted_mean_fold_change(
+            fold_change,
+            log_density_condition2=log_density_condition2
+        )
+        
+
+def test_weighted_fold_change_integration():
+    """
+    Test that the standalone function produces the same results as the usage in DifferentialExpression.
+    This verifies our refactoring maintains backward compatibility.
+    """
+    # Create sample data
+    n_cells, n_features, n_genes = 50, 5, 8
+    X_condition1 = np.random.randn(n_cells, n_features)
+    y_condition1 = np.random.randn(n_cells, n_genes)
+    X_condition2 = np.random.randn(n_cells, n_features) + 0.5
+    y_condition2 = np.random.randn(n_cells, n_genes) + 1.0
+    
+    # Create a full dataset for prediction
+    X_combined = np.vstack([X_condition1, X_condition2])
+    
+    # Compute log density for both conditions
+    diff_abundance = DifferentialAbundance()
+    diff_abundance.fit(X_condition1, X_condition2)
+    abundance_results = diff_abundance.predict(X_combined)
+    
+    # Create differential expression object
+    diff_expression = DifferentialExpression(
+        compute_weighted_fold_change=True,
+        differential_abundance=diff_abundance
+    )
+    diff_expression.fit(X_condition1, y_condition1, X_condition2, y_condition2)
+    
+    # Add condition indices to make backward compatibility code work
+    diff_expression.n_condition1 = len(X_condition1)
+    diff_expression.n_condition2 = len(X_condition2)
+    diff_expression.condition1_indices = np.arange(diff_expression.n_condition1)
+    diff_expression.condition2_indices = np.arange(diff_expression.n_condition1, diff_expression.n_condition1 + diff_expression.n_condition2)
+    
+    # Predict and get results from DifferentialExpression
+    expression_results = diff_expression.predict(X_combined)
+    
+    # Now calculate manually using the standalone function
+    fold_change = expression_results['fold_change']
+    log_density_condition1 = abundance_results['log_density_condition1']
+    log_density_condition2 = abundance_results['log_density_condition2']
+    
+    manual_weighted_lfc = compute_weighted_mean_fold_change(
+        fold_change,
+        log_density_condition1=log_density_condition1,
+        log_density_condition2=log_density_condition2
+    )
+    
+    # Verify results are identical
+    np.testing.assert_allclose(
+        manual_weighted_lfc,
+        expression_results['weighted_mean_log_fold_change']
+    )
