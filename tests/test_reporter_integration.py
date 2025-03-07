@@ -76,9 +76,9 @@ def generate_test_data_with_anndata(n_cells=100, n_genes=20, n_landmarks=10):
     X_combined = np.vstack([X_condition1, X_condition2])
     abundance_results = diff_abundance.predict(X_combined)
     
+    # Create differential expression object (no longer references differential_abundance)
     diff_expression = DifferentialExpression(
-        n_landmarks=n_landmarks,
-        differential_abundance=diff_abundance
+        n_landmarks=n_landmarks
     )
     diff_expression.fit(X_condition1, y_condition1, X_condition2, y_condition2)
     
@@ -223,9 +223,9 @@ def test_specific_gene_plots():
     X_combined = np.vstack([X_condition1, X_condition2])
     abundance_results = diff_abundance.predict(X_combined)
     
+    # Create differential expression object without differential_abundance
     diff_expr = DifferentialExpression(
-        n_landmarks=n_landmarks,
-        differential_abundance=diff_abundance
+        n_landmarks=n_landmarks
     )
     diff_expr.fit(X_condition1, y_condition1, X_condition2, y_condition2)
     

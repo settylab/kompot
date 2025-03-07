@@ -155,35 +155,12 @@ class HTMLReporter:
         else:
             m_distances = diff_expr.mahalanobis_distances  # Already correct shape (n_genes,)
             
-        # Check for weighted fold change in the result
-        if hasattr(diff_expr, 'weighted_mean_log_fold_change') and diff_expr.weighted_mean_log_fold_change is not None:
-            wfc = diff_expr.weighted_mean_log_fold_change  # Already correct shape (n_genes,)
-        # Try to compute it if we have density information, but weighted_mean_log_fold_change is not set
-        elif hasattr(diff_expr, 'fold_change') and diff_expr.fold_change is not None:
-            # Check if we can compute weighted log fold change using differential abundance
-            if (hasattr(diff_expr, 'differential_abundance') and 
-                diff_expr.differential_abundance is not None and 
-                hasattr(diff_expr.differential_abundance, 'log_density_condition1') and
-                diff_expr.differential_abundance.log_density_condition1 is not None and
-                hasattr(diff_expr.differential_abundance, 'log_density_condition2') and
-                diff_expr.differential_abundance.log_density_condition2 is not None):
-                
-                # Import the standalone function at runtime to avoid circular imports
-                from ..differential import compute_weighted_mean_fold_change
-                
-                try:
-                    # Compute weighted log fold change using standalone function
-                    wfc = compute_weighted_mean_fold_change(
-                        diff_expr.fold_change,
-                        log_density_condition1=diff_expr.differential_abundance.log_density_condition1,
-                        log_density_condition2=diff_expr.differential_abundance.log_density_condition2
-                    )
-                except Exception as e:
-                    logger.warning(f"Error computing weighted fold change: {e}. Using regular fold change.")
-                    wfc = np.mean(diff_expr.fold_change, axis=0)
-            else:
-                logger.info("Weighted fold change not computed. Using regular fold change.")
-                wfc = np.mean(diff_expr.fold_change, axis=0)
+        # We no longer use weighted fold change from the DifferentialExpression object
+        # Just use regular fold change for this value
+        if hasattr(diff_expr, 'fold_change') and diff_expr.fold_change is not None:
+            # Use regular mean fold change as weighted fold change is no longer supported in DifferentialExpression
+            wfc = np.mean(diff_expr.fold_change, axis=0)
+            logger.info("Using regular fold change for report. DifferentialExpression no longer stores weighted_mean_log_fold_change.")
         else:
             logger.info("Fold change not available. Using zeros.")
             wfc = np.zeros(n_genes)  # Default to zeros if not available
@@ -349,9 +326,13 @@ class HTMLReporter:
         
         # Add fold change if available
         if hasattr(kompot_results, 'fold_change') and kompot_results.fold_change is not None:
-            df_data["log2FoldChange"] = np.mean(kompot_results.fold_change, axis=0)
+            mean_fold_change = np.mean(kompot_results.fold_change, axis=0)
+            df_data["log2FoldChange"] = mean_fold_change
+            # Use regular fold change for weighted fold change (which is no longer directly available)
+            df_data["weighted_fold_change"] = mean_fold_change
         else:
             df_data["log2FoldChange"] = np.zeros(len(gene_names))
+            df_data["weighted_fold_change"] = np.zeros(len(gene_names))
             
         # Add z-scores if available
         if hasattr(kompot_results, 'fold_change_zscores') and kompot_results.fold_change_zscores is not None:
@@ -464,14 +445,19 @@ class HTMLReporter:
                     }
             
             # Create comparison dictionary
+            kompot_data = {
+                "log2FoldChange": kompot_df["log2FoldChange"].tolist(),
+                "z_score": kompot_df["z_score"].tolist(),
+                "mahalanobis_distance": kompot_df["mahalanobis_distance"].tolist(),
+                "genes": kompot_df["gene"].tolist()
+            }
+            
+            # Add weighted_fold_change (using regular fold change)
+            kompot_data["weighted_fold_change"] = kompot_df["log2FoldChange"].tolist()
+            
             comp_dict = {
                 "name": comp["name"],
-                "kompot": {
-                    "log2FoldChange": kompot_df["log2FoldChange"].tolist(),
-                    "z_score": kompot_df["z_score"].tolist(),
-                    "mahalanobis_distance": kompot_df["mahalanobis_distance"].tolist(),
-                    "genes": kompot_df["gene"].tolist()
-                },
+                "kompot": kompot_data,
                 "methods": method_data
             }
             

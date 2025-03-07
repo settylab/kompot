@@ -4,11 +4,12 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 from functools import partial
-from typing import Tuple, List, Optional, Union, Dict, Any
+from typing import Tuple, List, Optional, Union, Dict, Any, Callable
 import logging
 from scipy.stats import norm as normal
 from scipy.sparse import csr_matrix
 from tqdm.auto import tqdm
+from sklearn.neighbors import NearestNeighbors
 
 import mellon
 from mellon.parameters import compute_landmarks
@@ -315,6 +316,356 @@ class DifferentialAbundance:
         }
 
 
+class EmpiricVarianceEstimator:
+    """
+    Compute empirical variance for differential expression.
+    
+    This class manages the computation of empirical variance using sample indices for both conditions.
+    It can train function estimators for each sample group or use nearest-neighbor lookup for 
+    empirical variance calculation.
+    
+    Attributes
+    ----------
+    condition1_sample_indices : np.ndarray
+        Sample indices for the first condition.
+    condition2_sample_indices : np.ndarray
+        Sample indices for the second condition.
+    X_condition1 : np.ndarray
+        Cell states for the first condition. Shape (n_cells, n_features).
+    X_condition2 : np.ndarray
+        Cell states for the second condition. Shape (n_cells, n_features).
+    y_condition1 : np.ndarray
+        Gene expression values for the first condition. Shape (n_cells, n_genes).
+    y_condition2 : np.ndarray
+        Gene expression values for the second condition. Shape (n_cells, n_genes).
+    """
+    
+    def __init__(
+        self,
+        condition1_sample_indices: Optional[np.ndarray] = None,
+        condition2_sample_indices: Optional[np.ndarray] = None,
+        n_neighbors: int = 5,
+        use_subset_estimators: bool = True,
+        eps: float = 1e-12,
+    ):
+        """
+        Initialize the EmpiricVarianceEstimator.
+        
+        Parameters
+        ----------
+        condition1_sample_indices : np.ndarray, optional
+            Sample indices for first condition. Unique values define sample groups.
+        condition2_sample_indices : np.ndarray, optional
+            Sample indices for second condition. Unique values define sample groups.
+        n_neighbors : int, optional
+            Number of nearest neighbors to use for variance estimation, by default 5.
+        use_subset_estimators : bool, optional
+            Whether to train separate estimators for each sample group, by default True.
+            If False, will use nearest neighbor lookup instead.
+        eps : float, optional
+            Small constant for numerical stability, by default 1e-12.
+        """
+        self.condition1_sample_indices = condition1_sample_indices
+        self.condition2_sample_indices = condition2_sample_indices
+        self.n_neighbors = n_neighbors
+        self.use_subset_estimators = use_subset_estimators
+        self.eps = eps
+        
+        # Will be populated during fit
+        self.X_condition1 = None
+        self.X_condition2 = None
+        self.y_condition1 = None
+        self.y_condition2 = None
+        
+        # Sample group organization
+        self.condition1_sample_groups = {}
+        self.condition2_sample_groups = {}
+        
+        # For subset-based estimators approach
+        self.condition1_sample_estimators = {}
+        self.condition2_sample_estimators = {}
+        self.condition1_error_squares = None
+        self.condition2_error_squares = None
+        
+        # For NN-based approach
+        self.condition1_nn = None
+        self.condition2_nn = None
+        self.condition1_raw_errors = None
+        self.condition2_raw_errors = None
+        
+    def fit(
+        self, 
+        X_condition1: np.ndarray,
+        y_condition1: np.ndarray, 
+        X_condition2: np.ndarray,
+        y_condition2: np.ndarray,
+        function_predictor1: Callable,
+        function_predictor2: Callable,
+        function_estimator_kwargs: Dict = None
+    ):
+        """
+        Fit empirical variance estimators for both conditions.
+        
+        Parameters
+        ----------
+        X_condition1 : np.ndarray
+            Cell states for the first condition. Shape (n_cells, n_features).
+        y_condition1 : np.ndarray
+            Gene expression values for the first condition. Shape (n_cells, n_genes).
+        X_condition2 : np.ndarray
+            Cell states for the second condition. Shape (n_cells, n_features).
+        y_condition2 : np.ndarray
+            Gene expression values for the second condition. Shape (n_cells, n_genes).
+        function_predictor1 : Callable
+            Function predictor for the first condition to compute prediction errors.
+        function_predictor2 : Callable
+            Function predictor for the second condition to compute prediction errors.
+        function_estimator_kwargs : Dict, optional
+            Additional arguments to pass to FunctionEstimator constructor.
+            
+        Returns
+        -------
+        self
+            The fitted instance.
+        """
+        # Store the data for later use
+        self.X_condition1 = X_condition1
+        self.X_condition2 = X_condition2
+        self.y_condition1 = y_condition1
+        self.y_condition2 = y_condition2
+        
+        if function_estimator_kwargs is None:
+            function_estimator_kwargs = {}
+        
+        # Check if sample indices are provided
+        if self.condition1_sample_indices is None or self.condition2_sample_indices is None:
+            logger.warning("No sample indices provided. Empirical variance estimation will be limited.")
+            return self
+        
+        # Validate sample indices
+        if len(self.condition1_sample_indices) != len(X_condition1):
+            raise ValueError("condition1_sample_indices length must match X_condition1 length")
+        if len(self.condition2_sample_indices) != len(X_condition2):
+            raise ValueError("condition2_sample_indices length must match X_condition2 length")
+            
+        # Get unique sample groups
+        unique_samples1 = np.unique(self.condition1_sample_indices)
+        unique_samples2 = np.unique(self.condition2_sample_indices)
+        
+        logger.info(f"Found {len(unique_samples1)} unique sample groups for condition 1")
+        logger.info(f"Found {len(unique_samples2)} unique sample groups for condition 2")
+        
+        # Organize data by sample groups
+        self.condition1_sample_groups = {
+            sample_id: np.where(self.condition1_sample_indices == sample_id)[0]
+            for sample_id in unique_samples1
+        }
+        
+        self.condition2_sample_groups = {
+            sample_id: np.where(self.condition2_sample_indices == sample_id)[0]
+            for sample_id in unique_samples2
+        }
+        
+        # Compute predictions and raw errors for each condition
+        logger.info("Computing prediction errors for condition 1...")
+        condition1_preds = function_predictor1(X_condition1)
+        self.condition1_raw_errors = (y_condition1 - condition1_preds) ** 2
+        
+        logger.info("Computing prediction errors for condition 2...")
+        condition2_preds = function_predictor2(X_condition2)
+        self.condition2_raw_errors = (y_condition2 - condition2_preds) ** 2
+        
+        # If using subset estimators, train function estimators for each sample group
+        if self.use_subset_estimators:
+            logger.info("Training sample-specific function estimators for empirical variance...")
+            
+            # Train estimators for condition 1 sample groups
+            for sample_id, indices in self.condition1_sample_groups.items():
+                if len(indices) > 10:  # Only train if we have enough data points
+                    logger.info(f"Training estimator for condition 1, sample group {sample_id} with {len(indices)} cells")
+                    X_subset = X_condition1[indices]
+                    errors_subset = self.condition1_raw_errors[indices]
+                    
+                    # Create and train estimator
+                    estimator = mellon.FunctionEstimator(**function_estimator_kwargs)
+                    estimator.fit(X_subset, errors_subset)
+                    self.condition1_sample_estimators[sample_id] = estimator
+                else:
+                    logger.warning(f"Skipping sample group {sample_id} for condition 1 (only {len(indices)} cells)")
+            
+            # Train estimators for condition 2 sample groups
+            for sample_id, indices in self.condition2_sample_groups.items():
+                if len(indices) > 10:  # Only train if we have enough data points
+                    logger.info(f"Training estimator for condition 2, sample group {sample_id} with {len(indices)} cells")
+                    X_subset = X_condition2[indices]
+                    errors_subset = self.condition2_raw_errors[indices]
+                    
+                    # Create and train estimator
+                    estimator = mellon.FunctionEstimator(**function_estimator_kwargs)
+                    estimator.fit(X_subset, errors_subset)
+                    self.condition2_sample_estimators[sample_id] = estimator
+                else:
+                    logger.warning(f"Skipping sample group {sample_id} for condition 2 (only {len(indices)} cells)")
+        else:
+            # Initialize nearest neighbor models for fast lookup
+            logger.info("Building nearest neighbor models for empirical variance estimation...")
+            self.condition1_nn = NearestNeighbors(n_neighbors=min(self.n_neighbors, len(X_condition1)))
+            self.condition1_nn.fit(X_condition1)
+            
+            self.condition2_nn = NearestNeighbors(n_neighbors=min(self.n_neighbors, len(X_condition2)))
+            self.condition2_nn.fit(X_condition2)
+            
+        return self
+        
+    def predict_variance(self, X_new: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Predict empirical variance for new points.
+        
+        Parameters
+        ----------
+        X_new : np.ndarray
+            New cell states to predict. Shape (n_cells, n_features).
+            
+        Returns
+        -------
+        tuple
+            (condition1_error_squares, condition2_error_squares) - Empirical error squares
+            for each condition. Each has shape (n_cells, n_genes).
+        """
+        if self.X_condition1 is None or self.X_condition2 is None:
+            raise ValueError("Model not fitted. Call fit() first.")
+            
+        n_cells = len(X_new)
+        n_genes = self.y_condition1.shape[1] if len(self.y_condition1.shape) > 1 else 1
+        
+        # Initialize output arrays
+        error_squares1 = np.zeros((n_cells, n_genes))
+        error_squares2 = np.zeros((n_cells, n_genes))
+        
+        if self.use_subset_estimators and (self.condition1_sample_estimators or self.condition2_sample_estimators):
+            # Use trained sample estimators for prediction
+            logger.info("Using sample-specific estimators for variance prediction...")
+            
+            # First, find the closest sample group for each point in X_new for condition 1
+            if self.condition1_sample_estimators:
+                sample_centroids1 = {
+                    sample_id: np.mean(self.X_condition1[indices], axis=0)
+                    for sample_id, indices in self.condition1_sample_groups.items()
+                    if sample_id in self.condition1_sample_estimators
+                }
+                
+                # Compute distances to each centroid
+                for i, x in enumerate(X_new):
+                    # Find closest sample group
+                    min_dist = float('inf')
+                    closest_sample = None
+                    
+                    for sample_id, centroid in sample_centroids1.items():
+                        dist = np.sum((x - centroid) ** 2)
+                        if dist < min_dist:
+                            min_dist = dist
+                            closest_sample = sample_id
+                    
+                    # Use the estimator for the closest sample group
+                    if closest_sample is not None and closest_sample in self.condition1_sample_estimators:
+                        error_squares1[i] = self.condition1_sample_estimators[closest_sample].predict([x])[0]
+            
+            # Same for condition 2
+            if self.condition2_sample_estimators:
+                sample_centroids2 = {
+                    sample_id: np.mean(self.X_condition2[indices], axis=0)
+                    for sample_id, indices in self.condition2_sample_groups.items()
+                    if sample_id in self.condition2_sample_estimators
+                }
+                
+                # Compute distances to each centroid
+                for i, x in enumerate(X_new):
+                    # Find closest sample group
+                    min_dist = float('inf')
+                    closest_sample = None
+                    
+                    for sample_id, centroid in sample_centroids2.items():
+                        dist = np.sum((x - centroid) ** 2)
+                        if dist < min_dist:
+                            min_dist = dist
+                            closest_sample = sample_id
+                    
+                    # Use the estimator for the closest sample group
+                    if closest_sample is not None and closest_sample in self.condition2_sample_estimators:
+                        error_squares2[i] = self.condition2_sample_estimators[closest_sample].predict([x])[0]
+        
+        elif self.condition1_nn is not None and self.condition2_nn is not None:
+            # Use nearest neighbor lookup
+            logger.info("Using nearest neighbor lookup for variance prediction...")
+            
+            # Find k nearest neighbors for each point in X_new for condition 1
+            distances1, indices1 = self.condition1_nn.kneighbors(X_new)
+            
+            # Calculate weighted average of errors using inverse distance weighting
+            for i in range(n_cells):
+                # Add small constant to avoid division by zero
+                weights1 = 1.0 / (distances1[i] + self.eps)
+                weights1 = weights1 / np.sum(weights1)
+                
+                # Compute weighted average of errors from nearest neighbors
+                for j, (idx, w) in enumerate(zip(indices1[i], weights1)):
+                    error_squares1[i] += w * self.condition1_raw_errors[idx]
+            
+            # Same for condition 2
+            distances2, indices2 = self.condition2_nn.kneighbors(X_new)
+            
+            for i in range(n_cells):
+                weights2 = 1.0 / (distances2[i] + self.eps)
+                weights2 = weights2 / np.sum(weights2)
+                
+                for j, (idx, w) in enumerate(zip(indices2[i], weights2)):
+                    error_squares2[i] += w * self.condition2_raw_errors[idx]
+        
+        else:
+            logger.warning("No suitable variance estimation method available. Using zeros.")
+        
+        return error_squares1, error_squares2
+    
+    def get_sample_variance_summary(self) -> Dict[str, Dict]:
+        """
+        Get a summary of variance statistics per sample group.
+        
+        Returns
+        -------
+        dict
+            Dictionary with sample variance statistics for both conditions.
+        """
+        if self.condition1_raw_errors is None or self.condition2_raw_errors is None:
+            raise ValueError("Model not fitted. Call fit() first.")
+            
+        summary = {
+            "condition1": {},
+            "condition2": {}
+        }
+        
+        # Compute statistics for condition 1 sample groups
+        for sample_id, indices in self.condition1_sample_groups.items():
+            errors = self.condition1_raw_errors[indices]
+            summary["condition1"][sample_id] = {
+                "n_cells": len(indices),
+                "mean_error": np.mean(errors),
+                "median_error": np.median(errors),
+                "std_error": np.std(errors),
+            }
+        
+        # Compute statistics for condition 2 sample groups
+        for sample_id, indices in self.condition2_sample_groups.items():
+            errors = self.condition2_raw_errors[indices]
+            summary["condition2"][sample_id] = {
+                "n_cells": len(indices),
+                "mean_error": np.mean(errors),
+                "median_error": np.median(errors),
+                "std_error": np.std(errors),
+            }
+            
+        return summary
+
+
 def compute_weighted_mean_fold_change(
     fold_change: np.ndarray,
     log_density_condition1: np.ndarray = None,
@@ -403,25 +754,24 @@ class DifferentialExpression:
         Z-scores for the fold changes.
     mahalanobis_distances : np.ndarray
         Mahalanobis distances for each gene.
-    weighted_mean_log_fold_change : np.ndarray
-        Weighted mean log fold change, using density differences as weights.
     """
     
     def __init__(
         self,
         n_landmarks: Optional[int] = None,
         use_empirical_variance: bool = False,
-        compute_weighted_fold_change: bool = True,
-        differential_abundance: Optional["DifferentialAbundance"] = None,
-        precomputed_densities: Optional[Dict[str, np.ndarray]] = None,
         eps: float = 1e-12,
         jit_compile: bool = False,
         function_predictor1: Optional[Any] = None,
         function_predictor2: Optional[Any] = None,
-        density_predictor1: Optional[Any] = None,
-        density_predictor2: Optional[Any] = None,
         random_state: Optional[int] = None,
         batch_size: int = 100,
+        # Sample-specific empirical variance parameters
+        condition1_sample_indices: Optional[np.ndarray] = None,
+        condition2_sample_indices: Optional[np.ndarray] = None,
+        use_sample_specific_variance: bool = False,
+        sample_variance_n_neighbors: int = 5,
+        sample_variance_use_estimators: bool = True,
     ):
         """
         Initialize DifferentialExpression.
@@ -435,15 +785,6 @@ class DifferentialExpression:
             When True, the class will train additional function estimators to model and predict
             the squared prediction errors at each point, which improves variance estimation
             for fold change significance testing.
-        compute_weighted_fold_change : bool, optional
-            Whether to compute weighted mean log fold change, by default True.
-        differential_abundance : DifferentialAbundance, optional
-            Pre-computed differential abundance object. If None, a new one will be created
-            when needed, by default None.
-        precomputed_densities : Dict[str, np.ndarray], optional
-            Pre-computed densities for both conditions. Only needed for wheighted log-fold change. If provided, should contain:
-            - 'log_density_condition1': Log density for condition 1
-            - 'log_density_condition2': Log density for condition 2
         eps : float, optional
             Small constant for numerical stability, by default 1e-12.
         jit_compile : bool, optional
@@ -452,10 +793,6 @@ class DifferentialExpression:
             Precomputed function predictor for condition 1, typically from FunctionEstimator.predict
         function_predictor2 : Any, optional
             Precomputed function predictor for condition 2, typically from FunctionEstimator.predict
-        density_predictor1 : Any, optional
-            Precomputed density predictor for condition 1, typically from DensityEstimator.predict
-        density_predictor2 : Any, optional
-            Precomputed density predictor for condition 2, typically from DensityEstimator.predict
         random_state : int, optional
             Random seed for reproducible landmark selection when n_landmarks is specified.
             Controls the random selection of points when using approximation, by default None.
@@ -463,18 +800,39 @@ class DifferentialExpression:
             Number of genes to process in each batch during Mahalanobis distance computation.
             Smaller values use less memory but are slower, by default 100. Increase for
             faster computation if you have sufficient memory.
+        condition1_sample_indices : np.ndarray, optional
+            Sample indices for first condition. Used for sample-specific variance estimation.
+            Unique values in this array define different sample groups.
+        condition2_sample_indices : np.ndarray, optional
+            Sample indices for second condition. Used for sample-specific variance estimation.
+            Unique values in this array define different sample groups.
+        use_sample_specific_variance : bool, optional
+            Whether to use sample-specific variance estimation based on the provided
+            sample indices, by default False. When True, overrides use_empirical_variance.
+        sample_variance_n_neighbors : int, optional
+            Number of nearest neighbors to use for sample-specific variance estimation,
+            by default 5. Only used when use_sample_specific_variance=True.
+        sample_variance_use_estimators : bool, optional
+            Whether to train separate estimators for each sample group (True) or use
+            nearest neighbor lookup (False), by default True.
         """
         self.n_landmarks = n_landmarks
         self.use_empirical_variance = use_empirical_variance
-        self.compute_weighted_fold_change = compute_weighted_fold_change
         self.eps = eps
         self.jit_compile = jit_compile
         self.random_state = random_state
         self.batch_size = batch_size
         
-        # Store random_state for reproducible landmark selection if specified
-        # We don't need to set np.random.seed here anymore as we'll pass the 
-        # random_state directly to compute_landmarks
+        # Sample-specific empirical variance parameters
+        self.condition1_sample_indices = condition1_sample_indices
+        self.condition2_sample_indices = condition2_sample_indices
+        self.use_sample_specific_variance = use_sample_specific_variance
+        self.sample_variance_n_neighbors = sample_variance_n_neighbors
+        self.sample_variance_use_estimators = sample_variance_use_estimators
+        
+        # If sample-specific variance is enabled, make sure empirical variance is also enabled
+        if self.use_sample_specific_variance:
+            self.use_empirical_variance = True
         
         # Store condition sizes and indices
         self.n_condition1 = None
@@ -491,7 +849,6 @@ class DifferentialExpression:
         self.fold_change = None
         self.fold_change_zscores = None
         self.mahalanobis_distances = None
-        self.weighted_mean_log_fold_change = None
         self.lfc_stds = None
         self.bidirectionality = None
         
@@ -501,15 +858,12 @@ class DifferentialExpression:
         self.function_predictor1 = function_predictor1
         self.function_predictor2 = function_predictor2
         
-        # Error squares estimators
+        # Error squares estimators (for traditional empirical variance)
         self.error_squares_estimator1 = None
         self.error_squares_estimator2 = None
         
-        # Differential abundance and density information
-        self.differential_abundance = differential_abundance
-        self.precomputed_densities = precomputed_densities
-        self.density_predictor1 = density_predictor1
-        self.density_predictor2 = density_predictor2
+        # Sample-specific empirical variance estimator
+        self.empiric_variance_estimator = None
         
     def fit(
         self, 
@@ -519,6 +873,8 @@ class DifferentialExpression:
         y_condition2: np.ndarray,
         sigma: float = 1.0,
         ls: Optional[float] = None,
+        sample_estimator_ls: Optional[float] = None,
+        compute_differential_abundance: bool = True,  # Added for backward compatibility
         **function_kwargs
     ):
         """
@@ -541,6 +897,12 @@ class DifferentialExpression:
             Noise level for function estimator, by default 1.0.
         ls : float, optional
             Length scale for the GP kernel. If None, it will be estimated, by default None.
+        sample_estimator_ls : float, optional
+            Length scale for the sample-specific variance estimators. If None, will use
+            the same value as ls or it will be estimated, by default None.
+        compute_differential_abundance : bool, optional
+            Whether to compute differential abundance for weighted fold change. This parameter
+            is included for backward compatibility, by default True.
         **function_kwargs : dict
             Additional arguments to pass to the FunctionEstimator.
             
@@ -552,7 +914,6 @@ class DifferentialExpression:
         # Store original condition sizes for indexing
         self.n_condition1 = len(X_condition1)
         self.n_condition2 = len(X_condition2)
-        
         
         # Create or use function predictors
         if self.function_predictor1 is None or self.function_predictor2 is None:
@@ -601,33 +962,87 @@ class DifferentialExpression:
             self.expression_estimator_condition2.fit(X_condition2, y_condition2)
             self.function_predictor2 = self.expression_estimator_condition2.predict
             
-            # If empirical variance is requested, also train error squares estimators
+            # No longer automatically compute density estimators for weighted fold change
+            # If the user wants weighted fold change, they should provide their own density estimators
+            # or call the standalone compute_weighted_mean_fold_change function
+            
+            # Handle empirical variance - either sample-specific or traditional
             if self.use_empirical_variance:
-                logger.info("Computing error squares for condition 1...")
-                # Compute predictions for condition 1
-                condition1_imputed = self.function_predictor1(X_condition1)
-                # Compute squared errors (real - predicted)^2
-                condition1_errors = (y_condition1 - condition1_imputed) ** 2
-                
-                logger.info("Fitting error squares estimator for condition 1...")
-                self.error_squares_estimator1 = mellon.FunctionEstimator(**estimator_defaults)
-                # Train a function estimator to predict the squared errors
-                self.error_squares_estimator1.fit(X_condition1, condition1_errors)
-                
-                logger.info("Computing error squares for condition 2...")
-                # Compute predictions for condition 2
-                condition2_imputed = self.function_predictor2(X_condition2)
-                # Compute squared errors (real - predicted)^2
-                condition2_errors = (y_condition2 - condition2_imputed) ** 2
-                
-                logger.info("Fitting error squares estimator for condition 2...")
-                self.error_squares_estimator2 = mellon.FunctionEstimator(**estimator_defaults)
-                # Train a function estimator to predict the squared errors
-                self.error_squares_estimator2.fit(X_condition2, condition2_errors)
-                
-                # Store the error squares for the training data
-                self.condition1_error_squares = self.error_squares_estimator1(X_condition1)
-                self.condition2_error_squares = self.error_squares_estimator2(X_condition2)
+                if self.use_sample_specific_variance:
+                    # Use the sample-specific variance approach
+                    logger.info("Using sample-specific empirical variance estimation...")
+                    
+                    # Create error variance estimator
+                    # Define parameters for sample-specific estimator
+                    sample_estimator_params = {
+                        'condition1_sample_indices': self.condition1_sample_indices,
+                        'condition2_sample_indices': self.condition2_sample_indices,
+                        'n_neighbors': self.sample_variance_n_neighbors,
+                        'use_subset_estimators': self.sample_variance_use_estimators,
+                        'eps': self.eps
+                    }
+                    
+                    # Create estimator
+                    self.empiric_variance_estimator = EmpiricVarianceEstimator(**sample_estimator_params)
+                    
+                    # Create function estimator parameters for sample-specific models
+                    sample_estimator_kwargs = estimator_defaults.copy()
+                    
+                    # Use specific length scale if provided
+                    if sample_estimator_ls is not None:
+                        sample_estimator_kwargs['ls'] = sample_estimator_ls
+                        
+                    # Fit the empirical variance estimator
+                    self.empiric_variance_estimator.fit(
+                        X_condition1, y_condition1,
+                        X_condition2, y_condition2,
+                        self.function_predictor1, self.function_predictor2,
+                        function_estimator_kwargs=sample_estimator_kwargs
+                    )
+                    
+                    # Compute error squares for training data
+                    self.condition1_error_squares, self.condition2_error_squares = \
+                        self.empiric_variance_estimator.predict_variance(
+                            np.vstack([X_condition1, X_condition2])
+                        )
+                    
+                    # Split the error squares back into the respective conditions
+                    self.condition1_error_squares = self.condition1_error_squares[:self.n_condition1]
+                    self.condition2_error_squares = self.condition2_error_squares[self.n_condition1:]
+                    
+                    # Log variance summary statistics
+                    if self.condition1_sample_indices is not None and self.condition2_sample_indices is not None:
+                        variance_summary = self.empiric_variance_estimator.get_sample_variance_summary()
+                        logger.info(f"Sample variance summary: {len(variance_summary['condition1'])} groups in condition 1, "
+                                   f"{len(variance_summary['condition2'])} groups in condition 2")
+                        
+                else:
+                    # Use the traditional error squares estimators approach
+                    logger.info("Using traditional empirical variance estimation...")
+                    
+                    # Compute predictions and errors for condition 1
+                    logger.info("Computing error squares for condition 1...")
+                    condition1_imputed = self.function_predictor1(X_condition1)
+                    condition1_errors = (y_condition1 - condition1_imputed) ** 2
+                    
+                    # Fit error squares estimator for condition 1
+                    logger.info("Fitting error squares estimator for condition 1...")
+                    self.error_squares_estimator1 = mellon.FunctionEstimator(**estimator_defaults)
+                    self.error_squares_estimator1.fit(X_condition1, condition1_errors)
+                    
+                    # Compute predictions and errors for condition 2
+                    logger.info("Computing error squares for condition 2...")
+                    condition2_imputed = self.function_predictor2(X_condition2)
+                    condition2_errors = (y_condition2 - condition2_imputed) ** 2
+                    
+                    # Fit error squares estimator for condition 2
+                    logger.info("Fitting error squares estimator for condition 2...")
+                    self.error_squares_estimator2 = mellon.FunctionEstimator(**estimator_defaults)
+                    self.error_squares_estimator2.fit(X_condition2, condition2_errors)
+                    
+                    # Store the error squares for the training data
+                    self.condition1_error_squares = self.error_squares_estimator1(X_condition1)
+                    self.condition2_error_squares = self.error_squares_estimator2(X_condition2)
         
         # The fit method now only creates estimators and doesn't compute fold changes
         logger.info("Function estimators fitted. Call predict() to compute fold changes.")
@@ -694,8 +1109,13 @@ class DifferentialExpression:
         # Add empirical adjustments if needed
         if self.use_empirical_variance:
             if has_landmarks and landmarks is not None:
-                # Use error squares estimators to predict at landmark points
-                if hasattr(self, 'error_squares_estimator1') and self.error_squares_estimator1 is not None:
+                # First check if we're using sample-specific variance
+                if self.use_sample_specific_variance and hasattr(self, 'empiric_variance_estimator') and self.empiric_variance_estimator is not None:
+                    # Use the sample-specific empirical variance estimator for landmarks
+                    landmarks_error1, landmarks_error2 = self.empiric_variance_estimator.predict_variance(landmarks)
+                    diag_adjust = (landmarks_error1 + landmarks_error2) / 2
+                # Then check if we have traditional error square estimators
+                elif hasattr(self, 'error_squares_estimator1') and self.error_squares_estimator1 is not None:
                     # Predict error squares at landmark points using the trained estimators
                     landmarks_error1 = self.error_squares_estimator1(landmarks)
                     landmarks_error2 = self.error_squares_estimator2(landmarks)
@@ -815,26 +1235,18 @@ class DifferentialExpression:
     def predict(
         self, 
         X_new: np.ndarray, 
-        density_predictions: Optional[Dict[str, np.ndarray]] = None,
         cell_condition_labels: Optional[np.ndarray] = None,
         compute_mahalanobis: bool = False
     ) -> Dict[str, np.ndarray]:
         """
         Predict gene expression and differential metrics for new points.
         
-        This method now computes all fold changes and related metrics, which were
-        previously computed in the fit method.
+        This method computes fold changes and related metrics for the provided points.
         
         Parameters
         ----------
         X_new : np.ndarray
             New cell states. Shape (n_cells, n_features).
-        density_predictions : Dict[str, np.ndarray], optional
-            Pre-computed density predictions for the new points. If provided and 
-            compute_weighted_fold_change is True, will be used to compute weighted
-            mean log fold change. Should contain:
-            - 'log_density_condition1': Log density for condition 1
-            - 'log_density_condition2': Log density for condition 2
         cell_condition_labels : np.ndarray, optional
             Optional array specifying which cells belong to which condition. If provided,
             should be an array of integers where 0 indicates condition1 and 1 indicates condition2.
@@ -852,8 +1264,6 @@ class DifferentialExpression:
             - 'fold_change': Fold change between conditions
             - 'fold_change_zscores': Z-scores for the fold changes
             - 'mean_log_fold_change': Mean log fold change across all cells
-            - 'weighted_mean_log_fold_change': Only if compute_weighted_fold_change is True
-              and density information is available
             - 'mahalanobis_distances': Only if compute_mahalanobis is True
               
             If cell_condition_labels is provided, also includes:
@@ -881,12 +1291,16 @@ class DifferentialExpression:
         if self.use_empirical_variance:
             logger.info("Computing empirical error squares for prediction...")
             
-            # If we have function estimators for error squares, use them to predict
-            if hasattr(self, 'error_squares_estimator1') and self.error_squares_estimator1 is not None:
+            if self.use_sample_specific_variance and hasattr(self, 'empiric_variance_estimator') and self.empiric_variance_estimator is not None:
+                # Use the sample-specific empirical variance estimator
+                logger.info("Using sample-specific empirical variance estimator for prediction")
+                error_squares1, error_squares2 = self.empiric_variance_estimator.predict_variance(X_new)
+            # Traditional approach with global estimators 
+            elif hasattr(self, 'error_squares_estimator1') and self.error_squares_estimator1 is not None:
                 logger.info("Using trained error squares estimators for prediction")
                 error_squares1 = self.error_squares_estimator1(X_new)
                 error_squares2 = self.error_squares_estimator2(X_new)
-            # Otherwise, if we already have error squares computed from before
+            # Otherwise, if we already have error squares computed from before but no estimators
             elif hasattr(self, 'condition1_error_squares') and self.condition1_error_squares is not None:
                 # Fall back to base uncertainty as we don't have estimators
                 logger.warning("Error squares estimators not available, using base uncertainty.")
@@ -981,48 +1395,7 @@ class DifferentialExpression:
             if np.any(condition2_mask):
                 result['condition2_cells_mean_log_fold_change'] = np.mean(fold_change[condition2_mask], axis=0)
         
-        # Compute weighted fold change if needed and possible
-        if self.compute_weighted_fold_change:
-            density_data = None
-            
-            # Try to get density information from various sources
-            if density_predictions is not None:
-                density_data = density_predictions
-            elif self.density_predictor1 is not None and self.density_predictor2 is not None:
-                density_data = {
-                    'log_density_condition1': self.density_predictor1(X_new, normalize=True),
-                    'log_density_condition2': self.density_predictor2(X_new, normalize=True)
-                }
-            elif self.differential_abundance is not None:
-                # Use the differential abundance predictor
-                da_preds = self.differential_abundance.predict(X_new)
-                density_data = {
-                    'log_density_condition1': da_preds['log_density_condition1'],
-                    'log_density_condition2': da_preds['log_density_condition2']
-                }
-            elif self.precomputed_densities is not None:
-                # Try to use precomputed densities, but warn if shapes don't match
-                if len(self.precomputed_densities['log_density_condition1']) == len(X_new):
-                    density_data = self.precomputed_densities
-                else:
-                    logger.warning("Precomputed densities shape doesn't match X_new. Skipping weighted fold change.")
-            
-            if density_data is not None:
-                # Calculate log density difference directly
-                log_density_diff = np.exp(
-                    np.abs(density_data['log_density_condition2'] - density_data['log_density_condition1'])
-                )
-                
-                # Use the standalone utility function to compute the weighted mean with pre-computed difference
-                result['weighted_mean_log_fold_change'] = compute_weighted_mean_fold_change(
-                    fold_change,
-                    log_density_diff=log_density_diff
-                )
-                
-                # Update class attribute for backward compatibility
-                if hasattr(self, 'condition1_indices') and self.condition1_indices is not None:
-                    if len(X_new) == (self.n_condition1 + self.n_condition2):
-                        self.weighted_mean_log_fold_change = result['weighted_mean_log_fold_change']
+        # Weighted fold change computation is now handled by standalone compute_weighted_mean_fold_change function
         
         return result
         
