@@ -14,6 +14,7 @@ from sklearn.neighbors import NearestNeighbors
 import mellon
 from mellon.parameters import compute_landmarks
 from .utils import compute_mahalanobis_distance, find_landmarks
+from .batch_utils import batch_process, apply_batched, is_jax_memory_error
 
 logger = logging.getLogger("kompot")
 
@@ -59,6 +60,7 @@ class DifferentialAbundance:
         density_predictor1: Optional[Any] = None,
         density_predictor2: Optional[Any] = None,
         random_state: Optional[int] = None,
+        batch_size: int = None,
     ):
         """
         Initialize DifferentialAbundance.
@@ -80,12 +82,16 @@ class DifferentialAbundance:
         random_state : int, optional
             Random seed for reproducible landmark selection when n_landmarks is specified.
             Controls the random selection of points when using approximation, by default None.
+        batch_size : int, optional
+            Number of samples to process at once during prediction to manage memory usage.
+            If None or 0, all samples will be processed at once. Default is 0.
         """
         self.log_fold_change_threshold = log_fold_change_threshold
         self.pvalue_threshold = pvalue_threshold
         self.n_landmarks = n_landmarks
         self.jit_compile = jit_compile
         self.random_state = random_state
+        self.batch_size = batch_size
         
         # Store random_state for reproducible landmark selection if specified
         # We don't need to set np.random.seed here anymore as we'll pass the 
@@ -184,6 +190,7 @@ class DifferentialAbundance:
         
         return self
     
+    @batch_process()
     def predict(
         self, 
         X_new: np.ndarray,
@@ -194,7 +201,8 @@ class DifferentialAbundance:
         Predict log density and log fold change for new points.
         
         This method now computes all fold changes and related metrics, which were
-        previously computed in the fit method.
+        previously computed in the fit method. It uses automatic batching to
+        handle large datasets efficiently.
         
         Parameters
         ----------
@@ -267,6 +275,11 @@ class DifferentialAbundance:
             'log_fold_change_direction': log_fold_change_direction,
         }
         
+        # Store results as attributes for backward compatibility
+        # This allows older code to access results directly as attributes
+        for key, value in result.items():
+            setattr(self, key, value)
+        
         return result
         
 
@@ -287,6 +300,7 @@ class EmpiricVarianceEstimator:
         self,
         eps: float = 1e-12,
         jit_compile: bool = True,
+        batch_size: int = 500,
     ):
         """
         Initialize the EmpiricVarianceEstimator.
@@ -297,9 +311,13 @@ class EmpiricVarianceEstimator:
             Small constant for numerical stability, by default 1e-12.
         jit_compile : bool, optional
             Whether to use JAX just-in-time compilation, by default True.
+        batch_size : int, optional
+            Number of samples to process at once during prediction to manage memory usage.
+            If None or 0, all samples will be processed at once. Default is 500.
         """
         self.eps = eps
         self.jit_compile = jit_compile
+        self.batch_size = batch_size
         
         # Will be populated during fit
         self.group_estimators = {}
@@ -367,9 +385,12 @@ class EmpiricVarianceEstimator:
         
         return self
     
+    @batch_process()
     def predict(self, X_new: np.ndarray) -> np.ndarray:
         """
         Predict empirical variance for new points using JAX.
+        
+        This method uses automatic batching to handle large datasets efficiently.
         
         Parameters
         ----------
@@ -528,7 +549,8 @@ class DifferentialExpression:
         variance_predictor1: Optional[Any] = None,
         variance_predictor2: Optional[Any] = None,
         random_state: Optional[int] = None,
-        batch_size: int = 100,
+        batch_size: int = 500,
+        mahalanobis_batch_size: Optional[int] = None,
     ):
         """
         Initialize DifferentialExpression.
@@ -558,9 +580,12 @@ class DifferentialExpression:
             Random seed for reproducible landmark selection when n_landmarks is specified.
             Controls the random selection of points when using approximation, by default None.
         batch_size : int, optional
+            Number of cells to process at once during prediction to manage memory usage.
+            If None or 0, all samples will be processed at once. Default is 500.
+        mahalanobis_batch_size : int, optional
             Number of genes to process in each batch during Mahalanobis distance computation.
-            Smaller values use less memory but are slower, by default 100. Increase for
-            faster computation if you have sufficient memory.
+            Smaller values use less memory but are slower. If None, uses batch_size.
+            Increase for faster computation if you have sufficient memory.
         """
         self.n_landmarks = n_landmarks
         self.use_empirical_variance = use_empirical_variance
@@ -568,6 +593,9 @@ class DifferentialExpression:
         self.jit_compile = jit_compile
         self.random_state = random_state
         self.batch_size = batch_size
+        
+        # For Mahalanobis distance computation, use a separate batch size parameter if provided
+        self.mahalanobis_batch_size = mahalanobis_batch_size if mahalanobis_batch_size is not None else batch_size
         
         # Function estimators or predictors
         self.expression_estimator_condition1 = None
@@ -622,10 +650,10 @@ class DifferentialExpression:
             Length scale for the sample-specific variance estimators. If None, will use
             the same value as ls or it will be estimated, by default None.
         condition1_sample_indices : np.ndarray, optional
-            Sample indices for first condition. Used for sample-specific variance estimation.
+            Sample indices for first condition. Used for sample variance estimation.
             Unique values in this array define different sample groups.
         condition2_sample_indices : np.ndarray, optional
-            Sample indices for second condition. Used for sample-specific variance estimation.
+            Sample indices for second condition. Used for sample variance estimation.
             Unique values in this array define different sample groups.
         **function_kwargs : dict
             Additional arguments to pass to the FunctionEstimator.
@@ -836,8 +864,8 @@ class DifferentialExpression:
         n_genes = fold_change_subset.shape[1]
         mahalanobis_distances = np.zeros(n_genes)
 
-        # Use the batch size from the class instance
-        batch_size = self.batch_size
+        # Use the mahalanobis_batch_size from the class instance
+        batch_size = self.mahalanobis_batch_size
         logger.info(f"Using batch size of {batch_size} for Mahalanobis distance computation")
 
         # Convert to jax arrays for faster processing
@@ -883,62 +911,44 @@ class DifferentialExpression:
             # Vectorize the function to handle multiple genes at once
             compute_mahalanobis_vmap = jax.vmap(compute_fn, in_axes=(1, None))
             
-            # Process genes in batches
-            successful = False
+            # Process genes in batches using our batching utility
+            logger.info(f"Computing Mahalanobis distances for {n_genes} genes using batched processing")
+            
+            # Define a function that processes a batch of genes
+            def process_gene_batch(batch_diffs):
+                # Convert to JAX array if it's not already
+                if not isinstance(batch_diffs, jnp.ndarray):
+                    batch_diffs = jnp.array(batch_diffs)
+                # Compute distances for this batch
+                batch_results = compute_mahalanobis_vmap(batch_diffs, chol_sigma)
+                # Return the square root of the results as numpy array
+                return np.sqrt(np.array(batch_results))
             
             try:
-                for start_idx in tqdm(range(0, n_genes, batch_size), desc="Computing Mahalanobis distances"):
-                    end_idx = min(start_idx + batch_size, n_genes)
-                    batch_diffs = jnp.array(fold_change_subset[:, start_idx:end_idx])
-                    
-                    # Compute distances for this batch
-                    batch_results = compute_mahalanobis_vmap(batch_diffs, chol_sigma)
-                    
-                    # Store results
-                    mahalanobis_distances[start_idx:end_idx] = np.sqrt(np.array(batch_results))
+                # Use apply_batched to process the fold changes with automatic batch size adaptation
+                # We need to transpose the fold_change_subset to batch by genes (axis=1)
+                fold_change_transposed = fold_change_subset.T
                 
-                successful = True
-                logger.info(f"Computed Mahalanobis distances for {n_genes} genes using batched processing")
-            
+                # Apply the processing function to the transposed data
+                distances = apply_batched(
+                    lambda x: process_gene_batch(x.T),  # We transpose back inside the function
+                    fold_change_transposed,
+                    batch_size=batch_size,
+                    desc="Computing Mahalanobis distances"
+                )
+                
+                # Store the results
+                mahalanobis_distances = distances
+                
+                logger.info(f"Successfully computed Mahalanobis distances for {n_genes} genes")
+                
             except Exception as e:
-                # Check if it's a memory error (XlaRuntimeError with RESOURCE_EXHAUSTED)
-                if "RESOURCE_EXHAUSTED" in str(e) or "Out of memory" in str(e):
-                    # If we hit a JAX-specific out-of-memory error, try with a smaller batch size
-                    reduced_batch_size = max(1, batch_size // 5)  # Try with 20% of original batch size
-                    logger.warning(f"JAX out of memory error with batch size {batch_size}. Trying with reduced batch size {reduced_batch_size}.")
-                    
-                    try:
-                        for start_idx in tqdm(range(0, n_genes, reduced_batch_size), desc="Computing with reduced batch size"):
-                            end_idx = min(start_idx + reduced_batch_size, n_genes)
-                            batch_diffs = jnp.array(fold_change_subset[:, start_idx:end_idx])
-                            
-                            # Compute distances for this batch
-                            batch_results = compute_mahalanobis_vmap(batch_diffs, chol_sigma)
-                            
-                            # Store results
-                            mahalanobis_distances[start_idx:end_idx] = np.sqrt(np.array(batch_results))
-                        
-                        successful = True
-                        logger.info(f"Successfully completed with reduced batch size {reduced_batch_size}")
-                        logger.info(f"SUGGESTION: For future runs with similar data, use batch_size={reduced_batch_size}")
-                    except Exception as inner_e:
-                        error_msg = (f"Failed with reduced batch size: {str(inner_e)}. "
-                                    f"Try manually setting batch_size={max(1, reduced_batch_size // 2)} or "
-                                    f"disable Mahalanobis distance calculation with compute_mahalanobis=False")
-                        logger.error(error_msg)
-                        raise RuntimeError(error_msg) from inner_e
-                else:
-                    # Log if it's not a memory error
-                    error_msg = f"Batched computation error (not memory-related): {str(e)}"
-                    logger.error(error_msg)
-                    raise RuntimeError(error_msg) from e
-            
-            # If processing failed, provide helpful suggestions rather than falling back to per-gene
-            if not successful:
-                error_msg = ("Failed to compute Mahalanobis distances. Try manually reducing batch_size "
-                            "or disable Mahalanobis distance calculation with compute_mahalanobis=False")
+                # If the batched processing fails completely
+                error_msg = (f"Failed to compute Mahalanobis distances: {str(e)}. "
+                           f"Try manually reducing batch_size or disable Mahalanobis "
+                           f"distance calculation with compute_mahalanobis=False")
                 logger.error(error_msg)
-                raise RuntimeError(error_msg)
+                raise RuntimeError(error_msg) from e
         
         except Exception as e:
             error_msg = (f"Cholesky decomposition failed: {e}. "
@@ -948,6 +958,7 @@ class DifferentialExpression:
             
         self.mahalanobis_distances = mahalanobis_distances
     
+    @batch_process()
     def predict(
         self, 
         X_new: np.ndarray, 
@@ -958,6 +969,7 @@ class DifferentialExpression:
         Predict gene expression and differential metrics for new points.
         
         This method computes fold changes and related metrics for the provided points.
+        It uses automatic batching to handle large datasets efficiently.
         
         Parameters
         ----------
@@ -988,6 +1000,13 @@ class DifferentialExpression:
         """
         if self.function_predictor1 is None or self.function_predictor2 is None:
             raise ValueError("Model not fitted. Call fit() first.")
+        
+        # Get condition labels for this batch if provided
+        batch_condition_labels = None
+        if cell_condition_labels is not None:
+            if len(cell_condition_labels) != len(X_new):
+                raise ValueError("cell_condition_labels must have same length as X_new")
+            batch_condition_labels = cell_condition_labels
         
         # Predict expression for both conditions
         condition1_imputed = self.function_predictor1(X_new)
@@ -1058,14 +1077,10 @@ class DifferentialExpression:
                 result['mahalanobis_distances'] = self.mahalanobis_distances
             
         # If condition labels are provided, compute condition-specific metrics
-        if cell_condition_labels is not None:
-            # Validate cell_condition_labels
-            if len(cell_condition_labels) != len(X_new):
-                raise ValueError("cell_condition_labels must have same length as X_new")
-            
+        if batch_condition_labels is not None:
             # Compute condition-specific metrics
-            condition1_mask = cell_condition_labels == 0
-            condition2_mask = cell_condition_labels == 1
+            condition1_mask = batch_condition_labels == 0
+            condition2_mask = batch_condition_labels == 1
             
             # Compute mean fold change for each condition
             if np.any(condition1_mask):
@@ -1073,5 +1088,10 @@ class DifferentialExpression:
             
             if np.any(condition2_mask):
                 result['condition2_cells_mean_log_fold_change'] = np.mean(fold_change[condition2_mask], axis=0)
+        
+        # Store results as attributes for backward compatibility
+        # This allows older code to access results directly as attributes
+        for key, value in result.items():
+            setattr(self, key, value)
         
         return result

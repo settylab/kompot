@@ -56,6 +56,7 @@ Key features:
 """
 from kompot.utils import compute_mahalanobis_distance, find_landmarks
 from kompot.reporter import HTMLReporter
+from kompot.batch_utils import batch_process, apply_batched
 
 # Configure logging
 LOGGING_CONFIG = {
@@ -92,6 +93,7 @@ __all__ = [
     "compute_mahalanobis_distance", "find_landmarks",
     "HTMLReporter", "generate_report", "__version__",
     "compute_differential_abundance", "compute_differential_expression",
-    "run_differential_analysis"
+    "run_differential_analysis", 
+    "batch_process", "apply_batched"
 ]
 
