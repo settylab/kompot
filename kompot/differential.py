@@ -389,6 +389,14 @@ class DifferentialExpression:
         Uncertainty in the first condition's imputation.
     condition2_uncertainty : np.ndarray
         Uncertainty in the second condition's imputation.
+    condition1_error_squares : np.ndarray
+        Squared prediction errors for the first condition (when use_empirical_variance=True).
+    condition2_error_squares : np.ndarray
+        Squared prediction errors for the second condition (when use_empirical_variance=True).
+    error_squares_estimator1 : mellon.FunctionEstimator
+        Function estimator trained to predict squared errors for condition 1 (when use_empirical_variance=True).
+    error_squares_estimator2 : mellon.FunctionEstimator
+        Function estimator trained to predict squared errors for condition 2 (when use_empirical_variance=True).
     fold_change : np.ndarray
         Log fold change between conditions (condition2 - condition1).
     fold_change_zscores : np.ndarray
@@ -424,6 +432,9 @@ class DifferentialExpression:
             Number of landmarks to use for approximation. If None, use all points, by default None.
         use_empirical_variance : bool, optional
             Whether to use empirical variance for uncertainty estimation, by default False.
+            When True, the class will train additional function estimators to model and predict
+            the squared prediction errors at each point, which improves variance estimation
+            for fold change significance testing.
         compute_weighted_fold_change : bool, optional
             Whether to compute weighted mean log fold change, by default True.
         differential_abundance : DifferentialAbundance, optional
@@ -490,6 +501,10 @@ class DifferentialExpression:
         self.function_predictor1 = function_predictor1
         self.function_predictor2 = function_predictor2
         
+        # Error squares estimators
+        self.error_squares_estimator1 = None
+        self.error_squares_estimator2 = None
+        
         # Differential abundance and density information
         self.differential_abundance = differential_abundance
         self.precomputed_densities = precomputed_densities
@@ -504,7 +519,6 @@ class DifferentialExpression:
         y_condition2: np.ndarray,
         sigma: float = 1.0,
         ls: Optional[float] = None,
-        compute_differential_abundance: bool = None,
         **function_kwargs
     ):
         """
@@ -527,10 +541,6 @@ class DifferentialExpression:
             Noise level for function estimator, by default 1.0.
         ls : float, optional
             Length scale for the GP kernel. If None, it will be estimated, by default None.
-        compute_differential_abundance : bool, optional
-            Whether to compute differential abundance if not already provided. If None,
-            will compute only if compute_weighted_fold_change is True and neither
-            differential_abundance nor precomputed_densities were provided.
         **function_kwargs : dict
             Additional arguments to pass to the FunctionEstimator.
             
@@ -543,26 +553,6 @@ class DifferentialExpression:
         self.n_condition1 = len(X_condition1)
         self.n_condition2 = len(X_condition2)
         
-        # Determine if we need to compute/use density information for weighting
-        use_density_information = self.compute_weighted_fold_change
-        have_density_predictors = self.density_predictor1 is not None and self.density_predictor2 is not None
-        
-        if compute_differential_abundance is None:
-            compute_differential_abundance = (
-                use_density_information and 
-                self.differential_abundance is None and 
-                self.precomputed_densities is None and
-                not have_density_predictors
-            )
-        
-        if compute_differential_abundance:
-            # Compute differential abundance to get density information for weighting
-            self.differential_abundance = DifferentialAbundance(
-                n_landmarks=self.n_landmarks,
-                jit_compile=self.jit_compile,
-                random_state=self.random_state
-            )
-            self.differential_abundance.fit(X_condition1, X_condition2)
         
         # Create or use function predictors
         if self.function_predictor1 is None or self.function_predictor2 is None:
@@ -610,6 +600,34 @@ class DifferentialExpression:
             self.expression_estimator_condition2 = mellon.FunctionEstimator(**estimator_defaults)
             self.expression_estimator_condition2.fit(X_condition2, y_condition2)
             self.function_predictor2 = self.expression_estimator_condition2.predict
+            
+            # If empirical variance is requested, also train error squares estimators
+            if self.use_empirical_variance:
+                logger.info("Computing error squares for condition 1...")
+                # Compute predictions for condition 1
+                condition1_imputed = self.function_predictor1(X_condition1)
+                # Compute squared errors (real - predicted)^2
+                condition1_errors = (y_condition1 - condition1_imputed) ** 2
+                
+                logger.info("Fitting error squares estimator for condition 1...")
+                self.error_squares_estimator1 = mellon.FunctionEstimator(**estimator_defaults)
+                # Train a function estimator to predict the squared errors
+                self.error_squares_estimator1.fit(X_condition1, condition1_errors)
+                
+                logger.info("Computing error squares for condition 2...")
+                # Compute predictions for condition 2
+                condition2_imputed = self.function_predictor2(X_condition2)
+                # Compute squared errors (real - predicted)^2
+                condition2_errors = (y_condition2 - condition2_imputed) ** 2
+                
+                logger.info("Fitting error squares estimator for condition 2...")
+                self.error_squares_estimator2 = mellon.FunctionEstimator(**estimator_defaults)
+                # Train a function estimator to predict the squared errors
+                self.error_squares_estimator2.fit(X_condition2, condition2_errors)
+                
+                # Store the error squares for the training data
+                self.condition1_error_squares = self.error_squares_estimator1(X_condition1)
+                self.condition2_error_squares = self.error_squares_estimator2(X_condition2)
         
         # The fit method now only creates estimators and doesn't compute fold changes
         logger.info("Function estimators fitted. Call predict() to compute fold changes.")
@@ -676,11 +694,17 @@ class DifferentialExpression:
         # Add empirical adjustments if needed
         if self.use_empirical_variance:
             if has_landmarks and landmarks is not None:
-                # We need to compute error squares for landmarks
-                # This is a bit of a simplification, ideally we'd predict the error squares at landmarks
-                diag_adjust = np.ones(len(landmarks)) * np.mean(
-                    self.condition1_error_squares + self.condition2_error_squares
-                ) / 2
+                # Use error squares estimators to predict at landmark points
+                if hasattr(self, 'error_squares_estimator1') and self.error_squares_estimator1 is not None:
+                    # Predict error squares at landmark points using the trained estimators
+                    landmarks_error1 = self.error_squares_estimator1(landmarks)
+                    landmarks_error2 = self.error_squares_estimator2(landmarks)
+                    diag_adjust = (landmarks_error1 + landmarks_error2) / 2
+                else:
+                    # Fallback if estimators are not available
+                    diag_adjust = np.ones(len(landmarks)) * np.mean(
+                        self.condition1_error_squares + self.condition2_error_squares
+                    ) / 2
             else:
                 diag_adjust = (self.condition1_error_squares + self.condition2_error_squares) / 2
         else:
@@ -856,12 +880,16 @@ class DifferentialExpression:
         # Compute empirical error squares if needed for variance adjustment
         if self.use_empirical_variance:
             logger.info("Computing empirical error squares for prediction...")
-            # These computations are only supported for predictions when
-            # we've already computed error squares in a previous call to predict
-            if hasattr(self, 'condition1_error_squares') and self.condition1_error_squares is not None:
-                # Use the existing error squares models to predict for new points
-                # We'd need to have methods to predict error squares for new points
-                # For now, use a simpler approach - use the original condition uncertainty
+            
+            # If we have function estimators for error squares, use them to predict
+            if hasattr(self, 'error_squares_estimator1') and self.error_squares_estimator1 is not None:
+                logger.info("Using trained error squares estimators for prediction")
+                error_squares1 = self.error_squares_estimator1(X_new)
+                error_squares2 = self.error_squares_estimator2(X_new)
+            # Otherwise, if we already have error squares computed from before
+            elif hasattr(self, 'condition1_error_squares') and self.condition1_error_squares is not None:
+                # Fall back to base uncertainty as we don't have estimators
+                logger.warning("Error squares estimators not available, using base uncertainty.")
                 error_squares1 = condition1_uncertainty
                 error_squares2 = condition2_uncertainty
             else:
