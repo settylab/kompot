@@ -157,6 +157,7 @@ class DifferentialAbundance:
             
             # Prepare landmarks if requested
             if self.n_landmarks is not None:
+                logger.info(f"Computing {self.n_landmarks:,} landmarks...")
                 # Use mellon's compute_landmarks function to get properly distributed landmarks
                 # Pass the random_state parameter directly to ensure reproducible results
                 X_combined = np.vstack([X_condition1, X_condition2])
@@ -183,7 +184,12 @@ class DifferentialAbundance:
         
         return self
     
-    def predict(self, X_new: np.ndarray) -> Dict[str, np.ndarray]:
+    def predict(
+        self, 
+        X_new: np.ndarray,
+        log_fold_change_threshold: Optional[float] = None,
+        pvalue_threshold: Optional[float] = None
+    ) -> Dict[str, np.ndarray]:
         """
         Predict log density and log fold change for new points.
         
@@ -194,6 +200,12 @@ class DifferentialAbundance:
         ----------
         X_new : np.ndarray
             New cell states to predict. Shape (n_cells, n_features).
+        log_fold_change_threshold : float, optional
+            Threshold for considering a log fold change significant. If None, uses
+            the threshold specified during initialization.
+        pvalue_threshold : float, optional
+            Threshold for considering a p-value significant. If None, uses the
+            threshold specified during initialization.
             
         Returns
         -------
@@ -209,6 +221,12 @@ class DifferentialAbundance:
         """
         if self.density_predictor1 is None or self.density_predictor2 is None:
             raise ValueError("Model not fitted. Call fit() first.")
+        
+        # Use provided thresholds if specified, otherwise use class defaults
+        if log_fold_change_threshold is None:
+            log_fold_change_threshold = self.log_fold_change_threshold
+        if pvalue_threshold is None:
+            pvalue_threshold = self.pvalue_threshold
         
         # Compute log densities and uncertainties
         log_density_condition1 = self.density_predictor1(X_new, normalize=True)
@@ -233,30 +251,11 @@ class DifferentialAbundance:
         
         # Determine direction of change based on thresholds
         log_fold_change_direction = np.full(len(log_fold_change), 'neutral', dtype=object)
-        significant = (np.abs(log_fold_change) > self.log_fold_change_threshold) & \
-                     (log_fold_change_pvalue < np.log(self.pvalue_threshold))
+        significant = (np.abs(log_fold_change) > log_fold_change_threshold) & \
+                     (log_fold_change_pvalue < np.log(pvalue_threshold))
         
         log_fold_change_direction[significant & (log_fold_change > 0)] = 'up'
         log_fold_change_direction[significant & (log_fold_change < 0)] = 'down'
-        
-        # Store predictions for the current points
-        # This is to maintain compatibility with code that accesses these attributes
-        if hasattr(self, 'condition1_indices') and self.condition1_indices is not None:
-            # If called after fit(), we'll update the class-level attributes for backward compatibility
-            # Only update attributes if we're predicting on the original training points
-            if len(X_new) == (self.n_condition1 + self.n_condition2):
-                self.log_density_condition1 = log_density_condition1
-                self.log_density_condition2 = log_density_condition2
-                self.log_density_uncertainty_condition1 = log_density_uncertainty_condition1
-                self.log_density_uncertainty_condition2 = log_density_uncertainty_condition2
-                self.log_fold_change = log_fold_change
-                self.log_fold_change_uncertainty = log_fold_change_uncertainty
-                self.log_fold_change_zscore = log_fold_change_zscore
-                self.log_fold_change_pvalue = log_fold_change_pvalue
-                self.log_fold_change_direction = log_fold_change_direction
-        
-        # Compute mean log fold change
-        mean_log_fold_change = np.mean(log_fold_change)
         
         result = {
             'log_density_condition1': log_density_condition1,
@@ -266,55 +265,10 @@ class DifferentialAbundance:
             'log_fold_change_zscore': log_fold_change_zscore,
             'log_fold_change_pvalue': log_fold_change_pvalue,
             'log_fold_change_direction': log_fold_change_direction,
-            'mean_log_fold_change': mean_log_fold_change
         }
         
         return result
         
-    def get_condition1_results(self) -> Dict[str, np.ndarray]:
-        """
-        Return results for condition 1 cells only.
-        
-        Returns
-        -------
-        dict
-            Dictionary containing results specific to condition 1 cells.
-        """
-        if self.n_condition1 is None or self.condition1_indices is None:
-            raise ValueError("Model not fitted. Call fit() first.")
-            
-        return {
-            'log_density_condition1': self.log_density_condition1[:self.n_condition1],
-            'log_density_condition2': self.log_density_condition2[:self.n_condition1],
-            'log_fold_change': self.log_fold_change[:self.n_condition1],
-            'log_fold_change_uncertainty': self.log_fold_change_uncertainty[:self.n_condition1],
-            'log_fold_change_zscore': self.log_fold_change_zscore[:self.n_condition1],
-            'log_fold_change_pvalue': self.log_fold_change_pvalue[:self.n_condition1],
-            'log_fold_change_direction': self.log_fold_change_direction[:self.n_condition1],
-        }
-    
-    def get_condition2_results(self) -> Dict[str, np.ndarray]:
-        """
-        Return results for condition 2 cells only.
-        
-        Returns
-        -------
-        dict
-            Dictionary containing results specific to condition 2 cells.
-        """
-        if self.n_condition2 is None or self.condition2_indices is None:
-            raise ValueError("Model not fitted. Call fit() first.")
-            
-        return {
-            'log_density_condition1': self.log_density_condition1[self.n_condition1:],
-            'log_density_condition2': self.log_density_condition2[self.n_condition1:],
-            'log_fold_change': self.log_fold_change[self.n_condition1:],
-            'log_fold_change_uncertainty': self.log_fold_change_uncertainty[self.n_condition1:],
-            'log_fold_change_zscore': self.log_fold_change_zscore[self.n_condition1:],
-            'log_fold_change_pvalue': self.log_fold_change_pvalue[self.n_condition1:],
-            'log_fold_change_direction': self.log_fold_change_direction[self.n_condition1:],
-        }
-
 
 class EmpiricVarianceEstimator:
     """

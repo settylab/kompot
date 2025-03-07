@@ -141,7 +141,12 @@ def compute_differential_abundance(
     
     # Run prediction to compute fold changes and metrics
     X_for_prediction = adata.obsm[obsm_key]
-    abundance_results = diff_abundance.predict(X_for_prediction)
+    abundance_results = diff_abundance.predict(
+        X_for_prediction,
+        log_fold_change_threshold=log_fold_change_threshold,
+        pvalue_threshold=pvalue_threshold
+    )
+    # Note: mean_log_fold_change is no longer computed by default
     
     # Sanitize condition names for use in column names
     cond1_safe = _sanitize_name(condition1)
@@ -177,7 +182,6 @@ def compute_differential_abundance(
         "log_fold_change_direction": abundance_results['log_fold_change_direction'],
         "log_density_condition1": abundance_results['log_density_condition1'],
         "log_density_condition2": abundance_results['log_density_condition2'],
-        "mean_log_fold_change": abundance_results['mean_log_fold_change'],
         "model": diff_abundance,
     }
 

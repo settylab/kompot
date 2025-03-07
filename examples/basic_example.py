@@ -92,50 +92,14 @@ plt.title('Differential Abundance: Log Fold Change')
 plt.tight_layout()
 plt.savefig('diff_abundance_log_fold_change.png')
 
-# Demonstrate using condition-specific results
-condition1_results = diff_abundance.get_condition1_results()
-condition2_results = diff_abundance.get_condition2_results()
-
-# Create a visualization to show which cells come from which condition
-plt.figure(figsize=(15, 6))
-
-# Condition 1 cells
-plt.subplot(1, 2, 1)
-plt.scatter(
-    X_umap[diff_abundance.condition1_indices, 0], 
-    X_umap[diff_abundance.condition1_indices, 1], 
-    c=condition1_results['log_fold_change'],
-    cmap='RdBu_r',
-    alpha=0.7,
-    s=5
-)
-plt.colorbar(label='Log Fold Change (Density)')
-plt.title('Condition 1 Cells: Density Fold Change')
-
-# Condition 2 cells
-plt.subplot(1, 2, 2)
-plt.scatter(
-    X_umap[diff_abundance.condition2_indices, 0], 
-    X_umap[diff_abundance.condition2_indices, 1], 
-    c=condition2_results['log_fold_change'],
-    cmap='RdBu_r',
-    alpha=0.7,
-    s=5
-)
-plt.colorbar(label='Log Fold Change (Density)')
-plt.title('Condition 2 Cells: Density Fold Change')
-
-plt.tight_layout()
-plt.savefig('diff_abundance_by_condition.png')
-
 # 2. Differential Expression Analysis
 print("\n2. Running Differential Expression Analysis...")
 
 # Using the density estimator from the previous step (most efficient)
 diff_expression = kompot.DifferentialExpression(
     n_landmarks=200,
-    compute_weighted_fold_change=True,  # Explicitly enable weighted fold change calculation
-    differential_abundance=diff_abundance  # Re-use the density estimator we already computed
+    # Note: compute_weighted_fold_change has been removed in the latest version
+    # Weighted fold changes can be computed with the standalone compute_weighted_mean_fold_change function
 )
 diff_expression.fit(
     X_condition1, y_condition1, 
@@ -247,9 +211,18 @@ plt.tight_layout()
 plt.savefig('top_genes_mahalanobis.png')
 
 # Visualize mean and weighted mean log fold changes
+from kompot.differential import compute_weighted_mean_fold_change
+
 plt.figure(figsize=(10, 6))
 width = 0.35
 x = np.arange(len(diff_genes))  # Just show the differential genes
+
+# Use the standalone function to compute weighted mean log fold change
+weighted_mean_lfc = compute_weighted_mean_fold_change(
+    expression_results['fold_change'],
+    log_density_condition1=abundance_results['log_density_condition1'],
+    log_density_condition2=abundance_results['log_density_condition2']
+)
 
 plt.bar(
     x - width/2,
@@ -259,7 +232,7 @@ plt.bar(
 )
 plt.bar(
     x + width/2,
-    expression_results['weighted_mean_log_fold_change'][diff_genes],
+    weighted_mean_lfc[diff_genes],
     width=width,
     label='Weighted Mean Log Fold Change'
 )

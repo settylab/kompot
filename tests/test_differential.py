@@ -31,7 +31,7 @@ def test_differential_abundance_fit():
     assert 'log_fold_change_zscore' in predictions
     assert 'log_fold_change_pvalue' in predictions
     assert 'log_fold_change_direction' in predictions
-    assert 'mean_log_fold_change' in predictions
+    # mean_log_fold_change has been removed from the output
     
     # Check shapes
     expected_shape = X_condition1.shape[0] + X_condition2.shape[0]
@@ -44,10 +44,7 @@ def test_differential_abundance_fit():
     assert np.isfinite(predictions['log_fold_change_zscore']).all()
     assert np.all(predictions['log_fold_change_direction'] != '')
     
-    # Check that class attributes are updated for backward compatibility
-    assert diff_abundance.log_density_condition1 is not None
-    assert diff_abundance.log_density_condition2 is not None
-    assert diff_abundance.log_fold_change is not None
+    # No longer checking for class attributes - they're not updated in the new version
 
 
 def test_differential_abundance_predict():
@@ -77,6 +74,59 @@ def test_differential_abundance_predict():
     # Check values
     assert np.isfinite(predictions['log_density_condition1']).all()
     assert np.isfinite(predictions['log_fold_change']).all()
+
+
+def test_differential_abundance_predict_with_thresholds():
+    """Test predicting with custom thresholds in the DifferentialAbundance class."""
+    # Generate sample data with clear differences
+    np.random.seed(42)  # Set seed for reproducibility
+    X_condition1 = np.random.randn(100, 5)
+    X_condition2 = np.random.randn(100, 5) + 1.0  # Clear shift to create differences
+    
+    # New points to predict
+    X_new = np.random.randn(50, 5)
+    
+    # Fit the model
+    diff_abundance = DifferentialAbundance(log_fold_change_threshold=1.0, pvalue_threshold=0.05)
+    diff_abundance.fit(X_condition1, X_condition2)
+    
+    # Predict with default thresholds (from initialization)
+    default_predictions = diff_abundance.predict(X_new)
+    
+    # Predict with stricter thresholds
+    strict_predictions = diff_abundance.predict(
+        X_new, 
+        log_fold_change_threshold=2.0,  # Higher threshold means fewer 'up'/'down' calls
+        pvalue_threshold=0.01  # Lower p-value means stricter significance test
+    )
+    
+    # Predict with looser thresholds
+    loose_predictions = diff_abundance.predict(
+        X_new, 
+        log_fold_change_threshold=0.5,  # Lower threshold means more 'up'/'down' calls
+        pvalue_threshold=0.1  # Higher p-value means more relaxed significance test
+    )
+    
+    # Check that the basic metrics are identical across all predictions
+    np.testing.assert_array_equal(
+        default_predictions['log_fold_change'],
+        strict_predictions['log_fold_change']
+    )
+    np.testing.assert_array_equal(
+        default_predictions['log_fold_change'],
+        loose_predictions['log_fold_change']
+    )
+    
+    # Check that direction classifications are different due to thresholds
+    # Count number of non-neutral classifications in each case
+    default_significant = np.sum(default_predictions['log_fold_change_direction'] != 'neutral')
+    strict_significant = np.sum(strict_predictions['log_fold_change_direction'] != 'neutral')
+    loose_significant = np.sum(loose_predictions['log_fold_change_direction'] != 'neutral')
+    
+    # Stricter thresholds should result in fewer (or equal) significant results
+    assert strict_significant <= default_significant
+    # Looser thresholds should result in more (or equal) significant results
+    assert loose_significant >= default_significant
 
 
 def test_differential_expression_fit():
