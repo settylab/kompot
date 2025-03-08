@@ -474,7 +474,7 @@ def compute_differential_expression(
     # Extract sample indices from sample_col if provided
     condition1_sample_indices = None
     condition2_sample_indices = None
-    
+
     if sample_col is not None:
         if sample_col not in adata.obs:
             raise ValueError(f"Column '{sample_col}' not found in adata.obs. Available columns: {list(adata.obs.columns)}")
@@ -527,18 +527,19 @@ def compute_differential_expression(
         if density_col1 in adata.obs and density_col2 in adata.obs:
             log_density_condition1 = adata.obs[density_col1]
             log_density_condition2 = adata.obs[density_col2]
+            
+            # Calculate log density difference directly
+            log_density_diff = log_density_condition2 - log_density_condition1
+            
+            # Use the standalone function to compute weighted mean fold change with pre-computed difference
+            # The exp(abs()) is now handled inside the function
+            expression_results['weighted_mean_log_fold_change'] = compute_weighted_mean_fold_change(
+                expression_results['fold_change'],
+                log_density_diff=log_density_diff
+            )
         else:
-            raise ValueError(f"Log density columns not found in adata.obs. Expected: {density_col1}, {density_col2}")
-        
-        # Calculate log density difference directly
-        log_density_diff = log_density_condition2 - log_density_condition1
-        
-        # Use the standalone function to compute weighted mean fold change with pre-computed difference
-        # The exp(abs()) is now handled inside the function
-        expression_results['weighted_mean_log_fold_change'] = compute_weighted_mean_fold_change(
-            expression_results['fold_change'],
-            log_density_diff=log_density_diff
-        )
+            logger.warning(f"Log density columns not found in adata.obs. Expected: {density_col1}, {density_col2}. "
+                           f"Will not compute weighted mean fold changes.")
     
     # Create result dictionary
     result_dict = {
@@ -729,7 +730,7 @@ def compute_differential_expression(
             imputed1_key = f"{result_key}_imputed_{cond1_safe}"
             imputed2_key = f"{result_key}_imputed_{cond2_safe}"
             fold_change_key = f"{result_key}_fold_change_{cond2_safe}_vs_{cond1_safe}"
-            
+
             if imputed1_key not in adata.layers:
                 adata.layers[imputed1_key] = np.zeros_like(adata.X)
             if imputed2_key not in adata.layers:
@@ -767,19 +768,10 @@ def compute_differential_expression(
             imputed1_key = f"{result_key}_imputed_{cond1_safe}"
             imputed2_key = f"{result_key}_imputed_{cond2_safe}"
             fold_change_key = f"{result_key}_fold_change_{cond2_safe}_vs_{cond1_safe}"
-            
-            # Create zero matrices and fill gene by gene to avoid shape issues
-            adata.layers[imputed1_key] = np.zeros_like(adata.X)
-            adata.layers[imputed2_key] = np.zeros_like(adata.X)
-            adata.layers[fold_change_key] = np.zeros_like(adata.X)
-            
-            # Use the same approach as in the selected_genes < len(adata.var_names) case
-            for i, gene in enumerate(selected_genes):
-                if i < condition1_imputed.shape[1]:  # Make sure we don't go out of bounds
-                    gene_idx = list(adata.var_names).index(gene)
-                    adata.layers[imputed1_key][:, gene_idx] = condition1_imputed[:, i]
-                    adata.layers[imputed2_key][:, gene_idx] = condition2_imputed[:, i]
-                    adata.layers[fold_change_key][:, gene_idx] = fold_change[:, i]
+
+            adata.layers[imputed1_key] = condition1_imputed
+            adata.layers[imputed2_key] = condition2_imputed
+            adata.layers[fold_change_key] = fold_change
         
         # Store model and parameters in adata.uns
         adata.uns[result_key] = {

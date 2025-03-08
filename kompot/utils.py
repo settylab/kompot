@@ -190,6 +190,8 @@ def compute_mahalanobis_distances(
     np.ndarray
         Array of Mahalanobis distances for each input vector.
     """
+    from .batch_utils import apply_batched
+    
     # Convert input to JAX array
     diffs = jnp.array(diff_values)
     
@@ -200,9 +202,6 @@ def compute_mahalanobis_distances(
     elif len(diffs.shape) == 2 and diffs.shape[0] < diffs.shape[1]:
         # More features than samples, likely (n_features, n_samples)
         diffs = diffs.T
-    
-    # Get number of samples
-    n_samples = diffs.shape[0]
     
     # Check if we're using diagonal approximation
     if prepared_matrix['is_diagonal']:
@@ -221,14 +220,13 @@ def compute_mahalanobis_distances(
         else:
             diag_compute_fn = compute_diagonal_batch
         
-        # Process in batches
-        results = []
-        for i in range(0, n_samples, batch_size):
-            batch = diffs[i:i+batch_size]
-            batch_results = diag_compute_fn(batch)
-            results.append(np.array(batch_results))
-        
-        return np.concatenate(results) if len(results) > 1 else results[0]
+        # Process in batches using apply_batched
+        return apply_batched(
+            diag_compute_fn,
+            diffs,
+            batch_size=batch_size,
+            desc="Computing diagonal Mahalanobis distances"
+        )
     
     # Non-diagonal case - use Cholesky if available
     if prepared_matrix['chol'] is not None:
@@ -249,14 +247,13 @@ def compute_mahalanobis_distances(
         else:
             chol_compute_fn = compute_cholesky_batch
         
-        # Process in batches
-        results = []
-        for i in range(0, n_samples, batch_size):
-            batch = diffs[i:i+batch_size]
-            batch_results = chol_compute_fn(batch)
-            results.append(np.array(batch_results))
-        
-        return np.concatenate(results) if len(results) > 1 else results[0]
+        # Process in batches using apply_batched
+        return apply_batched(
+            chol_compute_fn,
+            diffs,
+            batch_size=batch_size,
+            desc="Computing Cholesky Mahalanobis distances"
+        )
     
     # Fallback to matrix inverse
     if prepared_matrix['matrix_inv'] is not None:
@@ -274,14 +271,13 @@ def compute_mahalanobis_distances(
         else:
             inv_compute_fn = compute_inverse_batch
         
-        # Process in batches
-        results = []
-        for i in range(0, n_samples, batch_size):
-            batch = diffs[i:i+batch_size]
-            batch_results = inv_compute_fn(batch)
-            results.append(np.array(batch_results))
-        
-        return np.concatenate(results) if len(results) > 1 else results[0]
+        # Process in batches using apply_batched
+        return apply_batched(
+            inv_compute_fn,
+            diffs,
+            batch_size=batch_size,
+            desc="Computing inverse Mahalanobis distances"
+        )
     
     # If all else fails, use a simple approximation
     logger.error("No valid matrix information found. Using simple Euclidean distance.")

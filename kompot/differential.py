@@ -175,7 +175,6 @@ class DifferentialAbundance:
                 logger.info(f"Using provided landmarks with shape {landmarks.shape}")
                 estimator_defaults['landmarks'] = landmarks
             elif self.n_landmarks is not None:
-                logger.info(f"Computing {self.n_landmarks:,} landmarks...")
                 # Use mellon's compute_landmarks function to get properly distributed landmarks
                 # Pass the random_state parameter directly to ensure reproducible results
                 X_combined = np.vstack([X_condition1, X_condition2])
@@ -764,7 +763,6 @@ class DifferentialExpression:
                 estimator_defaults['landmarks'] = landmarks
                 estimator_defaults['gp_type'] = 'fixed'
             elif self.n_landmarks is not None:
-                logger.info(f"Computing {self.n_landmarks:,} landmarks...")
                 # Use mellon's compute_landmarks function to get properly distributed landmarks
                 # Pass the random_state parameter directly to ensure reproducible results
                 X_combined = np.vstack([X_condition1, X_condition2])
@@ -920,7 +918,7 @@ class DifferentialExpression:
         # Determine which points to use for computation
         if has_landmarks and landmarks is not None:
             # For landmark-based approximation, use the actual landmarks
-            logger.info(f"Using {len(landmarks)} landmarks for Mahalanobis computation")
+            logger.info(f"Using {len(landmarks):,} landmarks for Mahalanobis computation")
             
             # Get covariance matrices
             cov1 = self.function_predictor1.covariance(landmarks, diag=False)
@@ -1012,7 +1010,7 @@ class DifferentialExpression:
                 jit_compile=self.jit_compile
             )
             
-            logger.info(f"Successfully computed Mahalanobis distances for {len(mahalanobis_distances)} genes")
+            logger.info(f"Successfully computed Mahalanobis distances for {len(mahalanobis_distances):,} genes")
                 
         except Exception as e:
             error_msg = (f"Failed to compute Mahalanobis distances: {str(e)}. "
@@ -1113,16 +1111,22 @@ class DifferentialExpression:
             desc="Computing uncertainty (condition 2)"
         )
         
-        # Get empirical variances if available
-        condition1_variance = apply_batched(
-            get_variance1, X_new, batch_size=batch_size,
-            desc="Computing empirical variance (condition 1)"
-        )
-        
-        condition2_variance = apply_batched(
-            get_variance2, X_new, batch_size=batch_size,
-            desc="Computing empirical variance (condition 2)"
-        )
+        # Get empirical variances if enabled
+        if self.use_sample_variance:
+            condition1_variance = apply_batched(
+                get_variance1, X_new, batch_size=batch_size,
+                desc="Computing empirical variance (condition 1)"
+            )
+            
+            condition2_variance = apply_batched(
+                get_variance2, X_new, batch_size=batch_size,
+                desc="Computing empirical variance (condition 2)"
+            )
+        else:
+            # Skip empirical variance calculation if not needed
+            # Create simple zeros arrays instead of using zeros_like which can fail with inhomogeneous shapes
+            condition1_variance = 0
+            condition2_variance = 0
         
         # Compute fold change
         fold_change = condition2_imputed - condition1_imputed
@@ -1138,16 +1142,26 @@ class DifferentialExpression:
             # Reshape to (n_samples, 1) for broadcasting with fold_change
             condition2_uncertainty = condition2_uncertainty[:, np.newaxis]
             
-        # Combined uncertainty - add empirical variance if available 
+        # Convert uncertainties to numpy arrays if needed
+        condition1_uncertainty = np.asarray(condition1_uncertainty)
+        condition2_uncertainty = np.asarray(condition2_uncertainty)
+        
+        # Combined uncertainty - add empirical variance if enabled
         variance = condition1_uncertainty + condition2_uncertainty
         
-        # Add empirical variance component
-        if len(condition1_variance.shape) == 1:
-            condition1_variance = condition1_variance[:, np.newaxis]
-        if len(condition2_variance.shape) == 1:
-            condition2_variance = condition2_variance[:, np.newaxis]
+        # Add empirical variance component if enabled
+        if self.use_sample_variance:
+            # Convert to numpy arrays if needed
+            condition1_variance = np.asarray(condition1_variance)
+            condition2_variance = np.asarray(condition2_variance)
             
-        variance += condition1_variance + condition2_variance
+            # Ensure proper shape for broadcasting
+            if len(condition1_variance.shape) == 1:
+                condition1_variance = condition1_variance[:, np.newaxis]
+            if len(condition2_variance.shape) == 1:
+                condition2_variance = condition2_variance[:, np.newaxis]
+                
+            variance += condition1_variance + condition2_variance
             
         # Compute z-scores
         stds = np.sqrt(variance + self.eps)

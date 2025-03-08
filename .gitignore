@@ -128,3 +128,4 @@ data/
 Mellon/
 .virtual_documents/
 kompot_report/
+*.ipynb

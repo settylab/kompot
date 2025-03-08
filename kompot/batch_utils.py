@@ -1,6 +1,7 @@
 """Utilities for memory-efficient batch processing of large datasets."""
 
 import numpy as np
+import jax.numpy as jnp
 import logging
 from functools import wraps
 from typing import Any, Callable, Dict, List, Optional, Union, TypeVar, cast
@@ -37,19 +38,21 @@ def is_jax_memory_error(error: Exception) -> bool:
     ])
 
 
-def merge_batch_results(results: List[Any]) -> Any:
+def merge_batch_results(results: List[Any], concat_axis: int = 0) -> Any:
     """
     Merge results from batched processing.
     
     This function handles different types of results and merges them appropriately:
     - Dictionaries: merged by key
-    - NumPy arrays: concatenated along axis 0
+    - NumPy or JAX arrays: concatenated along specified axis
     - Lists: flattened
     
     Parameters
     ----------
     results : List[Any]
         List of results from batched processing
+    concat_axis : int, optional
+        Axis along which to concatenate arrays, by default 0
         
     Returns
     -------
@@ -62,37 +65,56 @@ def merge_batch_results(results: List[Any]) -> Any:
     # If results are dictionaries, merge them by key
     if isinstance(results[0], dict):
         merged = {}
-        # Get keys from first result
-        keys = results[0].keys()
+        # Get all unique keys from all results
+        all_keys = set()
+        for res in results:
+            all_keys.update(res.keys())
         
-        for key in keys:
-            # Check if all results have this key
-            if all(key in res for res in results):
-                # Get arrays for this key from all results
-                arrays = [res[key] for res in results]
-                # Check if elements are arrays or can be combined
-                if all(isinstance(arr, (np.ndarray, list)) for arr in arrays):
-                    try:
-                        # Try to concatenate arrays
-                        if isinstance(arrays[0], np.ndarray):
-                            if len(arrays[0].shape) == 0:  # It's a scalar
-                                merged[key] = arrays[0]  # Just use the first one
-                            else:
-                                merged[key] = np.concatenate(arrays, axis=0)
-                        else:  # It's a list
-                            merged[key] = [item for sublist in arrays for item in sublist]
-                    except ValueError:
-                        # If concatenation fails, just collect results in a list
-                        merged[key] = arrays
-                else:
-                    # Non-array values, just collect them
-                    merged[key] = arrays
+        for key in all_keys:
+            # Collect values for this key from all results where it exists
+            values = [res[key] for res in results if key in res]
+            if not values:
+                continue
+                
+            # Handle arrays (numpy or jax)
+            if all(isinstance(val, (np.ndarray, jnp.ndarray)) for val in values):
+                # Determine if we're working with JAX arrays
+                is_jax = isinstance(values[0], jnp.ndarray)
+                concat_fn = jnp.concatenate if is_jax else np.concatenate
+                
+                try:
+                    # Handle scalar arrays (arrays with shape () or (1,))
+                    if all(len(val.shape) == 0 for val in values):
+                        # For true scalars (shape ()), create a new array
+                        array_vals = [val.item() for val in values]
+                        merged[key] = jnp.array(array_vals) if is_jax else np.array(array_vals)
+                    else:
+                        # Standard case: concatenate arrays along specified axis
+                        merged[key] = concat_fn(values, axis=concat_axis)
+                except ValueError as e:
+                    logger.warning(f"Failed to concatenate arrays for key '{key}': {e}")
+                    # Always return arrays - don't fall back to list
+                    merged[key] = values
+            elif all(isinstance(val, list) for val in values):
+                # Handle lists - flatten them
+                merged[key] = [item for sublist in values for item in sublist]
+            else:
+                # For mixed types or non-array/list values
+                merged[key] = values
         
         return merged
     
-    # If results are numpy arrays, concatenate them
+    # Handle numpy arrays
     elif isinstance(results[0], np.ndarray):
-        return np.concatenate(results, axis=0)
+        return np.concatenate(results, axis=concat_axis)
+    
+    # Handle jax arrays
+    elif isinstance(results[0], jnp.ndarray):
+        return jnp.concatenate(results, axis=concat_axis)
+    
+    # Handle lists
+    elif isinstance(results[0], list):
+        return [item for sublist in results for item in sublist]
     
     # Otherwise, return the list of results
     return results
@@ -274,7 +296,8 @@ def apply_batched(
     batch_size: int = 500,
     axis: int = 0,
     show_progress: bool = True,
-    desc: Optional[str] = None
+    desc: Optional[str] = None,
+    concat_axis: int = 0
 ) -> Any:
     """
     Apply a function to data in batches.
@@ -296,6 +319,8 @@ def apply_batched(
         Whether to show a progress bar, by default True
     desc : str, optional
         Description for the progress bar, by default None
+    concat_axis : int, optional
+        Axis along which to concatenate result arrays, by default 0
         
     Returns
     -------
@@ -461,7 +486,7 @@ def apply_batched(
         
     # If we have results, combine them
     if batch_results:
-        return merge_batch_results(batch_results)
+        return merge_batch_results(batch_results, concat_axis=concat_axis)
     else:
         # No results at all
         logger.error("No successful batch processing. Returning empty result.")
