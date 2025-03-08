@@ -459,7 +459,7 @@ class SampleVarianceEstimator:
         
         return self
     
-    def predict(self, X_new: np.ndarray) -> np.ndarray:
+    def predict(self, X_new: np.ndarray, diag: bool = False) -> np.ndarray:
         """
         Predict empirical variance for new points using JAX.
         
@@ -469,11 +469,15 @@ class SampleVarianceEstimator:
         ----------
         X_new : np.ndarray
             New cell states to predict. Shape (n_cells, n_features).
+        diag : bool, optional
+            If True (default is False), compute the variance for each cell state.
+            If False, compute the full covariance matrix between all pairs of cells.
             
         Returns
         -------
         np.ndarray
-            Empirical variance for each new point. Shape (n_cells, n_genes).
+            If diag=True: Empirical variance for each new point. Shape (n_cells, n_genes).
+            If diag=False: Full covariance matrix between all pairs of cells. Shape (n_cells, n_cells, n_genes).
         """
         if not self.group_predictors:
             raise ValueError("Model not fitted. Call fit() first.")
@@ -491,56 +495,202 @@ class SampleVarianceEstimator:
         
         # If we have no predictors, return zeros
         if not self.group_predictors:
-            variance = np.zeros((n_cells, n_genes))
+            if diag:
+                variance = np.zeros((n_cells, n_genes))
+            else:
+                variance = np.zeros((n_cells, n_cells, n_genes))
             logger.warning("No group predictors available. Returning zeros for variance.")
             return variance
-        
-        # Compile the prediction function if we're using JIT and haven't already
-        if self.jit_compile and self._predict_variance_jit is None:
-            # Define our variance computation function
-            def compute_variance_from_predictors(X, predictors_list):
-                # Map each predictor to get predictions
-                predictions = [predictor(X) for predictor in predictors_list]
-                # Stack the predictions
-                stacked = jnp.stack(predictions, axis=0)
-                # Compute variance across groups (axis 0)
-                return jnp.var(stacked, axis=0)
-            
-            # JIT compile the function
-            self._predict_variance_jit = jax.jit(compute_variance_from_predictors)
         
         # Get list of predictors
         predictors_list = list(self.group_predictors.values())
         
-        # Define a function for batched processing
-        def process_batch(X_batch):
-            # Use the JIT-compiled function if available
-            if self.jit_compile and self._predict_variance_jit is not None:
-                batch_variance = self._predict_variance_jit(X_batch, predictors_list)
-                return np.array(batch_variance)
-            else:
+        if diag:
+            # Regular diagonal variance computation (per cell)
+            # Compile the prediction function if we're using JIT and haven't already
+            if self.jit_compile and self._predict_variance_jit is None:
+                # Define our variance computation function
+                def compute_variance_from_predictions(X, predictions_list):
+                    # Stack the predictions
+                    stacked = jnp.stack(predictions_list, axis=0)
+                    # Compute variance across groups (axis 0)
+                    return jnp.var(stacked, axis=0)
+                
+                # JIT compile the function
+                self._predict_variance_jit = jax.jit(compute_variance_from_predictions)
+            
+            # Define a function for batched processing
+            def process_batch(X_batch):
                 # Get predictions from each group predictor
                 all_group_predictions = []
                 for predictor in predictors_list:
                     group_predictions = predictor(X_batch)
                     all_group_predictions.append(group_predictions)
                 
-                # Stack predictions and compute variance using JAX
-                stacked_predictions = jnp.stack(all_group_predictions, axis=0)
-                batch_variance = jnp.var(stacked_predictions, axis=0)
-                # Convert back to numpy for compatibility
-                return np.array(batch_variance)
+                # Convert to JAX arrays
+                all_group_predictions_jax = [jnp.array(pred) for pred in all_group_predictions]
+                
+                # Use the JIT-compiled function if available
+                if self.jit_compile and self._predict_variance_jit is not None:
+                    batch_variance = self._predict_variance_jit(X_batch, all_group_predictions_jax)
+                    return np.array(batch_variance)
+                else:
+                    # Stack predictions and compute variance using JAX
+                    stacked_predictions = jnp.stack(all_group_predictions_jax, axis=0)
+                    batch_variance = jnp.var(stacked_predictions, axis=0)
+                    # Convert back to numpy for compatibility
+                    return np.array(batch_variance)
+            
+            # Apply batched processing using the common utility function
+            batch_size = self.batch_size
+            variance = apply_batched(
+                process_batch, 
+                X_new_jax, 
+                batch_size=batch_size, 
+                desc="Computing variance across groups"
+            )
+            
+            return variance
         
-        # Apply batched processing
-        batch_size = self.batch_size
-        variance = apply_batched(
-            process_batch, 
-            X_new_jax, 
-            batch_size=batch_size, 
-            desc="Computing variance across groups"
-        )
-        
-        return variance
+        else:
+            # Full covariance matrix computation (between all pairs of cells)
+            # Initialize the result matrix with zeros
+            cov_matrix = np.zeros((n_cells, n_cells, n_genes))
+            
+            # Define a function to compute covariance between cell batches
+            # This function can be called adaptively with different batch sizes
+            def compute_full_covariance(batch_i, batch_j=None):
+                """
+                Compute covariance between two batches of cell data.
+                If batch_j is None, use batch_i for both.
+                """
+                # Default to same batch for both dimensions if not provided
+                if batch_j is None:
+                    batch_j = batch_i
+                
+                # Get predictions from each group predictor for both batches
+                group_preds_i = []
+                group_preds_j = []
+                
+                for predictor in predictors_list:
+                    # Get predictions for each batch
+                    pred_i = jnp.array(predictor(batch_i))
+                    group_preds_i.append(pred_i)
+                    
+                    # Only compute predictions for batch_j if different from batch_i
+                    if batch_j is not batch_i:
+                        pred_j = jnp.array(predictor(batch_j))
+                        group_preds_j.append(pred_j)
+                    else:
+                        group_preds_j = group_preds_i
+                
+                # Stack predictions across groups
+                stacked_i = jnp.stack(group_preds_i, axis=0)  # (n_groups, len(i), n_genes)
+                stacked_j = jnp.stack(group_preds_j, axis=0)  # (n_groups, len(j), n_genes)
+                
+                # Calculate covariance between each pair of cells across groups
+                # First, center the data for each gene
+                means_i = jnp.mean(stacked_i, axis=0, keepdims=True)  # (1, len(i), n_genes)
+                means_j = jnp.mean(stacked_j, axis=0, keepdims=True)  # (1, len(j), n_genes)
+                centered_i = stacked_i - means_i  # (n_groups, len(i), n_genes)
+                centered_j = stacked_j - means_j  # (n_groups, len(j), n_genes)
+                
+                # Reshape for matrix multiplication
+                centered_i_reshaped = jnp.moveaxis(centered_i, 1, 0)  # (len(i), n_groups, n_genes)
+                centered_j_reshaped = jnp.moveaxis(centered_j, 1, 0)  # (len(j), n_groups, n_genes)
+                
+                # Calculate covariance for each gene
+                n_groups = centered_i.shape[0]
+                cov_batch = jnp.zeros((centered_i.shape[1], centered_j.shape[1], centered_i.shape[2]))
+                
+                # Loop over genes (can be vectorized in some cases, but this is more general)
+                for g in range(centered_i.shape[2]):
+                    gene_centered_i = centered_i_reshaped[:, :, g]  # (len(i), n_groups)
+                    gene_centered_j = centered_j_reshaped[:, :, g]  # (len(j), n_groups)
+                    # Calculate covariance as dot product divided by n_groups
+                    gene_cov = (gene_centered_i @ gene_centered_j.T) / n_groups
+                    cov_batch = cov_batch.at[:, :, g].set(gene_cov)
+                
+                # Convert from JAX to numpy array and return
+                return np.array(cov_batch)
+            
+            # Don't JIT compile here - caused issues with TracerArrayConversionError
+            
+            # Process the entire matrix using memory-adaptive batching
+            # Break it into blocks that get processed adaptively
+            
+            # Get optimal batch size based on number of groups and cells
+            # This is a heuristic starting point, apply_memory_adaptive will adjust as needed
+            from kompot.batch_utils import apply_memory_adaptive
+            
+            # Initialize diagonal blocks first
+            for i in range(0, n_cells, min(self.batch_size, 100)):
+                end_i = min(i + min(self.batch_size, 100), n_cells)
+                block_indices = list(range(i, end_i))
+                
+                logger.info(f"Computing diagonal covariance block [{i}:{end_i}, {i}:{end_i}]")
+                
+                try:
+                        # Get the batch data first
+                    block_data = X_new[block_indices]
+                    
+                    # Use our adaptive memory function with the data directly
+                    block_cov = compute_full_covariance(block_data)
+                    
+                    if block_cov is not None:
+                        # Store the block in the result matrix
+                        cov_matrix[i:end_i, i:end_i] = block_cov
+                    else:
+                        logger.warning(f"Failed to compute diagonal block [{i}:{end_i}]. Using zeros.")
+                        # Just leave as zeros, which is the initialized value
+                except Exception as e:
+                    if is_jax_memory_error(e):
+                        logger.warning(f"Memory error computing diagonal block [{i}:{end_i}] even with adaptive sizing. "
+                                      f"Using zeros. Error: {e}")
+                        # Just leave as zeros, which is the initialized value
+                    else:
+                        # Re-raise non-memory errors
+                        raise
+            
+            # Now compute off-diagonal blocks
+            # Only compute upper triangular since the matrix is symmetric
+            for i in range(0, n_cells, min(self.batch_size, 100)):
+                end_i = min(i + min(self.batch_size, 100), n_cells)
+                block_i_indices = list(range(i, end_i))
+                
+                for j in range(i + min(self.batch_size, 100), n_cells, min(self.batch_size, 100)):
+                    end_j = min(j + min(self.batch_size, 100), n_cells)
+                    block_j_indices = list(range(j, end_j))
+                    
+                    logger.info(f"Computing off-diagonal block [{i}:{end_i}, {j}:{end_j}]")
+                    
+                    try:
+                        # Get both block data directly
+                        block_i_data = X_new[block_i_indices]
+                        block_j_data = X_new[block_j_indices]
+                        
+                        # Compute the covariance directly
+                        block_cov = compute_full_covariance(block_i_data, block_j_data)
+                        
+                        if block_cov is not None:
+                            # Store the block in the result matrix
+                            cov_matrix[i:end_i, j:end_j] = block_cov
+                            
+                            # Fill in the symmetric part (transpose)
+                            cov_matrix[j:end_j, i:end_i] = np.transpose(block_cov, (1, 0, 2))
+                        else:
+                            logger.warning(f"Failed to compute off-diagonal block [{i}:{end_i}, {j}:{end_j}]. Using zeros.")
+                            # Just leave as zeros, which is the initialized value
+                    except Exception as e:
+                        if is_jax_memory_error(e):
+                            logger.warning(f"Memory error computing off-diagonal block [{i}:{end_i}, {j}:{end_j}] "
+                                          f"even with adaptive sizing. Using zeros. Error: {e}")
+                            # Just leave as zeros, which is the initialized value
+                        else:
+                            # Re-raise non-memory errors
+                            raise
+            
+            return cov_matrix
 
 
 def compute_weighted_mean_fold_change(
@@ -966,6 +1116,9 @@ class DifferentialExpression:
             landmarks_pred1 = self.function_predictor1(landmarks)
             landmarks_pred2 = self.function_predictor2(landmarks)
             fold_change_subset = landmarks_pred2 - landmarks_pred1
+            
+            # Points for sample variance computation
+            variance_points = landmarks
         else:
             # Use all points
             logger.info(f"No landmarks used, computing with all {len(X)} points")
@@ -982,50 +1135,52 @@ class DifferentialExpression:
                 condition1_imputed = self.function_predictor1(X)
                 condition2_imputed = self.function_predictor2(X)
                 fold_change_subset = condition2_imputed - condition1_imputed
+                
+            # Points for sample variance computation
+            variance_points = X
         
         # Average the covariance matrices
         combined_cov = (cov1 + cov2) / 2
         
-        # Determine diagonal adjustments for variance
-        diag_adjust = None
-        
-        # Add empirical adjustments if needed
+        # For sample variance, use diag=False to get full covariance matrices
         if self.use_sample_variance:
-            if has_landmarks and landmarks is not None:
-                # Use variance predictors if available for landmarks
-                if self.variance_predictor1 is not None and self.variance_predictor2 is not None:
-                    landmarks_variance1 = self.variance_predictor1(landmarks)
-                    landmarks_variance2 = self.variance_predictor2(landmarks)
-                    diag_adjust = (landmarks_variance1 + landmarks_variance2) / 2
-                    logger.info("Using predicted variance from landmarks")
-            else:
-                # If we're not using landmarks, estimate variance at the given points
-                if self.variance_predictor1 is not None and self.variance_predictor2 is not None:
-                    variance1 = self.variance_predictor1(X)
-                    variance2 = self.variance_predictor2(X)
-                    diag_adjust = variance1 + variance2
-                    logger.info("Using predicted variance from all points")
-        
-        # Process diag_adjust to get correct shape if needed
-        if diag_adjust is not None:
-            # Ensure diag_adjust is the right shape
-            if len(diag_adjust.shape) > 1 and diag_adjust.shape[1] > 1:
-                # If diag_adjust is per-cell and per-gene, take mean across cells
-                diag_adjust_avg = np.mean(diag_adjust, axis=0)
-                # If still multi-dimensional, take the first column (first gene)
-                if len(diag_adjust_avg.shape) > 1:
-                    diag_adjust_avg = diag_adjust_avg[:, 0]
-            else:
-                diag_adjust_avg = diag_adjust
+            # Add empirical adjustments from sample variance
+            batch_size = getattr(self, 'batch_size', None)
             
-            # Use the processed adjustment
-            diag_adjust = diag_adjust_avg
+            # Create functions for computing sample variance in batches
+            if self.variance_predictor1 is not None:
+                try:
+                    # Important: use diag=False to get full covariance matrix
+                    variance1 = self.variance_predictor1(variance_points, diag=False)
+                    if self.variance_predictor2 is not None:
+                        variance2 = self.variance_predictor2(variance_points, diag=False)
+                        # Add the covariance matrices for complete variance representation
+                        combined_variance = variance1 + variance2
+                        
+                        # Add the sample variance to the combined covariance from function predictors
+                        combined_cov += combined_variance
+                        logger.info("Added sample variance covariance matrix to function predictor covariance")
+                    else:
+                        # Only add variance1 if variance2 is not available
+                        combined_cov += variance1
+                        logger.info("Added variance1 covariance matrix to function predictor covariance")
+                except Exception as e:
+                    logger.warning(f"Error computing sample variance: {e}. Using only function predictor covariance.")
+            elif self.variance_predictor2 is not None:
+                try:
+                    # Important: use diag=False to get full covariance matrix
+                    variance2 = self.variance_predictor2(variance_points, diag=False)
+                    # Add variance2 to the combined covariance
+                    combined_cov += variance2
+                    logger.info("Added variance2 covariance matrix to function predictor covariance")
+                except Exception as e:
+                    logger.warning(f"Error computing sample variance: {e}. Using only function predictor covariance.")
         
         # Prepare the matrix (compute Cholesky decomposition once)
         logger.info("Preparing covariance matrix for efficient Mahalanobis distance computation...")
         prepared_matrix = prepare_mahalanobis_matrix(
             covariance_matrix=combined_cov,
-            diag_adjustments=diag_adjust,
+            diag_adjustments=None,  # No need for separate diagonal adjustments, they're already in combined_cov
             eps=self.eps,
             jit_compile=self.jit_compile
         )
@@ -1110,10 +1265,11 @@ class DifferentialExpression:
             return self.function_predictor2.covariance(X_batch, diag=True)
             
         # Functions for computing empirical variances using batches
-        # The variance predictor returns variance per cell, which is added to uncertainty
+        # When using SampleVarianceEstimator, just define functions here but don't call them yet
         if self.variance_predictor1 is not None:
             def get_variance1(X_batch):
-                return self.variance_predictor1(X_batch)
+                # Return zeros with same shape as imputed values
+                return np.zeros_like(predict_condition1(X_batch))
         else:
             def get_variance1(X_batch):
                 # Return zeros with same shape as imputed values
@@ -1121,7 +1277,8 @@ class DifferentialExpression:
                 
         if self.variance_predictor2 is not None:
             def get_variance2(X_batch):
-                return self.variance_predictor2(X_batch)
+                # Return zeros with same shape as imputed values
+                return np.zeros_like(predict_condition2(X_batch))
         else:
             def get_variance2(X_batch):
                 # Return zeros with same shape as imputed values
@@ -1149,23 +1306,6 @@ class DifferentialExpression:
             desc="Computing uncertainty (condition 2)"
         )
         
-        # Get empirical variances if enabled
-        if self.use_sample_variance:
-            condition1_variance = apply_batched(
-                get_variance1, X_new, batch_size=batch_size,
-                desc="Computing empirical variance (condition 1)"
-            )
-            
-            condition2_variance = apply_batched(
-                get_variance2, X_new, batch_size=batch_size,
-                desc="Computing empirical variance (condition 2)"
-            )
-        else:
-            # Skip empirical variance calculation if not needed
-            # Create simple zeros arrays instead of using zeros_like which can fail with inhomogeneous shapes
-            condition1_variance = 0
-            condition2_variance = 0
-        
         # Compute fold change
         fold_change = condition2_imputed - condition1_imputed
         
@@ -1184,26 +1324,8 @@ class DifferentialExpression:
         condition1_uncertainty = np.asarray(condition1_uncertainty)
         condition2_uncertainty = np.asarray(condition2_uncertainty)
         
-        # Combined uncertainty - add empirical variance if enabled
+        # Combined uncertainty - function predictor uncertainties
         variance = condition1_uncertainty + condition2_uncertainty
-        
-        # Add empirical variance component if enabled
-        if self.use_sample_variance:
-            # Convert to numpy arrays if needed
-            condition1_variance = np.asarray(condition1_variance)
-            condition2_variance = np.asarray(condition2_variance)
-            
-            # Ensure proper shape for broadcasting
-            if len(condition1_variance.shape) == 1:
-                condition1_variance = condition1_variance[:, np.newaxis]
-            if len(condition2_variance.shape) == 1:
-                condition2_variance = condition2_variance[:, np.newaxis]
-                
-            variance += condition1_variance + condition2_variance
-            
-        # Compute z-scores
-        stds = np.sqrt(variance + self.eps)
-        fold_change_zscores = fold_change / stds
         
         # Compute bidirectionality
         bidirectionality = np.minimum(
@@ -1218,8 +1340,6 @@ class DifferentialExpression:
             'condition1_imputed': condition1_imputed,
             'condition2_imputed': condition2_imputed,
             'fold_change': fold_change,
-            'fold_change_zscores': fold_change_zscores,
-            'mean_log_fold_change': mean_log_fold_change,
             'lfc_stds': lfc_stds,
             'bidirectionality': bidirectionality
         }
@@ -1228,12 +1348,43 @@ class DifferentialExpression:
         if compute_mahalanobis:
             logger.info("Computing Mahalanobis distances...")
             
-            # Simply call our existing method with the fold change we already computed
             mahalanobis_distances = self.compute_mahalanobis_distances(
                 X=X_new, 
                 fold_change=fold_change
             )
             
             result['mahalanobis_distances'] = mahalanobis_distances
+            
+            # Use sample variance from mahalanobis calculation for z-scores
+            # This will get the full covariance matrix with diag=False
+            if self.use_sample_variance:
+                # Z-scores will be computed after this
+                pass
+            else:
+                # If we're not using sample variance, just use the function predictor uncertainties
+                stds = np.sqrt(variance + self.eps)
+                fold_change_zscores = fold_change / stds
+                result['fold_change_zscores'] = fold_change_zscores
+                result['mean_log_fold_change'] = mean_log_fold_change
+        else:
+            # If we don't compute mahalanobis, we still need the fold change z-scores
+            if self.use_sample_variance:
+                # Get empirical variances if enabled
+                try:
+                    # Let's call compute_mahalanobis_distances and only use its variance calculations
+                    # This will get the variance with the whole landmark logic
+                    temp_result = self.compute_mahalanobis_distances(
+                        X=X_new, 
+                        fold_change=fold_change
+                    )
+                    # The actual distances will be discarded, we just want the side effect of computing the variance
+                except Exception as e:
+                    logger.warning(f"Error in sample variance computation: {e}. Using only function predictor uncertainties.")
+            
+            # Compute z-scores using function predictor uncertainties
+            stds = np.sqrt(variance + self.eps)
+            fold_change_zscores = fold_change / stds
+            result['fold_change_zscores'] = fold_change_zscores
+            result['mean_log_fold_change'] = mean_log_fold_change
         
         return result

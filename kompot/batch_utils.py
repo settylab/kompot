@@ -38,6 +38,142 @@ def is_jax_memory_error(error: Exception) -> bool:
     ])
 
 
+def apply_memory_adaptive(
+    func: Callable, 
+    X: np.ndarray, 
+    indices: Union[List[int], np.ndarray],
+    desc: Optional[str] = None,
+    show_progress: bool = True,
+    max_retries: int = 8,
+    concat_func: Optional[Callable] = None
+) -> Any:
+    """
+    Apply a function to data with adaptive memory handling.
+    
+    This function applies a function to specified data indices with automatic
+    memory management. If a memory error occurs, it will automatically reduce
+    the batch size.
+    
+    Parameters
+    ----------
+    func : Callable
+        Function to apply to data
+    X : np.ndarray
+        Input data array
+    indices : List[int] or np.ndarray
+        Indices to process
+    desc : str, optional
+        Description for progress bars
+    show_progress : bool, optional
+        Whether to show progress bars
+    max_retries : int, optional
+        Maximum number of times to retry with smaller batches
+    concat_func : Callable, optional
+        Function to concat results, defaults to np.array
+        
+    Returns
+    -------
+    Any
+        Results from processing the data, or None if all batches failed
+    """
+    if len(indices) == 0:
+        return None
+    
+    # If indices is a list, convert to array for more efficient slicing
+    if isinstance(indices, list):
+        indices = np.array(indices)
+    
+    # We'll store all successfully processed results here
+    results = []
+    processed_indices = set()
+    
+    # Start by trying to process all indices at once
+    try:
+        # Create slice for extracting this batch
+        batch_X = X[indices]
+        # Process the batch
+        result = func(batch_X)
+        # All succeeded, return the result
+        return result
+    except Exception as e:
+        if not is_jax_memory_error(e):
+            # If it's not a memory error, re-raise
+            raise
+        
+        # It's a memory error, so we'll try with batching
+        logger.warning(f"Memory error processing all {len(indices)} indices. Will try batching.")
+    
+    # Start with 2 batches and keep increasing as needed
+    for retry in range(max_retries):
+        # Skip if all indices have been processed
+        remaining = [idx for idx in indices if idx not in processed_indices]
+        if not remaining:
+            break
+            
+        n_batches = 2 ** retry
+        if n_batches >= len(remaining):
+            # We've reached a point where we'd be processing one index at a time
+            # Try the remaining indices one by one
+            batch_size = 1
+        else:
+            batch_size = max(1, len(remaining) // n_batches)
+        
+        logger.info(f"Retry {retry+1}/{max_retries}: Processing {len(remaining)} remaining indices "
+                   f"in {n_batches} batches (batch size ~{batch_size})")
+        
+        # Split the remaining indices into batches
+        remaining_batches = [
+            remaining[i:i + batch_size] 
+            for i in range(0, len(remaining), batch_size)
+        ]
+        
+        batch_iter = tqdm(
+            remaining_batches,
+            desc=desc or f"Batch size ~{batch_size}",
+            disable=not show_progress
+        )
+        
+        successful_batch = False
+        
+        for batch_indices in batch_iter:
+            try:
+                # Create slice for extracting this batch
+                batch_X = X[batch_indices]
+                # Process the batch
+                result = func(batch_X)
+                # Store result
+                results.append(result)
+                # Mark these indices as processed
+                processed_indices.update(batch_indices)
+                successful_batch = True
+            except Exception as e:
+                if not is_jax_memory_error(e):
+                    # If it's not a memory error, re-raise
+                    raise
+                
+                # Memory error, we'll try smaller batches in the next iteration
+                logger.warning(f"Memory error with batch of size {len(batch_indices)}. "
+                              f"Will try smaller in next iteration.")
+                break
+        
+        # If all batches in this iteration succeeded, we're done
+        if successful_batch and len(processed_indices) == len(indices):
+            break
+    
+    # If we have any successful results, combine them
+    if results:
+        # If a custom concat function is provided, use it
+        if concat_func is not None:
+            return concat_func(results)
+        
+        # Default to numpy array concatenation
+        return np.array(results)
+    
+    # If we couldn't process any indices successfully
+    logger.error(f"Failed to process any indices even with smallest batch size.")
+    return None
+
+
 def merge_batch_results(results: List[Any], concat_axis: int = 0) -> Any:
     """
     Merge results from batched processing.
@@ -293,7 +429,7 @@ def batch_process(default_batch_size: int = 500):
 def apply_batched(
     func: Callable,
     X: np.ndarray,
-    batch_size: int = 500,
+    batch_size: Optional[int] = 500,
     axis: int = 0,
     show_progress: bool = True,
     desc: Optional[str] = None,
