@@ -59,14 +59,14 @@ class DifferentialAbundance:
     
     def __init__(
         self,
-        log_fold_change_threshold: float = 1.7,
-        pvalue_threshold: float = 1e-3,
+        log_fold_change_threshold: float = 1.0,
+        pvalue_threshold: float = 1e-2,
         n_landmarks: Optional[int] = None,
         jit_compile: bool = False,
         density_predictor1: Optional[Any] = None,
         density_predictor2: Optional[Any] = None,
         random_state: Optional[int] = None,
-        batch_size: int = None,
+        batch_size: Optional[int] = None,
     ):
         """
         Initialize DifferentialAbundance.
@@ -74,9 +74,9 @@ class DifferentialAbundance:
         Parameters
         ----------
         log_fold_change_threshold : float, optional
-            Threshold for considering a log fold change significant, by default 1.7.
+            Threshold for considering a log fold change significant, by default 1.0.
         pvalue_threshold : float, optional
-            Threshold for considering a p-value significant, by default 1e-3.
+            Threshold for considering a p-value significant, by default 1e-2.
         n_landmarks : int, optional
             Number of landmarks to use for approximation. If None, use all points, by default None.
         jit_compile : bool, optional
@@ -90,7 +90,9 @@ class DifferentialAbundance:
             Controls the random selection of points when using approximation, by default None.
         batch_size : int, optional
             Number of samples to process at once during prediction to manage memory usage.
-            If None or 0, all samples will be processed at once. Default is 0.
+            If None or 0, all samples will be processed at once. If processing all at once
+            causes a memory error, a default batch size of 500 will be used automatically.
+            Default is None.
         """
         self.log_fold_change_threshold = log_fold_change_threshold
         self.pvalue_threshold = pvalue_threshold
@@ -1032,7 +1034,7 @@ class DifferentialExpression:
         fold_change_transposed = fold_change_subset.T
         
         # Compute Mahalanobis distances for all genes at once using batched computation
-        logger.info(f"Computing Mahalanobis distances for {fold_change_transposed.shape[0]} genes...")
+        logger.info(f"Computing Mahalanobis distances for {fold_change_transposed.shape[0]:,} genes...")
         
         # Use the mahalanobis_batch_size from the class instance
         batch_size = self.mahalanobis_batch_size

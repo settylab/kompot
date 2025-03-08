@@ -48,10 +48,14 @@ setup(
             'matplotlib>=3.5.0',
             'seaborn>=0.12.0',
         ],
+        'recommended': [
+            'palantir>=1.0.0',
+        ],
         'all': [
             'scanpy>=1.9.0',
             'matplotlib>=3.5.0',
             'seaborn>=0.12.0',
+            'palantir>=1.0.0',
         ],
     },
     classifiers=[

@@ -9,3 +9,6 @@ pynndescent>=0.5.0
 python-igraph>=0.10.0
 leidenalg>=0.9.0
 importlib-resources>=5.0.0
+
+# Recommended packages
+# palantir>=1.0.0  # Uncomment to install recommended dependencies

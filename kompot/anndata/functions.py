@@ -28,7 +28,7 @@ def compute_differential_abundance(
     obsm_key: str = "DM_EigenVectors",
     n_landmarks: Optional[int] = None,
     landmarks: Optional[np.ndarray] = None,
-    log_fold_change_threshold: float = 1.7,
+    log_fold_change_threshold: float = 1.0,
     pvalue_threshold: float = 1e-3,
     ls_factor: float = 10.0,
     jit_compile: bool = False,
@@ -36,6 +36,7 @@ def compute_differential_abundance(
     copy: bool = False,
     inplace: bool = True,
     result_key: str = "kompot_da",
+    batch_size: Optional[int] = None,
     **density_kwargs
 ) -> Union[Dict[str, np.ndarray], "AnnData"]:
     """
@@ -82,6 +83,11 @@ def compute_differential_abundance(
         If True, modify adata in place, by default True.
     result_key : str, optional
         Key in adata.uns where results will be stored, by default "kompot_da".
+    batch_size : int, optional
+        Number of samples to process at once during density estimation to manage memory usage.
+        If None or 0, all samples will be processed at once. If processing all at once
+        causes a memory error, a default batch size of 500 will be used automatically.
+        Default is None.
     **density_kwargs : dict
         Additional arguments to pass to the DensityEstimator.
         
@@ -178,7 +184,8 @@ def compute_differential_abundance(
         pvalue_threshold=pvalue_threshold,
         n_landmarks=n_landmarks,
         jit_compile=jit_compile,
-        random_state=random_state
+        random_state=random_state,
+        batch_size=batch_size
     )
     
     # Fit the estimators
@@ -384,7 +391,8 @@ def compute_differential_expression(
     batch_size : int, optional
         Number of genes to process in each batch during Mahalanobis distance computation.
         Smaller values use less memory but are slower, by default 100. For large datasets
-        with memory constraints, try a smaller value like 20-50.
+        with memory constraints, try a smaller value like 20-50. 
+        This parameter is also passed to the DifferentialAbundance class when compute_abundance=True.
     copy : bool, optional
         If True, return a copy of the AnnData object with results added,
         by default False.
@@ -1052,7 +1060,7 @@ def run_differential_analysis(
     
     # Separate kwargs for each analysis type
     abundance_kwargs = {k: v for k, v in kwargs.items() if k in [
-        'log_fold_change_threshold', 'pvalue_threshold'
+        'log_fold_change_threshold', 'pvalue_threshold', 'batch_size'
     ]}
     
     expression_kwargs = {k: v for k, v in kwargs.items() if k in [

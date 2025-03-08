@@ -336,9 +336,20 @@ def apply_batched(
     >>>     batch_size=1000
     >>> )
     """
-    # If batch_size is None or 0, or input is small, process all at once
+    # If batch_size is None or 0, or input is small, try to process all at once
+    # If that fails due to memory error, fall back to using a default batch size of 500
     if batch_size is None or batch_size <= 0 or X.shape[axis] <= batch_size:
-        return func(X)
+        try:
+            return func(X)
+        except Exception as e:
+            if is_jax_memory_error(e) and (batch_size is None or batch_size <= 0):
+                # Fall back to a reasonable default batch size
+                logger.warning(f"Memory error encountered with batch_size=None. Falling back to batch_size=500")
+                batch_size = 500
+                # Continue with batched processing below
+            else:
+                # If it's not a memory error or batch_size is already set, re-raise
+                raise
     
     n_samples = X.shape[axis]
     original_batch_size = batch_size

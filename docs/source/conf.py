@@ -48,6 +48,9 @@ extensions = [
     "nbsphinx",
     "sphinx.ext.napoleon",
 ]
+
+# Allow errors in notebooks during build
+nbsphinx_allow_errors = True
 if os.environ.get('READTHEDOCS') == 'True':
     extensions.append("sphinx_github_style")
 

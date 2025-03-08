@@ -1,5 +1,5 @@
 Differential Analysis
-====================
+=====================
 
 DifferentialAbundance
 ---------------------

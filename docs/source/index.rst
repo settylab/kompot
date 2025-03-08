@@ -14,6 +14,8 @@
    :hidden:
    :caption: Tutorials:
 
+   notebooks/tutorial_notebook.ipynb
+
 Kompot
 ======
 
