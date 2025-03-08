@@ -151,9 +151,10 @@ class TestKeyInferenceFunctions:
         assert latest_run['abundance_key'] == 'da_run3'
         
         # Test inference with latest run (-1)
-        lfc_key, pval_key = _infer_da_keys(self.adata, run_id=-1)
+        lfc_key, pval_key, thresholds = _infer_da_keys(self.adata, run_id=-1)
         assert 'da_run3' in lfc_key, f"Expected 'da_run3' in inferred key, got {lfc_key}"
         assert pval_key is not None
+        assert isinstance(thresholds, tuple)
         
         # For this test, we can't easily get the specific run_id for da_run1 or da_run2
         # since we don't know the exact ordering in kompot_run_history
@@ -163,7 +164,7 @@ class TestKeyInferenceFunctions:
         # Test direct inference without run_id
         da_keys = [k for k in self.adata.obs.columns if 'da_run1' in k and 'lfc' in k]
         if da_keys:
-            lfc_key, pval_key = _infer_da_keys(self.adata, lfc_key=da_keys[0])
+            lfc_key, pval_key, thresholds = _infer_da_keys(self.adata, lfc_key=da_keys[0])
             assert 'da_run1' in lfc_key, f"Expected 'da_run1' in inferred key, got {lfc_key}"
     
     def test_infer_heatmap_keys_with_run_id(self):
