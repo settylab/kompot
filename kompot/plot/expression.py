@@ -195,16 +195,13 @@ def plot_gene_expression(
     # Panel 2: Condition 1 imputed expression
     if condition1_layer and condition1_layer in adata.layers:
         if basis and _has_scanpy:
-            # Create temporary anndata with the imputed expression as X
-            temp_adata = adata.copy()
-            temp_adata.X = adata.layers[condition1_layer].copy()
-            
             sc.pl.embedding(
-                temp_adata,
+                adata,
                 basis=basis.replace("X_", ""),
                 color=gene,
                 title=f"Imputed Expression ({condition1})",
                 color_map=cmap_expression,
+                layer=condition1_layer,
                 show=False,
                 ax=axs[0, 1],
                 **kwargs
@@ -274,16 +271,14 @@ def plot_gene_expression(
     # Panel 3: Condition 2 imputed expression
     if condition2_layer and condition2_layer in adata.layers:
         if basis and _has_scanpy:
-            # Create temporary anndata with the imputed expression as X
-            temp_adata = adata.copy()
-            temp_adata.X = adata.layers[condition2_layer].copy()
             
             sc.pl.embedding(
-                temp_adata,
+                adata,
                 basis=basis.replace("X_", ""),
                 color=gene,
                 title=f"Imputed Expression ({condition2})",
                 color_map=cmap_expression,
+                layer=condition2_layer,
                 show=False,
                 ax=axs[1, 0],
                 **kwargs
@@ -353,29 +348,19 @@ def plot_gene_expression(
     # Panel 4: Fold change
     if fold_change_layer and fold_change_layer in adata.layers:
         if basis and _has_scanpy:
-            # Create temporary anndata with the fold changes as X
-            temp_adata = adata.copy()
-            temp_adata.X = adata.layers[fold_change_layer].copy()
-            
-            # Calculate reasonable vmin/vmax
-            fold_changes = adata.layers[fold_change_layer][:, gene_idx]
-            if hasattr(fold_changes, 'toarray'):
-                fold_changes = fold_changes.toarray().flatten()
-            else:
-                fold_changes = fold_changes.flatten()
-                
-            vmax = max(abs(fold_changes))
-            vmin = -vmax
+            scatter_kwargs = {'vcenter': 0}
+            scatter_kwargs.update(kwargs)
             
             sc.pl.embedding(
-                temp_adata,
+                adata,
                 basis=basis.replace("X_", ""),
                 color=gene,
                 title=f"Mean Log Fold Change\n{condition2 or 'Condition 2'} vs {condition1 or 'Condition 1'}",
+                layer=fold_change_layer,
                 color_map=cmap_fold_change,
                 show=False,
                 ax=axs[1, 1],
-                **kwargs
+                **scatter_kwargs
             )
         elif basis:
             # Handle both sparse and dense layers
@@ -386,7 +371,7 @@ def plot_gene_expression(
                 fold_changes = fold_changes.flatten()
                 
             # Create scatter kwargs - use a small default point size
-            scatter_kwargs = {'s': 3}
+            scatter_kwargs = {'s': 3, 'vcenter': 0}
             # Override with user-provided kwargs
             scatter_kwargs.update(kwargs)
                 
