@@ -199,7 +199,6 @@ class DifferentialAbundance:
         
         return self
     
-    @batch_process()
     def predict(
         self, 
         X_new: np.ndarray,
@@ -210,7 +209,7 @@ class DifferentialAbundance:
         Predict log density and log fold change for new points.
         
         This method computes all fold changes and related metrics.
-        It uses automatic batching to handle large datasets efficiently.
+        It uses internal batching for efficient computation with large datasets.
         
         Parameters
         ----------
@@ -244,13 +243,52 @@ class DifferentialAbundance:
         if pvalue_threshold is None:
             pvalue_threshold = self.pvalue_threshold
         
-        # Compute log densities and uncertainties
-        log_density_condition1 = self.density_predictor1(X_new, normalize=True)
-        log_density_condition2 = self.density_predictor2(X_new, normalize=True)
+        # Get batch size
+        batch_size = getattr(self, 'batch_size', None)
         
-        log_density_uncertainty_condition1 = self.density_predictor1.uncertainty(X_new)
-        log_density_uncertainty_condition2 = self.density_predictor2.uncertainty(X_new)
+        # Define functions for batched processing
+        def compute_density1(X_batch):
+            return self.density_predictor1(X_batch, normalize=True)
+            
+        def compute_density2(X_batch):
+            return self.density_predictor2(X_batch, normalize=True)
+            
+        def compute_uncertainty1(X_batch):
+            return self.density_predictor1.uncertainty(X_batch)
+            
+        def compute_uncertainty2(X_batch):
+            return self.density_predictor2.uncertainty(X_batch)
         
+        # Apply batched processing to the expensive operations
+        log_density_condition1 = apply_batched(
+            compute_density1, 
+            X_new, 
+            batch_size=batch_size, 
+            desc="Computing density (condition 1)"
+        )
+        
+        log_density_condition2 = apply_batched(
+            compute_density2, 
+            X_new, 
+            batch_size=batch_size,
+            desc="Computing density (condition 2)"
+        )
+        
+        log_density_uncertainty_condition1 = apply_batched(
+            compute_uncertainty1, 
+            X_new, 
+            batch_size=batch_size,
+            desc="Computing uncertainty (condition 1)"
+        )
+        
+        log_density_uncertainty_condition2 = apply_batched(
+            compute_uncertainty2, 
+            X_new, 
+            batch_size=batch_size,
+            desc="Computing uncertainty (condition 2)"
+        )
+        
+        # The rest of the computation is lightweight and can be done all at once
         # Compute log fold change and uncertainty
         log_fold_change = log_density_condition2 - log_density_condition1
         log_fold_change_uncertainty = log_density_uncertainty_condition1 + log_density_uncertainty_condition2
@@ -391,12 +429,11 @@ class EmpiricVarianceEstimator:
         
         return self
     
-    @batch_process()
     def predict(self, X_new: np.ndarray) -> np.ndarray:
         """
         Predict empirical variance for new points using JAX.
         
-        This method uses automatic batching to handle large datasets efficiently.
+        This method uses internal batching to handle large datasets efficiently.
         
         Parameters
         ----------
@@ -445,23 +482,33 @@ class EmpiricVarianceEstimator:
         # Get list of predictors
         predictors_list = list(self.group_predictors.values())
         
-        # Use the JIT-compiled function if available
-        if self.jit_compile and self._predict_variance_jit is not None:
-            variance = self._predict_variance_jit(X_new_jax, predictors_list)
-            variance = np.array(variance)
-        else:
-            # Get predictions from each group predictor
-            all_group_predictions = []
-            for predictor in predictors_list:
-                # JAX predictors will work with jnp arrays directly
-                group_predictions = predictor(X_new_jax)
-                all_group_predictions.append(group_predictions)
-            
-            # Stack predictions and compute variance using JAX
-            stacked_predictions = jnp.stack(all_group_predictions, axis=0)
-            variance = jnp.var(stacked_predictions, axis=0)
-            # Convert back to numpy for compatibility with the rest of the codebase
-            variance = np.array(variance)
+        # Define a function for batched processing
+        def process_batch(X_batch):
+            # Use the JIT-compiled function if available
+            if self.jit_compile and self._predict_variance_jit is not None:
+                batch_variance = self._predict_variance_jit(X_batch, predictors_list)
+                return np.array(batch_variance)
+            else:
+                # Get predictions from each group predictor
+                all_group_predictions = []
+                for predictor in predictors_list:
+                    group_predictions = predictor(X_batch)
+                    all_group_predictions.append(group_predictions)
+                
+                # Stack predictions and compute variance using JAX
+                stacked_predictions = jnp.stack(all_group_predictions, axis=0)
+                batch_variance = jnp.var(stacked_predictions, axis=0)
+                # Convert back to numpy for compatibility
+                return np.array(batch_variance)
+        
+        # Apply batched processing
+        batch_size = self.batch_size
+        variance = apply_batched(
+            process_batch, 
+            X_new_jax, 
+            batch_size=batch_size, 
+            desc="Computing variance across groups"
+        )
         
         return variance
 
@@ -735,7 +782,6 @@ class DifferentialExpression:
             
             # Create variance estimator
             self.empiric_variance_estimator = EmpiricVarianceEstimator(
-                n_neighbors=5,
                 eps=self.eps
             )
             
@@ -746,50 +792,31 @@ class DifferentialExpression:
             if sample_estimator_ls is not None:
                 sample_estimator_kwargs['ls'] = sample_estimator_ls
             
-            # If we have indices for both conditions, fit a single variance estimator for all the data
-            if condition1_sample_indices is not None and condition2_sample_indices is not None:
-                X_combined = np.vstack([X_condition1, X_condition2])
-                Y_combined = np.vstack([y_condition1, y_condition2])
-                grouping_vector = np.concatenate([condition1_sample_indices, condition2_sample_indices])
-                
-                logger.info("Fitting sample-specific variance estimator on combined data...")
-                self.empiric_variance_estimator.fit(
-                    X_combined, 
-                    Y_combined, 
-                    grouping_vector,
+            if condition1_sample_indices is not None:
+                logger.info("Fitting sample-specific variance estimator for condition 1...")
+                condition1_variance_estimator = EmpiricVarianceEstimator(
+                    eps=self.eps
+                )
+                condition1_variance_estimator.fit(
+                    X_condition1, 
+                    y_condition1, 
+                    condition1_sample_indices,
                     function_estimator_kwargs=sample_estimator_kwargs
                 )
-                self.variance_predictor1 = self.variance_predictor2 = self.empiric_variance_estimator.predict
+                self.variance_predictor1 = condition1_variance_estimator.predict
             
-            # Otherwise fit separate estimators for each condition that has sample indices
-            else:
-                if condition1_sample_indices is not None:
-                    logger.info("Fitting sample-specific variance estimator for condition 1...")
-                    condition1_variance_estimator = EmpiricVarianceEstimator(
-                        n_neighbors=5,
-                        eps=self.eps
-                    )
-                    condition1_variance_estimator.fit(
-                        X_condition1, 
-                        y_condition1, 
-                        condition1_sample_indices,
-                        function_estimator_kwargs=sample_estimator_kwargs
-                    )
-                    self.variance_predictor1 = condition1_variance_estimator.predict
-                
-                if condition2_sample_indices is not None:
-                    logger.info("Fitting sample-specific variance estimator for condition 2...")
-                    condition2_variance_estimator = EmpiricVarianceEstimator(
-                        n_neighbors=5,
-                        eps=self.eps
-                    )
-                    condition2_variance_estimator.fit(
-                        X_condition2, 
-                        y_condition2, 
-                        condition2_sample_indices,
-                        function_estimator_kwargs=sample_estimator_kwargs
-                    )
-                    self.variance_predictor2 = condition2_variance_estimator.predict
+            if condition2_sample_indices is not None:
+                logger.info("Fitting sample-specific variance estimator for condition 2...")
+                condition2_variance_estimator = EmpiricVarianceEstimator(
+                    eps=self.eps
+                )
+                condition2_variance_estimator.fit(
+                    X_condition2, 
+                    y_condition2, 
+                    condition2_sample_indices,
+                    function_estimator_kwargs=sample_estimator_kwargs
+                )
+                self.variance_predictor2 = condition2_variance_estimator.predict
         
         # The fit method now only creates estimators and doesn't compute fold changes
         logger.info("Function estimators fitted. Call predict() to compute fold changes.")
@@ -977,27 +1004,21 @@ class DifferentialExpression:
             
         self.mahalanobis_distances = mahalanobis_distances
     
-    @batch_process()
     def predict(
         self, 
         X_new: np.ndarray, 
-        cell_condition_labels: Optional[np.ndarray] = None,
         compute_mahalanobis: bool = False
     ) -> Dict[str, np.ndarray]:
         """
         Predict gene expression and differential metrics for new points.
         
         This method computes fold changes and related metrics for the provided points.
-        It uses automatic batching to handle large datasets efficiently.
+        It uses internal batching for efficient computation with large datasets.
         
         Parameters
         ----------
         X_new : np.ndarray
             New cell states. Shape (n_cells, n_features).
-        cell_condition_labels : np.ndarray, optional
-            Optional array specifying which cells belong to which condition. If provided,
-            should be an array of integers where 0 indicates condition1 and 1 indicates condition2.
-            This allows for condition-specific analysis without relying on the order of cells.
         compute_mahalanobis : bool, optional
             Whether to compute Mahalanobis distances. This can be computationally expensive,
             so it's optional in the predict method. Default is False.
@@ -1012,39 +1033,77 @@ class DifferentialExpression:
             - 'fold_change_zscores': Z-scores for the fold changes
             - 'mean_log_fold_change': Mean log fold change across all cells
             - 'mahalanobis_distances': Only if compute_mahalanobis is True
-              
-            If cell_condition_labels is provided, also includes:
-            - 'condition1_cells_mean_log_fold_change': Mean log fold change for condition 1 cells
-            - 'condition2_cells_mean_log_fold_change': Mean log fold change for condition 2 cells
         """
         if self.function_predictor1 is None or self.function_predictor2 is None:
             raise ValueError("Model not fitted. Call fit() first.")
         
-        # Get condition labels for this batch if provided
-        batch_condition_labels = None
-        if cell_condition_labels is not None:
-            if len(cell_condition_labels) != len(X_new):
-                raise ValueError("cell_condition_labels must have same length as X_new")
-            batch_condition_labels = cell_condition_labels
+        # Get batch size for internal batching
+        batch_size = getattr(self, 'batch_size', None)
         
-        # Predict expression for both conditions
-        condition1_imputed = self.function_predictor1(X_new)
-        condition2_imputed = self.function_predictor2(X_new)
+        # Define batch processing functions for the heavyweight operations
+        def predict_condition1(X_batch):
+            return self.function_predictor1(X_batch)
+            
+        def predict_condition2(X_batch):
+            return self.function_predictor2(X_batch)
         
-        # Compute uncertainties - either from covariance or variance predictors
+        # Functions for computing uncertainties using batches
+        def get_uncertainty1(X_batch):
+            return self.function_predictor1.covariance(X_batch, diag=True)
+                
+        def get_uncertainty2(X_batch):
+            return self.function_predictor2.covariance(X_batch, diag=True)
+            
+        # Functions for computing empirical variances using batches
+        # The variance predictor returns variance per cell, which is added to uncertainty
         if self.variance_predictor1 is not None:
-            condition1_uncertainty = self.variance_predictor1(X_new)
-            if isinstance(condition1_uncertainty, tuple):
-                condition1_uncertainty = condition1_uncertainty[0]  # Handle case when predictor returns multiple values
+            def get_variance1(X_batch):
+                return self.variance_predictor1(X_batch)
         else:
-            condition1_uncertainty = self.function_predictor1.covariance(X_new, diag=True)
-        
+            def get_variance1(X_batch):
+                # Return zeros with same shape as imputed values
+                return np.zeros_like(predict_condition1(X_batch))
+                
         if self.variance_predictor2 is not None:
-            condition2_uncertainty = self.variance_predictor2(X_new)
-            if isinstance(condition2_uncertainty, tuple):
-                condition2_uncertainty = condition2_uncertainty[0]  # Handle case when predictor returns multiple values
+            def get_variance2(X_batch):
+                return self.variance_predictor2(X_batch)
         else:
-            condition2_uncertainty = self.function_predictor2.covariance(X_new, diag=True)
+            def get_variance2(X_batch):
+                # Return zeros with same shape as imputed values
+                return np.zeros_like(predict_condition2(X_batch))
+        
+        # Apply batched processing to each expensive operation
+        condition1_imputed = apply_batched(
+            predict_condition1, X_new, batch_size=batch_size,
+            desc="Predicting condition 1"
+        )
+        
+        condition2_imputed = apply_batched(
+            predict_condition2, X_new, batch_size=batch_size,
+            desc="Predicting condition 2"
+        )
+        
+        # Get uncertainties from function predictors
+        condition1_uncertainty = apply_batched(
+            get_uncertainty1, X_new, batch_size=batch_size,
+            desc="Computing uncertainty (condition 1)"
+        )
+        
+        condition2_uncertainty = apply_batched(
+            get_uncertainty2, X_new, batch_size=batch_size,
+            desc="Computing uncertainty (condition 2)"
+        )
+        
+        # Get empirical variances if available
+        condition1_variance = apply_batched(
+            get_variance1, X_new, batch_size=batch_size,
+            desc="Computing empirical variance (condition 1)"
+        )
+        
+        condition2_variance = apply_batched(
+            get_variance2, X_new, batch_size=batch_size,
+            desc="Computing empirical variance (condition 2)"
+        )
         
         # Compute fold change
         fold_change = condition2_imputed - condition1_imputed
@@ -1052,7 +1111,6 @@ class DifferentialExpression:
         # Compute fold change statistics
         lfc_stds = np.std(fold_change, axis=0)
         
-        # Compute fold change z-scores
         # Ensure uncertainties have the right shape for broadcasting
         if len(condition1_uncertainty.shape) == 1:
             # Reshape to (n_samples, 1) for broadcasting with fold_change
@@ -1061,8 +1119,16 @@ class DifferentialExpression:
             # Reshape to (n_samples, 1) for broadcasting with fold_change
             condition2_uncertainty = condition2_uncertainty[:, np.newaxis]
             
-        # Combined uncertainty
+        # Combined uncertainty - add empirical variance if available 
         variance = condition1_uncertainty + condition2_uncertainty
+        
+        # Add empirical variance component
+        if len(condition1_variance.shape) == 1:
+            condition1_variance = condition1_variance[:, np.newaxis]
+        if len(condition2_variance.shape) == 1:
+            condition2_variance = condition2_variance[:, np.newaxis]
+            
+        variance += condition1_variance + condition2_variance
             
         # Compute z-scores
         stds = np.sqrt(variance + self.eps)
@@ -1090,22 +1156,32 @@ class DifferentialExpression:
         # Compute Mahalanobis distances if requested
         if compute_mahalanobis:
             logger.info("Computing Mahalanobis distances...")
-            # Pass the already computed fold_change to avoid recomputing it
-            self._compute_mahalanobis_distances(X_new, fold_change)
-            if hasattr(self, 'mahalanobis_distances'):
-                result['mahalanobis_distances'] = self.mahalanobis_distances
             
-        # If condition labels are provided, compute condition-specific metrics
-        if batch_condition_labels is not None:
-            # Compute condition-specific metrics
-            condition1_mask = batch_condition_labels == 0
-            condition2_mask = batch_condition_labels == 1
+            # For Mahalanobis distance, we need batching across genes (not cells)
+            # as each gene requires a separate covariance matrix calculation
+            n_genes = fold_change.shape[1]
+            mahalanobis_distances = np.zeros(n_genes)
             
-            # Compute mean fold change for each condition
-            if np.any(condition1_mask):
-                result['condition1_cells_mean_log_fold_change'] = np.mean(fold_change[condition1_mask], axis=0)
+            # Define function to process genes in batches
+            def process_gene_batch(gene_indices):
+                batch_mahalanobis = []
+                for i in gene_indices:
+                    # Extract fold change for this gene
+                    gene_fold_change = fold_change[:, i:i+1]
+                    # Compute Mahalanobis distance for this gene
+                    gene_distance = compute_mahalanobis_distance(X_new, gene_fold_change)
+                    batch_mahalanobis.append(gene_distance)
+                return np.array(batch_mahalanobis)
             
-            if np.any(condition2_mask):
-                result['condition2_cells_mean_log_fold_change'] = np.mean(fold_change[condition2_mask], axis=0)
+            # Apply batched processing across genes
+            gene_batch_size = min(100, n_genes)  # Default batch size for genes
+            
+            gene_indices = np.arange(n_genes)
+            for i in tqdm(range(0, n_genes, gene_batch_size), desc="Computing Mahalanobis distances"):
+                batch_indices = gene_indices[i:i+gene_batch_size]
+                batch_mahalanobis = process_gene_batch(batch_indices)
+                mahalanobis_distances[batch_indices] = batch_mahalanobis
+                
+            result['mahalanobis_distances'] = mahalanobis_distances
         
         return result
