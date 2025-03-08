@@ -129,6 +129,7 @@ class DifferentialAbundance:
         X_condition1: np.ndarray, 
         X_condition2: np.ndarray,
         landmarks: Optional[np.ndarray] = None,
+        ls_factor: float = 10.0,
         **density_kwargs
     ):
         """
@@ -146,6 +147,9 @@ class DifferentialAbundance:
         landmarks : np.ndarray, optional
             Pre-computed landmarks to use. If provided, n_landmarks will be ignored.
             Shape (n_landmarks, n_features).
+        ls_factor : float, optional
+            Multiplication factor to apply to length scale when it's automatically inferred,
+            by default 10.0. Only used when ls is not explicitly provided in density_kwargs.
         **density_kwargs : dict
             Additional arguments to pass to the DensityEstimator.
             
@@ -168,7 +172,11 @@ class DifferentialAbundance:
                 'optimizer': 'advi',
             }
             
-            # Update defaults with user-provided values
+            # Add ls_factor to estimator_defaults if ls is not already specified
+            if 'ls' not in density_kwargs:
+                estimator_defaults['ls_factor'] = ls_factor
+            
+            # Update defaults with user-provided values (user-provided settings will override ls_factor if ls is specified)
             estimator_defaults.update(density_kwargs)
             
             # Use provided landmarks if available, otherwise compute them if requested
@@ -381,6 +389,7 @@ class SampleVarianceEstimator:
         Y: np.ndarray, 
         grouping_vector: np.ndarray,
         min_cells: int = 10,
+        ls_factor: float = 10.0,
         function_estimator_kwargs: Dict = None
     ):
         """
@@ -396,6 +405,9 @@ class SampleVarianceEstimator:
             Vector specifying which group each cell belongs to. Shape (n_cells,).
         min_cells : int
             Minimum number of cells for group to train a function estimator. Default is 10.
+        ls_factor : float, optional
+            Multiplication factor to apply to length scale when it's automatically inferred, 
+            by default 10.0. Only used when ls is not explicitly provided in function_estimator_kwargs.
         function_estimator_kwargs : Dict, optional
             Additional arguments to pass to FunctionEstimator constructor.
             
@@ -406,6 +418,10 @@ class SampleVarianceEstimator:
         """
         if function_estimator_kwargs is None:
             function_estimator_kwargs = {}
+        
+        # Add ls_factor to function_estimator_kwargs if ls is not already specified
+        if 'ls' not in function_estimator_kwargs:
+            function_estimator_kwargs['ls_factor'] = ls_factor
         
         # Get unique groups
         unique_groups = np.unique(grouping_vector)
@@ -707,6 +723,7 @@ class DifferentialExpression:
         y_condition2: np.ndarray,
         sigma: float = 1.0,
         ls: Optional[float] = None,
+        ls_factor: float = 10.0,
         landmarks: Optional[np.ndarray] = None,
         sample_estimator_ls: Optional[float] = None,
         condition1_sample_indices: Optional[np.ndarray] = None,
@@ -733,6 +750,9 @@ class DifferentialExpression:
             Noise level for function estimator, by default 1.0.
         ls : float, optional
             Length scale for the GP kernel. If None, it will be estimated, by default None.
+        ls_factor : float, optional
+            Multiplication factor to apply to length scale when it's automatically inferred, 
+            by default 10.0. Only used when ls is None.
         landmarks : np.ndarray, optional
             Pre-computed landmarks to use. If provided, n_landmarks will be ignored.
             Shape (n_landmarks, n_features).
@@ -788,6 +808,9 @@ class DifferentialExpression:
             # If ls is provided, use it directly
             if ls is not None:
                 estimator_defaults['ls'] = ls
+            else:
+                # When ls is not provided, pass ls_factor to the estimator
+                estimator_defaults['ls_factor'] = ls_factor
                 
             # Fit expression estimators for both conditions
             logger.info("Fitting expression estimator for condition 1...")
@@ -799,7 +822,10 @@ class DifferentialExpression:
             if ls is None and 'ls' not in function_kwargs:
                 # Get ls from condition 1 and use it for condition 2
                 ls_cond1 = self.function_predictor1.cov_func.ls
-                estimator_defaults['ls'] = ls_cond1 * 1.0  # Can scale if needed
+                estimator_defaults['ls'] = ls_cond1
+                # We already applied ls_factor in condition 1, so we don't need to pass it again
+                if 'ls_factor' in estimator_defaults:
+                    del estimator_defaults['ls_factor']
             
             logger.info("Fitting expression estimator for condition 2...")
             self.expression_estimator_condition2 = mellon.FunctionEstimator(**estimator_defaults)
@@ -845,6 +871,7 @@ class DifferentialExpression:
                     X_condition1, 
                     y_condition1, 
                     condition1_sample_indices,
+                    ls_factor=ls_factor,
                     function_estimator_kwargs=sample_estimator_kwargs
                 )
                 self.variance_predictor1 = condition1_variance_estimator.predict
@@ -859,6 +886,7 @@ class DifferentialExpression:
                     X_condition2, 
                     y_condition2, 
                     condition2_sample_indices,
+                    ls_factor=ls_factor,
                     function_estimator_kwargs=sample_estimator_kwargs
                 )
                 self.variance_predictor2 = condition2_variance_estimator.predict

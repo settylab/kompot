@@ -30,6 +30,7 @@ def compute_differential_abundance(
     landmarks: Optional[np.ndarray] = None,
     log_fold_change_threshold: float = 1.7,
     pvalue_threshold: float = 1e-3,
+    ls_factor: float = 10.0,
     jit_compile: bool = False,
     random_state: Optional[int] = None,
     copy: bool = False,
@@ -66,6 +67,9 @@ def compute_differential_abundance(
         Threshold for considering a log fold change significant, by default 1.7.
     pvalue_threshold : float, optional
         Threshold for considering a p-value significant, by default 1e-3.
+    ls_factor : float, optional
+        Multiplication factor to apply to length scale when it's automatically inferred,
+        by default 10.0. Only used when length scale is not explicitly provided.
     jit_compile : bool, optional
         Whether to use JAX just-in-time compilation, by default False.
     random_state : int, optional
@@ -178,7 +182,7 @@ def compute_differential_abundance(
     )
     
     # Fit the estimators
-    diff_abundance.fit(X_condition1, X_condition2, landmarks=landmarks, **density_kwargs)
+    diff_abundance.fit(X_condition1, X_condition2, landmarks=landmarks, ls_factor=ls_factor, **density_kwargs)
     
     # Run prediction to compute fold changes and metrics
     X_for_prediction = adata.obsm[obsm_key]
@@ -271,6 +275,7 @@ def compute_differential_abundance(
         "log_fold_change_threshold": log_fold_change_threshold,
         "pvalue_threshold": pvalue_threshold,
         "n_landmarks": n_landmarks,
+        "ls_factor": ls_factor,
         "used_landmarks": True if landmarks is not None else False,
     }
     
@@ -314,6 +319,7 @@ def compute_differential_expression(
     differential_abundance_key: Optional[str] = None,
     sigma: float = 1.0,
     ls: Optional[float] = None,
+    ls_factor: float = 10.0,
     compute_mahalanobis: bool = True,
     jit_compile: bool = False,
     random_state: Optional[int] = None,
@@ -365,6 +371,9 @@ def compute_differential_expression(
         Noise level for function estimator, by default 1.0.
     ls : float, optional
         Length scale for the GP kernel. If None, it will be estimated, by default None.
+    ls_factor : float, optional
+        Multiplication factor to apply to length scale when it's automatically inferred,
+        by default 10.0. Only used when ls is None.
     compute_mahalanobis : bool, optional
         Whether to compute Mahalanobis distances for gene ranking, by default True.
     jit_compile : bool, optional
@@ -563,6 +572,7 @@ def compute_differential_expression(
         X_condition2, expr2,
         sigma=sigma,
         ls=ls,
+        ls_factor=ls_factor,
         landmarks=landmarks,
         condition1_sample_indices=condition1_sample_indices,
         condition2_sample_indices=condition2_sample_indices,
@@ -891,6 +901,7 @@ def compute_differential_expression(
             "sample_col": sample_col,  # Keep this for documentation in the AnnData object
             "use_sample_variance": use_sample_variance,  # This is now inferred from sample_col
             "differential_abundance_key": differential_abundance_key,
+            "ls_factor": ls_factor,
             "used_landmarks": True if landmarks is not None else False,
         }
         
@@ -927,6 +938,7 @@ def run_differential_analysis(
     abundance_key: str = "kompot_da",
     expression_key: str = "kompot_de",
     share_landmarks: bool = True,
+    ls_factor: float = 10.0,
     jit_compile: bool = False,
     random_state: Optional[int] = None,
     copy: bool = False,
@@ -979,6 +991,9 @@ def run_differential_analysis(
     share_landmarks : bool, optional
         Whether to share landmarks between abundance and expression analyses,
         by default True.
+    ls_factor : float, optional
+        Multiplication factor to apply to length scale when it's automatically inferred,
+        by default 10.0. Only used when length scale is not explicitly provided.
     jit_compile : bool, optional
         Whether to use JAX just-in-time compilation, by default False.
     random_state : int, optional
@@ -1062,6 +1077,7 @@ def run_differential_analysis(
             obsm_key=obsm_key,
             n_landmarks=n_landmarks,
             landmarks=landmarks,
+            ls_factor=ls_factor,
             jit_compile=jit_compile,
             random_state=random_state,
             inplace=True,
@@ -1115,6 +1131,7 @@ def run_differential_analysis(
             genes=genes,
             n_landmarks=n_landmarks,
             landmarks=expr_landmarks,
+            ls_factor=ls_factor,
             jit_compile=jit_compile,
             random_state=random_state,
             differential_abundance_key=diff_abund_key,
@@ -1178,6 +1195,7 @@ def run_differential_analysis(
         "parameters": {
             "obsm_key": obsm_key,
             "share_landmarks": share_landmarks,
+            "ls_factor": ls_factor,
             "generate_html_report": generate_html_report
         }
     }
