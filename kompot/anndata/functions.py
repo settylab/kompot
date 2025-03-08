@@ -213,12 +213,13 @@ def compute_differential_abundance(
     cond2_safe = _sanitize_name(condition2)
     
     # Assign values to masked cells with more descriptive column names
-    adata.obs[f"{result_key}_log_fold_change_{cond2_safe}_vs_{cond1_safe}"] = abundance_results['log_fold_change']
-    adata.obs[f"{result_key}_log_fold_change_zscore"] = abundance_results['log_fold_change_zscore']
-    adata.obs[f"{result_key}_neg_log10_fold_change_pvalue"] = abundance_results['neg_log10_fold_change_pvalue']  # Now using negative log10 p-values (higher = more significant)
+    # Change to put base condition (condition1) first in the key name
+    adata.obs[f"{result_key}_log_fold_change_{cond1_safe}_vs_{cond2_safe}"] = abundance_results['log_fold_change']
+    adata.obs[f"{result_key}_log_fold_change_zscore_{cond1_safe}_vs_{cond2_safe}"] = abundance_results['log_fold_change_zscore']
+    adata.obs[f"{result_key}_neg_log10_fold_change_pvalue_{cond1_safe}_vs_{cond2_safe}"] = abundance_results['neg_log10_fold_change_pvalue']  # Now using negative log10 p-values (higher = more significant)
     
     # Add the direction column
-    direction_col = f"{result_key}_log_fold_change_direction"
+    direction_col = f"{result_key}_log_fold_change_direction_{cond1_safe}_vs_{cond2_safe}"
     adata.obs[direction_col] = abundance_results['log_fold_change_direction']
     
     # Add standard color mapping for direction categories in adata.uns
@@ -252,10 +253,10 @@ def compute_differential_abundance(
         "timestamp": current_timestamp,
         "function": "compute_differential_abundance",
         "result_key": result_key,
-        "lfc_key": f"{result_key}_log_fold_change_{cond2_safe}_vs_{cond1_safe}",
-        "zscore_key": f"{result_key}_log_fold_change_zscore",
-        "pval_key": f"{result_key}_neg_log10_fold_change_pvalue",
-        "direction_key": f"{result_key}_log_fold_change_direction",
+        "lfc_key": f"{result_key}_log_fold_change_{cond1_safe}_vs_{cond2_safe}",
+        "zscore_key": f"{result_key}_log_fold_change_zscore_{cond1_safe}_vs_{cond2_safe}",
+        "pval_key": f"{result_key}_neg_log10_fold_change_pvalue_{cond1_safe}_vs_{cond2_safe}",
+        "direction_key": f"{result_key}_log_fold_change_direction_{cond1_safe}_vs_{cond2_safe}",
         "density_keys": {
             "condition1": f"{result_key}_log_density_{cond1_safe}",
             "condition2": f"{result_key}_log_density_{cond2_safe}"
@@ -669,8 +670,9 @@ def compute_differential_expression(
                     # Truncate if the array is too long
                     mahalanobis_distances = mahalanobis_distances[:len(selected_genes)]
                 
-            adata.var[f"{result_key}_mahalanobis"] = pd.Series(np.nan, index=adata.var_names)
-            adata.var.loc[selected_genes, f"{result_key}_mahalanobis"] = mahalanobis_distances
+            mahalanobis_key = f"{result_key}_mahalanobis_{cond1_safe}_vs_{cond2_safe}"
+            adata.var[mahalanobis_key] = pd.Series(np.nan, index=adata.var_names)
+            adata.var.loc[selected_genes, mahalanobis_key] = mahalanobis_distances
         
         # Sanitize condition names for use in column names
         cond1_safe = _sanitize_name(condition1)
@@ -678,7 +680,8 @@ def compute_differential_expression(
         
         if differential_abundance_key is not None:
             # Initialize with np.nan of appropriate shape - use more descriptive column name
-            column_name = f"{result_key}_weighted_lfc_{cond2_safe}_vs_{cond1_safe}"
+            # Change to put base condition (condition1) first in the key name
+            column_name = f"{result_key}_weighted_lfc_{cond1_safe}_vs_{cond2_safe}"
             adata.var[column_name] = pd.Series(np.nan, index=adata.var_names)
             
             # Extract and verify weighted_mean_log_fold_change
@@ -709,7 +712,8 @@ def compute_differential_expression(
         
         # Initialize with np.nan of appropriate shape - use more descriptive column names
         # Add mean log fold change with descriptive name
-        mean_lfc_column = f"{result_key}_mean_lfc_{cond2_safe}_vs_{cond1_safe}"
+        # Change to put base condition (condition1) first in the key name
+        mean_lfc_column = f"{result_key}_mean_lfc_{cond1_safe}_vs_{cond2_safe}"
         adata.var[mean_lfc_column] = pd.Series(np.nan, index=adata.var_names)
         
         # Extract and verify mean_log_fold_change
@@ -739,7 +743,8 @@ def compute_differential_expression(
         adata.var.loc[selected_genes, mean_lfc_column] = mean_lfc
         
         # Standard deviation of log fold change
-        adata.var[f"{result_key}_lfc_std"] = pd.Series(np.nan, index=adata.var_names)
+        lfc_std_key = f"{result_key}_lfc_std_{cond1_safe}_vs_{cond2_safe}"
+        adata.var[lfc_std_key] = pd.Series(np.nan, index=adata.var_names)
         
         # Extract and verify lfc_stds
         lfc_stds = expression_results['lfc_stds']
@@ -765,10 +770,11 @@ def compute_differential_expression(
             else:
                 # Truncate if the array is too long
                 lfc_stds = lfc_stds[:len(selected_genes)]
-        adata.var.loc[selected_genes, f"{result_key}_lfc_std"] = lfc_stds
+        adata.var.loc[selected_genes, lfc_std_key] = lfc_stds
         
         # Bidirectionality score
-        adata.var[f"{result_key}_bidirectionality"] = pd.Series(np.nan, index=adata.var_names)
+        bidir_key = f"{result_key}_bidirectionality_{cond1_safe}_vs_{cond2_safe}"
+        adata.var[bidir_key] = pd.Series(np.nan, index=adata.var_names)
         
         # Extract and verify bidirectionality
         bidirectionality = expression_results['bidirectionality']
@@ -794,7 +800,7 @@ def compute_differential_expression(
             else:
                 # Truncate if the array is too long
                 bidirectionality = bidirectionality[:len(selected_genes)]
-        adata.var.loc[selected_genes, f"{result_key}_bidirectionality"] = bidirectionality
+        adata.var.loc[selected_genes, bidir_key] = bidirectionality
         
         # Add cell-gene level results
         n_selected_genes = len(selected_genes)
@@ -809,7 +815,8 @@ def compute_differential_expression(
             # Create descriptive layer names
             imputed1_key = f"{result_key}_imputed_{cond1_safe}"
             imputed2_key = f"{result_key}_imputed_{cond2_safe}"
-            fold_change_key = f"{result_key}_fold_change_{cond2_safe}_vs_{cond1_safe}"
+            # Change to put base condition (condition1) first in the key name
+            fold_change_key = f"{result_key}_fold_change_{cond1_safe}_vs_{cond2_safe}"
 
             if imputed1_key not in adata.layers:
                 adata.layers[imputed1_key] = np.zeros_like(adata.X)
@@ -847,7 +854,8 @@ def compute_differential_expression(
             # Create descriptive layer names
             imputed1_key = f"{result_key}_imputed_{cond1_safe}"
             imputed2_key = f"{result_key}_imputed_{cond2_safe}"
-            fold_change_key = f"{result_key}_fold_change_{cond2_safe}_vs_{cond1_safe}"
+            # Change to put base condition (condition1) first in the key name
+            fold_change_key = f"{result_key}_fold_change_{cond1_safe}_vs_{cond2_safe}"
 
             adata.layers[imputed1_key] = condition1_imputed
             adata.layers[imputed2_key] = condition2_imputed
@@ -861,14 +869,14 @@ def compute_differential_expression(
             "function": "compute_differential_expression",
             "result_key": result_key,
             "lfc_key": mean_lfc_column,
-            "weighted_lfc_key": f"{result_key}_weighted_lfc_{cond2_safe}_vs_{cond1_safe}" if differential_abundance_key is not None else None,
-            "mahalanobis_key": f"{result_key}_mahalanobis" if compute_mahalanobis else None,
-            "lfc_std_key": f"{result_key}_lfc_std",
-            "bidirectionality_key": f"{result_key}_bidirectionality",
+            "weighted_lfc_key": f"{result_key}_weighted_lfc_{cond1_safe}_vs_{cond2_safe}" if differential_abundance_key is not None else None,
+            "mahalanobis_key": f"{result_key}_mahalanobis_{cond1_safe}_vs_{cond2_safe}" if compute_mahalanobis else None,
+            "lfc_std_key": lfc_std_key,
+            "bidirectionality_key": bidir_key,
             "imputed_layer_keys": {
                 "condition1": f"{result_key}_imputed_{cond1_safe}",
                 "condition2": f"{result_key}_imputed_{cond2_safe}",
-                "fold_change": f"{result_key}_fold_change_{cond2_safe}_vs_{cond1_safe}"
+                "fold_change": f"{result_key}_fold_change_{cond1_safe}_vs_{cond2_safe}"
             }
         }
         
@@ -1159,8 +1167,9 @@ def run_differential_analysis(
         "run_id": run_id,
         "timestamp": run_timestamp,
         "function": "run_differential_analysis",
-        "abundance_key": abundance_key if compute_abundance else None,
-        "expression_key": expression_key if compute_expression else None,
+        "result_key": abundance_key if compute_abundance else (expression_key if compute_expression else None),
+        "abundance_key": abundance_key if compute_abundance else None,  # Keep for reference
+        "expression_key": expression_key if compute_expression else None,  # Keep for reference
         "conditions": {
             "groupby": groupby,
             "condition1": condition1,

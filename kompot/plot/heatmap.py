@@ -1,15 +1,20 @@
-"""Heatmap function for visualizing gene expression across conditions."""
+"""Heatmap and related plotting functions."""
 
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
-from typing import Optional, Union, List, Tuple, Dict, Any, Sequence
+from typing import Optional, Union, List, Tuple, Dict, Any, Sequence, Literal
 from anndata import AnnData
 import pandas as pd
 import seaborn as sns
 import logging
 
-from ..utils import get_run_from_history
+from ..utils import get_run_from_history, KOMPOT_COLORS
+try:
+    import scanpy as sc
+    _has_scanpy = True
+except ImportError:
+    _has_scanpy = False
 
 logger = logging.getLogger("kompot")
 
@@ -93,6 +98,208 @@ def _infer_heatmap_keys(adata: AnnData, run_id: Optional[int] = None, lfc_key: O
             raise ValueError("Could not infer lfc_key. Please specify manually.")
     
     return inferred_lfc_key, inferred_score_key
+
+
+def direction_barplot(
+    adata: AnnData,
+    category_column: str,
+    direction_column: Optional[str] = None,
+    condition1: Optional[str] = None,
+    condition2: Optional[str] = None,
+    normalize: Literal["index", "columns", None] = "index",
+    figsize: Tuple[float, float] = (12, 6),
+    title: Optional[str] = None,
+    xlabel: Optional[str] = None,
+    ylabel: Optional[str] = None,
+    colors: Optional[Dict[str, str]] = None,
+    rotation: float = 90,
+    legend_title: str = "Direction",
+    legend_loc: str = "best",
+    stacked: bool = True,
+    sort_by: Optional[str] = None,
+    ascending: bool = False,
+    ax: Optional[plt.Axes] = None,
+    return_fig: bool = False,
+    save: Optional[str] = None,
+    **kwargs
+) -> Optional[Tuple[plt.Figure, plt.Axes]]:
+    """
+    Create a barplot showing the direction of change distribution across categories.
+    
+    This function creates a stacked or grouped barplot showing the distribution of 
+    up/down/neutral changes across different categories (like cell types).
+    
+    Parameters
+    ----------
+    adata : AnnData
+        AnnData object containing differential abundance results
+    category_column : str
+        Column in adata.obs to use for grouping (e.g., "cell_type")
+    direction_column : str, optional
+        Column in adata.obs containing direction information.
+        If None, will try to infer from "kompot_da_log_fold_change_direction" pattern.
+    condition1 : str, optional
+        Name of condition 1 (denominator in fold change)
+    condition2 : str, optional
+        Name of condition 2 (numerator in fold change)
+    normalize : str or None, optional
+        How to normalize the data. Options:
+        - "index": normalize across rows (sum to 100% for each category)
+        - "columns": normalize across columns (sum to 100% for each direction)
+        - None: use raw counts
+    figsize : tuple, optional
+        Figure size as (width, height) in inches
+    title : str, optional
+        Plot title. If None and conditions provided, uses "Direction of Change by {category_column}\n{condition1} vs {condition2}"
+    xlabel : str, optional
+        Label for x-axis. If None, uses the category_column
+    ylabel : str, optional
+        Label for y-axis. Defaults to "Percentage (%)" when normalize="index", otherwise "Count"
+    colors : dict, optional
+        Dictionary mapping direction values to colors. Default is {"up": "#d73027", "down": "#4575b4", "neutral": "#d3d3d3"}
+    rotation : float, optional
+        Rotation angle for x-tick labels
+    legend_title : str, optional
+        Title for the legend
+    legend_loc : str, optional
+        Location for the legend
+    stacked : bool, optional
+        Whether to create a stacked (True) or grouped (False) bar plot
+    sort_by : str, optional
+        Direction category to sort by (e.g., "up", "down"). If None, uses the order in the data
+    ascending : bool, optional
+        Whether to sort in ascending order
+    ax : matplotlib.axes.Axes, optional
+        Axes to plot on. If None, creates new figure
+    return_fig : bool, optional
+        If True, returns the figure and axes
+    save : str, optional
+        Path to save figure. If None, figure is not saved
+    **kwargs : 
+        Additional parameters passed to pandas.DataFrame.plot
+        
+    Returns
+    -------
+    If return_fig is True, returns (fig, ax)
+    """
+    # Default colors if not provided
+    if colors is None:
+        colors = {
+            "up": KOMPOT_COLORS["direction"]["up"],
+            "down": KOMPOT_COLORS["direction"]["down"],
+            "neutral": KOMPOT_COLORS["direction"]["neutral"]
+        }
+    
+    # Default ylabel based on normalization method
+    if ylabel is None:
+        ylabel = "Percentage (%)" if normalize == "index" else "Count"
+    
+    # Infer direction column if not provided
+    if direction_column is None:
+        # Look for columns matching pattern
+        direction_cols = [col for col in adata.obs.columns if "kompot_da_log_fold_change_direction" in col]
+        if not direction_cols:
+            raise ValueError("Could not find direction column. Please specify direction_column.")
+        elif len(direction_cols) == 1:
+            direction_column = direction_cols[0]
+        else:
+            # If conditions provided, try to find matching column
+            if condition1 and condition2:
+                for col in direction_cols:
+                    if f"{condition1}_vs_{condition2}" in col:
+                        direction_column = col
+                        break
+                    elif f"{condition2}_vs_{condition1}" in col:
+                        direction_column = col
+                        logger.warning(f"Found direction column with reversed conditions: {col}")
+                        break
+                if direction_column is None:
+                    direction_column = direction_cols[0]
+                    logger.warning(f"Multiple direction columns found, using the first one: {direction_column}")
+            else:
+                direction_column = direction_cols[0]
+                logger.warning(f"Multiple direction columns found, using the first one: {direction_column}")
+    
+    # Extract condition names from direction column if not provided
+    if (condition1 is None or condition2 is None) and "_vs_" in direction_column:
+        parts = direction_column.split("_vs_")
+        if len(parts) >= 2:
+            cond_parts = parts[-2:]
+            # Remove any trailing parts after condition names
+            condition1 = cond_parts[0].split("_")[-1]
+            condition2 = cond_parts[1].split("_")[0]
+    
+    # Create the crosstab
+    crosstab = pd.crosstab(
+        adata.obs[category_column],
+        adata.obs[direction_column],
+        normalize=normalize
+    )
+    
+    # If normalize is "index", multiply by 100 for percentage
+    if normalize == "index":
+        crosstab = crosstab * 100
+    
+    # Order columns consistently
+    if "up" in crosstab.columns and "down" in crosstab.columns:
+        # Keep only the columns that exist in our data
+        ordered_cols = [col for col in ["up", "down", "neutral"] if col in crosstab.columns]
+        crosstab = crosstab[ordered_cols]
+    
+    # Sort by specified direction if requested
+    if sort_by is not None and sort_by in crosstab.columns:
+        crosstab = crosstab.sort_values(by=sort_by, ascending=ascending)
+    
+    # Create figure if ax not provided
+    if ax is None:
+        fig, ax = plt.subplots(figsize=figsize)
+    else:
+        fig = ax.figure
+    
+    # Color mapping - only use colors for directions that exist in our data
+    plot_colors = [colors.get(col, "gray") for col in crosstab.columns]
+    
+    # Create the plot
+    crosstab.plot(
+        kind="bar",
+        stacked=stacked,
+        color=plot_colors,
+        ax=ax,
+        **kwargs
+    )
+    
+    # Set labels and title
+    ax.set_xlabel(xlabel if xlabel is not None else category_column)
+    ax.set_ylabel(ylabel)
+    
+    # Set title if provided or can be inferred
+    if title is None and condition1 and condition2:
+        title = f"Direction of Change by {category_column}\n{condition1} vs {condition2}"
+    if title:
+        ax.set_title(title)
+    
+    # Rotate tick labels
+    plt.xticks(rotation=rotation)
+    
+    # Set legend
+    plt.legend(title=legend_title, loc=legend_loc, frameon=False, bbox_to_anchor=(1.05, 1), borderaxespad=0)
+    
+    # Adjust layout to accommodate legend
+    if legend_loc == 'best' or legend_loc.startswith('right'):
+        plt.tight_layout(rect=[0, 0, 0.85, 1])
+    else:
+        plt.tight_layout()
+    
+    # Save figure if path provided
+    if save:
+        plt.savefig(save, dpi=300, bbox_inches="tight")
+    
+    # Return figure and axes if requested
+    if return_fig:
+        return fig, ax
+    elif save is None:
+        # Only show if not saving and not returning
+        plt.show()
 
 
 def heatmap(

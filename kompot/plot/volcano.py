@@ -7,6 +7,7 @@ from anndata import AnnData
 import pandas as pd
 import warnings
 import logging
+import sys
 
 from ..utils import get_run_from_history, KOMPOT_COLORS
 
@@ -16,10 +17,39 @@ try:
 except ImportError:
     _has_scanpy = False
     
+# Get the pre-configured logger
 logger = logging.getLogger("kompot")
 
 
-def _infer_de_keys(adata: AnnData, run_id: Optional[int] = None, lfc_key: Optional[str] = None, 
+def _extract_conditions_from_key(key: str) -> Optional[Tuple[str, str]]:
+    """
+    Extract condition names from a key name containing 'vs'.
+    
+    Parameters
+    ----------
+    key : str
+        Key name, possibly containing 'vs' between condition names
+        
+    Returns
+    -------
+    tuple or None
+        (condition1, condition2) if found, None otherwise
+    """
+    if key is None:
+        return None
+        
+    # Try to extract from key name, assuming format like "kompot_de_mean_lfc_Old_vs_Young"
+    key_parts = key.split('_')
+    if len(key_parts) >= 2 and 'vs' in key_parts:
+        vs_index = key_parts.index('vs')
+        if vs_index > 0 and vs_index < len(key_parts) - 1:
+            condition1 = key_parts[vs_index-1]
+            condition2 = key_parts[vs_index+1]
+            return condition1, condition2
+    return None
+
+
+def _infer_de_keys(adata: AnnData, run_id: int = -1, lfc_key: Optional[str] = None, 
                    score_key: Optional[str] = "kompot_de_mahalanobis"):
     """
     Infer differential expression keys from AnnData object.
@@ -29,11 +59,12 @@ def _infer_de_keys(adata: AnnData, run_id: Optional[int] = None, lfc_key: Option
     adata : AnnData
         AnnData object with differential expression results
     run_id : int, optional
-        Run ID to use. If None, uses latest run.
+        Run ID to use. Default is -1 (the latest run).
     lfc_key : str, optional
         Log fold change key. If provided, will be returned as is.
     score_key : str, optional
-        Score key. If "kompot_de_mahalanobis", might be replaced with a run-specific key.
+        Score key. If provided, will be returned as is unless the default
+        value needs to be replaced with a run-specific key.
         
     Returns
     -------
@@ -43,65 +74,69 @@ def _infer_de_keys(adata: AnnData, run_id: Optional[int] = None, lfc_key: Option
     inferred_lfc_key = lfc_key
     inferred_score_key = score_key
     
-    # If keys already provided, use them
-    if inferred_lfc_key is not None and not (score_key == "kompot_de_mahalanobis" and 
-                                           not any(k == score_key for k in adata.var.columns)):
+    # If keys already provided, use them and return early
+    if inferred_lfc_key is not None and (inferred_score_key is not None or 
+                                        not any(k.startswith("kompot_de_mahalanobis") for k in adata.var.columns)):
         return inferred_lfc_key, inferred_score_key
     
-    # Try to get key from specific run if requested
+    # Get run info from specified run_id
     run_info = get_run_from_history(adata, run_id)
-    if run_info is not None and run_info.get('expression_key'):
-        de_key = run_info['expression_key']
+    
+    if run_info is not None:
+        # Get the result_key or expression_key from run info
+        result_key = None
+        if run_info.get('expression_key'):
+            result_key = run_info['expression_key']
+        elif run_info.get('result_key'):
+            result_key = run_info['result_key']
         
-        # Check if we have run_info for this key
-        if de_key in adata.uns and 'run_info' in adata.uns[de_key]:
-            key_run_info = adata.uns[de_key]['run_info']
+        # If we found a key, look for run_info inside it
+        if result_key and result_key in adata.uns and 'run_info' in adata.uns[result_key]:
+            key_run_info = adata.uns[result_key]['run_info']
+            
+            # Get the field names
             if inferred_lfc_key is None and 'lfc_key' in key_run_info:
                 inferred_lfc_key = key_run_info['lfc_key']
-                logger.info(f"Using lfc_key '{inferred_lfc_key}' from run {run_id}")
             
-            # Also try to get an appropriate score_key if using default
-            if score_key == "kompot_de_mahalanobis" and 'mahalanobis_key' in key_run_info and key_run_info['mahalanobis_key']:
+            # Try to get mahalanobis_key if not provided
+            if inferred_score_key is None and 'mahalanobis_key' in key_run_info and key_run_info['mahalanobis_key']:
                 inferred_score_key = key_run_info['mahalanobis_key']
-                logger.info(f"Using score_key '{inferred_score_key}' from run {run_id}")
     
-    # If still no lfc_key, try latest run
-    if inferred_lfc_key is None and 'kompot_latest_run' in adata.uns and adata.uns['kompot_latest_run'].get('expression_key'):
-        # Get the latest DE run key
-        de_key = adata.uns['kompot_latest_run']['expression_key']
+    # If keys still not found, try to directly check the standard key in uns
+    if (inferred_lfc_key is None or inferred_score_key is None) and \
+       "kompot_de" in adata.uns and 'run_info' in adata.uns["kompot_de"]:
+        de_run_info = adata.uns["kompot_de"]['run_info']
         
-        # Check if we have run_info for this key
-        if de_key in adata.uns and 'run_info' in adata.uns[de_key]:
-            run_info = adata.uns[de_key]['run_info']
-            if 'lfc_key' in run_info:
-                inferred_lfc_key = run_info['lfc_key']
-                logger.info(f"Using lfc_key '{inferred_lfc_key}' from latest run information")
-            
-            # Try to use mahalanobis key from run info if still using default
-            if score_key == "kompot_de_mahalanobis" and 'mahalanobis_key' in run_info and run_info['mahalanobis_key']:
-                inferred_score_key = run_info['mahalanobis_key']
-                logger.info(f"Using score_key '{inferred_score_key}' from latest run information")
+        # Try to get field names directly
+        if inferred_lfc_key is None and 'lfc_key' in de_run_info:
+            inferred_lfc_key = de_run_info['lfc_key']
+        
+        # Try to get mahalanobis_key if not provided
+        if inferred_score_key is None and 'mahalanobis_key' in de_run_info and de_run_info['mahalanobis_key']:
+            inferred_score_key = de_run_info['mahalanobis_key']
     
-    # If still no lfc_key, try to find from column names
+    # If lfc_key still not found, raise error
     if inferred_lfc_key is None:
-        # Look for kompot LFC keys
-        lfc_keys = [k for k in adata.var.columns if 'kompot_de_' in k and 'lfc' in k.lower()]
-        if len(lfc_keys) == 1:
-            inferred_lfc_key = lfc_keys[0]
-        elif len(lfc_keys) > 1:
-            # If multiple keys found, try to find the mean or avg one
-            mean_keys = [k for k in lfc_keys if 'mean' in k.lower() or 'avg' in k.lower()]
-            if mean_keys:
-                inferred_lfc_key = mean_keys[0]
-            else:
-                inferred_lfc_key = lfc_keys[0]
-        else:
-            raise ValueError("Could not infer lfc_key. Please specify manually.")
+        logger.error("Could not find lfc_key in run data")
+        logger.error(f"Available columns in adata.var: {list(adata.var.columns)}")
+        raise ValueError("Could not infer lfc_key. Please specify manually.")
+    
+    # Log details at debug level for troubleshooting
+    logger.debug(f"Detected lfc_key: '{inferred_lfc_key}'")
+    logger.debug(f"Detected score_key: '{inferred_score_key}'")
+    
+    # Log the final results of the inference at info level
+    conditions = _extract_conditions_from_key(inferred_lfc_key)
+    if conditions:
+        condition1, condition2 = conditions
+        logger.info(f"Using DE run {run_id}: comparing {condition1} vs {condition2}")
+    else:
+        logger.info(f"Using DE run {run_id}")
     
     return inferred_lfc_key, inferred_score_key
 
 
-def _infer_da_keys(adata: AnnData, run_id: Optional[int] = None, lfc_key: Optional[str] = None, 
+def _infer_da_keys(adata: AnnData, run_id: int = -1, lfc_key: Optional[str] = None, 
                   pval_key: Optional[str] = None):
     """
     Infer differential abundance keys from AnnData object.
@@ -111,7 +146,7 @@ def _infer_da_keys(adata: AnnData, run_id: Optional[int] = None, lfc_key: Option
     adata : AnnData
         AnnData object with differential abundance results
     run_id : int, optional
-        Run ID to use. If None, uses latest run.
+        Run ID to use. Default is -1 (the latest run).
     lfc_key : str, optional
         Log fold change key. If provided, will be returned as is.
     pval_key : str, optional
@@ -120,115 +155,112 @@ def _infer_da_keys(adata: AnnData, run_id: Optional[int] = None, lfc_key: Option
     Returns
     -------
     tuple
-        (lfc_key, pval_key) with the inferred keys
+        (lfc_key, pval_key) with the inferred keys, and a tuple of (lfc_threshold, pval_threshold)
     """
     inferred_lfc_key = lfc_key
     inferred_pval_key = pval_key
+    lfc_threshold = None
+    pval_threshold = None
     
-    # If both keys already provided, use them
+    # If both keys already provided, use them and return early
     if inferred_lfc_key is not None and inferred_pval_key is not None:
-        return inferred_lfc_key, inferred_pval_key
-        
-    # Try to get keys from specific run if requested
+        # Get run info to check for thresholds
+        run_info = get_run_from_history(adata, run_id)
+        if run_info is not None and 'params' in run_info:
+            params = run_info['params']
+            lfc_threshold = params.get('log_fold_change_threshold')
+            pval_threshold = params.get('pvalue_threshold')
+        return inferred_lfc_key, inferred_pval_key, (lfc_threshold, pval_threshold)
+    
+    # Get run info from specified run_id
     run_info = get_run_from_history(adata, run_id)
-    if run_info is not None and run_info.get('abundance_key'):
-        da_key = run_info['abundance_key']
+    
+    if run_info is not None:
+        # Check for thresholds in params
+        if 'params' in run_info:
+            params = run_info['params']
+            lfc_threshold = params.get('log_fold_change_threshold')
+            pval_threshold = params.get('pvalue_threshold')
         
-        # Check if we have run_info for this key
-        if da_key in adata.uns and 'run_info' in adata.uns[da_key]:
-            key_run_info = adata.uns[da_key]['run_info']
+        # Get the result_key or abundance_key from run info
+        result_key = None
+        if run_info.get('abundance_key'):
+            result_key = run_info['abundance_key']
+        elif run_info.get('result_key'):
+            result_key = run_info['result_key']
+        
+        # If we found a key, look for run_info inside it
+        if result_key and result_key in adata.uns and 'run_info' in adata.uns[result_key]:
+            key_run_info = adata.uns[result_key]['run_info']
+            
+            # Get the field names
             if inferred_lfc_key is None and 'lfc_key' in key_run_info:
                 inferred_lfc_key = key_run_info['lfc_key']
-                logger.info(f"Using lfc_key '{inferred_lfc_key}' from run {run_id}")
+            
             if inferred_pval_key is None and 'pval_key' in key_run_info:
                 inferred_pval_key = key_run_info['pval_key']
-                logger.info(f"Using pval_key '{inferred_pval_key}' from run {run_id}")
-    
-    # If keys are still missing, try latest run
-    if (inferred_lfc_key is None or inferred_pval_key is None) and 'kompot_latest_run' in adata.uns and adata.uns['kompot_latest_run'].get('abundance_key'):
-        # Get the latest DA run key
-        da_key = adata.uns['kompot_latest_run']['abundance_key']
-        
-        # Check if we have run_info for this key
-        if da_key in adata.uns and 'run_info' in adata.uns[da_key]:
-            run_info = adata.uns[da_key]['run_info']
-            if inferred_lfc_key is None and 'lfc_key' in run_info:
-                inferred_lfc_key = run_info['lfc_key']
-                logger.info(f"Using lfc_key '{inferred_lfc_key}' from latest run information")
-            if inferred_pval_key is None and 'pval_key' in run_info:
-                inferred_pval_key = run_info['pval_key']
-                logger.info(f"Using pval_key '{inferred_pval_key}' from latest run information")
-    
-    # If lfc_key still not found, look for it in the data
-    if inferred_lfc_key is None:
-        # Look for kompot LFC keys in obs
-        lfc_keys = [k for k in adata.obs.columns if 'kompot_da_' in k and 'lfc' in k.lower()]
-        if len(lfc_keys) == 1:
-            inferred_lfc_key = lfc_keys[0]
-        elif len(lfc_keys) > 1:
-            # If multiple keys found, try to find the mean or avg one
-            mean_keys = [k for k in lfc_keys if 'mean' in k.lower() or 'avg' in k.lower()]
-            if mean_keys:
-                inferred_lfc_key = mean_keys[0]
-            else:
-                inferred_lfc_key = lfc_keys[0]
-        else:
-            raise ValueError("Could not infer lfc_key. Please specify manually.")
-    
-    # If pval_key still not found, look for it in the data
-    if inferred_pval_key is None:
-        # First, look for the new negative log10 p-value naming convention
-        standardized_neg_log10_keys = [
-            k for k in adata.obs.columns if 'kompot_da_' in k and 'neg_log10_fold_change_pvalue' in k.lower()
-        ]
-        
-        if len(standardized_neg_log10_keys) >= 1:
-            # Use the standardized name if available
-            inferred_pval_key = standardized_neg_log10_keys[0]
-        else:
-            # Fall back to alternative log10 naming patterns
-            log10_pval_keys = [
-                k for k in adata.obs.columns if 'kompot_da_' in k and 
-                ('log10_pval' in k.lower() or 'log10_p_val' in k.lower() or 
-                 'log10_p-val' in k.lower() or '-log10_pval' in k.lower() or
-                 '-log10_p_val' in k.lower() or '-log10_p-val' in k.lower())
-            ]
             
-            if len(log10_pval_keys) >= 1:
-                # Prefer log10 keys if available
-                inferred_pval_key = log10_pval_keys[0]
-            else:
-                # Look for regular p-value keys
-                pval_keys = [
-                    k for k in adata.obs.columns if 'kompot_da_' in k and 
-                    ('pval' in k.lower() or 'p_val' in k.lower() or 'p-val' in k.lower()) and
-                    not any(prefix in k.lower() for prefix in ['log10', '-log10'])
-                ]
-                
-                if len(pval_keys) == 1:
-                    inferred_pval_key = pval_keys[0]
-                elif len(pval_keys) > 1:
-                    # Just use the first one
-                    inferred_pval_key = pval_keys[0]
-                else:
-                    # As a last resort, try any key that might be a p-value
-                    any_pval_keys = [
-                        k for k in adata.obs.columns if 'kompot_da_' in k and 
-                        any(term in k.lower() for term in ['pvalue', 'p_value', 'p-value', 'pval'])
-                    ]
-                    
-                    if len(any_pval_keys) >= 1:
-                        inferred_pval_key = any_pval_keys[0]
-                    else:
-                        raise ValueError("Could not infer pval_key. Please specify manually.")
+            # Get thresholds from params if we haven't found them yet
+            if lfc_threshold is None or pval_threshold is None:
+                if 'params' in adata.uns[result_key]:
+                    params = adata.uns[result_key]['params']
+                    if lfc_threshold is None:
+                        lfc_threshold = params.get('log_fold_change_threshold')
+                    if pval_threshold is None:
+                        pval_threshold = params.get('pvalue_threshold')
     
-    return inferred_lfc_key, inferred_pval_key
+    # If keys still not found, try to directly check the standard key in uns
+    if (inferred_lfc_key is None or inferred_pval_key is None) and "kompot_da" in adata.uns and 'run_info' in adata.uns["kompot_da"]:
+        da_run_info = adata.uns["kompot_da"]['run_info']
+        
+        # Try to get field names directly
+        if inferred_lfc_key is None and 'lfc_key' in da_run_info:
+            inferred_lfc_key = da_run_info['lfc_key']
+        
+        if inferred_pval_key is None and 'pval_key' in da_run_info:
+            inferred_pval_key = da_run_info['pval_key']
+        
+        # Get thresholds from params if we haven't found them yet
+        if lfc_threshold is None or pval_threshold is None:
+            if 'params' in adata.uns["kompot_da"]:
+                params = adata.uns["kompot_da"]['params']
+                if lfc_threshold is None:
+                    lfc_threshold = params.get('log_fold_change_threshold')
+                if pval_threshold is None:
+                    pval_threshold = params.get('pvalue_threshold')
+    
+    # If keys still not found, raise error
+    if inferred_lfc_key is None:
+        logger.error("Could not find lfc_key in run data")
+        logger.error(f"Available columns in adata.obs: {list(adata.obs.columns)}")
+        raise ValueError("Could not infer lfc_key. Please specify manually.")
+    
+    if inferred_pval_key is None:
+        logger.error("Could not find pval_key in run data")
+        logger.error(f"Available columns in adata.obs: {list(adata.obs.columns)}")
+        raise ValueError("Could not infer pval_key. Please specify manually.")
+    
+    # Log details at debug level for troubleshooting
+    logger.debug(f"Detected lfc_key: '{inferred_lfc_key}'")
+    logger.debug(f"Detected pval_key: '{inferred_pval_key}'")
+    logger.debug(f"Detected log_fold_change_threshold: {lfc_threshold}")
+    logger.debug(f"Detected pvalue_threshold: {pval_threshold}")
+    
+    # Log the final results of the inference at info level
+    conditions = _extract_conditions_from_key(inferred_lfc_key)
+    if conditions:
+        condition1, condition2 = conditions
+        logger.info(f"Using DA run {run_id}: comparing {condition1} vs {condition2}")
+    else:
+        logger.info(f"Using DA run {run_id}")
+    
+    return inferred_lfc_key, inferred_pval_key, (lfc_threshold, pval_threshold)
 
 
 def volcano_de(
     adata: AnnData,
     lfc_key: str = None,
-    score_key: str = "kompot_de_mahalanobis",
+    score_key: str = None,  # Will be inferred from lfc_key if not provided
     condition1: Optional[str] = None,
     condition2: Optional[str] = None,
     n_top_genes: int = 10,
@@ -244,14 +276,20 @@ def volcano_de(
     point_size: float = 5,
     label_top_genes: bool = True,
     font_size: float = 9,
+    text_offset: Tuple[float, float] = (2, 2),
     text_kwargs: Optional[Dict[str, Any]] = None,
     grid: bool = True,
     grid_kwargs: Optional[Dict[str, Any]] = None,
     ax: Optional[plt.Axes] = None,
+    legend_loc: str = "best",
+    legend_fontsize: Optional[float] = None,
+    legend_title_fontsize: Optional[float] = None,
+    show_legend: bool = True,
     sort_key: Optional[str] = None,
     return_fig: bool = False,
     save: Optional[str] = None,
-    run_id: Optional[int] = None,
+    run_id: int = -1,
+    legend_ncol: Optional[int] = None,
     **kwargs
 ) -> Union[None, Tuple[plt.Figure, plt.Axes]]:
     """
@@ -297,6 +335,8 @@ def volcano_de(
         Whether to label top genes (default: True)
     font_size : float, optional
         Font size for gene labels
+    text_offset : tuple, optional
+        Offset (x, y) in points for gene labels from their points
     text_kwargs : dict, optional
         Additional parameters for text labels
     grid : bool, optional
@@ -305,6 +345,16 @@ def volcano_de(
         Additional parameters for grid
     ax : matplotlib.axes.Axes, optional
         Axes to plot on. If None, creates new figure
+    legend_loc : str, optional
+        Location for the legend ('best', 'upper right', 'lower left', etc., or 'none' to hide)
+    legend_fontsize : float, optional
+        Font size for the legend text. If None, uses matplotlib defaults.
+    legend_title_fontsize : float, optional
+        Font size for the legend title. If None, uses matplotlib defaults.
+    show_legend : bool, optional
+        Whether to show the legend (default: True)
+    legend_ncol : int, optional
+        Number of columns in the legend. If None, automatically determined.
     sort_key : str, optional
         Key to sort genes by. If None, sorts by score_key
     return_fig : bool, optional
@@ -323,7 +373,8 @@ def volcano_de(
     If return_fig is True, returns (fig, ax)
     """
     # Set default text and grid kwargs
-    text_kwargs = text_kwargs or {'ha': 'left', 'va': 'bottom'}
+    default_text_kwargs = {'ha': 'left', 'va': 'bottom', 'xytext': text_offset, 'textcoords': 'offset points'}
+    text_kwargs = {**default_text_kwargs, **(text_kwargs or {})}
     grid_kwargs = grid_kwargs or {'alpha': 0.3}
     
     # Infer keys using helper function
@@ -331,17 +382,28 @@ def volcano_de(
     
     # Extract conditions from lfc_key if not provided
     if condition1 is None or condition2 is None:
-        # Try to extract from key name, assuming format like "kompot_de_mean_lfc_Old_vs_Young"
-        key_parts = lfc_key.split('_')
-        if len(key_parts) >= 2 and 'vs' in key_parts:
-            vs_index = key_parts.index('vs')
-            if vs_index > 0 and vs_index < len(key_parts) - 1:
-                condition1 = key_parts[vs_index-1]
-                condition2 = key_parts[vs_index+1]
+        conditions = _extract_conditions_from_key(lfc_key)
+        if conditions:
+            condition1, condition2 = conditions
+    
+    # Log what we're plotting
+    if condition1 and condition2:
+        logger.info(f"Volcano DE plot: {condition1} vs {condition2} using {score_key}")
+        
+        # Update axis labels with condition information if not explicitly set
+        if xlabel == "Log Fold Change":
+            # Adjust for new key format where condition1 is the baseline/denominator
+            xlabel = f"Log Fold Change: {condition2} / {condition1}"
                 
-    # Create figure if ax not provided
+    # Create figure if ax not provided - adjust figsize if legend is outside
     if ax is None:
-        fig, ax = plt.subplots(figsize=figsize)
+        # If legend is outside and not explicitly placed elsewhere, adjust figsize
+        if show_legend and (legend_loc == 'best' or legend_loc == 'center left'):
+            # Increase width to accommodate legend
+            adjusted_figsize = (figsize[0] * 1.3, figsize[1])
+            fig, ax = plt.subplots(figsize=adjusted_figsize)
+        else:
+            fig, ax = plt.subplots(figsize=figsize)
     else:
         fig = ax.figure
     
@@ -378,14 +440,15 @@ def volcano_de(
             top_up['lfc'].values, 
             top_up['score'].values, 
             alpha=1, s=point_size*3, c=color_up, 
-            label=f"Up in {condition2}" if condition2 else "Up-regulated"
+            label=f"Higher in {condition2}" if condition2 else "Up-regulated"
         )
         
         # Label top up-regulated genes
         if show_names:
             for _, gene_row in top_up.iterrows():
-                ax.text(
-                    gene_row['lfc'], gene_row['score'], gene_row['gene'],
+                ax.annotate(
+                    gene_row['gene'],
+                    (gene_row['lfc'], gene_row['score']),
                     fontsize=font_size, **text_kwargs
                 )
     
@@ -395,14 +458,15 @@ def volcano_de(
             top_down['lfc'].values,
             top_down['score'].values,
             alpha=1, s=point_size*3, c=color_down,
-            label=f"Up in {condition1}" if condition1 else "Down-regulated"
+            label=f"Higher in {condition1}" if condition1 else "Down-regulated"
         )
         
         # Label top down-regulated genes
         if show_names:
             for _, gene_row in top_down.iterrows():
-                ax.text(
-                    gene_row['lfc'], gene_row['score'], gene_row['gene'],
+                ax.annotate(
+                    gene_row['gene'],
+                    (gene_row['lfc'], gene_row['score']),
                     fontsize=font_size, **text_kwargs
                 )
     
@@ -413,11 +477,30 @@ def volcano_de(
     
     # Set title if provided or can be inferred
     if title is None and condition1 and condition2:
-        title = f"Volcano Plot: {condition2} vs {condition1}"
+        title = f"Volcano Plot: {condition1} vs {condition2}"
     if title:
         ax.set_title(title, fontsize=14)
     
-    ax.legend()
+    # Add legend with appropriate styling
+    if show_legend and legend_loc != 'none':
+        # Default to bbox_to_anchor outside the plot if legend_loc is not explicitly specified
+        if legend_loc == 'best':
+            legend = ax.legend(
+                bbox_to_anchor=(1.05, 1), 
+                loc='upper left', 
+                fontsize=legend_fontsize,
+                frameon=False,
+                ncol=legend_ncol or 1
+            )
+            # Adjust figure layout to accommodate legend
+            plt.tight_layout(rect=[0, 0, 0.85, 1])
+        else:
+            legend = ax.legend(
+                loc=legend_loc, 
+                fontsize=legend_fontsize,
+                frameon=False,
+                ncol=legend_ncol or 1
+            )
     
     if grid:
         ax.grid(**grid_kwargs)
@@ -454,6 +537,9 @@ def volcano_da(
     xlabel: Optional[str] = "Log Fold Change",
     ylabel: Optional[str] = "-log10(p-value)",
     legend_loc: str = "best",
+    legend_fontsize: Optional[float] = None,
+    legend_title_fontsize: Optional[float] = None,
+    show_legend: bool = True,
     grid: bool = True,
     grid_kwargs: Optional[Dict[str, Any]] = None,
     ax: Optional[plt.Axes] = None,
@@ -461,7 +547,8 @@ def volcano_da(
     save: Optional[str] = None,
     show: bool = None,
     return_fig: bool = False,
-    run_id: Optional[int] = None,
+    run_id: int = -1,
+    legend_ncol: Optional[int] = None,
     **kwargs
 ) -> Union[None, Tuple[plt.Figure, plt.Axes]]:
     """
@@ -508,7 +595,13 @@ def volcano_da(
     ylabel : str, optional
         Label for y-axis
     legend_loc : str, optional
-        Location for the legend
+        Location for the legend ('best', 'upper right', 'lower left', etc., or 'none' to hide)
+    legend_fontsize : float, optional
+        Font size for the legend text. If None, uses matplotlib defaults.
+    legend_title_fontsize : float, optional
+        Font size for the legend title. If None, uses matplotlib defaults.
+    show_legend : bool, optional
+        Whether to show the legend (default: True)
     grid : bool, optional
         Whether to show grid lines
     grid_kwargs : dict, optional
@@ -517,6 +610,9 @@ def volcano_da(
         Axes to plot on. If None, creates new figure
     palette : str, list, or dict, optional
         Color palette to use for categorical coloring
+    legend_ncol : int, optional
+        Number of columns in the legend. If None, automatically determined based on the
+        number of categories.
     save : str, optional
         Path to save figure. If None, figure is not saved
     show : bool, optional
@@ -538,11 +634,45 @@ def volcano_da(
     grid_kwargs = grid_kwargs or {'alpha': 0.3}
     
     # Infer keys using helper function
-    lfc_key, pval_key = _infer_da_keys(adata, run_id, lfc_key, pval_key)
+    lfc_key, pval_key, thresholds = _infer_da_keys(adata, run_id, lfc_key, pval_key)
     
-    # Create figure if ax not provided
+    # Extract the threshold values
+    auto_lfc_threshold, auto_pval_threshold = thresholds
+    
+    # Use run thresholds if available and not explicitly overridden
+    if lfc_threshold is None and auto_lfc_threshold is not None:
+        lfc_threshold = auto_lfc_threshold
+        logger.debug(f"Using automatically detected lfc_threshold: {lfc_threshold}")
+    
+    if pval_threshold is None and auto_pval_threshold is not None:
+        pval_threshold = auto_pval_threshold
+        logger.debug(f"Using automatically detected pval_threshold: {pval_threshold}")
+        
+    # Log the run information and thresholds in a single message
+    conditions = _extract_conditions_from_key(lfc_key)
+    if conditions:
+        condition1, condition2 = conditions
+        if lfc_threshold is not None and pval_threshold is not None:
+            logger.info(f"Volcano plot: {condition1} vs {condition2}, thresholds: lfc={lfc_threshold:.2f}, pval={pval_threshold:.2e}")
+        else:
+            logger.info(f"Volcano plot: {condition1} vs {condition2}")
+            
+        # Update axis labels with condition information if not explicitly set
+        if xlabel == "Log Fold Change":
+            # Adjust for new key format where condition1 is the baseline/denominator
+            xlabel = f"Log Fold Change: {condition2} / {condition1}"
+    elif lfc_threshold is not None and pval_threshold is not None:
+        logger.info(f"Volcano plot using thresholds: lfc={lfc_threshold:.2f}, pval={pval_threshold:.2e}")
+    
+    # Create figure if ax not provided - adjust figsize if legend is outside
     if ax is None:
-        fig, ax = plt.subplots(figsize=figsize)
+        # If legend is outside and not explicitly placed elsewhere, adjust figsize
+        if show_legend and legend_loc == 'best':
+            # Increase width to accommodate legend
+            adjusted_figsize = (figsize[0] * 1.3, figsize[1])
+            fig, ax = plt.subplots(figsize=adjusted_figsize)
+        else:
+            fig, ax = plt.subplots(figsize=figsize)
     else:
         fig = ax.figure
     
@@ -624,42 +754,110 @@ def volcano_da(
                 **kwargs
             )
         else:
-            # Use scanpy's coloring functionality
-            # Pass custom palette if provided
-            color_args = {"palette": palette} if palette else {}
+            # We'll handle coloring manually instead of using scanpy's scatter
+            import seaborn as sns
+            from matplotlib.colors import ListedColormap
             
-            # Extract coordinates for significant cells
-            coords = pd.DataFrame({
-                "x": x[significant],
-                "y": y[significant]
-            }, index=adata.obs_names[significant])
+            # Get the significant indices
+            sig_indices = np.where(significant)[0]
             
-            # Create temporary anndata with significant cells and their coordinates
-            temp_adata = AnnData(
-                X=coords.values,
-                obs=adata.obs.loc[significant],
-                var=pd.DataFrame(index=["x", "y"])
-            )
-            
-            # Use scanpy to plot with colors
             if isinstance(color, str):
                 color = [color]
                 
             for c in color:
-                if c not in temp_adata.obs:
+                if c not in adata.obs:
                     warnings.warn(f"Color key '{c}' not found in adata.obs. Skipping.")
                     continue
                     
-                # Use scanpy to generate colors
-                sc.pl.scatter(
-                    temp_adata, 
-                    x=0, y=1,  # x and y are columns 0 and 1 in temp_adata
-                    color=c,
-                    ax=ax,
-                    show=False,
-                    size=point_size,
-                    **color_args
-                )
+                # Get the color values for the significant points
+                color_values = adata.obs[c].values[sig_indices]
+                
+                # Check if the color column is categorical
+                if pd.api.types.is_categorical_dtype(adata.obs[c]):
+                    categories = adata.obs[c].cat.categories
+                    
+                    # If palette is a string, convert it to a color map
+                    if isinstance(palette, str):
+                        colors = sns.color_palette(palette, n_colors=len(categories))
+                        color_dict = dict(zip(categories, colors))
+                    elif isinstance(palette, dict):
+                        color_dict = palette
+                    else:
+                        # Use default palette
+                        colors = sns.color_palette("tab10", n_colors=len(categories))
+                        color_dict = dict(zip(categories, colors))
+                    
+                    # Plot each category separately
+                    for cat in categories:
+                        cat_mask = color_values == cat
+                        if np.sum(cat_mask) > 0:
+                            cat_color = color_dict.get(cat, highlight_color)
+                            ax.scatter(
+                                x[sig_indices][cat_mask], 
+                                y[sig_indices][cat_mask],
+                                alpha=1,
+                                s=point_size,
+                                c=[cat_color],
+                                label=f"{cat}",
+                                **kwargs
+                            )
+                    
+                    # Add legend for categorical data
+                    if show_legend and legend_loc != 'none':
+                        # Count number of categories to determine if we need multicolumn layout
+                        num_categories = len([c for c in categories if c in color_values])
+                        
+                        # Use provided legend_ncol if specified, otherwise auto-determine
+                        if legend_ncol is not None:
+                            ncol = legend_ncol
+                        # Determine if we need a multicolumn layout (more than 10 categories)
+                        elif num_categories > 10:
+                            ncol = max(2, min(5, num_categories // 10))  # Use 2-5 columns based on count
+                        else:
+                            ncol = 1
+                            
+                        # Default to bbox_to_anchor outside the plot if legend_loc is not explicitly specified
+                        if legend_loc == 'best':
+                            legend = ax.legend(
+                                bbox_to_anchor=(1.05, 1), 
+                                loc='upper left', 
+                                title=c, 
+                                frameon=False,
+                                fontsize=legend_fontsize,
+                                ncol=ncol
+                            )
+                        else:
+                            legend = ax.legend(
+                                loc=legend_loc, 
+                                title=c, 
+                                frameon=False, 
+                                fontsize=legend_fontsize,
+                                ncol=ncol
+                            )
+                        
+                        # Set frame properties only if it's explicitly needed
+                        # legend.get_frame().set_facecolor('white')
+                        # legend.get_frame().set_alpha(0.8)
+                        
+                        # Set legend title font size if specified
+                        if legend_title_fontsize is not None and legend.get_title():
+                            legend.get_title().set_fontsize(legend_title_fontsize)
+                            
+                        # If legend is outside, adjust the figure layout
+                        if legend_loc == 'best':
+                            plt.tight_layout(rect=[0, 0, 0.85, 1])
+                else:
+                    # For numeric columns, use a colormap
+                    scatter = ax.scatter(
+                        x[sig_indices],
+                        y[sig_indices],
+                        alpha=1,
+                        s=point_size,
+                        c=color_values,
+                        cmap=palette if isinstance(palette, str) else "viridis",
+                        **kwargs
+                    )
+                    plt.colorbar(scatter, ax=ax, label=c)
     else:
         # Default coloring without color key
         ax.scatter(
@@ -697,9 +895,24 @@ def volcano_da(
     if title:
         ax.set_title(title, fontsize=14)
     
-    # Add legend if not using scanpy coloring
-    if color is None or not _has_scanpy:
-        ax.legend(loc=legend_loc)
+    # Add legend for non-categorical coloring
+    if color is None and show_legend and legend_loc != 'none':
+        # Default to bbox_to_anchor outside the plot if legend_loc is not explicitly specified
+        if legend_loc == 'best':
+            legend = ax.legend(
+                bbox_to_anchor=(1.05, 1), 
+                loc='upper left', 
+                fontsize=legend_fontsize,
+                frameon=False
+            )
+            # Adjust figure layout to accommodate legend
+            plt.tight_layout(rect=[0, 0, 0.85, 1])
+        else:
+            legend = ax.legend(
+                loc=legend_loc, 
+                fontsize=legend_fontsize,
+                frameon=False
+            )
     
     # Add grid
     if grid:
