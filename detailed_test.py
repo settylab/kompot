@@ -16,9 +16,9 @@ def create_test_adata(n_cells=200, n_genes=30):
     
     adata = ad.AnnData(X=X, obs=obs, var=var)
     
-    # Create a PCA representation
-    pca = np.random.normal(size=(n_cells, 5))
-    adata.obsm['X_pca'] = pca
+    # Create a diffusion map representation
+    dm = np.random.normal(size=(n_cells, 5))
+    adata.obsm['DM_EigenVectors'] = dm
     
     return adata
 
@@ -32,7 +32,7 @@ try:
         groupby='condition',
         condition1='A',
         condition2='B',
-        obsm_key='X_pca',
+        obsm_key='DM_EigenVectors',
         n_landmarks=50
     )
     print("Differential abundance analysis successful\!")
@@ -58,7 +58,7 @@ try:
         groupby='condition',
         condition1='A',
         condition2='B',
-        obsm_key='X_pca',
+        obsm_key='DM_EigenVectors',
         n_landmarks=50,
         jit_compile=False
     )

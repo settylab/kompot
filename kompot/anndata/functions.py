@@ -24,7 +24,7 @@ def compute_differential_abundance(
     groupby: str,
     condition1: str,
     condition2: str,
-    obsm_key: str = "X_pca",
+    obsm_key: str = "DM_EigenVectors",
     n_landmarks: Optional[int] = None,
     landmarks: Optional[np.ndarray] = None,
     log_fold_change_threshold: float = 1.7,
@@ -54,7 +54,7 @@ def compute_differential_abundance(
         Label in the groupby column identifying the second condition.
     obsm_key : str, optional
         Key in adata.obsm containing the cell states (e.g., PCA, diffusion maps),
-        by default "X_pca".
+        by default "DM_EigenVectors".
     n_landmarks : int, optional
         Number of landmarks to use for approximation. If None, use all points,
         by default None. Ignored if landmarks is provided.
@@ -112,7 +112,20 @@ def compute_differential_abundance(
     
     # Extract cell states
     if obsm_key not in adata.obsm:
-        raise ValueError(f"Key '{obsm_key}' not found in adata.obsm. Available keys: {list(adata.obsm.keys())}")
+        error_msg = f"Key '{obsm_key}' not found in adata.obsm. Available keys: {list(adata.obsm.keys())}"
+        
+        # Add helpful guidance if the missing key is the default DM_EigenVectors
+        if obsm_key == "DM_EigenVectors":
+            error_msg += ("\n\nTo compute DM_EigenVectors (diffusion map eigenvectors), use the Palantir package:\n"
+                        "```python\n"
+                        "import palantir\n"
+                        "# Compute diffusion maps - this automatically adds DM_EigenVectors to adata.obsm\n"
+                        "palantir.utils.run_diffusion_maps(adata)\n"
+                        "```\n"
+                        "See https://github.com/dpeerlab/Palantir for installation and documentation.\n\n"
+                        "Alternatively, specify a different obsm_key that exists in your dataset, such as 'X_pca'.")
+                        
+        raise ValueError(error_msg)
     
     if groupby not in adata.obs:
         raise ValueError(f"Column '{groupby}' not found in adata.obs. Available columns: {list(adata.obs.columns)}")
@@ -222,7 +235,7 @@ def compute_differential_expression(
     groupby: str,
     condition1: str,
     condition2: str,
-    obsm_key: str = "X_pca",
+    obsm_key: str = "DM_EigenVectors",
     layer: Optional[str] = None,
     genes: Optional[List[str]] = None,
     n_landmarks: Optional[int] = 5000,
@@ -259,7 +272,7 @@ def compute_differential_expression(
         Label in the groupby column identifying the second condition.
     obsm_key : str, optional
         Key in adata.obsm containing the cell states (e.g., PCA, diffusion maps),
-        by default "X_pca".
+        by default "DM_EigenVectors".
     layer : str, optional
         Layer in adata.layers containing gene expression data. If None, use adata.X,
         by default None.
@@ -338,7 +351,20 @@ def compute_differential_expression(
 
     # Extract cell states
     if obsm_key not in adata.obsm:
-        raise ValueError(f"Key '{obsm_key}' not found in adata.obsm. Available keys: {list(adata.obsm.keys())}")
+        error_msg = f"Key '{obsm_key}' not found in adata.obsm. Available keys: {list(adata.obsm.keys())}"
+        
+        # Add helpful guidance if the missing key is the default DM_EigenVectors
+        if obsm_key == "DM_EigenVectors":
+            error_msg += ("\n\nTo compute DM_EigenVectors (diffusion map eigenvectors), use the Palantir package:\n"
+                        "```python\n"
+                        "import palantir\n"
+                        "# Compute diffusion maps - this automatically adds DM_EigenVectors to adata.obsm\n"
+                        "palantir.utils.run_diffusion_maps(adata)\n"
+                        "```\n"
+                        "See https://github.com/dpeerlab/Palantir for installation and documentation.\n\n"
+                        "Alternatively, specify a different obsm_key that exists in your dataset, such as 'X_pca'.")
+                        
+        raise ValueError(error_msg)
     
     if groupby not in adata.obs:
         raise ValueError(f"Column '{groupby}' not found in adata.obs. Available columns: {list(adata.obs.columns)}")
@@ -782,7 +808,7 @@ def run_differential_analysis(
     groupby: str,
     condition1: str,
     condition2: str,
-    obsm_key: str = "X_pca",
+    obsm_key: str = "DM_EigenVectors",
     layer: Optional[str] = None,
     genes: Optional[List[str]] = None,
     n_landmarks: Optional[int] = None,
@@ -818,7 +844,7 @@ def run_differential_analysis(
         Label in the groupby column identifying the second condition.
     obsm_key : str, optional
         Key in adata.obsm containing the cell states (e.g., PCA, diffusion maps),
-        by default "X_pca".
+        by default "DM_EigenVectors".
     layer : str, optional
         Layer in adata.layers containing gene expression data. If None, use adata.X,
         by default None.

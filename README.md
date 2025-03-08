@@ -16,12 +16,21 @@ Key features:
 - JAX-accelerated computations
 - Empirical variance estimation
 - **Full scverse compatibility with direct AnnData integration**
+- Uses diffusion maps (from Palantir) as the default cell state representation
 
 ## Installation
 
 ```bash
 pip install kompot
 ```
+
+For using the default diffusion map cell state representation:
+
+```bash
+pip install palantir
+```
+
+See [Palantir GitHub](https://github.com/dpeerlab/Palantir) for more installation details.
 
 ## Usage Example
 
@@ -77,13 +86,18 @@ import anndata
 # Load or create AnnData object
 adata = anndata.read_h5ad("my_data.h5ad")
 
+# Generate diffusion maps using Palantir (if not already present)
+# This automatically adds DM_EigenVectors to adata.obsm
+import palantir
+palantir.utils.run_diffusion_maps(adata)
+
 # Run full differential analysis workflow
 adata = kompot.run_differential_analysis(
     adata,
     groupby="condition",              # Column in adata.obs with condition labels  
     condition1="control",             # First condition label
     condition2="treatment",           # Second condition label
-    obsm_key="X_pca",                 # Cell states in adata.obsm
+    obsm_key="DM_EigenVectors",       # Cell states in adata.obsm
     layer="counts",                   # Optional: use specific layer (otherwise uses adata.X)
     n_landmarks=200,                  # Number of landmarks for approximation
     generate_html_report=True         # Generate interactive HTML report
@@ -103,7 +117,7 @@ kompot.compute_differential_abundance(
     groupby="condition",
     condition1="control",
     condition2="treatment",
-    obsm_key="X_pca"
+    obsm_key="DM_EigenVectors"
 )
 
 # Just differential expression
@@ -112,7 +126,7 @@ kompot.compute_differential_expression(
     groupby="condition", 
     condition1="control",
     condition2="treatment",
-    obsm_key="X_pca",
+    obsm_key="DM_EigenVectors",
     layer="counts"
 )
 ```

@@ -278,7 +278,7 @@ try:
     )
     
     # Add cell states to obsm
-    adata.obsm['X_pca'] = X_combined
+    adata.obsm['DM_EigenVectors'] = X_combined
     adata.obsm['X_umap'] = X_umap
     
     # Run the complete analysis workflow
@@ -288,7 +288,7 @@ try:
         groupby='condition', 
         condition1='Condition1', 
         condition2='Condition2',
-        obsm_key='X_pca',
+        obsm_key='DM_EigenVectors',
         n_landmarks=200,
         generate_html_report=True,
         report_dir='kompot_report',
