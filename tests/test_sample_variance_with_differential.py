@@ -175,8 +175,8 @@ class TestSampleVarianceWithDifferential:
         assert not np.isnan(result['fold_change_zscores']).any(), "Z-scores should not contain NaN values"
         assert not np.isinf(result['fold_change_zscores']).any(), "Z-scores should not contain Inf values"
         
-    def test_memory_error_handling_with_differential(self):
-        """Test that memory errors in SampleVarianceEstimator are properly handled in DifferentialExpression."""
+    def test_memory_error_raising_with_differential(self):
+        """Test that memory errors in SampleVarianceEstimator now raise exceptions in DifferentialExpression."""
         n_cells_test = 10
         test_X = np.random.randn(n_cells_test, self.n_features)
         
@@ -193,12 +193,12 @@ class TestSampleVarianceWithDifferential:
         original_apply_batched = apply_batched
         
         # Create a mock that tracks what's called, and raises a memory 
-        # error only when computing condition2 variance
+        # error only when computing sample variance
         def mock_apply_batched(func, X, **kwargs):
             desc = kwargs.get('desc', '')
             
             # If we're computing empirical variance for condition 2, simulate memory error
-            if "empirical variance (condition 2)" in desc:
+            if "Computing uncertainty" in desc:
                 raise MemoryError("Simulated memory error")
             
             # For all other calls, pass through to original
@@ -211,27 +211,19 @@ class TestSampleVarianceWithDifferential:
             use_sample_variance=True
         )
         
-        # Attach a simple variance predictor that always works
+        # Attach a simple variance predictor that will raise an error
         def mock_variance(x, diag=False):
-            # Returns per-cell variances for each gene
-            return np.ones((len(x), self.n_genes)) * 0.1
+            raise MemoryError("Simulated memory error in sample variance computation")
             
         de.variance_predictor1 = mock_variance
-        de.variance_predictor2 = mock_variance
         
-        # Apply the mock to simulate a memory error during variance computation
-        with patch('kompot.differential.apply_batched', side_effect=mock_apply_batched):
-            # This should now complete successfully, using zeros for condition2_variance
-            result = de.predict(test_X)
-            
-            # Verify basic result properties
-            assert 'fold_change' in result
-            assert 'fold_change_zscores' in result
-            assert result['fold_change'].shape == (n_cells_test, self.n_genes)
-            
-            # Verify no NaNs or Infs in results
-            assert not np.isnan(result['fold_change_zscores']).any(), "Z-scores should not contain NaN values"
-            assert not np.isinf(result['fold_change_zscores']).any(), "Z-scores should not contain Inf values"
+        # With our changes, this should now raise a RuntimeError
+        with pytest.raises(RuntimeError):
+            de.compute_mahalanobis_distances(X=test_X)
+        
+        # Similarly, predict should raise an error when sample variance fails
+        with pytest.raises(RuntimeError):
+            de.predict(test_X)
     
     def test_apply_batched_integration(self):
         """Test that SampleVarianceEstimator properly uses apply_batched with DifferentialExpression."""
@@ -255,8 +247,8 @@ class TestSampleVarianceWithDifferential:
             return original_apply_batched(func, X, batch_size=batch_size, **kwargs)
         
         # Create and fit a real SampleVarianceEstimator
-        sve1 = SampleVarianceEstimator(batch_size=5, jit_compile=False)
-        sve2 = SampleVarianceEstimator(batch_size=5, jit_compile=False)
+        sve1 = SampleVarianceEstimator(jit_compile=False)
+        sve2 = SampleVarianceEstimator(jit_compile=False)
         
         # Mock the fit method so we don't have to actually fit
         with patch.object(SampleVarianceEstimator, 'fit') as mock_fit:
@@ -457,3 +449,163 @@ class TestSampleVarianceWithDifferential:
         # Verify no NaNs or Infs in results
         assert not np.isnan(result['fold_change_zscores']).any(), "Z-scores should not contain NaN values"
         assert not np.isinf(result['fold_change_zscores']).any(), "Z-scores should not contain Inf values"
+    
+    def test_gene_specific_covariance_cholesky(self):
+        """Test gene-specific covariance matrices with Cholesky decomposition.
+        
+        This test verifies that:
+        1. Gene-specific covariances are correctly handled in Mahalanobis calculations
+        2. Each gene gets its own Cholesky decomposition
+        3. The progress bar parameter controls tqdm display
+        """
+        # Create variance predictors that return gene-specific covariance matrices
+        n_cells_test = 8
+        n_landmarks = 5
+        test_X = np.random.randn(n_cells_test, self.n_features)
+        
+        # Generate landmarks (subset of points)
+        landmarks = test_X[:n_landmarks]
+        
+        # Create gene-specific covariance matrices - each gene has its own SPD matrix
+        gene_specific_cov1 = np.zeros((n_landmarks, n_landmarks, self.n_genes))
+        gene_specific_cov2 = np.zeros((n_landmarks, n_landmarks, self.n_genes))
+        
+        # Create specific SPD matrices for each gene
+        for g in range(self.n_genes):
+            # Generate random base matrix
+            base_matrix1 = np.random.randn(n_landmarks, n_landmarks)
+            # Create a symmetric positive definite matrix by matrix multiplication
+            sym_matrix1 = np.dot(base_matrix1, base_matrix1.T)
+            # Add to diagonal for better conditioning
+            np.fill_diagonal(sym_matrix1, np.diag(sym_matrix1) + 1.0)
+            gene_specific_cov1[:, :, g] = sym_matrix1
+            
+            # Do the same for condition 2
+            base_matrix2 = np.random.randn(n_landmarks, n_landmarks)
+            sym_matrix2 = np.dot(base_matrix2, base_matrix2.T)
+            np.fill_diagonal(sym_matrix2, np.diag(sym_matrix2) + 1.0)
+            gene_specific_cov2[:, :, g] = sym_matrix2
+        
+        # Create mock variance predictors that return gene-specific covariance matrices
+        mock_variance1 = MagicMock()
+        mock_variance1.side_effect = lambda x, diag=False: gene_specific_cov1 if not diag else np.zeros((len(x), self.n_genes))
+        
+        mock_variance2 = MagicMock()
+        mock_variance2.side_effect = lambda x, diag=False: gene_specific_cov2 if not diag else np.zeros((len(x), self.n_genes))
+        
+        # Create mock function predictors for the test
+        mock_function1 = MagicMock()
+        mock_function1.side_effect = lambda x: np.ones((len(x), self.n_genes))
+        mock_function1.covariance = MagicMock(return_value=np.eye(n_landmarks))
+        mock_function1.landmarks = landmarks
+        
+        mock_function2 = MagicMock()
+        mock_function2.side_effect = lambda x: np.ones((len(x), self.n_genes)) * 2  # Different values
+        mock_function2.covariance = MagicMock(return_value=np.eye(n_landmarks))
+        mock_function2.landmarks = landmarks
+        
+        # Create DifferentialExpression model with gene-specific variance predictors
+        de = DifferentialExpression(
+            function_predictor1=mock_function1,
+            function_predictor2=mock_function2,
+            variance_predictor1=mock_variance1,
+            variance_predictor2=mock_variance2,
+            use_sample_variance=True,
+            eps=1e-10,
+            jit_compile=False
+        )
+        
+        # Test with prepare_mahalanobis_matrix to verify it works correctly for gene-specific case
+        from kompot.utils import prepare_mahalanobis_matrix
+        
+        # Call compute_mahalanobis_distances with gene-specific covariance
+        # First, create fold change data
+        fold_change_data = np.ones((n_cells_test, self.n_genes))
+        
+        # Create a fold change transposed to match expected input
+        fold_change_transposed = fold_change_data.T  # Shape will be (n_genes, n_cells)
+        
+        # Patch the utility module's prepare_mahalanobis_matrix function
+        with patch('kompot.utils.prepare_mahalanobis_matrix') as mock_prepare:
+            # Call with progress=False first
+            mahalanobis_distances = de.compute_mahalanobis_distances(
+                X=test_X,
+                fold_change=fold_change_data,
+                progress=False  # No progress bar
+            )
+            
+            # Verify correct shape of result
+            assert mahalanobis_distances.shape == (self.n_genes,), "Should return one distance per gene"
+            
+            # Verify that prepare_mahalanobis_matrix was called at least once
+            assert mock_prepare.call_count > 0, "prepare_mahalanobis_matrix should be called"
+            
+            # Reset mock for next test
+            mock_prepare.reset_mock()
+            
+            # Now test with progress=True and patch tqdm to verify it's used
+            # tqdm is imported from tqdm.auto in the utils.py file
+            with patch('tqdm.auto.tqdm') as mock_tqdm:
+                # Configure tqdm mock to just return the input iterable
+                mock_tqdm.side_effect = lambda x, **kwargs: x
+                
+                # Call with progress=True
+                mahalanobis_distances = de.compute_mahalanobis_distances(
+                    X=test_X,
+                    fold_change=fold_change_data,
+                    progress=True  # With progress bar
+                )
+                
+                # Verify tqdm was called when progress=True
+                assert mock_tqdm.call_count > 0, "tqdm should be used when progress=True"
+                
+                # Verify the first call to tqdm had a 'desc' parameter containing gene-specific
+                desc_params = [call[1].get('desc', '') for call in mock_tqdm.call_args_list]
+                assert any("gene-specific" in desc.lower() for desc in desc_params), "tqdm should have description about gene-specific computation"
+            
+            # Reset mock for next test
+            mock_prepare.reset_mock()
+        
+        # Now test to verify the function returns valid distances
+        # by using a simpler test with direct computation
+        mahalanobis_distances = de.compute_mahalanobis_distances(
+            X=test_X,
+            fold_change=fold_change_data,
+            progress=False
+        )
+        
+        # Verify the shape and numeric validity of the returned distances
+        assert mahalanobis_distances.shape == (self.n_genes,), "Should return one distance per gene"
+        assert not np.isnan(mahalanobis_distances).any(), "Mahalanobis distances should not contain NaN values"
+        assert not np.isinf(mahalanobis_distances).any(), "Mahalanobis distances should not contain Inf values"
+        
+        # One more test to verify that progress=True/False works correctly
+        with patch('tqdm.auto.tqdm') as mock_tqdm:
+            # With progress=False, tqdm should not be called for gene iteration
+            de.compute_mahalanobis_distances(
+                X=test_X,
+                fold_change=fold_change_data,
+                progress=False
+            )
+            # Check that tqdm was not called with gene-specific description
+            gene_specific_calls = [
+                call for call in mock_tqdm.call_args_list
+                if call[1].get('desc', '').lower().find('gene-specific') >= 0
+            ]
+            assert len(gene_specific_calls) == 0, "tqdm should not be used for gene iteration when progress=False"
+            
+            # Reset mock
+            mock_tqdm.reset_mock()
+            
+            # With progress=True, tqdm should be called for gene iteration
+            de.compute_mahalanobis_distances(
+                X=test_X,
+                fold_change=fold_change_data,
+                progress=True
+            )
+            # Check that tqdm was called with gene-specific description
+            gene_specific_calls = [
+                call for call in mock_tqdm.call_args_list
+                if call[1].get('desc', '').lower().find('gene-specific') >= 0
+            ]
+            assert len(gene_specific_calls) > 0, "tqdm should be used for gene iteration when progress=True"

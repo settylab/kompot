@@ -660,6 +660,10 @@ def compute_differential_expression(
         result_dict["weighted_mean_log_fold_change"] = expression_results['weighted_mean_log_fold_change']
     
     if inplace:
+        # Sanitize condition names for use in column names first
+        cond1_safe = _sanitize_name(condition1)
+        cond2_safe = _sanitize_name(condition2)
+        
         # Add gene-level metrics to adata.var
         if compute_mahalanobis:
             # Make sure mahalanobis_distances is an array with the same length as selected_genes
@@ -691,10 +695,6 @@ def compute_differential_expression(
             mahalanobis_key = f"{result_key}_mahalanobis_{cond1_safe}_vs_{cond2_safe}"
             adata.var[mahalanobis_key] = pd.Series(np.nan, index=adata.var_names)
             adata.var.loc[selected_genes, mahalanobis_key] = mahalanobis_distances
-        
-        # Sanitize condition names for use in column names
-        cond1_safe = _sanitize_name(condition1)
-        cond2_safe = _sanitize_name(condition2)
         
         if differential_abundance_key is not None:
             # Initialize with np.nan of appropriate shape - use more descriptive column name

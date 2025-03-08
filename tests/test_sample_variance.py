@@ -20,7 +20,7 @@ def test_sample_variance_estimator_diag():
     grouping_vector = np.random.randint(0, n_groups, size=n_cells)
     
     # Initialize and fit the estimator
-    estimator = SampleVarianceEstimator(batch_size=10)
+    estimator = SampleVarianceEstimator()
     estimator.fit(X, Y, grouping_vector)
     
     # Test with diag=True
@@ -56,7 +56,7 @@ def test_sample_variance_estimator_diag():
 
 
 def test_sample_variance_estimator_batching():
-    """Test that the SampleVarianceEstimator properly handles batching with diag=True."""
+    """Test that the SampleVarianceEstimator produces consistent results without batching."""
     # Generate some sample data
     n_cells = 30
     n_features = 5
@@ -67,22 +67,22 @@ def test_sample_variance_estimator_batching():
     Y = np.random.randn(n_cells, n_genes)
     grouping_vector = np.random.randint(0, n_groups, size=n_cells)
     
-    # Initialize and fit the estimator with a small batch size
-    small_batch_estimator = SampleVarianceEstimator(batch_size=10)
-    small_batch_estimator.fit(X, Y, grouping_vector)
+    # Initialize and fit multiple estimators - all should produce the same result
+    # since batching has been removed
+    estimator1 = SampleVarianceEstimator()
+    estimator1.fit(X, Y, grouping_vector)
     
-    # Initialize and fit the estimator with a large batch size
-    large_batch_estimator = SampleVarianceEstimator(batch_size=50)
-    large_batch_estimator.fit(X, Y, grouping_vector)
+    estimator2 = SampleVarianceEstimator()
+    estimator2.fit(X, Y, grouping_vector)
     
-    # Get results with both batch sizes
-    small_batch_result = small_batch_estimator.predict(X, diag=True)
-    large_batch_result = large_batch_estimator.predict(X, diag=True)
+    # Get results with both estimators
+    result1 = estimator1.predict(X, diag=True)
+    result2 = estimator2.predict(X, diag=True)
     
-    # Results should be the same regardless of batch size
+    # Results should be the same
     np.testing.assert_allclose(
-        small_batch_result,
-        large_batch_result,
+        result1,
+        result2,
         rtol=1e-5,
         atol=1e-8
     )
@@ -122,7 +122,7 @@ def test_sample_variance_estimator_jit():
 
 
 def test_sample_variance_estimator_apply_batched_usage():
-    """Test that apply_batched is used for both diagonal and non-diagonal cases."""
+    """Test that batch processing is removed and replaced with direct computation."""
     # Generate some sample data
     n_cells = 15
     n_features = 3
@@ -134,99 +134,72 @@ def test_sample_variance_estimator_apply_batched_usage():
     grouping_vector = np.random.randint(0, n_groups, size=n_cells)
     
     # Initialize and fit the estimator with a lower min_cells threshold to ensure groups are created
-    estimator = SampleVarianceEstimator(batch_size=5)
+    estimator = SampleVarianceEstimator()  # No batch_size parameter needed
     estimator.fit(X, Y, grouping_vector, min_cells=3)  # Lower threshold to ensure groups are created
     
-    # Mock apply_batched to track calls
+    # Verify we don't use apply_batched at all by mocking it and making sure it's not called
     with patch('kompot.differential.apply_batched') as mock_apply_batched:
-        # Create a side effect that returns the expected results
-        def side_effect(func, X, **kwargs):
-            if kwargs.get('desc', '').startswith('Computing variance across groups'):
-                # For diag=True case
-                return np.random.randn(len(X), n_genes)
-            else:
-                # For diag=False case with sub-batching
-                return np.random.randn(len(X), len(X), n_genes)
+        # Both calls should now use direct computation
         
-        mock_apply_batched.side_effect = side_effect
+        # diag=True now calls predictors directly
+        result_diag = estimator.predict(X, diag=True)
         
-        # Test diag=True
-        _ = estimator.predict(X, diag=True)
+        # Verify apply_batched was NOT called for diag=True
+        assert mock_apply_batched.call_count == 0
         
-        # Verify apply_batched was called once for diag=True
-        assert mock_apply_batched.call_count == 1
+        # diag=False also uses direct computation
+        result_full = estimator.predict(X, diag=False)
         
-        # Reset the mock
-        mock_apply_batched.reset_mock()
+        # Verify apply_batched was still not called
+        assert mock_apply_batched.call_count == 0
         
-        # Since we're now using direct computation instead of apply_batched for diag=False
-        # this test is no longer applicable in the same way.
-        # Instead, let's verify the result shape is correct
-        result = estimator.predict(X, diag=False)
-        assert result.shape == (n_cells, n_cells, n_genes)
+    # Verify the results have the expected shapes
+    assert result_diag.shape == (n_cells, n_genes)
+    assert result_full.shape == (n_cells, n_cells, n_genes)
 
 
 def test_memory_sensitive_batch_reduction():
-    """Test that the memory-sensitive batch size reduction works correctly."""
+    """Test the memory warning when processing many genes."""
     # Generate some sample data
     n_cells = 20
     n_features = 5
-    n_genes = 3
+    n_genes = 600  # More than 500 to trigger warning
     n_groups = 2
     
     X = np.random.randn(n_cells, n_features)
     Y = np.random.randn(n_cells, n_genes)
     grouping_vector = np.random.randint(0, n_groups, size=n_cells)
     
-    # Initialize and fit the estimator with lower min_cells threshold
-    estimator = SampleVarianceEstimator(batch_size=10)
+    # Initialize and fit the estimator 
+    estimator = SampleVarianceEstimator()
     estimator.fit(X, Y, grouping_vector, min_cells=3)  # Lower min_cells threshold
     
-    # Create a mock of apply_batched that simulates memory errors
-    original_apply_batched = apply_batched
+    # Set the flag that indicates this estimator is called from DifferentialExpression
+    estimator._called_from_differential = True
     
-    def mock_apply_batched(func, X, batch_size=None, **kwargs):
-        # Generate a fake result for covariance matrix computations
-        if kwargs.get('desc', '').startswith('Batch ['):
-            # This is for the diag=False covariance matrix computation
-            # Create a symmetric random matrix for each gene
-            fake_result = np.zeros((len(X), len(X), n_genes))
-            for g in range(n_genes):
-                # Create symmetric positive definite matrix (for covariance)
-                random_data = np.random.rand(len(X), len(X))
-                # Make it symmetric
-                symmetric_data = (random_data + random_data.T) / 2
-                # Add to diagonal to ensure it's positive definite
-                np.fill_diagonal(symmetric_data, np.diag(symmetric_data) + 1.0)
-                fake_result[:, :, g] = symmetric_data
-            return fake_result
-        elif 'Computing variance across groups' in str(kwargs.get('desc', '')):
-            # This is for diag=True case
-            return np.random.rand(len(X), n_genes)
-        
-        # For other cases, use the original function with reduced batch size
-        return original_apply_batched(func, X, batch_size=min(5, batch_size or 5), **kwargs)
-    
-    # Patch apply_batched with our mock version
-    with patch('kompot.differential.apply_batched', side_effect=mock_apply_batched):
-        # Test with diag=False to trigger the full covariance computation
-        # This should now use our mock which forces batch size reduction
+    # Capture the logs to verify the warning
+    with patch('kompot.differential.logger.warning') as mock_warning:
+        # Test with a large number of genes
         result = estimator.predict(X, diag=False)
+        
+        # Verify the warning was logged
+        mock_warning.assert_called_once()
+        warning_msg = mock_warning.call_args[0][0]
+        assert "genes may require significant memory" in warning_msg
+        assert "max 500 genes" in warning_msg
         
         # Verify the result has the expected shape
         assert result.shape == (n_cells, n_cells, n_genes)
         
-        # Verify the result has non-zero values (not all zeros)
-        assert np.sum(np.abs(result)) > 0
-        
-        # Verify the result is symmetric
-        for g in range(n_genes):
-            np.testing.assert_allclose(
-                result[:, :, g],
-                result[:, :, g].T,
-                rtol=1e-5,
-                atol=1e-8
-            )
+    # The result should still be valid
+    # Verify it's symmetric (covariance matrices should be symmetric)
+    for g in range(min(3, n_genes)):  # Just check a few genes to save time
+        np.testing.assert_allclose(
+            result[:, :, g],
+            result[:, :, g].T,
+            rtol=1e-5,
+            atol=1e-8
+        )
 
 
 def test_error_handling_in_prediction():
@@ -242,19 +215,56 @@ def test_error_handling_in_prediction():
     grouping_vector = np.random.randint(0, n_groups, size=n_cells)
     
     # Initialize and fit the estimator with a lower min_cells threshold
-    estimator = SampleVarianceEstimator(batch_size=5)
+    estimator = SampleVarianceEstimator()
     estimator.fit(X, Y, grouping_vector, min_cells=3)  # Lower threshold to ensure groups are created
     
-    # Test diag=True with error handling by directly patching the function call
-    # Since we've refactored to not use apply_batched for the covariance computation
-    with patch('kompot.differential.apply_batched', side_effect=ValueError("Some error")):
-        # This should still work for diag=True, which does use apply_batched
-        with pytest.raises(ValueError):
-            estimator.predict(X, diag=True)
-            
+    # Test error handling by patching the predictor functions
+    # For diag=True, patch one of the group predictors to raise an error
+    mock_predictor = MagicMock(side_effect=ValueError("Simulated predictor error"))
+    
+    # Store the original predictors to restore later
+    original_predictors = estimator.group_predictors.copy()
+    
+    # Replace first predictor with our mocked one
+    first_key = next(iter(estimator.group_predictors.keys()))
+    estimator.group_predictors[first_key] = mock_predictor
+    
+    # This should raise the ValueError from our mock
+    with pytest.raises(ValueError):
+        estimator.predict(X, diag=True)
+    
+    # Restore original predictors
+    estimator.group_predictors = original_predictors
+    
     # For diag=False, we can just verify the correct shape
     result = estimator.predict(X, diag=False)
     assert result.shape == (n_cells, n_cells, n_genes)
+
+
+def test_no_predictors_error():
+    """Test that an error is raised when there are no group predictors."""
+    # Generate some sample data
+    n_cells = 15
+    n_features = 3
+    n_genes = 2
+    n_groups = 2
+    
+    X = np.random.randn(n_cells, n_features)
+    Y = np.random.randn(n_cells, n_genes)
+    grouping_vector = np.random.randint(0, n_groups, size=n_cells)
+    
+    # Initialize and fit the estimator with an impossibly high min_cells threshold
+    # This will create a fitted estimator but with no group predictors
+    estimator = SampleVarianceEstimator()
+    estimator.fit(X, Y, grouping_vector, min_cells=n_cells+1)  # Set threshold higher than available cells
+    
+    # Now test that predict raises RuntimeError
+    with pytest.raises(RuntimeError, match="No group predictors available"):
+        estimator.predict(X, diag=True)
+        
+    # Same for non-diagonal case
+    with pytest.raises(RuntimeError, match="No group predictors available"):
+        estimator.predict(X, diag=False)
 
 
 def test_large_data_handling():
@@ -269,8 +279,8 @@ def test_large_data_handling():
     Y = np.random.randn(n_cells, n_genes)
     grouping_vector = np.random.randint(0, n_groups, size=n_cells)
     
-    # Initialize with a small batch size to force multiple batches
-    estimator = SampleVarianceEstimator(batch_size=25)
+    # Initialize estimator
+    estimator = SampleVarianceEstimator()
     estimator.fit(X, Y, grouping_vector)
     
     # Test with diag=True

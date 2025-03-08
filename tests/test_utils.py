@@ -2,7 +2,13 @@
 
 import numpy as np
 import pytest
-from kompot.utils import compute_mahalanobis_distance, find_landmarks, get_run_from_history
+from kompot.utils import (
+    compute_mahalanobis_distance, 
+    compute_mahalanobis_distances,
+    prepare_mahalanobis_matrix,
+    find_landmarks, 
+    get_run_from_history
+)
 
 
 def test_compute_mahalanobis_distance():
@@ -99,3 +105,53 @@ def test_get_run_from_history():
     # Test with out-of-bounds run_id
     assert get_run_from_history(adata, 5) is None
     assert get_run_from_history(adata, -5) is None
+    
+    
+def test_gene_specific_mahalanobis_distances():
+    """Test computing Mahalanobis distances with gene-specific covariance matrices."""
+    # Create test data: gene-specific differences (3 genes, 2 features each)
+    diff_values = np.array([
+        [1.0, 2.0],  # Gene 1
+        [3.0, 4.0],  # Gene 2
+        [5.0, 6.0]   # Gene 3
+    ])
+    
+    # Create gene-specific covariance matrices (2x2x3) - one 2x2 matrix for each gene
+    gene_covariances = np.zeros((2, 2, 3))
+    # Set each gene's covariance matrix differently
+    gene_covariances[:, :, 0] = np.eye(2)  # Identity for gene 1
+    gene_covariances[:, :, 1] = np.array([[2.0, 0.5], [0.5, 2.0]])  # Custom for gene 2
+    gene_covariances[:, :, 2] = np.array([[3.0, 0.0], [0.0, 3.0]])  # Scaled identity for gene 3
+    
+    # Create a placeholder prepared_matrix (will be ignored for gene-specific computation)
+    dummy_matrix = prepare_mahalanobis_matrix(
+        covariance_matrix=np.eye(2),
+        eps=1e-10,
+        jit_compile=False
+    )
+    
+    # Compute gene-specific Mahalanobis distances
+    distances = compute_mahalanobis_distances(
+        diff_values=diff_values,
+        prepared_matrix=dummy_matrix,
+        gene_covariances=gene_covariances,
+        jit_compile=False
+    )
+    
+    # Check that we get the expected results
+    assert len(distances) == 3  # One distance per gene
+    
+    # For gene 1 (identity matrix), it should be Euclidean distance
+    expected_gene1 = np.sqrt(np.sum(diff_values[0]**2))
+    assert np.isclose(distances[0], expected_gene1)
+    
+    # For gene 2 (custom matrix), calculate expected value
+    gene2_diff = diff_values[1]
+    gene2_cov_inv = np.linalg.inv(gene_covariances[:, :, 1])
+    expected_gene2 = np.sqrt(gene2_diff @ gene2_cov_inv @ gene2_diff)
+    assert np.isclose(distances[1], expected_gene2)
+    
+    # For gene 3 (scaled identity), it should be scaled Euclidean distance
+    gene3_diff = diff_values[2]
+    expected_gene3 = np.sqrt(np.sum((gene3_diff ** 2) / 3.0))
+    assert np.isclose(distances[2], expected_gene3)

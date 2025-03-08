@@ -211,6 +211,8 @@ def compute_mahalanobis_distances(
     prepared_matrix: dict,
     batch_size: int = 500,
     jit_compile: bool = True,
+    gene_covariances: Optional[np.ndarray] = None,
+    progress: bool = True,
 ) -> np.ndarray:
     """
     Compute Mahalanobis distances for multiple difference vectors efficiently.
@@ -230,6 +232,11 @@ def compute_mahalanobis_distances(
         Number of vectors to process at once, by default 500.
     jit_compile : bool, optional
         Whether to use JAX just-in-time compilation, by default True.
+    gene_covariances : np.ndarray, optional
+        Gene-specific covariance matrices with shape (n_points, n_points, n_genes).
+        If provided, will use gene-specific covariance for each gene.
+    progress : bool, optional
+        Whether to show a progress bar for gene-specific calculations, by default True.
         
     Returns
     -------
@@ -237,18 +244,78 @@ def compute_mahalanobis_distances(
         Array of Mahalanobis distances for each input vector.
     """
     from .batch_utils import apply_batched
+    from tqdm.auto import tqdm
     
     # Convert input to JAX array
     diffs = jnp.array(diff_values)
     
-    # Handle different input shapes - we want (n_samples, n_features)
+    # Handle different input shapes - we want (n_genes, n_points) for gene-wise processing
     if len(diffs.shape) == 1:
         # Single vector, reshape to (1, n_features)
         diffs = diffs.reshape(1, -1)
-    elif len(diffs.shape) == 2 and diffs.shape[0] < diffs.shape[1]:
-        # More features than samples, likely (n_features, n_samples)
-        diffs = diffs.T
     
+    # Special case: gene-specific covariance matrices
+    if gene_covariances is not None:
+        logger.info(f"Computing Mahalanobis distances using gene-specific covariance matrices")
+        n_genes = diffs.shape[0]
+        mahalanobis_distances = np.zeros(n_genes)
+        
+        # Get the combined covariance from prepared_matrix for broadcasting
+        combined_cov = None
+        if prepared_matrix['chol'] is not None:
+            combined_cov = jnp.dot(prepared_matrix['chol'], prepared_matrix['chol'].T)
+        elif prepared_matrix['matrix_inv'] is not None:
+            combined_cov = jnp.linalg.pinv(prepared_matrix['matrix_inv'])
+        
+        # Process each gene separately to save memory, with progress bar
+        gene_iterator = tqdm(range(n_genes), desc="Computing gene-specific Mahalanobis distances") if progress else range(n_genes)
+        for g in gene_iterator:
+            # Get the gene-specific difference vector and covariance
+            gene_diff = diffs[g]
+            gene_cov = gene_covariances[:, :, g]
+            
+            # Add the combined_cov to gene_cov if it exists
+            if combined_cov is not None:
+                gene_cov = gene_cov + combined_cov
+            
+            # We need to handle the Cholesky decomposition for each gene separately
+            # to ensure numerical stability and proper memory management
+            
+            # Prepare covariance matrix for this gene individually (compute Cholesky once per gene)
+            gene_prepared_matrix = prepare_mahalanobis_matrix(
+                covariance_matrix=gene_cov,
+                eps=1e-10,  # Use slightly larger eps for numerical stability
+                jit_compile=jit_compile
+            )
+            
+            # Compute Mahalanobis distance for this gene
+            if gene_prepared_matrix['is_diagonal']:
+                # Diagonal case
+                diag_values = gene_prepared_matrix['diag_values']
+                weighted_diff = gene_diff / jnp.sqrt(diag_values)
+                mahalanobis_distances[g] = float(jnp.sqrt(jnp.sum(weighted_diff**2)))
+            
+            elif gene_prepared_matrix['chol'] is not None:
+                # Cholesky case - most efficient
+                chol = gene_prepared_matrix['chol']
+                solved = jax.scipy.linalg.solve_triangular(chol, gene_diff, lower=True)
+                mahalanobis_distances[g] = float(jnp.sqrt(jnp.sum(solved**2)))
+            
+            elif gene_prepared_matrix['matrix_inv'] is not None:
+                # Matrix inverse case
+                matrix_inv = gene_prepared_matrix['matrix_inv']
+                mahalanobis_distances[g] = float(jnp.sqrt(jnp.dot(gene_diff, jnp.dot(matrix_inv, gene_diff))))
+            
+            else:
+                # Fallback to Euclidean distance
+                mahalanobis_distances[g] = float(jnp.sqrt(jnp.sum(gene_diff**2)))
+            
+            # Free memory
+            del gene_prepared_matrix
+            
+        return mahalanobis_distances
+    
+    # Regular case with shared covariance matrix
     # Check if we're using diagonal approximation
     if prepared_matrix['is_diagonal']:
         # Diagonal case - much faster computation
@@ -266,12 +333,13 @@ def compute_mahalanobis_distances(
         else:
             diag_compute_fn = compute_diagonal_batch
         
-        # Process in batches using apply_batched
+        # Process in batches using apply_batched - respect progress parameter
+        desc = "Computing diagonal Mahalanobis distances" if progress else None
         return apply_batched(
             diag_compute_fn,
             diffs,
             batch_size=batch_size,
-            desc="Computing diagonal Mahalanobis distances"
+            desc=desc
         )
     
     # Non-diagonal case - use Cholesky if available
@@ -293,12 +361,13 @@ def compute_mahalanobis_distances(
         else:
             chol_compute_fn = compute_cholesky_batch
         
-        # Process in batches using apply_batched
+        # Process in batches using apply_batched - respect progress parameter
+        desc = "Computing Cholesky Mahalanobis distances" if progress else None
         return apply_batched(
             chol_compute_fn,
             diffs,
             batch_size=batch_size,
-            desc="Computing Cholesky Mahalanobis distances"
+            desc=desc
         )
     
     # Fallback to matrix inverse
@@ -317,12 +386,13 @@ def compute_mahalanobis_distances(
         else:
             inv_compute_fn = compute_inverse_batch
         
-        # Process in batches using apply_batched
+        # Process in batches using apply_batched - respect progress parameter
+        desc = "Computing inverse Mahalanobis distances" if progress else None
         return apply_batched(
             inv_compute_fn,
             diffs,
             batch_size=batch_size,
-            desc="Computing inverse Mahalanobis distances"
+            desc=desc
         )
     
     # If all else fails, use a simple approximation

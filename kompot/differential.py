@@ -258,7 +258,7 @@ class DifferentialAbundance:
         if pvalue_threshold is None:
             pvalue_threshold = self.pvalue_threshold
         
-        # Get batch size
+        # Get batch size (from DifferentialAbundance class attribute)
         batch_size = getattr(self, 'batch_size', None)
         
         # Define functions for batched processing
@@ -361,7 +361,6 @@ class SampleVarianceEstimator:
         self,
         eps: float = 1e-12,
         jit_compile: bool = True,
-        batch_size: int = 500,
     ):
         """
         Initialize the SampleVarianceEstimator.
@@ -372,13 +371,9 @@ class SampleVarianceEstimator:
             Small constant for numerical stability, by default 1e-12.
         jit_compile : bool, optional
             Whether to use JAX just-in-time compilation, by default True.
-        batch_size : int, optional
-            Number of samples to process at once during prediction to manage memory usage.
-            If None or 0, all samples will be processed at once. Default is 500.
         """
         self.eps = eps
         self.jit_compile = jit_compile
-        self.batch_size = batch_size
         
         # Will be populated during fit
         self.group_predictors = {}
@@ -463,8 +458,6 @@ class SampleVarianceEstimator:
         """
         Predict empirical variance for new points using JAX.
         
-        This method uses internal batching to handle large datasets efficiently.
-        
         Parameters
         ----------
         X_new : np.ndarray
@@ -479,8 +472,17 @@ class SampleVarianceEstimator:
             If diag=True: Empirical variance for each new point. Shape (n_cells, n_genes).
             If diag=False: Full covariance matrix between all pairs of cells. Shape (n_cells, n_cells, n_genes).
         """
+        # Check if group_predictors exists (model was initialized)
+        if not hasattr(self, 'group_predictors'):
+            error_msg = "Model not initialized correctly. Make sure to initialize SampleVarianceEstimator properly."
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+            
+        # Check if group_predictors has any entries (model was fitted successfully)
         if not self.group_predictors:
-            raise ValueError("Model not fitted. Call fit() first.")
+            error_msg = "No group predictors available. Sample variance estimation failed."
+            logger.error(error_msg)
+            raise RuntimeError(error_msg)
             
         n_cells = len(X_new)
         
@@ -490,17 +492,19 @@ class SampleVarianceEstimator:
         test_pred = first_predictor([X_new[0]])
         n_genes = test_pred.shape[1] if len(test_pred.shape) > 1 else 1
         
-        # Convert input to JAX array to ensure compatibility with JAX functions
-        X_new_jax = jnp.array(X_new)
+        # Check if we're processing too many genes at once (>500) in a specific case
+        if n_genes > 100 and len(self.group_predictors) > 1 and hasattr(self, '_called_from_differential') and self._called_from_differential:
+            logger.warning(
+                f"Computing sample variance for {n_genes} genes may require significant memory. "
+                f"If you encounter memory issues, consider running differential expression analysis "
+                f"on smaller gene sets (max 500 genes) at a time."
+            )
         
-        # If we have no predictors, return zeros
+        # If we have no predictors, raise an error
         if not self.group_predictors:
-            if diag:
-                variance = np.zeros((n_cells, n_genes))
-            else:
-                variance = np.zeros((n_cells, n_cells, n_genes))
-            logger.warning("No group predictors available. Returning zeros for variance.")
-            return variance
+            error_msg = "No group predictors available. Sample variance estimation failed."
+            logger.error(error_msg)
+            raise RuntimeError(error_msg)
         
         # Get list of predictors
         predictors_list = list(self.group_predictors.values())
@@ -519,176 +523,58 @@ class SampleVarianceEstimator:
                 # JIT compile the function
                 self._predict_variance_jit = jax.jit(compute_variance_from_predictions)
             
-            # Define a function for batched processing
-            def process_batch(X_batch):
-                # Get predictions from each group predictor
-                all_group_predictions = []
-                for predictor in predictors_list:
-                    group_predictions = predictor(X_batch)
-                    all_group_predictions.append(group_predictions)
-                
-                # Convert to JAX arrays
-                all_group_predictions_jax = [jnp.array(pred) for pred in all_group_predictions]
-                
-                # Use the JIT-compiled function if available
-                if self.jit_compile and self._predict_variance_jit is not None:
-                    batch_variance = self._predict_variance_jit(X_batch, all_group_predictions_jax)
-                    return np.array(batch_variance)
-                else:
-                    # Stack predictions and compute variance using JAX
-                    stacked_predictions = jnp.stack(all_group_predictions_jax, axis=0)
-                    batch_variance = jnp.var(stacked_predictions, axis=0)
-                    # Convert back to numpy for compatibility
-                    return np.array(batch_variance)
+            # Get predictions from each group predictor
+            all_group_predictions = []
+            for predictor in predictors_list:
+                group_predictions = predictor(X_new)
+                all_group_predictions.append(group_predictions)
             
-            # Apply batched processing using the common utility function
-            batch_size = self.batch_size
-            variance = apply_batched(
-                process_batch, 
-                X_new_jax, 
-                batch_size=batch_size, 
-                desc="Computing variance across groups"
-            )
+            # Convert to JAX arrays
+            all_group_predictions_jax = [jnp.array(pred) for pred in all_group_predictions]
             
-            return variance
+            # Use the JIT-compiled function if available
+            if self.jit_compile and self._predict_variance_jit is not None:
+                batch_variance = self._predict_variance_jit(X_new, all_group_predictions_jax)
+                return np.array(batch_variance)
+            else:
+                # Stack predictions and compute variance using JAX
+                stacked_predictions = jnp.stack(all_group_predictions_jax, axis=0)
+                batch_variance = jnp.var(stacked_predictions, axis=0)
+                # Convert back to numpy for compatibility
+                return np.array(batch_variance)
         
         else:
             # Full covariance matrix computation (between all pairs of cells)
-            # Initialize the result matrix with zeros
+            # Initialize the result matrix
             cov_matrix = np.zeros((n_cells, n_cells, n_genes))
             
-            # Define a function to compute covariance between cell batches
-            # This function can be called adaptively with different batch sizes
-            def compute_full_covariance(batch_i, batch_j=None):
-                """
-                Compute covariance between two batches of cell data.
-                If batch_j is None, use batch_i for both.
-                """
-                # Default to same batch for both dimensions if not provided
-                if batch_j is None:
-                    batch_j = batch_i
-                
-                # Get predictions from each group predictor for both batches
-                group_preds_i = []
-                group_preds_j = []
-                
-                for predictor in predictors_list:
-                    # Get predictions for each batch
-                    pred_i = jnp.array(predictor(batch_i))
-                    group_preds_i.append(pred_i)
-                    
-                    # Only compute predictions for batch_j if different from batch_i
-                    if batch_j is not batch_i:
-                        pred_j = jnp.array(predictor(batch_j))
-                        group_preds_j.append(pred_j)
-                    else:
-                        group_preds_j = group_preds_i
-                
-                # Stack predictions across groups
-                stacked_i = jnp.stack(group_preds_i, axis=0)  # (n_groups, len(i), n_genes)
-                stacked_j = jnp.stack(group_preds_j, axis=0)  # (n_groups, len(j), n_genes)
-                
-                # Calculate covariance between each pair of cells across groups
-                # First, center the data for each gene
-                means_i = jnp.mean(stacked_i, axis=0, keepdims=True)  # (1, len(i), n_genes)
-                means_j = jnp.mean(stacked_j, axis=0, keepdims=True)  # (1, len(j), n_genes)
-                centered_i = stacked_i - means_i  # (n_groups, len(i), n_genes)
-                centered_j = stacked_j - means_j  # (n_groups, len(j), n_genes)
-                
-                # Reshape for matrix multiplication
-                centered_i_reshaped = jnp.moveaxis(centered_i, 1, 0)  # (len(i), n_groups, n_genes)
-                centered_j_reshaped = jnp.moveaxis(centered_j, 1, 0)  # (len(j), n_groups, n_genes)
-                
-                # Calculate covariance for each gene
-                n_groups = centered_i.shape[0]
-                cov_batch = jnp.zeros((centered_i.shape[1], centered_j.shape[1], centered_i.shape[2]))
-                
-                # Loop over genes (can be vectorized in some cases, but this is more general)
-                for g in range(centered_i.shape[2]):
-                    gene_centered_i = centered_i_reshaped[:, :, g]  # (len(i), n_groups)
-                    gene_centered_j = centered_j_reshaped[:, :, g]  # (len(j), n_groups)
-                    # Calculate covariance as dot product divided by n_groups
-                    gene_cov = (gene_centered_i @ gene_centered_j.T) / n_groups
-                    cov_batch = cov_batch.at[:, :, g].set(gene_cov)
-                
-                # Convert from JAX to numpy array and return
-                return np.array(cov_batch)
+            # Get predictions from each group predictor
+            group_predictions = []
+            for predictor in predictors_list:
+                # Get predictions for all cells at once
+                pred = predictor(X_new)
+                group_predictions.append(jnp.array(pred))
             
-            # Don't JIT compile here - caused issues with TracerArrayConversionError
+            # Stack predictions across groups - shape (n_groups, n_cells, n_genes)
+            stacked_predictions = jnp.stack(group_predictions, axis=0)
             
-            # Process the entire matrix using memory-adaptive batching
-            # Break it into blocks that get processed adaptively
+            # Calculate covariance between each pair of cells across groups
+            # First, center the data for each gene by subtracting the mean across groups
+            means = jnp.mean(stacked_predictions, axis=0, keepdims=True)  # (1, n_cells, n_genes)
+            centered = stacked_predictions - means  # (n_groups, n_cells, n_genes)
             
-            # Get optimal batch size based on number of groups and cells
-            # This is a heuristic starting point, apply_memory_adaptive will adjust as needed
-            from kompot.batch_utils import apply_memory_adaptive
+            # Reshape for matrix multiplication
+            centered_reshaped = jnp.moveaxis(centered, 1, 0)  # (n_cells, n_groups, n_genes)
             
-            # Initialize diagonal blocks first
-            for i in range(0, n_cells, min(self.batch_size, 100)):
-                end_i = min(i + min(self.batch_size, 100), n_cells)
-                block_indices = list(range(i, end_i))
-                
-                logger.info(f"Computing diagonal covariance block [{i}:{end_i}, {i}:{end_i}]")
-                
-                try:
-                        # Get the batch data first
-                    block_data = X_new[block_indices]
-                    
-                    # Use our adaptive memory function with the data directly
-                    block_cov = compute_full_covariance(block_data)
-                    
-                    if block_cov is not None:
-                        # Store the block in the result matrix
-                        cov_matrix[i:end_i, i:end_i] = block_cov
-                    else:
-                        logger.warning(f"Failed to compute diagonal block [{i}:{end_i}]. Using zeros.")
-                        # Just leave as zeros, which is the initialized value
-                except Exception as e:
-                    if is_jax_memory_error(e):
-                        logger.warning(f"Memory error computing diagonal block [{i}:{end_i}] even with adaptive sizing. "
-                                      f"Using zeros. Error: {e}")
-                        # Just leave as zeros, which is the initialized value
-                    else:
-                        # Re-raise non-memory errors
-                        raise
+            # Calculate covariance for each gene
+            n_groups = centered.shape[0]
             
-            # Now compute off-diagonal blocks
-            # Only compute upper triangular since the matrix is symmetric
-            for i in range(0, n_cells, min(self.batch_size, 100)):
-                end_i = min(i + min(self.batch_size, 100), n_cells)
-                block_i_indices = list(range(i, end_i))
-                
-                for j in range(i + min(self.batch_size, 100), n_cells, min(self.batch_size, 100)):
-                    end_j = min(j + min(self.batch_size, 100), n_cells)
-                    block_j_indices = list(range(j, end_j))
-                    
-                    logger.info(f"Computing off-diagonal block [{i}:{end_i}, {j}:{end_j}]")
-                    
-                    try:
-                        # Get both block data directly
-                        block_i_data = X_new[block_i_indices]
-                        block_j_data = X_new[block_j_indices]
-                        
-                        # Compute the covariance directly
-                        block_cov = compute_full_covariance(block_i_data, block_j_data)
-                        
-                        if block_cov is not None:
-                            # Store the block in the result matrix
-                            cov_matrix[i:end_i, j:end_j] = block_cov
-                            
-                            # Fill in the symmetric part (transpose)
-                            cov_matrix[j:end_j, i:end_i] = np.transpose(block_cov, (1, 0, 2))
-                        else:
-                            logger.warning(f"Failed to compute off-diagonal block [{i}:{end_i}, {j}:{end_j}]. Using zeros.")
-                            # Just leave as zeros, which is the initialized value
-                    except Exception as e:
-                        if is_jax_memory_error(e):
-                            logger.warning(f"Memory error computing off-diagonal block [{i}:{end_i}, {j}:{end_j}] "
-                                          f"even with adaptive sizing. Using zeros. Error: {e}")
-                            # Just leave as zeros, which is the initialized value
-                        else:
-                            # Re-raise non-memory errors
-                            raise
+            # Process each gene individually to avoid memory issues
+            for g in range(n_genes):
+                gene_centered = centered_reshaped[:, :, g]  # (n_cells, n_groups)
+                # Calculate covariance as dot product divided by n_groups
+                gene_cov = (gene_centered @ gene_centered.T) / n_groups
+                cov_matrix[:, :, g] = np.array(gene_cov)
             
             return cov_matrix
 
@@ -1019,6 +905,17 @@ class DifferentialExpression:
                 condition1_variance_estimator = SampleVarianceEstimator(
                     eps=self.eps
                 )
+                # Set a flag to indicate this estimator is called from DifferentialExpression
+                condition1_variance_estimator._called_from_differential = True
+                
+                # Check gene count and warn if too many
+                if y_condition1.shape[1] > 100:
+                    logger.warning(
+                        f"Fitting sample variance estimator with {y_condition1.shape[1]:,} genes. "
+                        f"This may require significant memory. Consider running with fewer genes "
+                        f"(max 100 genes) at a time for better memory efficiency."
+                    )
+                
                 condition1_variance_estimator.fit(
                     X_condition1, 
                     y_condition1, 
@@ -1034,6 +931,17 @@ class DifferentialExpression:
                 condition2_variance_estimator = SampleVarianceEstimator(
                     eps=self.eps
                 )
+                # Set a flag to indicate this estimator is called from DifferentialExpression
+                condition2_variance_estimator._called_from_differential = True
+                
+                # Check gene count and warn if too many
+                if y_condition2.shape[1] > 100:
+                    logger.warning(
+                        f"Fitting sample variance estimator with {y_condition2.shape[1]:,} genes. "
+                        f"This may require significant memory. Consider running with fewer genes "
+                        f"(max 100 genes) at a time for better memory efficiency."
+                    )
+                
                 condition2_variance_estimator.fit(
                     X_condition2, 
                     y_condition2, 
@@ -1053,7 +961,8 @@ class DifferentialExpression:
         X: np.ndarray, 
         fold_change=None,
         use_landmarks: bool = True,
-        landmarks_override: Optional[np.ndarray] = None
+        landmarks_override: Optional[np.ndarray] = None,
+        progress: bool = True
     ):
         """
         Compute Mahalanobis distances for each gene using efficient matrix preparation and batching.
@@ -1070,6 +979,8 @@ class DifferentialExpression:
         landmarks_override : np.ndarray, optional
             Explicitly provided landmarks to use instead of automatically detected ones, 
             by default None.
+        progress : bool, optional
+            Whether to show progress bars for gene-wise operations, by default True.
             
         Returns
         -------
@@ -1143,11 +1054,13 @@ class DifferentialExpression:
         combined_cov = (cov1 + cov2) / 2
         
         # For sample variance, use diag=False to get full covariance matrices
+        # Initialize variable to store gene-specific covariance matrices if needed
+        gene_specific_covariance = None
+        
         if self.use_sample_variance:
             # Add empirical adjustments from sample variance
-            batch_size = getattr(self, 'batch_size', None)
             
-            # Create functions for computing sample variance in batches
+            # Create functions for computing sample variance
             if self.variance_predictor1 is not None:
                 try:
                     # Important: use diag=False to get full covariance matrix
@@ -1157,67 +1070,132 @@ class DifferentialExpression:
                         # Add the covariance matrices for complete variance representation
                         combined_variance = variance1 + variance2
                         
-                        # Add the sample variance to the combined covariance from function predictors
-                        combined_cov += combined_variance
-                        logger.info("Added sample variance covariance matrix to function predictor covariance")
+                        # Check if we have gene-specific covariance matrices (shape has 3 dimensions)
+                        if len(combined_variance.shape) == 3:
+                            # We have per-gene covariance matrices with shape (points, points, genes)
+                            gene_specific_covariance = combined_variance
+                            logger.info(f"Using gene-specific covariance matrices with shape {gene_specific_covariance.shape}")
+                        else:
+                            # Add the sample variance to the combined covariance from function predictors
+                            combined_cov += combined_variance
+                            logger.info("Added sample variance covariance matrix to function predictor covariance")
                     else:
                         # Only add variance1 if variance2 is not available
-                        combined_cov += variance1
-                        logger.info("Added variance1 covariance matrix to function predictor covariance")
+                        if len(variance1.shape) == 3:
+                            # We have per-gene covariance matrices
+                            gene_specific_covariance = variance1
+                            logger.info(f"Using gene-specific covariance matrices from variance1 with shape {gene_specific_covariance.shape}")
+                        else:
+                            combined_cov += variance1
+                            logger.info("Added variance1 covariance matrix to function predictor covariance")
                 except Exception as e:
-                    logger.warning(f"Error computing sample variance: {e}. Using only function predictor covariance.")
+                    error_msg = f"Error computing sample variance from variance_predictor1: {e}."
+                    logger.error(error_msg)
+                    raise RuntimeError(error_msg) from e
             elif self.variance_predictor2 is not None:
                 try:
                     # Important: use diag=False to get full covariance matrix
                     variance2 = self.variance_predictor2(variance_points, diag=False)
-                    # Add variance2 to the combined covariance
-                    combined_cov += variance2
-                    logger.info("Added variance2 covariance matrix to function predictor covariance")
+                    # Check if we have gene-specific covariance matrices
+                    if len(variance2.shape) == 3:
+                        # We have per-gene covariance matrices
+                        gene_specific_covariance = variance2
+                        logger.info(f"Using gene-specific covariance matrices from variance2 with shape {gene_specific_covariance.shape}")
+                    else:
+                        # Add variance2 to the combined covariance
+                        combined_cov += variance2
+                        logger.info("Added variance2 covariance matrix to function predictor covariance")
                 except Exception as e:
-                    logger.warning(f"Error computing sample variance: {e}. Using only function predictor covariance.")
+                    error_msg = f"Error computing sample variance from variance_predictor2: {e}."
+                    logger.error(error_msg)
+                    raise RuntimeError(error_msg) from e
         
-        # Prepare the matrix (compute Cholesky decomposition once)
-        logger.info("Preparing covariance matrix for efficient Mahalanobis distance computation...")
-        prepared_matrix = prepare_mahalanobis_matrix(
-            covariance_matrix=combined_cov,
-            diag_adjustments=None,  # No need for separate diagonal adjustments, they're already in combined_cov
-            eps=self.eps,
-            jit_compile=self.jit_compile
-        )
+        # Choose different approaches based on whether we have gene-specific covariance matrices
+        if gene_specific_covariance is not None:
+            # Use gene-specific covariance matrices
+            logger.info("Computing Mahalanobis distances with gene-specific covariance matrices...")
+            
+            # Transpose fold_change to get shape (n_genes, n_points) for easier gene-wise processing
+            fold_change_transposed = fold_change_subset.T
+            
+            # For gene-specific covariance, we don't use the combined_cov (shared covariance)
+            # since each gene gets its own covariance matrix
+            # We still need a dummy placeholder matrix for the compute_mahalanobis_distances function
+            prepared_matrix = {
+                'is_diagonal': False,
+                'diag_values': None,
+                'chol': None,
+                'matrix_inv': None
+            }
+            
+            try:
+                # Compute Mahalanobis distances for all genes using gene-specific covariance
+                logger.info(f"Computing Mahalanobis distances for {fold_change_transposed.shape[0]:,} genes with gene-specific covariance matrices...")
+                
+                # Compute all distances using our utility function with gene-specific covariance
+                # This will handle the Cholesky decomposition for each gene individually
+                mahalanobis_distances = compute_mahalanobis_distances(
+                    diff_values=fold_change_transposed,
+                    prepared_matrix=prepared_matrix,  # This is just a placeholder
+                    batch_size=self.mahalanobis_batch_size,  
+                    jit_compile=self.jit_compile,
+                    gene_covariances=gene_specific_covariance,  # Pass gene-specific covariance matrices
+                    progress=progress  # Pass progress parameter to control tqdm display
+                )
+                
+                logger.info(f"Successfully computed Mahalanobis distances for {len(mahalanobis_distances):,} genes using gene-specific covariance")
+            
+            except Exception as e:
+                logger.warning(f"Error with gene-specific computation: {e}. Falling back to shared covariance.")
+                # Fall back to combined covariance if gene-specific fails
+                gene_specific_covariance = None  # Reset to trigger fallback
         
-        # Transpose fold_change to get shape (n_genes, n_points) for easier gene-wise processing
-        fold_change_transposed = fold_change_subset.T
-        
-        # Compute Mahalanobis distances for all genes at once using batched computation
-        logger.info(f"Computing Mahalanobis distances for {fold_change_transposed.shape[0]:,} genes...")
-        
-        # Use the mahalanobis_batch_size from the class instance
-        batch_size = self.mahalanobis_batch_size
-        
-        try:
-            # Compute all distances using our utility function that handles batching internally
-            mahalanobis_distances = compute_mahalanobis_distances(
-                diff_values=fold_change_transposed,
-                prepared_matrix=prepared_matrix,
-                batch_size=batch_size,
+        # If gene-specific approach failed or wasn't available, use the traditional approach
+        if gene_specific_covariance is None:
+            # Prepare the matrix (compute Cholesky decomposition once)
+            logger.info("Preparing covariance matrix for efficient Mahalanobis distance computation...")
+            prepared_matrix = prepare_mahalanobis_matrix(
+                covariance_matrix=combined_cov,
+                diag_adjustments=None,  # No need for separate diagonal adjustments, they're already in combined_cov
+                eps=self.eps,
                 jit_compile=self.jit_compile
             )
             
-            logger.info(f"Successfully computed Mahalanobis distances for {len(mahalanobis_distances):,} genes")
+            # Transpose fold_change to get shape (n_genes, n_points) for easier gene-wise processing
+            fold_change_transposed = fold_change_subset.T
+            
+            # Compute Mahalanobis distances for all genes at once using batched computation
+            logger.info(f"Computing Mahalanobis distances for {fold_change_transposed.shape[0]:,} genes with shared covariance...")
+            
+            # Use the mahalanobis_batch_size from the class instance
+            batch_size = self.mahalanobis_batch_size
+            
+            try:
+                # Compute all distances using our utility function that handles batching internally
+                mahalanobis_distances = compute_mahalanobis_distances(
+                    diff_values=fold_change_transposed,
+                    prepared_matrix=prepared_matrix,
+                    batch_size=batch_size,
+                    jit_compile=self.jit_compile,
+                    progress=progress  # Pass progress parameter to control tqdm display
+                )
                 
-        except Exception as e:
-            error_msg = (f"Failed to compute Mahalanobis distances: {str(e)}. "
-                       f"Try manually reducing batch_size or disable Mahalanobis "
-                       f"distance calculation with compute_mahalanobis=False")
-            logger.error(error_msg)
-            raise RuntimeError(error_msg) from e
+                logger.info(f"Successfully computed Mahalanobis distances for {len(mahalanobis_distances):,} genes")
+            
+            except Exception as e:
+                error_msg = (f"Failed to compute Mahalanobis distances: {str(e)}. "
+                           f"Try manually reducing batch_size or disable Mahalanobis "
+                           f"distance calculation with compute_mahalanobis=False")
+                logger.error(error_msg)
+                raise RuntimeError(error_msg) from e
 
         return mahalanobis_distances
     
     def predict(
         self, 
         X_new: np.ndarray, 
-        compute_mahalanobis: bool = False
+        compute_mahalanobis: bool = False,
+        progress: bool = True
     ) -> Dict[str, np.ndarray]:
         """
         Predict gene expression and differential metrics for new points.
@@ -1232,6 +1210,8 @@ class DifferentialExpression:
         compute_mahalanobis : bool, optional
             Whether to compute Mahalanobis distances. This can be computationally expensive,
             so it's optional in the predict method. Default is False.
+        progress : bool, optional
+            Whether to show progress bars for gene-wise operations, by default True.
             
         Returns
         -------
@@ -1247,7 +1227,7 @@ class DifferentialExpression:
         if self.function_predictor1 is None or self.function_predictor2 is None:
             raise ValueError("Model not fitted. Call fit() first.")
         
-        # Get batch size for internal batching
+        # Get batch size for internal batching (from DifferentialExpression class attribute)
         batch_size = getattr(self, 'batch_size', None)
         
         # Define batch processing functions for the heavyweight operations
@@ -1287,23 +1267,23 @@ class DifferentialExpression:
         # Apply batched processing to each expensive operation
         condition1_imputed = apply_batched(
             predict_condition1, X_new, batch_size=batch_size,
-            desc="Predicting condition 1"
+            desc="Predicting condition 1" if progress else None
         )
         
         condition2_imputed = apply_batched(
             predict_condition2, X_new, batch_size=batch_size,
-            desc="Predicting condition 2"
+            desc="Predicting condition 2" if progress else None
         )
         
         # Get uncertainties from function predictors
         condition1_uncertainty = apply_batched(
             get_uncertainty1, X_new, batch_size=batch_size,
-            desc="Computing uncertainty (condition 1)"
+            desc="Computing uncertainty (condition 1)" if progress else None
         )
         
         condition2_uncertainty = apply_batched(
             get_uncertainty2, X_new, batch_size=batch_size,
-            desc="Computing uncertainty (condition 2)"
+            desc="Computing uncertainty (condition 2)" if progress else None
         )
         
         # Compute fold change
@@ -1348,9 +1328,11 @@ class DifferentialExpression:
         if compute_mahalanobis:
             logger.info("Computing Mahalanobis distances...")
             
+            # Pass the progress parameter to control tqdm display
             mahalanobis_distances = self.compute_mahalanobis_distances(
                 X=X_new, 
-                fold_change=fold_change
+                fold_change=fold_change,
+                progress=progress  # Use the progress parameter here
             )
             
             result['mahalanobis_distances'] = mahalanobis_distances
@@ -1373,13 +1355,17 @@ class DifferentialExpression:
                 try:
                     # Let's call compute_mahalanobis_distances and only use its variance calculations
                     # This will get the variance with the whole landmark logic
+                    # Pass the progress parameter to control tqdm display
                     temp_result = self.compute_mahalanobis_distances(
                         X=X_new, 
-                        fold_change=fold_change
+                        fold_change=fold_change,
+                        progress=progress  # Use the progress parameter here
                     )
                     # The actual distances will be discarded, we just want the side effect of computing the variance
                 except Exception as e:
-                    logger.warning(f"Error in sample variance computation: {e}. Using only function predictor uncertainties.")
+                    error_msg = f"Error in sample variance computation: {e}."
+                    logger.error(error_msg)
+                    raise RuntimeError(error_msg) from e
             
             # Compute z-scores using function predictor uncertainties
             stds = np.sqrt(variance + self.eps)
