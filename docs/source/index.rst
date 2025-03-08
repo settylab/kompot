@@ -13,8 +13,9 @@
 .. toctree::
    :hidden:
    :caption: Tutorials:
+   :maxdepth: 2
 
-   notebooks/tutorial_notebook.ipynb
+   Tutorial Notebook <notebooks/tutorial_notebook.ipynb>
 
 Kompot
 ======

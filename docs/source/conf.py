@@ -51,6 +51,32 @@ extensions = [
 
 # Allow errors in notebooks during build
 nbsphinx_allow_errors = True
+
+# Configure nbsphinx to keep section headers in the content but manage TOC better
+nbsphinx_prompt_width = '0'
+
+# Add custom CSS to handle plot aspect ratios and table of contents
+nbsphinx_execute_arguments = [
+    "--InlineBackend.figure_formats={'png'}",
+    "--InlineBackend.rc={'figure.figsize': (8, 6), 'figure.dpi': 100, 'savefig.bbox': 'tight', 'savefig.transparent': True}",
+]
+
+# Add a prolog to control figure rendering
+nbsphinx_prolog = """
+{% set docname = env.doc2path(env.docname, base=None) %}
+
+.. raw:: html
+
+    <style>
+        /* Additional local style rules for this notebook */
+        .nboutput .output_area img {
+            width: auto !important; 
+            max-width: 100%;
+            height: auto !important;
+        }
+    </style>
+"""
+
 if os.environ.get('READTHEDOCS') == 'True':
     extensions.append("sphinx_github_style")
 
@@ -76,6 +102,9 @@ exclude_patterns = ["_build", "**.ipynb_checkpoints"]
 html_theme = "furo"
 pygments_style = "tango"
 
+# Add custom CSS to improve notebook TOC display
+html_css_files = ["custom.css"]
+
 html_theme_options = {
     "footer_icons": [
         {
@@ -99,4 +128,4 @@ highlight_language = "none"
 # Add any paths that contain custom static files (such as style sheets) here,
 # relative to this directory. They are copied after the builtin static files,
 # so a file named "default.css" will overwrite the builtin "default.css".
-html_static_path = []
+html_static_path = ["_static"]

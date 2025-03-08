@@ -1,0 +1,53 @@
+/* Custom styles for notebook rendering */
+
+/* Fix notebook image aspect ratios */
+.output_png img, .output_svg img, div.nbinput div.input_area img, div.nboutput div.output_area img {
+    max-width: 100%;
+    height: auto !important;
+    object-fit: contain;
+}
+
+/* Fix image stretching specifically */
+.nboutput .output_area img {
+    width: auto !important;
+    max-height: 600px !important;
+}
+
+/* Improve figure appearance */
+.nboutput .output_area img {
+    margin: 0 auto;
+    display: block;
+    padding: 10px 0;
+}
+
+/* Make plot backgrounds more consistent */
+.output_png, .output_svg {
+    background-color: #ffffff;
+}
+
+/* Add styling for headings to make them more readable */
+.nbinput .input_area div.highlight {
+    margin-bottom: 1em;
+}
+
+/* Improve code cell appearance */
+.nbinput .input_area {
+    border-radius: 4px;
+    background-color: #f8f8f8;
+}
+
+/* Improve sidebar TOC appearance */
+.sidebar-tree li.toctree-l2 > a {
+    padding-left: 2.5em;
+}
+
+/* Add spacing between sections */
+.nbinput h1, .nbinput h2, .nbinput h3 {
+    margin-top: 2em;
+    margin-bottom: 1em;
+}
+
+/* Improve general readability */
+.nbinput {
+    margin-bottom: 1.5em;
+}
