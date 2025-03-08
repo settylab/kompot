@@ -28,7 +28,7 @@ def plot_gene_expression(
     condition1: Optional[str] = None,
     condition2: Optional[str] = None,
     basis: Optional[str] = "X_umap", 
-    figsize: Tuple[float, float] = (15, 12),
+    figsize: Tuple[float, float] = (12, 12),
     cmap_expression: str = "Spectral_r",
     cmap_fold_change: str = "RdBu_r",
     title: Optional[str] = None,
@@ -136,12 +136,12 @@ def plot_gene_expression(
     # Set the figure title
     if title is None:
         title = f"Expression Patterns for {gene}"
-    fig.suptitle(title, fontsize=16, y=0.98)
+    fig.suptitle(title, fontsize=16, y=1)
     
     # Add fold change and score information as a subtitle
     if isinstance(gene_lfc, (int, float)) and isinstance(gene_score, (int, float)):
         plt.figtext(
-            0.5, 0.95, 
+            0.5, 0.965, 
             f"Mean log fold change: {gene_lfc:.2f} | Mahalanobis distance: {gene_score:.2f}",
             ha='center', fontsize=12
         )

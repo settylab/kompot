@@ -121,6 +121,7 @@ def direction_barplot(
     ax: Optional[plt.Axes] = None,
     return_fig: bool = False,
     save: Optional[str] = None,
+    run_id: int = -1,
     **kwargs
 ) -> Optional[Tuple[plt.Figure, plt.Axes]]:
     """
@@ -175,6 +176,9 @@ def direction_barplot(
         If True, returns the figure and axes
     save : str, optional
         Path to save figure. If None, figure is not saved
+    run_id : int, optional
+        Specific run ID to use for fetching data from run history.
+        Negative indices count from the end (-1 is the latest run). 
     **kwargs : 
         Additional parameters passed to pandas.DataFrame.plot
         
@@ -194,31 +198,64 @@ def direction_barplot(
     if ylabel is None:
         ylabel = "Percentage (%)" if normalize == "index" else "Count"
     
+    # Get run information if available
+    run_info = get_run_from_history(adata, run_id)
+    
+    # Log run information
+    if run_info is not None:
+        if run_id >= 0:
+            logger.info(f"Using run {run_id} for direction_barplot")
+        else:
+            actual_run_idx = len(adata.uns.get('kompot_run_history', [])) + run_id if 'kompot_run_history' in adata.uns else "unknown"
+            logger.info(f"Using run {actual_run_idx} (from end: {run_id}) for direction_barplot")
+            
+        # Extract conditions from run info if available for better logging
+        run_conditions = None
+        if 'params' in run_info and 'condition_key' in run_info['params'] and 'conditions' in run_info['params']:
+            cond_key = run_info['params']['condition_key']
+            conditions = run_info['params']['conditions']
+            if len(conditions) == 2:
+                run_conditions = conditions
+                logger.info(f"Run compares conditions: {conditions[0]} vs {conditions[1]} (key: {cond_key})")
+    
     # Infer direction column if not provided
     if direction_column is None:
-        # Look for columns matching pattern
-        direction_cols = [col for col in adata.obs.columns if "kompot_da_log_fold_change_direction" in col]
-        if not direction_cols:
-            raise ValueError("Could not find direction column. Please specify direction_column.")
-        elif len(direction_cols) == 1:
-            direction_column = direction_cols[0]
-        else:
-            # If conditions provided, try to find matching column
-            if condition1 and condition2:
-                for col in direction_cols:
-                    if f"{condition1}_vs_{condition2}" in col:
-                        direction_column = col
-                        break
-                    elif f"{condition2}_vs_{condition1}" in col:
-                        direction_column = col
-                        logger.warning(f"Found direction column with reversed conditions: {col}")
-                        break
-                if direction_column is None:
+        # Try to get direction column from run info
+        if run_info is not None:
+            if 'abundance_key' in run_info:
+                result_key = run_info['abundance_key']
+                if result_key in adata.uns and 'run_info' in adata.uns[result_key]:
+                    key_run_info = adata.uns[result_key]['run_info']
+                    if 'direction_key' in key_run_info:
+                        direction_column = key_run_info['direction_key']
+                        logger.info(f"Using direction column '{direction_column}' from run info")
+        
+        # If not found in run info, look for columns matching pattern
+        if direction_column is None:
+            direction_cols = [col for col in adata.obs.columns if "kompot_da_log_fold_change_direction" in col]
+            if not direction_cols:
+                raise ValueError("Could not find direction column. Please specify direction_column.")
+            elif len(direction_cols) == 1:
+                direction_column = direction_cols[0]
+                logger.info(f"Using direction column: {direction_column}")
+            else:
+                # If conditions provided, try to find matching column
+                if condition1 and condition2:
+                    for col in direction_cols:
+                        if f"{condition1}_vs_{condition2}" in col:
+                            direction_column = col
+                            logger.info(f"Using direction column matching conditions: {direction_column}")
+                            break
+                        elif f"{condition2}_vs_{condition1}" in col:
+                            direction_column = col
+                            logger.warning(f"Found direction column with reversed conditions: {col}")
+                            break
+                    if direction_column is None:
+                        direction_column = direction_cols[0]
+                        logger.warning(f"Multiple direction columns found, using the first one: {direction_column}")
+                else:
                     direction_column = direction_cols[0]
                     logger.warning(f"Multiple direction columns found, using the first one: {direction_column}")
-            else:
-                direction_column = direction_cols[0]
-                logger.warning(f"Multiple direction columns found, using the first one: {direction_column}")
     
     # Extract condition names from direction column if not provided
     if (condition1 is None or condition2 is None) and "_vs_" in direction_column:
@@ -267,6 +304,9 @@ def direction_barplot(
         ax=ax,
         **kwargs
     )
+    
+    # Remove grid by default
+    ax.grid(False)
     
     # Set labels and title
     ax.set_xlabel(xlabel if xlabel is not None else category_column)
