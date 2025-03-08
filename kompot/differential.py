@@ -322,7 +322,7 @@ class DifferentialAbundance:
         }
         
 
-class EmpiricVarianceEstimator:
+class SampleVarianceEstimator:
     """
     Compute local sample variances of gene expressions.
     
@@ -342,7 +342,7 @@ class EmpiricVarianceEstimator:
         batch_size: int = 500,
     ):
         """
-        Initialize the EmpiricVarianceEstimator.
+        Initialize the SampleVarianceEstimator.
         
         Parameters
         ----------
@@ -596,7 +596,7 @@ class DifferentialExpression:
     def __init__(
         self,
         n_landmarks: Optional[int] = None,
-        use_empirical_variance: bool = False,
+        use_empirical_variance: Optional[bool] = None,
         eps: float = 1e-12,
         jit_compile: bool = False,
         function_predictor1: Optional[Any] = None,
@@ -615,10 +615,11 @@ class DifferentialExpression:
         n_landmarks : int, optional
             Number of landmarks to use for approximation. If None, use all points, by default None.
         use_empirical_variance : bool, optional
-            Whether to use empirical variance for uncertainty estimation, by default False.
-            When True, the class will train additional function estimators to model and predict
-            the squared prediction errors at each point, which improves variance estimation
-            for fold change significance testing.
+            Whether to use empirical variance for uncertainty estimation. By default None.
+            - If None (recommended): Automatically determined based on variance_predictor1/2 
+              or whether sample indices are provided in fit().
+            - If True: Force use of empirical variance (even if no predictors/indices available).
+            - If False: Disable empirical variance (even if predictors/indices are available).
         eps : float, optional
             Small constant for numerical stability, by default 1e-12.
         jit_compile : bool, optional
@@ -628,9 +629,11 @@ class DifferentialExpression:
         function_predictor2 : Any, optional
             Precomputed function predictor for condition 2, typically from FunctionEstimator.predict
         variance_predictor1 : Any, optional
-            Precomputed variance predictor for condition 1. If provided, will be used for uncertainty calculation.
+            Precomputed variance predictor for condition 1. If provided, will be used for uncertainty calculation
+            and will automatically enable empirical variance calculation (unless explicitly disabled).
         variance_predictor2 : Any, optional
-            Precomputed variance predictor for condition 2. If provided, will be used for uncertainty calculation.
+            Precomputed variance predictor for condition 2. If provided, will be used for uncertainty calculation
+            and will automatically enable empirical variance calculation (unless explicitly disabled).
         random_state : int, optional
             Random seed for reproducible landmark selection when n_landmarks is specified.
             Controls the random selection of points when using approximation, by default None.
@@ -643,10 +646,29 @@ class DifferentialExpression:
             Increase for faster computation if you have sufficient memory.
         """
         self.n_landmarks = n_landmarks
-        self.use_empirical_variance = use_empirical_variance
         self.eps = eps
         self.jit_compile = jit_compile
         self.random_state = random_state
+        
+        # Store whether user explicitly set use_empirical_variance
+        self.use_empirical_variance_explicit = use_empirical_variance is not None
+        
+        # Set use_empirical_variance based on variance predictors
+        # If variance predictors are provided, automatically use empirical variance unless explicitly disabled
+        if use_empirical_variance is None:
+            self.use_empirical_variance = (variance_predictor1 is not None or variance_predictor2 is not None)
+            if self.use_empirical_variance:
+                logger.info("Empirical variance estimation automatically enabled due to presence of variance predictors")
+        else:
+            self.use_empirical_variance = use_empirical_variance
+            
+            # If user explicitly enabled empirical variance but no variance predictors are provided, log a warning
+            if self.use_empirical_variance and variance_predictor1 is None and variance_predictor2 is None:
+                logger.warning(
+                    "Empirical variance estimation was explicitly enabled (use_empirical_variance=True) "
+                    "but no variance predictors were provided. "
+                    "You will need to provide sample indices in the fit() method."
+                )
         self.batch_size = batch_size
         
         # For Mahalanobis distance computation, use a separate batch size parameter if provided
@@ -661,9 +683,6 @@ class DifferentialExpression:
         # Variance predictors
         self.variance_predictor1 = variance_predictor1
         self.variance_predictor2 = variance_predictor2
-        
-        # Empirical variance estimator
-        self.empiric_variance_estimator = None
         
         # Mahalanobis distances
         self.mahalanobis_distances = None
@@ -776,14 +795,26 @@ class DifferentialExpression:
             self.expression_estimator_condition2.fit(X_condition2, y_condition2)
             self.function_predictor2 = self.expression_estimator_condition2.predict
         
-        # Handle sample-specific variance if sample indices are provided
-        if self.use_empirical_variance and (condition1_sample_indices is not None or condition2_sample_indices is not None):
-            logger.info("Setting up empirical variance estimation with sample indices...")
-            
-            # Create variance estimator
-            self.empiric_variance_estimator = EmpiricVarianceEstimator(
-                eps=self.eps
+        # Check if sample indices are provided and infer use_empirical_variance
+        have_sample_indices = (condition1_sample_indices is not None or condition2_sample_indices is not None)
+        
+        # Auto-enable empirical variance if sample indices are provided and use_empirical_variance wasn't explicitly set to False
+        if have_sample_indices and self.use_empirical_variance is None:
+            self.use_empirical_variance = True
+            logger.info("Empirical variance estimation automatically enabled due to provided sample indices")
+        
+        # Check for contradictory inputs - user explicitly requested empirical variance but didn't provide indices
+        if self.use_empirical_variance_explicit and self.use_empirical_variance is True and not have_sample_indices and self.variance_predictor1 is None and self.variance_predictor2 is None:
+            raise ValueError(
+                "Empirical variance estimation was explicitly enabled (use_empirical_variance=True), "
+                "but no sample indices or variance predictors were provided. "
+                "Please provide at least one of: condition1_sample_indices, condition2_sample_indices, "
+                "variance_predictor1, or variance_predictor2."
             )
+        
+        # Handle sample-specific variance if enabled and sample indices are provided
+        if self.use_empirical_variance and have_sample_indices:
+            logger.info("Setting up empirical variance estimation with sample indices...")
             
             # Set up function estimator parameters for sample-specific models
             sample_estimator_kwargs = estimator_defaults.copy() if 'estimator_defaults' in locals() else function_kwargs.copy()
@@ -794,7 +825,7 @@ class DifferentialExpression:
             
             if condition1_sample_indices is not None:
                 logger.info("Fitting sample-specific variance estimator for condition 1...")
-                condition1_variance_estimator = EmpiricVarianceEstimator(
+                condition1_variance_estimator = SampleVarianceEstimator(
                     eps=self.eps
                 )
                 condition1_variance_estimator.fit(
@@ -807,7 +838,7 @@ class DifferentialExpression:
             
             if condition2_sample_indices is not None:
                 logger.info("Fitting sample-specific variance estimator for condition 2...")
-                condition2_variance_estimator = EmpiricVarianceEstimator(
+                condition2_variance_estimator = SampleVarianceEstimator(
                     eps=self.eps
                 )
                 condition2_variance_estimator.fit(
@@ -823,9 +854,15 @@ class DifferentialExpression:
         
         return self
         
-    def _compute_mahalanobis_distances(self, X: np.ndarray, fold_change=None):
+    def compute_mahalanobis_distances(
+        self, 
+        X: np.ndarray, 
+        fold_change=None,
+        use_landmarks: bool = True,
+        landmarks_override: Optional[np.ndarray] = None
+    ):
         """
-        Compute Mahalanobis distances for each gene.
+        Compute Mahalanobis distances for each gene using efficient matrix preparation and batching.
         
         Parameters
         ----------
@@ -834,24 +871,50 @@ class DifferentialExpression:
         fold_change : np.ndarray, optional
             Pre-computed fold change matrix. If None, will compute it.
             Shape (n_cells, n_genes).
+        use_landmarks : bool, optional
+            Whether to use landmarks for covariance calculation if available, by default True.
+        landmarks_override : np.ndarray, optional
+            Explicitly provided landmarks to use instead of automatically detected ones, 
+            by default None.
+            
+        Returns
+        -------
+        np.ndarray
+            Array of Mahalanobis distances for each gene.
         """
-        # Get covariance matrices
-        # Determine if we have landmarks
-        has_landmarks = False
+
+        if self.function_predictor1 is None or self.function_predictor2 is None:
+            raise ValueError("Model not fitted. Call fit() first.")
+
+        # Determine landmarks to use
         landmarks = None
+        has_landmarks = False
         
-        # Check function predictor for landmarks
-        if hasattr(self.function_predictor1, 'landmarks') and self.function_predictor1.landmarks is not None:
+        # Use explicit landmarks if provided
+        if landmarks_override is not None:
+            landmarks = landmarks_override
             has_landmarks = True
-            landmarks = self.function_predictor1.landmarks
-        # Check estimator for landmarks
-        elif (hasattr(self.expression_estimator_condition1, 'landmarks') and 
-              self.expression_estimator_condition1.landmarks is not None):
-            has_landmarks = True
-            landmarks = self.expression_estimator_condition1.landmarks
-              
+            logger.info(f"Using explicitly provided landmarks with shape {landmarks.shape}")
+        # Otherwise check for landmarks from function predictors if enabled
+        elif use_landmarks:
+            # Check function predictor for landmarks
+            if hasattr(self.function_predictor1, 'landmarks') and self.function_predictor1.landmarks is not None:
+                landmarks = self.function_predictor1.landmarks
+                has_landmarks = True
+                logger.info(f"Using landmarks from function_predictor1 with shape {landmarks.shape}")
+            # Check estimator for landmarks
+            elif (hasattr(self.expression_estimator_condition1, 'landmarks') and 
+                  self.expression_estimator_condition1.landmarks is not None):
+                landmarks = self.expression_estimator_condition1.landmarks
+                has_landmarks = True
+                logger.info(f"Using landmarks from expression_estimator_condition1 with shape {landmarks.shape}")
+        
+        # Determine which points to use for computation
         if has_landmarks and landmarks is not None:
             # For landmark-based approximation, use the actual landmarks
+            logger.info(f"Using {len(landmarks)} landmarks for Mahalanobis computation")
+            
+            # Get covariance matrices
             cov1 = self.function_predictor1.covariance(landmarks, diag=False)
             cov2 = self.function_predictor2.covariance(landmarks, diag=False)
             
@@ -861,6 +924,9 @@ class DifferentialExpression:
             fold_change_subset = landmarks_pred2 - landmarks_pred1
         else:
             # Use all points
+            logger.info(f"No landmarks used, computing with all {len(X)} points")
+            
+            # Get covariance matrices
             cov1 = self.function_predictor1.covariance(X, diag=False)
             cov2 = self.function_predictor2.covariance(X, diag=False)
             
@@ -876,48 +942,27 @@ class DifferentialExpression:
         # Average the covariance matrices
         combined_cov = (cov1 + cov2) / 2
         
+        # Determine diagonal adjustments for variance
+        diag_adjust = None
+        
         # Add empirical adjustments if needed
         if self.use_empirical_variance:
             if has_landmarks and landmarks is not None:
-                # Use variance predictors if available
+                # Use variance predictors if available for landmarks
                 if self.variance_predictor1 is not None and self.variance_predictor2 is not None:
                     landmarks_variance1 = self.variance_predictor1(landmarks)
                     landmarks_variance2 = self.variance_predictor2(landmarks)
-                    if isinstance(landmarks_variance1, tuple):
-                        landmarks_variance1 = landmarks_variance1[0]  # Handle case when predictor returns multiple values
-                    if isinstance(landmarks_variance2, tuple):
-                        landmarks_variance2 = landmarks_variance2[0]
                     diag_adjust = (landmarks_variance1 + landmarks_variance2) / 2
-                else:
-                    # Fallback to using the base uncertainty
-                    diag_adjust = None
+                    logger.info("Using predicted variance from landmarks")
             else:
                 # If we're not using landmarks, estimate variance at the given points
                 if self.variance_predictor1 is not None and self.variance_predictor2 is not None:
                     variance1 = self.variance_predictor1(X)
                     variance2 = self.variance_predictor2(X)
-                    if isinstance(variance1, tuple):
-                        variance1 = variance1[0]  # Handle case when predictor returns multiple values
-                    if isinstance(variance2, tuple):
-                        variance2 = variance2[0]
-                    diag_adjust = (variance1 + variance2) / 2
-                else:
-                    diag_adjust = None
-        else:
-            diag_adjust = None
-            
-        # Compute Mahalanobis distance for each gene using batched computation
-        n_genes = fold_change_subset.shape[1]
-        mahalanobis_distances = np.zeros(n_genes)
-
-        # Use the mahalanobis_batch_size from the class instance
-        batch_size = self.mahalanobis_batch_size
-        logger.info(f"Using batch size of {batch_size} for Mahalanobis distance computation")
-
-        # Convert to jax arrays for faster processing
-        jax_combined_cov = jnp.array(combined_cov)
+                    diag_adjust = variance1 + variance2
+                    logger.info("Using predicted variance from all points")
         
-        # Apply diagonal adjustment if available
+        # Process diag_adjust to get correct shape if needed
         if diag_adjust is not None:
             # Ensure diag_adjust is the right shape
             if len(diag_adjust.shape) > 1 and diag_adjust.shape[1] > 1:
@@ -929,80 +974,46 @@ class DifferentialExpression:
             else:
                 diag_adjust_avg = diag_adjust
             
-            # Add to the diagonal of the covariance matrix
-            adjusted_cov = jax_combined_cov + jnp.diag(jnp.array(diag_adjust_avg))
-        else:
-            # Add small constant to diagonal for numerical stability
-            adjusted_cov = jax_combined_cov + jnp.eye(jax_combined_cov.shape[0]) * self.eps
-
-        # Try to compute Mahalanobis distances with batching
-        try:
-            logger.info("Computing Cholesky decomposition...")
-            chol_sigma = jnp.linalg.cholesky(adjusted_cov)
-            
-            # Define optimized computation functions
-            def _compute_mahalanobis_single(diffs, chol):
-                """Compute Mahalanobis distance with precomputed Cholesky decomposition."""
-                # Solve the triangular system
-                right_term = jax.scipy.linalg.solve_triangular(chol, diffs, lower=True)
-                # Compute the squared distance
-                return jnp.sum(right_term**2)
-            
-            # JIT compile if enabled
-            if self.jit_compile:
-                compute_fn = jax.jit(_compute_mahalanobis_single)
-            else:
-                compute_fn = _compute_mahalanobis_single
-            
-            # Vectorize the function to handle multiple genes at once
-            compute_mahalanobis_vmap = jax.vmap(compute_fn, in_axes=(1, None))
-            
-            # Process genes in batches using our batching utility
-            logger.info(f"Computing Mahalanobis distances for {n_genes} genes using batched processing")
-            
-            # Define a function that processes a batch of genes
-            def process_gene_batch(batch_diffs):
-                # Convert to JAX array if it's not already
-                if not isinstance(batch_diffs, jnp.ndarray):
-                    batch_diffs = jnp.array(batch_diffs)
-                # Compute distances for this batch
-                batch_results = compute_mahalanobis_vmap(batch_diffs, chol_sigma)
-                # Return the square root of the results as numpy array
-                return np.sqrt(np.array(batch_results))
-            
-            try:
-                # Use apply_batched to process the fold changes with automatic batch size adaptation
-                # We need to transpose the fold_change_subset to batch by genes (axis=1)
-                fold_change_transposed = fold_change_subset.T
-                
-                # Apply the processing function to the transposed data
-                distances = apply_batched(
-                    lambda x: process_gene_batch(x.T),  # We transpose back inside the function
-                    fold_change_transposed,
-                    batch_size=batch_size,
-                    desc="Computing Mahalanobis distances"
-                )
-                
-                # Store the results
-                mahalanobis_distances = distances
-                
-                logger.info(f"Successfully computed Mahalanobis distances for {n_genes} genes")
-                
-            except Exception as e:
-                # If the batched processing fails completely
-                error_msg = (f"Failed to compute Mahalanobis distances: {str(e)}. "
-                           f"Try manually reducing batch_size or disable Mahalanobis "
-                           f"distance calculation with compute_mahalanobis=False")
-                logger.error(error_msg)
-                raise RuntimeError(error_msg) from e
+            # Use the processed adjustment
+            diag_adjust = diag_adjust_avg
         
+        # Prepare the matrix (compute Cholesky decomposition once)
+        logger.info("Preparing covariance matrix for efficient Mahalanobis distance computation...")
+        prepared_matrix = prepare_mahalanobis_matrix(
+            covariance_matrix=combined_cov,
+            diag_adjustments=diag_adjust,
+            eps=self.eps,
+            jit_compile=self.jit_compile
+        )
+        
+        # Transpose fold_change to get shape (n_genes, n_points) for easier gene-wise processing
+        fold_change_transposed = fold_change_subset.T
+        
+        # Compute Mahalanobis distances for all genes at once using batched computation
+        logger.info(f"Computing Mahalanobis distances for {fold_change_transposed.shape[0]} genes...")
+        
+        # Use the mahalanobis_batch_size from the class instance
+        batch_size = self.mahalanobis_batch_size
+        
+        try:
+            # Compute all distances using our utility function that handles batching internally
+            mahalanobis_distances = compute_mahalanobis_distances(
+                diff_values=fold_change_transposed,
+                prepared_matrix=prepared_matrix,
+                batch_size=batch_size,
+                jit_compile=self.jit_compile
+            )
+            
+            logger.info(f"Successfully computed Mahalanobis distances for {len(mahalanobis_distances)} genes")
+                
         except Exception as e:
-            error_msg = (f"Cholesky decomposition failed: {e}. "
-                        f"Try disable Mahalanobis distance calculation with compute_mahalanobis=False")
+            error_msg = (f"Failed to compute Mahalanobis distances: {str(e)}. "
+                       f"Try manually reducing batch_size or disable Mahalanobis "
+                       f"distance calculation with compute_mahalanobis=False")
             logger.error(error_msg)
             raise RuntimeError(error_msg) from e
-            
-        self.mahalanobis_distances = mahalanobis_distances
+
+        return mahalanobis_distances
     
     def predict(
         self, 
@@ -1157,31 +1168,12 @@ class DifferentialExpression:
         if compute_mahalanobis:
             logger.info("Computing Mahalanobis distances...")
             
-            # For Mahalanobis distance, we need batching across genes (not cells)
-            # as each gene requires a separate covariance matrix calculation
-            n_genes = fold_change.shape[1]
-            mahalanobis_distances = np.zeros(n_genes)
+            # Simply call our existing method with the fold change we already computed
+            mahalanobis_distances = self.compute_mahalanobis_distances(
+                X=X_new, 
+                fold_change=fold_change
+            )
             
-            # Define function to process genes in batches
-            def process_gene_batch(gene_indices):
-                batch_mahalanobis = []
-                for i in gene_indices:
-                    # Extract fold change for this gene
-                    gene_fold_change = fold_change[:, i:i+1]
-                    # Compute Mahalanobis distance for this gene
-                    gene_distance = compute_mahalanobis_distance(X_new, gene_fold_change)
-                    batch_mahalanobis.append(gene_distance)
-                return np.array(batch_mahalanobis)
-            
-            # Apply batched processing across genes
-            gene_batch_size = min(100, n_genes)  # Default batch size for genes
-            
-            gene_indices = np.arange(n_genes)
-            for i in tqdm(range(0, n_genes, gene_batch_size), desc="Computing Mahalanobis distances"):
-                batch_indices = gene_indices[i:i+gene_batch_size]
-                batch_mahalanobis = process_gene_batch(batch_indices)
-                mahalanobis_distances[batch_indices] = batch_mahalanobis
-                
             result['mahalanobis_distances'] = mahalanobis_distances
         
         return result

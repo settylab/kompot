@@ -2,7 +2,7 @@
 
 import numpy as np
 import pytest
-from kompot.utils import compute_mahalanobis_distance, build_graph, find_landmarks
+from kompot.utils import compute_mahalanobis_distance, find_landmarks
 
 
 def test_compute_mahalanobis_distance():
@@ -26,26 +26,6 @@ def test_compute_mahalanobis_distance():
     
     # With adjustments, the distance should change
     assert distance_with_adj != distance
-
-
-def test_build_graph():
-    """Test the build_graph function."""
-    # Create a simple dataset
-    X = np.random.randn(100, 5)
-    
-    # Build the graph
-    edges, index = build_graph(X, n_neighbors=10)
-    
-    # Check that edges is a list of tuples
-    assert isinstance(edges, list)
-    assert all(isinstance(edge, tuple) for edge in edges)
-    
-    # Check that each edge connects valid node indices
-    n_samples = X.shape[0]
-    assert all(0 <= i < n_samples and 0 <= j < n_samples for i, j in edges)
-    
-    # Check that the index is a valid pynndescent object
-    assert hasattr(index, 'query')
 
 
 def test_find_landmarks():

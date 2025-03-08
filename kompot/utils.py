@@ -15,6 +15,243 @@ import logging
 logger = logging.getLogger("kompot")
 
 
+def prepare_mahalanobis_matrix(
+    covariance_matrix: np.ndarray,
+    diag_adjustments: Optional[np.ndarray] = None,
+    eps: float = 1e-12,
+    jit_compile: bool = True,
+):
+    """
+    Prepare a covariance matrix for Mahalanobis distance computation.
+    
+    This function processes the covariance matrix, adds diagonal adjustments if needed,
+    and computes the Cholesky decomposition for efficient distance calculations.
+    
+    Parameters
+    ----------
+    covariance_matrix : np.ndarray
+        The covariance matrix.
+    diag_adjustments : np.ndarray, optional
+        Additional diagonal adjustments for the covariance matrix, by default None.
+    eps : float, optional
+        Small constant for numerical stability, by default 1e-12.
+    jit_compile : bool, optional
+        Whether to use JAX just-in-time compilation, by default True.
+        
+    Returns
+    -------
+    dict
+        A dictionary containing:
+        - 'chol': The Cholesky decomposition of the adjusted covariance matrix if successful
+        - 'matrix_inv': The inverse of the adjusted covariance matrix (fallback)
+        - 'is_diagonal': Whether using a diagonal approximation
+        - 'diag_values': Diagonal values for fast computation if is_diagonal is True
+    """
+    # Convert to JAX arrays
+    cov = jnp.array(covariance_matrix)
+    
+    # Check if matrix is diagonal or near-diagonal (which would allow much faster calculation)
+    is_diagonal = False
+    diag_values = None
+    
+    if covariance_matrix.shape[0] > 10:
+        diag_sum = np.sum(np.diag(covariance_matrix))
+        total_sum = np.sum(np.abs(covariance_matrix))
+        diag_ratio = diag_sum / total_sum if total_sum > 0 else 0
+        
+        # If matrix is nearly diagonal, use faster diagonal approximation
+        if diag_ratio > 0.95:
+            logger.info("Using fast diagonal matrix approximation")
+            is_diagonal = True
+            diag_values = jnp.diag(cov)
+            
+            # Add diagonal adjustments if provided
+            if diag_adjustments is not None:
+                diag_adj = jnp.array(diag_adjustments)
+                diag_values = diag_values + diag_adj
+                
+            # Ensure numerical stability
+            diag_values = jnp.clip(diag_values, eps, None)
+            
+            return {
+                'is_diagonal': is_diagonal,
+                'diag_values': diag_values,
+                'chol': None,
+                'matrix_inv': None
+            }
+    
+    # For non-diagonal matrices, prepare for Cholesky
+    # Adjust covariance matrix if needed
+    if diag_adjustments is not None:
+        diag_adj = jnp.array(diag_adjustments)
+        cov = cov + jnp.diag(diag_adj)
+    
+    # Ensure numerical stability by clipping diagonal elements
+    diag_clipped = jnp.clip(jnp.diag(cov), eps, None)
+    cov = cov.at[jnp.arange(cov.shape[0]), jnp.arange(cov.shape[0])].set(diag_clipped)
+    
+    try:
+        # Compute Cholesky decomposition once
+        chol = jnp.linalg.cholesky(cov)
+        
+        return {
+            'is_diagonal': False,
+            'diag_values': None,
+            'chol': chol,
+            'matrix_inv': None
+        }
+    except Exception as e:
+        # Fallback to matrix inverse if Cholesky fails
+        logger.warning(
+            f"Cholesky decomposition failed: {e}. Using pseudoinverse. "
+            f"This might be slow. Consider raising eps ({eps}) to enable Cholesky decomposition instead."
+        )
+        try:
+            matrix_inv = jnp.linalg.pinv(cov)
+            return {
+                'is_diagonal': False,
+                'diag_values': None,
+                'chol': None,
+                'matrix_inv': matrix_inv
+            }
+        except Exception as e2:
+            # Last resort - diagonal approximation
+            logger.error(f"Matrix inverse also failed: {e2}. Using diagonal approximation.")
+            diag_values = jnp.clip(jnp.diag(cov), eps, None)
+            return {
+                'is_diagonal': True,
+                'diag_values': diag_values,
+                'chol': None,
+                'matrix_inv': None
+            }
+
+def compute_mahalanobis_distances(
+    diff_values: np.ndarray,
+    prepared_matrix: dict,
+    batch_size: int = 500,
+    jit_compile: bool = True,
+) -> np.ndarray:
+    """
+    Compute Mahalanobis distances for multiple difference vectors efficiently.
+    
+    This function takes preprocessed matrix information and computes the Mahalanobis
+    distance for each provided difference vector. It supports batched computation for
+    memory efficiency.
+    
+    Parameters
+    ----------
+    diff_values : np.ndarray
+        The difference vectors for which to compute Mahalanobis distances.
+        Shape should be (n_samples, n_features) or (n_features, n_samples).
+    prepared_matrix : dict
+        A dictionary from prepare_mahalanobis_matrix containing matrix information.
+    batch_size : int, optional
+        Number of vectors to process at once, by default 500.
+    jit_compile : bool, optional
+        Whether to use JAX just-in-time compilation, by default True.
+        
+    Returns
+    -------
+    np.ndarray
+        Array of Mahalanobis distances for each input vector.
+    """
+    # Convert input to JAX array
+    diffs = jnp.array(diff_values)
+    
+    # Handle different input shapes - we want (n_samples, n_features)
+    if len(diffs.shape) == 1:
+        # Single vector, reshape to (1, n_features)
+        diffs = diffs.reshape(1, -1)
+    elif len(diffs.shape) == 2 and diffs.shape[0] < diffs.shape[1]:
+        # More features than samples, likely (n_features, n_samples)
+        diffs = diffs.T
+    
+    # Get number of samples
+    n_samples = diffs.shape[0]
+    
+    # Check if we're using diagonal approximation
+    if prepared_matrix['is_diagonal']:
+        # Diagonal case - much faster computation
+        diag_values = prepared_matrix['diag_values']
+        
+        # Define computation for diagonal case
+        def compute_diagonal_batch(batch_diffs):
+            # For diagonal matrix, Mahalanobis is just a weighted Euclidean distance
+            weighted_diffs = batch_diffs / jnp.sqrt(diag_values)
+            return jnp.sqrt(jnp.sum(weighted_diffs**2, axis=1))
+        
+        # JIT compile if enabled
+        if jit_compile:
+            diag_compute_fn = jax.jit(compute_diagonal_batch)
+        else:
+            diag_compute_fn = compute_diagonal_batch
+        
+        # Process in batches
+        results = []
+        for i in range(0, n_samples, batch_size):
+            batch = diffs[i:i+batch_size]
+            batch_results = diag_compute_fn(batch)
+            results.append(np.array(batch_results))
+        
+        return np.concatenate(results) if len(results) > 1 else results[0]
+    
+    # Non-diagonal case - use Cholesky if available
+    if prepared_matrix['chol'] is not None:
+        chol = prepared_matrix['chol']
+        
+        # Define computation function using Cholesky
+        def compute_cholesky_batch(batch_diffs):
+            # Triangular solve for each diff vector
+            solved = jax.vmap(lambda d: jax.scipy.linalg.solve_triangular(chol, d, lower=True))(batch_diffs)
+            
+            # Compute squared distances
+            squared_distances = jnp.sum(solved**2, axis=1)
+            return jnp.sqrt(squared_distances)
+        
+        # JIT compile if enabled
+        if jit_compile:
+            chol_compute_fn = jax.jit(compute_cholesky_batch)
+        else:
+            chol_compute_fn = compute_cholesky_batch
+        
+        # Process in batches
+        results = []
+        for i in range(0, n_samples, batch_size):
+            batch = diffs[i:i+batch_size]
+            batch_results = chol_compute_fn(batch)
+            results.append(np.array(batch_results))
+        
+        return np.concatenate(results) if len(results) > 1 else results[0]
+    
+    # Fallback to matrix inverse
+    if prepared_matrix['matrix_inv'] is not None:
+        matrix_inv = prepared_matrix['matrix_inv']
+        
+        # Define computation function using inverse matrix
+        def compute_inverse_batch(batch_diffs):
+            # Apply matrix multiplication for each vector: d' * inv(cov) * d
+            products = jax.vmap(lambda d: jnp.dot(d, jnp.dot(matrix_inv, d)))(batch_diffs)
+            return jnp.sqrt(products)
+        
+        # JIT compile if enabled
+        if jit_compile:
+            inv_compute_fn = jax.jit(compute_inverse_batch)
+        else:
+            inv_compute_fn = compute_inverse_batch
+        
+        # Process in batches
+        results = []
+        for i in range(0, n_samples, batch_size):
+            batch = diffs[i:i+batch_size]
+            batch_results = inv_compute_fn(batch)
+            results.append(np.array(batch_results))
+        
+        return np.concatenate(results) if len(results) > 1 else results[0]
+    
+    # If all else fails, use a simple approximation
+    logger.error("No valid matrix information found. Using simple Euclidean distance.")
+    return np.sqrt(np.sum(diff_values**2, axis=1))
+
 def compute_mahalanobis_distance(
     diff_values: np.ndarray,
     covariance_matrix: np.ndarray,
@@ -24,6 +261,10 @@ def compute_mahalanobis_distance(
 ) -> float:
     """
     Compute the Mahalanobis distance for a vector given a covariance matrix.
+    
+    This is a convenience function for computing a single Mahalanobis distance.
+    For multiple vectors, use prepare_mahalanobis_matrix and compute_mahalanobis_distances
+    for better performance.
     
     Parameters
     ----------
@@ -43,207 +284,24 @@ def compute_mahalanobis_distance(
     float
         The Mahalanobis distance.
     """
-    # Start timing and debug logging
-    import time
-    start_time = time.time()
+    # Prepare the matrix
+    prepared_matrix = prepare_mahalanobis_matrix(
+        covariance_matrix=covariance_matrix,
+        diag_adjustments=diag_adjustments,
+        eps=eps,
+        jit_compile=jit_compile
+    )
     
-    # Log matrix dimensions for debugging
-    logger.debug(f"Mahalanobis input shapes: diff={diff_values.shape}, cov={covariance_matrix.shape}, "
-                f"diag_adjustments={diag_adjustments.shape if diag_adjustments is not None else None}")
+    # Compute distance for single vector
+    distances = compute_mahalanobis_distances(
+        diff_values=diff_values,
+        prepared_matrix=prepared_matrix,
+        batch_size=1,
+        jit_compile=jit_compile
+    )
     
-    # Check for potential batch-based optimization
-    if diff_values.shape[0] > 5000:
-        logger.warning(f"Large vector size ({diff_values.shape}) may cause slow performance. Consider batching.")
-    
-    if covariance_matrix.shape[0] > 500:
-        logger.warning(f"Large covariance matrix ({covariance_matrix.shape}) may cause slow Cholesky decomposition.")
-    
-    # Check if matrix is diagonal or near-diagonal (which would allow much faster calculation)
-    if covariance_matrix.shape[0] > 10:
-        diag_sum = np.sum(np.diag(covariance_matrix))
-        total_sum = np.sum(np.abs(covariance_matrix))
-        diag_ratio = diag_sum / total_sum if total_sum > 0 else 0
-        logger.debug(f"Diagonal ratio: {diag_ratio:.4f} (1.0 means perfectly diagonal)")
-        
-        # If matrix is nearly diagonal, use faster diagonal approximation
-        if diag_ratio > 0.95:
-            logger.info("Using fast diagonal matrix approximation")
-            # For diagonal matrix, Mahalanobis is just a weighted Euclidean distance
-            cov_diag = np.diag(covariance_matrix)
-            if diag_adjustments is not None:
-                cov_diag = cov_diag + diag_adjustments
-            # Avoid division by zero
-            cov_diag = np.clip(cov_diag, eps, None)
-            weighted_diff = diff_values / np.sqrt(cov_diag)
-            result = np.sqrt(np.sum(weighted_diff**2))
-            logger.debug(f"Diagonal approx took {time.time() - start_time:.4f}s")
-            return float(result)
-    
-    # Define the JAX implementation with triangular solve
-    def _compute_mahalanobis_jax(diff, cov, diag_adj=None):
-        # Start timing for JAX operations
-        jax_start = time.time()
-        
-        # Adjust covariance matrix if needed
-        if diag_adj is not None:
-            diag_adj = jnp.array(diag_adj)
-            cov = cov + jnp.diag(diag_adj)
-        
-        # Ensure numerical stability
-        diag_clipped = jnp.clip(jnp.diag(cov), eps, None)
-        cov = cov.at[jnp.arange(cov.shape[0]), jnp.arange(cov.shape[0])].set(diag_clipped)
-        
-        # Cholesky decomposition
-        logger.debug(f"JAX matrix preparation took {time.time() - jax_start:.4f}s")
-        chol_start = time.time()
-        chol = jnp.linalg.cholesky(cov)
-        logger.debug(f"JAX Cholesky decomposition took {time.time() - chol_start:.4f}s")
-        
-        # Triangular solve: solve L*y = diff (forward substitution)
-        solve_start = time.time()
-        y = jax.scipy.linalg.solve_triangular(chol, diff, lower=True)
-        logger.debug(f"JAX triangular solve took {time.time() - solve_start:.4f}s")
-        
-        # The squared Mahalanobis distance is the squared L2 norm of y
-        final_start = time.time()
-        mahalanobis_squared = jnp.sum(y**2)
-        result = jnp.sqrt(mahalanobis_squared)
-        logger.debug(f"JAX final calculation took {time.time() - final_start:.4f}s")
-        
-        # Return the Mahalanobis distance (square root of the squared distance)
-        return result
-    
-    # Define the NumPy implementation as a fallback
-    def _compute_mahalanobis_numpy(diff, cov, diag_adj=None):
-        # Create a copy to avoid modifying the original
-        numpy_start = time.time()
-        cov = np.array(cov, copy=True)
-        
-        # Adjust covariance matrix if needed
-        if diag_adj is not None:
-            cov = cov + np.diag(diag_adj)
-        
-        # Ensure numerical stability
-        diag_clipped = np.clip(np.diag(cov), eps, None)
-        np.fill_diagonal(cov, diag_clipped)
-        logger.debug(f"NumPy matrix preparation took {time.time() - numpy_start:.4f}s")
-        
-        # Compare with original approach to see if direct matrix inversion is faster for small matrices
-        if cov.shape[0] < 100:
-            try:
-                inv_start = time.time()
-                cov_inv = np.linalg.inv(cov)
-                inv_time = time.time() - inv_start
-                logger.debug(f"NumPy direct inversion took {inv_time:.4f}s")
-                
-                calc_start = time.time()
-                result_direct = np.sqrt(np.dot(diff, np.dot(cov_inv, diff)))
-                calc_time = time.time() - calc_start
-                logger.debug(f"NumPy direct calculation took {calc_time:.4f}s")
-                
-                logger.debug(f"NumPy direct approach total: {inv_time + calc_time:.4f}s")
-                return float(result_direct)
-            except np.linalg.LinAlgError:
-                logger.debug("Direct inversion failed, using Cholesky decomposition")
-        
-        # Cholesky decomposition
-        chol_start = time.time()
-        try:
-            chol = np.linalg.cholesky(cov)
-            logger.debug(f"NumPy Cholesky decomposition took {time.time() - chol_start:.4f}s")
-            
-            # Solve the triangular system for improved efficiency
-            solve_start = time.time()
-            y = solve_triangular(chol, diff, lower=True)
-            logger.debug(f"NumPy triangular solve took {time.time() - solve_start:.4f}s")
-            
-            # The squared Mahalanobis distance is the squared L2 norm of y
-            final_start = time.time()
-            mahalanobis_squared = np.sum(y**2)
-            result = np.sqrt(mahalanobis_squared)
-            logger.debug(f"NumPy final calculation took {time.time() - final_start:.4f}s")
-            
-            return float(result)
-        except np.linalg.LinAlgError as e:
-            logger.warning(f"Cholesky decomposition failed: {e}. Using pseudoinverse.")
-            # Fallback to pseudoinverse
-            pinv_start = time.time()
-            cov_inv = np.linalg.pinv(cov)
-            logger.debug(f"NumPy pseudoinverse took {time.time() - pinv_start:.4f}s")
-            
-            final_start = time.time()
-            result = np.sqrt(np.dot(diff, np.dot(cov_inv, diff)))
-            logger.debug(f"NumPy final calculation with pinv took {time.time() - final_start:.4f}s")
-            
-            return float(result)
-    
-    # Convert inputs to appropriate array types
-    diff = np.asarray(diff_values)
-    cov = np.asarray(covariance_matrix)
-    
-    try:
-        if jit_compile:
-            # Try to use the JAX implementation with JIT compilation
-            logger.debug("Using JAX JIT implementation")
-            jit_start = time.time()
-            jit_fn = jax.jit(_compute_mahalanobis_jax)
-            # Convert to JAX arrays
-            jax_diff = jnp.array(diff)
-            jax_cov = jnp.array(cov)
-            jax_diag_adj = jnp.array(diag_adjustments) if diag_adjustments is not None else None
-            
-            # Compute using JAX and convert result back to numpy
-            result = jit_fn(jax_diff, jax_cov, jax_diag_adj)
-            numpy_result = np.array(result)
-            logger.debug(f"JAX total computation took {time.time() - jit_start:.4f}s")
-            return float(numpy_result)
-        else:
-            # Fall back to NumPy implementation if JIT is disabled
-            logger.debug("Using NumPy implementation")
-            numpy_start = time.time()
-            result = _compute_mahalanobis_numpy(diff, cov, diag_adjustments)
-            logger.debug(f"NumPy total computation took {time.time() - numpy_start:.4f}s")
-            return result
-    except Exception as e:
-        # Fall back to NumPy implementation if there's any JAX error
-        logger.warning(f"JAX computation failed: {e}. Falling back to NumPy implementation.")
-        numpy_start = time.time()
-        result = _compute_mahalanobis_numpy(diff, cov, diag_adjustments)
-        logger.debug(f"NumPy fallback computation took {time.time() - numpy_start:.4f}s")
-        return result
-
-
-def build_graph(X: np.ndarray, n_neighbors: int = 15) -> Tuple[List[Tuple[int, int]], any]:
-    """
-    Build a graph from data points using pynndescent.
-    
-    Parameters
-    ----------
-    X : np.ndarray
-        Data matrix of shape (n_samples, n_features).
-    n_neighbors : int, optional
-        Number of neighbors for graph construction, by default 15.
-        
-    Returns
-    -------
-    Tuple[List[Tuple[int, int]], any]
-        A tuple containing:
-        - edges: List of tuples representing the edges
-        - index: The pynndescent nearest neighbor index
-    """
-    # Compute nearest neighbors
-    index = pynndescent.NNDescent(X, n_neighbors=n_neighbors, metric="euclidean")
-    indices, _ = index.neighbor_graph
-
-    n_samples = X.shape[0]
-    sources = np.repeat(np.arange(n_samples), n_neighbors)
-    targets = indices.flatten()
-    edges = list(zip(sources, targets))
-    
-    # Remove duplicates
-    edges = list(set(tuple(sorted(edge)) for edge in edges))
-    
-    return edges, index
+    # Return the single distance
+    return float(distances[0]) if len(distances) > 1 else float(distances)
 
 
 def find_optimal_resolution(
