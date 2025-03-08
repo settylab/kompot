@@ -29,6 +29,8 @@ setup(
         'jax>=0.3.0',
         'jaxlib>=0.3.0',
         'mellon>=1.5.0',
+        'matplotlib>=3.5.0',
+        'seaborn>=0.12.0',
         'importlib-resources>=5.0.0;python_version<"3.9"',
     ],
     extras_require={
@@ -40,6 +42,16 @@ setup(
             'sphinx-github-style>=1.2.0',
             'lxml[html_clean]',
             'IPython',
+        ],
+        'plot': [
+            'scanpy>=1.9.0',
+            'matplotlib>=3.5.0',
+            'seaborn>=0.12.0',
+        ],
+        'all': [
+            'scanpy>=1.9.0',
+            'matplotlib>=3.5.0',
+            'seaborn>=0.12.0',
         ],
     },
     classifiers=[

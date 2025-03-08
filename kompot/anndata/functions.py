@@ -5,6 +5,7 @@ AnnData integration functions for Kompot.
 import logging
 import numpy as np
 import pandas as pd
+import datetime
 from typing import Optional, Union, Dict, Any, List, Tuple
 
 from ..differential import DifferentialAbundance, DifferentialExpression, compute_weighted_mean_fold_change
@@ -93,11 +94,17 @@ def compute_differential_abundance(
     
     - adata.obs[f"{result_key}_log_fold_change"]: Log fold change values for each cell
     - adata.obs[f"{result_key}_log_fold_change_zscore"]: Z-scores for each cell
-    - adata.obs[f"{result_key}_log_fold_change_pvalue"]: P-values for each cell
-    - adata.obs[f"{result_key}_log_fold_change_direction"]: Direction of change
+    - adata.obs[f"{result_key}_neg_log10_fold_change_pvalue"]: Negative log10 p-values for each cell
+    - adata.obs[f"{result_key}_log_fold_change_direction"]: Direction of change ('up', 'down', 'neutral')
+    - adata.uns[f"{result_key}_log_fold_change_direction_colors"]: Color mapping for direction categories
     - adata.uns[result_key]: Dictionary with additional information and parameters
     - If landmarks are computed, they are stored in adata.uns[result_key]['landmarks']
       for potential reuse in other analyses.
+      
+    The color scheme used for directions is:
+    - "up": "#d73027" (red)
+    - "down": "#4575b4" (blue)
+    - "neutral": "#d3d3d3" (light gray)
     """
     try:
         import anndata
@@ -182,13 +189,24 @@ def compute_differential_abundance(
     )
     # Note: mean_log_fold_change is no longer computed by default
     
-    # Store landmarks if they were computed for future reuse
+    # Store landmark metadata for future reference (not the actual array)
     if hasattr(diff_abundance, 'computed_landmarks') and diff_abundance.computed_landmarks is not None:
-        # Store the landmarks in adata.uns for future use
+        # Initialize if needed
         if result_key not in adata.uns:
             adata.uns[result_key] = {}
-        adata.uns[result_key]['landmarks'] = diff_abundance.computed_landmarks
-        logger.info(f"Stored computed landmarks in adata.uns['{result_key}']['landmarks']")
+        
+        # Store metadata about landmarks, not the actual array (which is large)
+        landmarks_shape = diff_abundance.computed_landmarks.shape
+        landmarks_dtype = str(diff_abundance.computed_landmarks.dtype)
+        
+        adata.uns[result_key]['landmarks_info'] = {
+            'shape': landmarks_shape,
+            'dtype': landmarks_dtype,
+            'source': 'computed',
+            'n_landmarks': landmarks_shape[0]
+        }
+        # The actual landmarks are accessible through the model in the result
+        logger.info(f"Stored landmarks metadata in adata.uns['{result_key}']['landmarks_info']")
     
     # Sanitize condition names for use in column names
     cond1_safe = _sanitize_name(condition1)
@@ -197,32 +215,83 @@ def compute_differential_abundance(
     # Assign values to masked cells with more descriptive column names
     adata.obs[f"{result_key}_log_fold_change_{cond2_safe}_vs_{cond1_safe}"] = abundance_results['log_fold_change']
     adata.obs[f"{result_key}_log_fold_change_zscore"] = abundance_results['log_fold_change_zscore']
-    adata.obs[f"{result_key}_log_fold_change_pvalue"] = abundance_results['log_fold_change_pvalue']
-    adata.obs[f"{result_key}_log_fold_change_direction"] = abundance_results['log_fold_change_direction']
+    adata.obs[f"{result_key}_neg_log10_fold_change_pvalue"] = abundance_results['neg_log10_fold_change_pvalue']  # Now using negative log10 p-values (higher = more significant)
+    
+    # Add the direction column
+    direction_col = f"{result_key}_log_fold_change_direction"
+    adata.obs[direction_col] = abundance_results['log_fold_change_direction']
+    
+    # Add standard color mapping for direction categories in adata.uns
+    # Use colors from the central color definition
+    from ..utils import KOMPOT_COLORS
+    direction_colors = KOMPOT_COLORS["direction"]
+    
+    # Get the unique categories in the order they appear in the categorical column
+    if hasattr(adata.obs[direction_col], 'cat'):
+        # If it's already a categorical type
+        categories = adata.obs[direction_col].cat.categories
+    else:
+        # Convert to categorical to get ordered categories
+        adata.obs[direction_col] = adata.obs[direction_col].astype('category')
+        categories = adata.obs[direction_col].cat.categories
+    
+    # Create the list of colors in the same order as the categories
+    color_list = [direction_colors.get(cat, "#d3d3d3") for cat in categories]
+    
+    # Save colors to adata.uns with the _colors postfix
+    adata.uns[f"{direction_col}_colors"] = color_list
     
     # Store log densities for each condition with descriptive names
     adata.obs[f"{result_key}_log_density_{cond1_safe}"] = abundance_results['log_density_condition1']
     adata.obs[f"{result_key}_log_density_{cond2_safe}"] = abundance_results['log_density_condition2']
     
-    # Store parameters in adata.uns, but NOT the model (too large for serialization)
-    adata.uns[result_key] = {
-        "params": {
-            "groupby": groupby,
-            "condition1": condition1,
-            "condition2": condition2,
-            "obsm_key": obsm_key,
-            "log_fold_change_threshold": log_fold_change_threshold,
-            "pvalue_threshold": pvalue_threshold,
-            "n_landmarks": n_landmarks,
-            "used_landmarks": True if landmarks is not None else False,
+    # Prepare parameters, run timestamp, and field metadata
+    current_timestamp = datetime.datetime.now().isoformat()
+    
+    current_run_info = {
+        "timestamp": current_timestamp,
+        "function": "compute_differential_abundance",
+        "result_key": result_key,
+        "lfc_key": f"{result_key}_log_fold_change_{cond2_safe}_vs_{cond1_safe}",
+        "zscore_key": f"{result_key}_log_fold_change_zscore",
+        "pval_key": f"{result_key}_neg_log10_fold_change_pvalue",
+        "direction_key": f"{result_key}_log_fold_change_direction",
+        "density_keys": {
+            "condition1": f"{result_key}_log_density_{cond1_safe}",
+            "condition2": f"{result_key}_log_density_{cond2_safe}"
         }
     }
+    
+    current_params = {
+        "groupby": groupby,
+        "condition1": condition1,
+        "condition2": condition2,
+        "obsm_key": obsm_key,
+        "log_fold_change_threshold": log_fold_change_threshold,
+        "pvalue_threshold": pvalue_threshold,
+        "n_landmarks": n_landmarks,
+        "used_landmarks": True if landmarks is not None else False,
+    }
+    
+    # Initialize or update adata.uns[result_key]
+    if result_key not in adata.uns:
+        adata.uns[result_key] = {}
+    
+    # Preserve previous run_info if it exists by moving it to run_history
+    if "run_info" in adata.uns[result_key]:
+        if "run_history" not in adata.uns[result_key]:
+            adata.uns[result_key]["run_history"] = []
+        adata.uns[result_key]["run_history"].append(adata.uns[result_key]["run_info"])
+    
+    # Update with current run info
+    adata.uns[result_key]["params"] = current_params
+    adata.uns[result_key]["run_info"] = current_run_info
     
     # Return results as a dictionary
     return {
         "log_fold_change": abundance_results['log_fold_change'],
         "log_fold_change_zscore": abundance_results['log_fold_change_zscore'],
-        "log_fold_change_pvalue": abundance_results['log_fold_change_pvalue'],
+        "neg_log10_fold_change_pvalue": abundance_results['neg_log10_fold_change_pvalue'],  # Now using negative log10 p-values
         "log_fold_change_direction": abundance_results['log_fold_change_direction'],
         "log_density_condition1": abundance_results['log_density_condition1'],
         "log_density_condition2": abundance_results['log_density_condition2'],
@@ -499,13 +568,24 @@ def compute_differential_expression(
         **function_kwargs
     )
     
-    # Store landmarks if they were computed for future reuse
+    # Store landmark metadata for future reference (not the actual array)
     if hasattr(diff_expression, 'computed_landmarks') and diff_expression.computed_landmarks is not None:
-        # Store the landmarks in adata.uns for future use
+        # Initialize if needed
         if result_key not in adata.uns:
             adata.uns[result_key] = {}
-        adata.uns[result_key]['landmarks'] = diff_expression.computed_landmarks
-        logger.info(f"Stored computed landmarks in adata.uns['{result_key}']['landmarks']")
+        
+        # Store metadata about landmarks, not the actual array (which is large)
+        landmarks_shape = diff_expression.computed_landmarks.shape
+        landmarks_dtype = str(diff_expression.computed_landmarks.dtype)
+        
+        adata.uns[result_key]['landmarks_info'] = {
+            'shape': landmarks_shape,
+            'dtype': landmarks_dtype,
+            'source': 'computed',
+            'n_landmarks': landmarks_shape[0]
+        }
+        # The actual landmarks are accessible through the model in the result
+        logger.info(f"Stored landmarks metadata in adata.uns['{result_key}']['landmarks_info']")
     
     # Run prediction to compute fold changes, metrics, and Mahalanobis distances
     X_for_prediction = adata.obsm[obsm_key]
@@ -773,22 +853,52 @@ def compute_differential_expression(
             adata.layers[imputed2_key] = condition2_imputed
             adata.layers[fold_change_key] = fold_change
         
-        # Store model and parameters in adata.uns
-        adata.uns[result_key] = {
-            "params": {
-                "groupby": groupby,
-                "condition1": condition1,
-                "condition2": condition2,
-                "obsm_key": obsm_key,
-                "layer": layer,
-                "genes": genes,
-                "n_landmarks": n_landmarks,
-                "sample_col": sample_col,  # Keep this for documentation in the AnnData object
-                "use_sample_variance": use_sample_variance,  # This is now inferred from sample_col
-                "differential_abundance_key": differential_abundance_key,
-                "used_landmarks": True if landmarks is not None else False,
-            },
+        # Prepare parameters, run timestamp, and field metadata
+        current_timestamp = datetime.datetime.now().isoformat()
+        
+        current_run_info = {
+            "timestamp": current_timestamp,
+            "function": "compute_differential_expression",
+            "result_key": result_key,
+            "lfc_key": mean_lfc_column,
+            "weighted_lfc_key": f"{result_key}_weighted_lfc_{cond2_safe}_vs_{cond1_safe}" if differential_abundance_key is not None else None,
+            "mahalanobis_key": f"{result_key}_mahalanobis" if compute_mahalanobis else None,
+            "lfc_std_key": f"{result_key}_lfc_std",
+            "bidirectionality_key": f"{result_key}_bidirectionality",
+            "imputed_layer_keys": {
+                "condition1": f"{result_key}_imputed_{cond1_safe}",
+                "condition2": f"{result_key}_imputed_{cond2_safe}",
+                "fold_change": f"{result_key}_fold_change_{cond2_safe}_vs_{cond1_safe}"
+            }
         }
+        
+        current_params = {
+            "groupby": groupby,
+            "condition1": condition1,
+            "condition2": condition2,
+            "obsm_key": obsm_key,
+            "layer": layer,
+            "genes": genes,
+            "n_landmarks": n_landmarks,
+            "sample_col": sample_col,  # Keep this for documentation in the AnnData object
+            "use_sample_variance": use_sample_variance,  # This is now inferred from sample_col
+            "differential_abundance_key": differential_abundance_key,
+            "used_landmarks": True if landmarks is not None else False,
+        }
+        
+        # Initialize or update adata.uns[result_key]
+        if result_key not in adata.uns:
+            adata.uns[result_key] = {}
+            
+        # Preserve previous run_info if it exists by moving it to run_history
+        if "run_info" in adata.uns[result_key]:
+            if "run_history" not in adata.uns[result_key]:
+                adata.uns[result_key]["run_history"] = []
+            adata.uns[result_key]["run_history"].append(adata.uns[result_key]["run_info"])
+        
+        # Update with current run info
+        adata.uns[result_key]["params"] = current_params
+        adata.uns[result_key]["run_info"] = current_run_info
         
     # Return the results dictionary
     return result_dict
@@ -892,6 +1002,19 @@ def run_differential_analysis(
     This function runs the full Kompot differential analysis workflow and provides
     a simplified interface for both differential abundance and expression analysis.
     Results are stored in the AnnData object's obs, var, layers, and uns attributes.
+
+    The `log_fold_change_direction` column in adata.obs is assigned categorical values
+    ('up', 'down', or 'neutral'), and matching colors are stored in adata.uns with
+    the '_colors' postfix for easy visualization in scanpy and other tools:
+    
+    ```python
+    # Color scheme used
+    direction_colors = {"up": "#d73027", "down": "#4575b4", "neutral": "#d3d3d3"}
+    
+    # This allows direct use with scanpy's plotting functions
+    import scanpy as sc
+    sc.pl.umap(adata, color=f"{abundance_key}_log_fold_change_direction")
+    ```
     """
     try:
         import anndata
@@ -1020,8 +1143,41 @@ def run_differential_analysis(
         adata.uns['landmarks_info']['targets'] = [expression_key]
         
         # Store timestamp of sharing
-        from datetime import datetime
-        adata.uns['landmarks_info']['timestamp'] = datetime.now().isoformat()
+        adata.uns['landmarks_info']['timestamp'] = datetime.datetime.now().isoformat()
+    
+    # Store combined run information in a central location for easier retrieval
+    run_timestamp = datetime.datetime.now().isoformat()
+    
+    # Create a kompot_run_history entry if it doesn't exist
+    if 'kompot_run_history' not in adata.uns:
+        adata.uns['kompot_run_history'] = []
+    
+    # Add current run info to the history with a run_id for reference
+    run_id = len(adata.uns['kompot_run_history'])
+    
+    run_info = {
+        "run_id": run_id,
+        "timestamp": run_timestamp,
+        "function": "run_differential_analysis",
+        "abundance_key": abundance_key if compute_abundance else None,
+        "expression_key": expression_key if compute_expression else None,
+        "conditions": {
+            "groupby": groupby,
+            "condition1": condition1,
+            "condition2": condition2
+        },
+        "parameters": {
+            "obsm_key": obsm_key,
+            "share_landmarks": share_landmarks,
+            "generate_html_report": generate_html_report
+        }
+    }
+    
+    # Add to history
+    adata.uns['kompot_run_history'].append(run_info)
+    
+    # Store the latest run as a separate key for easy access
+    adata.uns['kompot_latest_run'] = run_info
     
     # Return the results along with the AnnData
     return {

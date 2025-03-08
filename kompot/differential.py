@@ -17,7 +17,8 @@ from .utils import (
     compute_mahalanobis_distance, 
     compute_mahalanobis_distances, 
     prepare_mahalanobis_matrix, 
-    find_landmarks
+    find_landmarks,
+    KOMPOT_COLORS
 )
 from .batch_utils import batch_process, apply_batched, is_jax_memory_error
 
@@ -301,16 +302,23 @@ class DifferentialAbundance:
         sd = np.sqrt(log_fold_change_uncertainty + 1e-16)
         log_fold_change_zscore = log_fold_change / sd
         
-        # Compute p-values
-        log_fold_change_pvalue = np.minimum(
+        # Compute p-values in natural log (base e)
+        ln_pvalue = np.minimum(
             normal.logcdf(log_fold_change_zscore), 
             normal.logcdf(-log_fold_change_zscore)
         ) + np.log(2)
         
+        # Convert from natural log to negative log10 (for better volcano plot visualization)
+        # ln_pvalue is a log of a small value (typically < 1), so it's negative
+        # We want -log10(p), which is positive for small p-values
+        neg_log10_fold_change_pvalue = -(ln_pvalue / np.log(10))
+        
         # Determine direction of change based on thresholds
         log_fold_change_direction = np.full(len(log_fold_change), 'neutral', dtype=object)
+        # For negative log10 p-values, we need to check if they are greater than -log10(threshold)
+        # e.g., -log10(0.05) ≈ 1.3, so we check if neg_log10_fold_change_pvalue > 1.3
         significant = (np.abs(log_fold_change) > log_fold_change_threshold) & \
-                     (log_fold_change_pvalue < np.log(pvalue_threshold))
+                     (neg_log10_fold_change_pvalue > -np.log10(pvalue_threshold))
         
         log_fold_change_direction[significant & (log_fold_change > 0)] = 'up'
         log_fold_change_direction[significant & (log_fold_change < 0)] = 'down'
@@ -321,7 +329,7 @@ class DifferentialAbundance:
             'log_fold_change': log_fold_change,
             'log_fold_change_uncertainty': log_fold_change_uncertainty,
             'log_fold_change_zscore': log_fold_change_zscore,
-            'log_fold_change_pvalue': log_fold_change_pvalue,
+            'neg_log10_fold_change_pvalue': neg_log10_fold_change_pvalue,  # Using negative log10 p-values (higher = more significant)
             'log_fold_change_direction': log_fold_change_direction,
         }
         

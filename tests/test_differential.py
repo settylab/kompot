@@ -30,7 +30,8 @@ def test_differential_abundance_fit():
     assert 'log_fold_change' in predictions
     assert 'log_fold_change_uncertainty' in predictions
     assert 'log_fold_change_zscore' in predictions
-    assert 'log_fold_change_pvalue' in predictions
+    # Now using negative log10 p-values instead of raw p-values
+    assert 'neg_log10_fold_change_pvalue' in predictions
     assert 'log_fold_change_direction' in predictions
     # mean_log_fold_change has been removed from the output
     

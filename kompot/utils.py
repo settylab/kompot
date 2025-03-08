@@ -4,7 +4,8 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 from functools import partial
-from typing import Tuple, List, Optional, Union, Callable
+from typing import Tuple, List, Optional, Union, Callable, Dict, Any
+from anndata import AnnData
 from scipy.linalg import solve_triangular
 
 import pynndescent
@@ -13,6 +14,51 @@ import leidenalg as la
 import logging
 
 logger = logging.getLogger("kompot")
+
+# Define standard colors for consistent use throughout the package
+KOMPOT_COLORS = {
+    # Direction colors for differential abundance
+    "direction": {
+        "up": "#d73027",     # red
+        "down": "#4575b4",   # blue
+        "neutral": "#d3d3d3" # light gray
+    },
+    # Additional color palettes can be added here
+}
+
+
+def get_run_from_history(adata: AnnData, run_id: Optional[int] = None) -> Optional[Dict[str, Any]]:
+    """
+    Get run information from kompot_run_history based on run_id.
+    
+    Parameters
+    ----------
+    adata : AnnData
+        AnnData object containing run history
+    run_id : int, optional
+        Run ID to retrieve. Negative indices count from the end.
+        If None, returns None.
+        
+    Returns
+    -------
+    dict or None
+        The run information dict if found, or None if not found or run_id is None
+    """
+    if run_id is None or 'kompot_run_history' not in adata.uns:
+        return None
+        
+    # Handle negative indices (e.g., -1 for latest run)
+    if run_id < 0 and len(adata.uns['kompot_run_history']) >= abs(run_id):
+        adjusted_run_id = len(adata.uns['kompot_run_history']) + run_id
+    else:
+        adjusted_run_id = run_id
+    
+    # Find the requested run
+    if 0 <= adjusted_run_id < len(adata.uns['kompot_run_history']):
+        return adata.uns['kompot_run_history'][adjusted_run_id]
+    else:
+        logger.warning(f"Run ID {run_id} not found in kompot_run_history. Using default or latest run.")
+        return None
 
 
 def build_graph(X: np.ndarray, n_neighbors: int = 15) -> Tuple[List[Tuple[int, int]], pynndescent.NNDescent]:

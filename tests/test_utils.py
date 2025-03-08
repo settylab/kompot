@@ -2,7 +2,7 @@
 
 import numpy as np
 import pytest
-from kompot.utils import compute_mahalanobis_distance, find_landmarks
+from kompot.utils import compute_mahalanobis_distance, find_landmarks, get_run_from_history
 
 
 def test_compute_mahalanobis_distance():
@@ -53,3 +53,49 @@ def test_find_landmarks():
     # Check that landmarks are actual data points
     for i, idx in enumerate(landmark_indices):
         assert np.allclose(landmarks[i], X[idx])
+
+
+def test_get_run_from_history():
+    """Test the get_run_from_history function with different scenarios."""
+    # Skip if anndata not installed
+    try:
+        import anndata
+    except ImportError:
+        pytest.skip("anndata not installed, skipping test")
+    
+    # Create an AnnData object with run history
+    adata = anndata.AnnData(X=np.random.randn(10, 10))
+    
+    # Test with None run_id
+    assert get_run_from_history(adata, None) is None
+    
+    # Test with no kompot_run_history in adata
+    assert get_run_from_history(adata, 0) is None
+    
+    # Add run history
+    adata.uns['kompot_run_history'] = [
+        {'run_id': 0, 'timestamp': '2023-01-01', 'name': 'run_0'},
+        {'run_id': 1, 'timestamp': '2023-01-02', 'name': 'run_1'},
+        {'run_id': 2, 'timestamp': '2023-01-03', 'name': 'run_2'}
+    ]
+    
+    # Test with valid run_id
+    result = get_run_from_history(adata, 1)
+    assert result is not None
+    assert result['run_id'] == 1
+    assert result['name'] == 'run_1'
+    
+    # Test with negative run_id (counting from end)
+    result = get_run_from_history(adata, -1)
+    assert result is not None
+    assert result['run_id'] == 2  # Last run
+    assert result['name'] == 'run_2'
+    
+    result = get_run_from_history(adata, -2)
+    assert result is not None
+    assert result['run_id'] == 1  # Second to last run
+    assert result['name'] == 'run_1'
+    
+    # Test with out-of-bounds run_id
+    assert get_run_from_history(adata, 5) is None
+    assert get_run_from_history(adata, -5) is None

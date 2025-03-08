@@ -17,6 +17,7 @@ Key features:
 - Empirical variance estimation
 - **Full scverse compatibility with direct AnnData integration**
 - Uses diffusion maps (from Palantir) as the default cell state representation
+- **Visualization tools** for differential expression and abundance results
 
 ## Installation
 
@@ -28,6 +29,18 @@ For using the default diffusion map cell state representation:
 
 ```bash
 pip install palantir
+```
+
+For additional plotting functionality with scanpy integration:
+
+```bash
+pip install kompot[plot]
+```
+
+To install all optional dependencies:
+
+```bash
+pip install kompot[all]
 ```
 
 See [Palantir GitHub](https://github.com/dpeerlab/Palantir) for more installation details.
@@ -133,6 +146,46 @@ kompot.compute_differential_expression(
 
 For a more detailed example, see the [basic example script](examples/basic_example.py) in the examples directory.
 
+### Visualization Examples
+
+```python
+import kompot as kp
+import scanpy as sc
+import matplotlib.pyplot as plt
+
+# Assuming adata has differential expression results
+# Create volcano plot for differential expression
+kp.plot.volcano_de(
+    adata,
+    lfc_key="kompot_de_mean_lfc_condition2_vs_condition1",
+    score_key="kompot_de_mahalanobis",
+    condition1="condition1",
+    condition2="condition2",
+    n_top_genes=15
+)
+
+# Create volcano plot for differential abundance
+kp.plot.volcano_da(
+    adata,
+    lfc_key="kompot_da_log_fold_change",
+    pval_key="kompot_da_pvalue",
+    lfc_threshold=1.0,
+    pval_threshold=0.05,
+    color="louvain"  # Color cells by cluster
+)
+
+# Create heatmap of top differentially expressed genes
+kp.plot.heatmap(
+    adata,
+    n_top_genes=20,
+    groupby="condition",
+    standard_scale="var",
+    cmap="viridis"
+)
+```
+
+For more visualization examples, see the [volcano plot example](examples/volcano_plot_example.py), [volcano DA example](examples/volcano_da_example.py), and [heatmap example](examples/heatmap_example.py) scripts.
+
 ## Features
 
 ### DifferentialAbundance
@@ -162,6 +215,13 @@ Computes differential expression between two conditions:
 - Storage of results in standard AnnData locations
 - HTML report generation from AnnData objects
 - Full compatibility with the scverse ecosystem
+
+### Visualization Tools
+
+- **Volcano plots** for differential expression (`volcano_de`) with customizable appearance
+- **Volcano plots** for differential abundance (`volcano_da`) with optional scanpy-based coloring
+- **Heatmaps** for visualizing gene expression patterns across conditions
+- All plot functions follow a scanpy-like API with AnnData objects as input
 
 ## Documentation
 

@@ -24,6 +24,9 @@ from kompot.anndata import (
     generate_report
 )
 
+# Import plot module
+from kompot import plot
+
 # Add docstring for clarity in import statements
 DifferentialAbundance.__doc__ = """
 Compute differential abundance between two conditions.
@@ -94,6 +97,7 @@ __all__ = [
     "HTMLReporter", "generate_report", "__version__",
     "compute_differential_abundance", "compute_differential_expression",
     "run_differential_analysis", 
-    "batch_process", "apply_batched"
+    "batch_process", "apply_batched",
+    "plot"
 ]
 
