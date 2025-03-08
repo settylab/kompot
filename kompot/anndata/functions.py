@@ -225,9 +225,9 @@ def compute_differential_expression(
     obsm_key: str = "X_pca",
     layer: Optional[str] = None,
     genes: Optional[List[str]] = None,
-    n_landmarks: Optional[int] = None,
+    n_landmarks: Optional[int] = 5000,
     landmarks: Optional[np.ndarray] = None,
-    use_empirical_variance: bool = False,
+    use_sample_variance: bool = False,
     differential_abundance_key: Optional[str] = None,
     sigma: float = 1.0,
     ls: Optional[float] = None,
@@ -267,12 +267,12 @@ def compute_differential_expression(
         by default None.
     n_landmarks : int, optional
         Number of landmarks to use for approximation. If None, use all points,
-        by default None. Ignored if landmarks is provided.
+        by default 5000. Ignored if landmarks is provided.
     landmarks : np.ndarray, optional
         Pre-computed landmarks to use. If provided, n_landmarks will be ignored.
         Shape (n_landmarks, n_features).
-    use_empirical_variance : bool, optional
-        Whether to use empirical variance for uncertainty estimation, by default False.
+    use_sample_variance : bool, optional
+        Whether to use variance between samples within one condition, by default False.
     differential_abundance_key : str, optional
         Key in adata.obs where abundance log-fold changes are stored, by default None.
         Will be used for weighted mean log-fold change computation.
@@ -435,7 +435,7 @@ def compute_differential_expression(
     # Initialize and fit DifferentialExpression
     diff_expression = DifferentialExpression(
         n_landmarks=n_landmarks,
-        use_empirical_variance=use_empirical_variance,
+        use_sample_variance=use_sample_variance,
         jit_compile=jit_compile,
         random_state=random_state,
         batch_size=batch_size
@@ -743,7 +743,7 @@ def compute_differential_expression(
                 "layer": layer,
                 "genes": genes,
                 "n_landmarks": n_landmarks,
-                "use_empirical_variance": use_empirical_variance,
+                "use_sample_variance": use_sample_variance,
                 "differential_abundance_key": differential_abundance_key,
                 "used_landmarks": True if landmarks is not None else False,
             },
@@ -869,7 +869,7 @@ def run_differential_analysis(
     ]}
     
     expression_kwargs = {k: v for k, v in kwargs.items() if k in [
-        'use_empirical_variance', 'compute_weighted_fold_change', 'sigma', 'ls',
+        'use_sample_variance', 'compute_weighted_fold_change', 'sigma', 'ls',
         'compute_mahalanobis'
     ]}
     

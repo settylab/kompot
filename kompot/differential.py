@@ -13,7 +13,12 @@ from sklearn.neighbors import NearestNeighbors
 
 import mellon
 from mellon.parameters import compute_landmarks
-from .utils import compute_mahalanobis_distance, find_landmarks
+from .utils import (
+    compute_mahalanobis_distance, 
+    compute_mahalanobis_distances, 
+    prepare_mahalanobis_matrix, 
+    find_landmarks
+)
 from .batch_utils import batch_process, apply_batched, is_jax_memory_error
 
 logger = logging.getLogger("kompot")
@@ -596,7 +601,7 @@ class DifferentialExpression:
     def __init__(
         self,
         n_landmarks: Optional[int] = None,
-        use_empirical_variance: Optional[bool] = None,
+        use_sample_variance: Optional[bool] = None,
         eps: float = 1e-12,
         jit_compile: bool = False,
         function_predictor1: Optional[Any] = None,
@@ -614,7 +619,7 @@ class DifferentialExpression:
         ----------
         n_landmarks : int, optional
             Number of landmarks to use for approximation. If None, use all points, by default None.
-        use_empirical_variance : bool, optional
+        use_sample_variance : bool, optional
             Whether to use empirical variance for uncertainty estimation. By default None.
             - If None (recommended): Automatically determined based on variance_predictor1/2 
               or whether sample indices are provided in fit().
@@ -650,22 +655,22 @@ class DifferentialExpression:
         self.jit_compile = jit_compile
         self.random_state = random_state
         
-        # Store whether user explicitly set use_empirical_variance
-        self.use_empirical_variance_explicit = use_empirical_variance is not None
+        # Store whether user explicitly set use_sample_variance
+        self.use_sample_variance_explicit = use_sample_variance is not None
         
-        # Set use_empirical_variance based on variance predictors
+        # Set use_sample_variance based on variance predictors
         # If variance predictors are provided, automatically use empirical variance unless explicitly disabled
-        if use_empirical_variance is None:
-            self.use_empirical_variance = (variance_predictor1 is not None or variance_predictor2 is not None)
-            if self.use_empirical_variance:
+        if use_sample_variance is None:
+            self.use_sample_variance = (variance_predictor1 is not None or variance_predictor2 is not None)
+            if self.use_sample_variance:
                 logger.info("Empirical variance estimation automatically enabled due to presence of variance predictors")
         else:
-            self.use_empirical_variance = use_empirical_variance
+            self.use_sample_variance = use_sample_variance
             
             # If user explicitly enabled empirical variance but no variance predictors are provided, log a warning
-            if self.use_empirical_variance and variance_predictor1 is None and variance_predictor2 is None:
+            if self.use_sample_variance and variance_predictor1 is None and variance_predictor2 is None:
                 logger.warning(
-                    "Empirical variance estimation was explicitly enabled (use_empirical_variance=True) "
+                    "Empirical variance estimation was explicitly enabled (use_sample_variance=True) "
                     "but no variance predictors were provided. "
                     "You will need to provide sample indices in the fit() method."
                 )
@@ -795,25 +800,26 @@ class DifferentialExpression:
             self.expression_estimator_condition2.fit(X_condition2, y_condition2)
             self.function_predictor2 = self.expression_estimator_condition2.predict
         
-        # Check if sample indices are provided and infer use_empirical_variance
+        # Check if sample indices are provided and infer use_sample_variance
         have_sample_indices = (condition1_sample_indices is not None or condition2_sample_indices is not None)
         
-        # Auto-enable empirical variance if sample indices are provided and use_empirical_variance wasn't explicitly set to False
-        if have_sample_indices and self.use_empirical_variance is None:
-            self.use_empirical_variance = True
-            logger.info("Empirical variance estimation automatically enabled due to provided sample indices")
+        # Auto-enable empirical variance if sample indices are provided
+        if have_sample_indices:
+            if self.use_sample_variance is None or self.use_sample_variance_explicit is False:
+                self.use_sample_variance = True
+                logger.info("Empirical variance estimation automatically enabled due to provided sample indices")
         
         # Check for contradictory inputs - user explicitly requested empirical variance but didn't provide indices
-        if self.use_empirical_variance_explicit and self.use_empirical_variance is True and not have_sample_indices and self.variance_predictor1 is None and self.variance_predictor2 is None:
+        if self.use_sample_variance_explicit and self.use_sample_variance is True and not have_sample_indices and self.variance_predictor1 is None and self.variance_predictor2 is None:
             raise ValueError(
-                "Empirical variance estimation was explicitly enabled (use_empirical_variance=True), "
+                "Empirical variance estimation was explicitly enabled (use_sample_variance=True), "
                 "but no sample indices or variance predictors were provided. "
                 "Please provide at least one of: condition1_sample_indices, condition2_sample_indices, "
                 "variance_predictor1, or variance_predictor2."
             )
         
         # Handle sample-specific variance if enabled and sample indices are provided
-        if self.use_empirical_variance and have_sample_indices:
+        if self.use_sample_variance and have_sample_indices:
             logger.info("Setting up empirical variance estimation with sample indices...")
             
             # Set up function estimator parameters for sample-specific models
@@ -946,7 +952,7 @@ class DifferentialExpression:
         diag_adjust = None
         
         # Add empirical adjustments if needed
-        if self.use_empirical_variance:
+        if self.use_sample_variance:
             if has_landmarks and landmarks is not None:
                 # Use variance predictors if available for landmarks
                 if self.variance_predictor1 is not None and self.variance_predictor2 is not None:

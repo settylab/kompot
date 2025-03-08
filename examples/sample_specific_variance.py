@@ -53,26 +53,28 @@ def main():
     # 1. Standard approach
     print("\nTraining standard differential expression model...")
     diff_expr_standard = DifferentialExpression(
-        use_empirical_variance=False
+        use_sample_variance=False
     )
     diff_expr_standard.fit(X_condition1, y_condition1, X_condition2, y_condition2)
 
     # 2. Traditional empirical variance approach
     print("\nTraining traditional empirical variance model...")
     diff_expr_traditional = DifferentialExpression(
-        use_empirical_variance=True
+        use_sample_variance=True
     )
     diff_expr_traditional.fit(X_condition1, y_condition1, X_condition2, y_condition2)
 
     # 3. Sample-specific empirical variance approach
     print("\nTraining sample-specific empirical variance model...")
     diff_expr_sample_specific = DifferentialExpression(
-        use_sample_specific_variance=True,  # This also sets use_empirical_variance=True automatically
-        condition1_sample_indices=condition1_sample_indices,
-        condition2_sample_indices=condition2_sample_indices,
-        sample_variance_use_estimators=True  # Use FunctionEstimator for each sample group
+        use_sample_variance=True  # Enable empirical variance
     )
-    diff_expr_sample_specific.fit(X_condition1, y_condition1, X_condition2, y_condition2)
+    diff_expr_sample_specific.fit(
+        X_condition1, y_condition1, 
+        X_condition2, y_condition2,
+        condition1_sample_indices=condition1_sample_indices,
+        condition2_sample_indices=condition2_sample_indices
+    )
 
     # Create test data points
     X_test = np.random.randn(100, n_features) * 0.8
@@ -127,17 +129,29 @@ def main():
     print(f"Sample-specific - mean: {pred_sample_specific['fold_change_zscores'].mean():.4f}, std: {pred_sample_specific['fold_change_zscores'].std():.4f}")
 
     # Get variance statistics from the sample-specific model
-    if hasattr(diff_expr_sample_specific, 'empiric_variance_estimator') and diff_expr_sample_specific.empiric_variance_estimator is not None:
-        variance_summary = diff_expr_sample_specific.empiric_variance_estimator.get_sample_variance_summary()
+    if hasattr(diff_expr_sample_specific, 'variance_predictor1') and diff_expr_sample_specific.variance_predictor1 is not None:
+        print("\nVariance Predictors Available:")
+        print(f"  Condition 1: {diff_expr_sample_specific.variance_predictor1 is not None}")
+        print(f"  Condition 2: {diff_expr_sample_specific.variance_predictor2 is not None}")
         
-        print("\nSample Variance Statistics:")
-        print("Condition 1:")
-        for sample_id, stats in variance_summary['condition1'].items():
-            print(f"  Sample {sample_id}: {stats['n_cells']} cells, mean error: {stats['mean_error']:.4f}")
+        # The EmpiricVarianceEstimator class doesn't have a get_sample_variance_summary() method anymore
+        # Instead, let's verify that the variance predictors are being used
+        X_test_small = X_test[:5]  # Use a small subset for demonstration
         
-        print("\nCondition 2:")
-        for sample_id, stats in variance_summary['condition2'].items():
-            print(f"  Sample {sample_id}: {stats['n_cells']} cells, mean error: {stats['mean_error']:.4f}")
+        # Predict variance for each condition
+        if diff_expr_sample_specific.variance_predictor1 is not None:
+            variance1 = diff_expr_sample_specific.variance_predictor1(X_test_small)
+            print(f"\nCondition 1 Predicted Variance (subset):")
+            print(f"  Shape: {variance1.shape}")
+            print(f"  Mean: {np.mean(variance1):.4f}")
+            print(f"  Max: {np.max(variance1):.4f}")
+        
+        if diff_expr_sample_specific.variance_predictor2 is not None:
+            variance2 = diff_expr_sample_specific.variance_predictor2(X_test_small)
+            print(f"\nCondition 2 Predicted Variance (subset):")
+            print(f"  Shape: {variance2.shape}")
+            print(f"  Mean: {np.mean(variance2):.4f}")
+            print(f"  Max: {np.max(variance2):.4f}")
 
     # Optional: Create visualizations if matplotlib is available
     try:

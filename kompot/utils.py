@@ -15,6 +15,41 @@ import logging
 logger = logging.getLogger("kompot")
 
 
+def build_graph(X: np.ndarray, n_neighbors: int = 15) -> Tuple[List[Tuple[int, int]], pynndescent.NNDescent]:
+    """
+    Build a graph from a dataset using approximate nearest neighbors.
+    
+    Parameters
+    ----------
+    X : np.ndarray
+        Data matrix of shape (n_samples, n_features).
+    n_neighbors : int, optional
+        Number of neighbors for graph construction, by default 15.
+        
+    Returns
+    -------
+    Tuple[List[Tuple[int, int]], pynndescent.NNDescent]
+        A tuple containing:
+        - edges: List of (source, target) tuples defining the graph
+        - index: The nearest neighbor index for future queries
+    """
+    # Build the nearest neighbor index
+    index = pynndescent.NNDescent(X, n_neighbors=n_neighbors, random_state=42)
+    
+    # Query for nearest neighbors
+    indices, _ = index.query(X, k=n_neighbors)
+    
+    # Convert to edges
+    n_obs = X.shape[0]
+    edges = []
+    for i in range(n_obs):
+        for j in indices[i]:
+            if i != j:  # Avoid self-loops
+                edges.append((i, j))
+    
+    return edges, index
+
+
 def prepare_mahalanobis_matrix(
     covariance_matrix: np.ndarray,
     diag_adjustments: Optional[np.ndarray] = None,
@@ -301,7 +336,10 @@ def compute_mahalanobis_distance(
     )
     
     # Return the single distance
-    return float(distances[0]) if len(distances) > 1 else float(distances)
+    if len(distances) > 1:
+        return float(distances[0])
+    else:
+        return float(distances.item())
 
 
 def find_optimal_resolution(
