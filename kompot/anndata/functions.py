@@ -240,7 +240,6 @@ def compute_differential_expression(
     genes: Optional[List[str]] = None,
     n_landmarks: Optional[int] = 5000,
     landmarks: Optional[np.ndarray] = None,
-    use_sample_variance: bool = False,
     sample_col: Optional[str] = None,
     differential_abundance_key: Optional[str] = None,
     sigma: float = 1.0,
@@ -285,12 +284,10 @@ def compute_differential_expression(
     landmarks : np.ndarray, optional
         Pre-computed landmarks to use. If provided, n_landmarks will be ignored.
         Shape (n_landmarks, n_features).
-    use_sample_variance : bool, optional
-        Whether to use variance between samples within one condition, by default False.
     sample_col : str, optional
         Column name in adata.obs containing sample labels. If provided, these will be used
-        to compute sample-specific variance. Setting this automatically enables sample variance
-        estimation unless use_sample_variance is explicitly set to False.
+        to compute sample-specific variance and will automatically enable sample variance
+        estimation.
     differential_abundance_key : str, optional
         Key in adata.obs where abundance log-fold changes are stored, by default None.
         Will be used for weighted mean log-fold change computation.
@@ -397,8 +394,8 @@ def compute_differential_expression(
     if np.sum(mask2) == 0:
         raise ValueError(f"Condition '{condition2}' not found in '{groupby}'.")
     
-    logger.info(f"Condition 1 ({condition1}): {np.sum(mask1)} cells")
-    logger.info(f"Condition 2 ({condition2}): {np.sum(mask2)} cells")
+    logger.info(f"Condition 1 ({condition1}): {np.sum(mask1):,} cells")
+    logger.info(f"Condition 2 ({condition2}): {np.sum(mask2):,} cells")
     
     # Extract cell states for each condition
     X_condition1 = adata.obsm[obsm_key][mask1]
@@ -464,6 +461,8 @@ def compute_differential_expression(
             landmarks = None
     
     # Initialize and fit DifferentialExpression
+    use_sample_variance = sample_col is not None
+    
     diff_expression = DifferentialExpression(
         n_landmarks=n_landmarks,
         use_sample_variance=use_sample_variance,
@@ -792,8 +791,8 @@ def compute_differential_expression(
                 "layer": layer,
                 "genes": genes,
                 "n_landmarks": n_landmarks,
-                "use_sample_variance": use_sample_variance,
                 "sample_col": sample_col,  # Keep this for documentation in the AnnData object
+                "use_sample_variance": use_sample_variance,  # This is now inferred from sample_col
                 "differential_abundance_key": differential_abundance_key,
                 "used_landmarks": True if landmarks is not None else False,
             },
@@ -919,7 +918,7 @@ def run_differential_analysis(
     ]}
     
     expression_kwargs = {k: v for k, v in kwargs.items() if k in [
-        'use_sample_variance', 'sample_col', 'compute_weighted_fold_change', 'sigma', 'ls',
+        'sample_col', 'compute_weighted_fold_change', 'sigma', 'ls',
         'compute_mahalanobis'
     ]}
     
