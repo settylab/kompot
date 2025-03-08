@@ -620,11 +620,11 @@ class DifferentialExpression:
         n_landmarks : int, optional
             Number of landmarks to use for approximation. If None, use all points, by default None.
         use_sample_variance : bool, optional
-            Whether to use empirical variance for uncertainty estimation. By default None.
+            Whether to use sample variance for uncertainty estimation. By default None.
             - If None (recommended): Automatically determined based on variance_predictor1/2 
               or whether sample indices are provided in fit().
-            - If True: Force use of empirical variance (even if no predictors/indices available).
-            - If False: Disable empirical variance (even if predictors/indices are available).
+            - If True: Force use of sample variance (even if no predictors/indices available).
+            - If False: Disable sample variance (even if predictors/indices are available).
         eps : float, optional
             Small constant for numerical stability, by default 1e-12.
         jit_compile : bool, optional
@@ -635,10 +635,10 @@ class DifferentialExpression:
             Precomputed function predictor for condition 2, typically from FunctionEstimator.predict
         variance_predictor1 : Any, optional
             Precomputed variance predictor for condition 1. If provided, will be used for uncertainty calculation
-            and will automatically enable empirical variance calculation (unless explicitly disabled).
+            and will automatically enable sample variance calculation (unless explicitly disabled).
         variance_predictor2 : Any, optional
             Precomputed variance predictor for condition 2. If provided, will be used for uncertainty calculation
-            and will automatically enable empirical variance calculation (unless explicitly disabled).
+            and will automatically enable sample variance calculation (unless explicitly disabled).
         random_state : int, optional
             Random seed for reproducible landmark selection when n_landmarks is specified.
             Controls the random selection of points when using approximation, by default None.
@@ -659,18 +659,18 @@ class DifferentialExpression:
         self.use_sample_variance_explicit = use_sample_variance is not None
         
         # Set use_sample_variance based on variance predictors
-        # If variance predictors are provided, automatically use empirical variance unless explicitly disabled
+        # If variance predictors are provided, automatically use sample variance unless explicitly disabled
         if use_sample_variance is None:
             self.use_sample_variance = (variance_predictor1 is not None or variance_predictor2 is not None)
             if self.use_sample_variance:
-                logger.info("Empirical variance estimation automatically enabled due to presence of variance predictors")
+                logger.info("Sample variance estimation automatically enabled due to presence of variance predictors")
         else:
             self.use_sample_variance = use_sample_variance
             
-            # If user explicitly enabled empirical variance but no variance predictors are provided, log a warning
+            # If user explicitly enabled sample variance but no variance predictors are provided, log a warning
             if self.use_sample_variance and variance_predictor1 is None and variance_predictor2 is None:
                 logger.warning(
-                    "Empirical variance estimation was explicitly enabled (use_sample_variance=True) "
+                    "Sample variance estimation was explicitly enabled (use_sample_variance=True) "
                     "but no variance predictors were provided. "
                     "You will need to provide sample indices in the fit() method."
                 )
@@ -800,19 +800,19 @@ class DifferentialExpression:
             self.expression_estimator_condition2.fit(X_condition2, y_condition2)
             self.function_predictor2 = self.expression_estimator_condition2.predict
         
-        # Check if sample indices are provided and infer use_sample_variance
+        # Check if sample indices are provided
         have_sample_indices = (condition1_sample_indices is not None or condition2_sample_indices is not None)
         
-        # Auto-enable empirical variance if sample indices are provided
+        # Auto-enable sample variance if sample indices are provided
         if have_sample_indices:
             if self.use_sample_variance is None or self.use_sample_variance_explicit is False:
                 self.use_sample_variance = True
-                logger.info("Empirical variance estimation automatically enabled due to provided sample indices")
+                logger.info("Sample variance estimation automatically enabled due to provided sample indices")
         
-        # Check for contradictory inputs - user explicitly requested empirical variance but didn't provide indices
+        # Check for contradictory inputs - user explicitly requested sample variance but didn't provide indices
         if self.use_sample_variance_explicit and self.use_sample_variance is True and not have_sample_indices and self.variance_predictor1 is None and self.variance_predictor2 is None:
             raise ValueError(
-                "Empirical variance estimation was explicitly enabled (use_sample_variance=True), "
+                "Sample variance estimation was explicitly enabled (use_sample_variance=True), "
                 "but no sample indices or variance predictors were provided. "
                 "Please provide at least one of: condition1_sample_indices, condition2_sample_indices, "
                 "variance_predictor1, or variance_predictor2."
@@ -820,7 +820,7 @@ class DifferentialExpression:
         
         # Handle sample-specific variance if enabled and sample indices are provided
         if self.use_sample_variance and have_sample_indices:
-            logger.info("Setting up empirical variance estimation with sample indices...")
+            logger.info("Setting up sample variance estimation...")
             
             # Set up function estimator parameters for sample-specific models
             sample_estimator_kwargs = estimator_defaults.copy() if 'estimator_defaults' in locals() else function_kwargs.copy()
@@ -829,8 +829,9 @@ class DifferentialExpression:
             if sample_estimator_ls is not None:
                 sample_estimator_kwargs['ls'] = sample_estimator_ls
             
+            # Fit variance estimator for condition 1
             if condition1_sample_indices is not None:
-                logger.info("Fitting sample-specific variance estimator for condition 1...")
+                logger.info("Fitting sample-specific variance estimator for condition 1 using provided indices...")
                 condition1_variance_estimator = SampleVarianceEstimator(
                     eps=self.eps
                 )
@@ -842,8 +843,9 @@ class DifferentialExpression:
                 )
                 self.variance_predictor1 = condition1_variance_estimator.predict
             
+            # Fit variance estimator for condition 2
             if condition2_sample_indices is not None:
-                logger.info("Fitting sample-specific variance estimator for condition 2...")
+                logger.info("Fitting sample-specific variance estimator for condition 2 using provided indices...")
                 condition2_variance_estimator = SampleVarianceEstimator(
                     eps=self.eps
                 )

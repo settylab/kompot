@@ -228,6 +228,7 @@ def compute_differential_expression(
     n_landmarks: Optional[int] = 5000,
     landmarks: Optional[np.ndarray] = None,
     use_sample_variance: bool = False,
+    sample_col: Optional[str] = None,
     differential_abundance_key: Optional[str] = None,
     sigma: float = 1.0,
     ls: Optional[float] = None,
@@ -273,6 +274,10 @@ def compute_differential_expression(
         Shape (n_landmarks, n_features).
     use_sample_variance : bool, optional
         Whether to use variance between samples within one condition, by default False.
+    sample_col : str, optional
+        Column name in adata.obs containing sample labels. If provided, these will be used
+        to compute sample-specific variance. Setting this automatically enables sample variance
+        estimation unless use_sample_variance is explicitly set to False.
     differential_abundance_key : str, optional
         Key in adata.obs where abundance log-fold changes are stored, by default None.
         Will be used for weighted mean log-fold change computation.
@@ -441,6 +446,22 @@ def compute_differential_expression(
         batch_size=batch_size
     )
     
+    # Extract sample indices from sample_col if provided
+    condition1_sample_indices = None
+    condition2_sample_indices = None
+    
+    if sample_col is not None:
+        if sample_col not in adata.obs:
+            raise ValueError(f"Column '{sample_col}' not found in adata.obs. Available columns: {list(adata.obs.columns)}")
+        
+        # Extract sample indices for each condition
+        condition1_sample_indices = adata.obs[sample_col][mask1].values
+        condition2_sample_indices = adata.obs[sample_col][mask2].values
+        
+        logger.info(f"Using sample column '{sample_col}' for sample variance estimation")
+        logger.info(f"Found {len(np.unique(condition1_sample_indices))} unique sample(s) in condition 1")
+        logger.info(f"Found {len(np.unique(condition2_sample_indices))} unique sample(s) in condition 2")
+    
     # Fit the estimators
     diff_expression.fit(
         X_condition1, expr1,
@@ -448,6 +469,8 @@ def compute_differential_expression(
         sigma=sigma,
         ls=ls,
         landmarks=landmarks,
+        condition1_sample_indices=condition1_sample_indices,
+        condition2_sample_indices=condition2_sample_indices,
         **function_kwargs
     )
     
@@ -744,6 +767,7 @@ def compute_differential_expression(
                 "genes": genes,
                 "n_landmarks": n_landmarks,
                 "use_sample_variance": use_sample_variance,
+                "sample_col": sample_col,  # Keep this for documentation in the AnnData object
                 "differential_abundance_key": differential_abundance_key,
                 "used_landmarks": True if landmarks is not None else False,
             },
@@ -869,7 +893,7 @@ def run_differential_analysis(
     ]}
     
     expression_kwargs = {k: v for k, v in kwargs.items() if k in [
-        'use_sample_variance', 'compute_weighted_fold_change', 'sigma', 'ls',
+        'use_sample_variance', 'sample_col', 'compute_weighted_fold_change', 'sigma', 'ls',
         'compute_mahalanobis'
     ]}
     

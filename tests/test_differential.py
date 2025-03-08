@@ -276,7 +276,7 @@ def test_use_sample_variance_validation():
     diff_expression = DifferentialExpression(use_sample_variance=False)
     diff_expression.fit(X_condition1, y_condition1, X_condition2, y_condition2)
     
-    # Test 3: Error when use_sample_variance=True but no indices or predictors
+    # Test 3: Error when use_sample_variance=True but no indices, or predictors
     diff_expression = DifferentialExpression(use_sample_variance=True)
     with pytest.raises(ValueError) as exc_info:
         diff_expression.fit(X_condition1, y_condition1, X_condition2, y_condition2)
