@@ -96,83 +96,79 @@ class HTMLReporter:
         # With the new API, we need to ensure predictions have been computed
         logger.debug("Extracting differential expression metrics")
         
-        # Check if attributes are populated, if not, run prediction
-        if diff_expr.fold_change is None or diff_expr.fold_change_zscores is None:
-            logger.info("Model attributes not yet populated. Running prediction to compute values.")
-            # Need to get original training data dimensions
-            if not hasattr(diff_expr, 'n_condition1') or diff_expr.n_condition1 is None:
-                raise ValueError("Model not fitted. Please call fit() and predict() before using with reporter.")
-                
-            # Create combined data points of the correct size
-            n_total = diff_expr.n_condition1 + diff_expr.n_condition2 if diff_expr.n_condition2 is not None else 0
-            if n_total == 0:
-                raise ValueError("Cannot determine appropriate dimensions. Please call predict() explicitly before using with reporter.")
-                
-            # Find out if we have landmarks
-            has_landmarks = False
-            landmarks = None
-            if hasattr(diff_expr.function_predictor1, 'landmarks') and diff_expr.function_predictor1.landmarks is not None:
-                has_landmarks = True
-                landmarks = diff_expr.function_predictor1.landmarks
-            
-            # Use landmarks if available, otherwise create dummy data of appropriate size
-            if has_landmarks:
-                logger.info("Using landmarks for predictions")
-                X_combined = landmarks
-            else:
-                logger.warning("No landmarks found. Using random data for predictions. Results may not be accurate.")
-                X_combined = np.random.randn(n_total, diff_expr.function_predictor1.dim)
-                
-            # Run prediction to compute fold changes and metrics
-            _ = diff_expr.predict(X_combined, compute_mahalanobis=True)
+        # Always run prediction to get the most up-to-date results
+        logger.info("Running prediction to compute metrics for visualization")
         
-        # Determine number of genes
+        # Determine dimensions from the function predictor
+        dim = diff_expr.function_predictor1.dim if hasattr(diff_expr.function_predictor1, 'dim') else 5
+        
+        # Find out if we have landmarks
+        has_landmarks = False
+        landmarks = None
+        if hasattr(diff_expr.function_predictor1, 'landmarks') and diff_expr.function_predictor1.landmarks is not None:
+            has_landmarks = True
+            landmarks = diff_expr.function_predictor1.landmarks
+        
+        # Use landmarks if available, otherwise create dummy data of appropriate size
+        if has_landmarks:
+            logger.info("Using landmarks for predictions")
+            X_combined = landmarks
+        else:
+            logger.warning("No landmarks found. Using random data for predictions. Results may not be accurate.")
+            # Create a reasonable number of points (100-200 is typically enough)
+            n_points = 200
+            X_combined = np.random.randn(n_points, dim)
+            
+        # Run prediction to compute fold changes and metrics
+        predictions = diff_expr.predict(X_combined, compute_mahalanobis=True)
+        
+        # Determine number of genes from predictions
         if gene_names is not None:
             n_genes = len(gene_names)
-        elif hasattr(diff_expr, 'fold_change') and diff_expr.fold_change is not None:
-            n_genes = diff_expr.fold_change.shape[1]  # Get number of genes from fold_change
+        elif 'fold_change' in predictions:
+            n_genes = predictions['fold_change'].shape[1]  # Get number of genes from fold_change
         else:
             # Default to a small number if we can't determine
             n_genes = 50
             logger.warning(f"Could not determine number of genes. Using default: {n_genes}")
             
-        # Now extract metrics from the populated model
-        # Handle cases where the attributes could be None or not set
-        if hasattr(diff_expr, 'fold_change') and diff_expr.fold_change is not None:
-            fc = np.mean(diff_expr.fold_change, axis=0)  # Get mean across samples for each gene
+        # Now extract metrics from the predictions
+        # Handle cases where prediction items could be None or not available
+        if 'fold_change' in predictions:
+            fc = np.mean(predictions['fold_change'], axis=0)  # Get mean across samples for each gene
         else:
             fc = np.zeros(n_genes)  # Default to zeros if not available
             
-        if hasattr(diff_expr, 'fold_change_zscores') and diff_expr.fold_change_zscores is not None:
-            fc_zscores = np.mean(diff_expr.fold_change_zscores, axis=0)  # Get mean across samples for each gene
+        if 'fold_change_zscores' in predictions:
+            fc_zscores = np.mean(predictions['fold_change_zscores'], axis=0)  # Get mean across samples
         else:
             fc_zscores = np.zeros(n_genes)  # Default to zeros if not available
         
         # Check if Mahalanobis distances have been computed
-        if not hasattr(diff_expr, 'mahalanobis_distances') or diff_expr.mahalanobis_distances is None:
+        if 'mahalanobis_distances' not in predictions:
             logger.warning("Mahalanobis distances not computed. Using zeros.")
-            m_distances = np.zeros(fc.shape[0])
+            m_distances = np.zeros(n_genes)
         else:
-            m_distances = diff_expr.mahalanobis_distances  # Already correct shape (n_genes,)
+            m_distances = predictions['mahalanobis_distances']  # Already correct shape (n_genes,)
             
-        # We no longer use weighted fold change from the DifferentialExpression object
-        # Just use regular fold change for this value
-        if hasattr(diff_expr, 'fold_change') and diff_expr.fold_change is not None:
-            # Use regular mean fold change as weighted fold change is no longer supported in DifferentialExpression
-            wfc = np.mean(diff_expr.fold_change, axis=0)
-            logger.info("Using regular fold change for report. DifferentialExpression no longer stores weighted_mean_log_fold_change.")
+        # Use mean_log_fold_change from predictions
+        if 'mean_log_fold_change' in predictions:
+            wfc = predictions['mean_log_fold_change']
+        elif 'weighted_mean_log_fold_change' in predictions:
+            wfc = predictions['weighted_mean_log_fold_change']
+            logger.info("Using weighted mean fold change for report.")
         else:
-            logger.info("Fold change not available. Using zeros.")
-            wfc = np.zeros(n_genes)  # Default to zeros if not available
+            logger.info("Mean fold change not available. Using regular fold change mean.")
+            wfc = fc  # Use the mean fold change we calculated above
             
         # Handle additional metrics
-        if hasattr(diff_expr, 'lfc_stds') and diff_expr.lfc_stds is not None:
-            lfc_stds = diff_expr.lfc_stds  # Already correct shape (n_genes,)
+        if 'lfc_stds' in predictions:
+            lfc_stds = predictions['lfc_stds']  # Already correct shape (n_genes,)
         else:
             lfc_stds = np.zeros(n_genes)  # Default to zeros if not available
             
-        if hasattr(diff_expr, 'bidirectionality') and diff_expr.bidirectionality is not None:
-            bidir = diff_expr.bidirectionality  # Already correct shape (n_genes,)
+        if 'bidirectionality' in predictions:
+            bidir = predictions['bidirectionality']  # Already correct shape (n_genes,)
         else:
             bidir = np.zeros(n_genes)  # Default to zeros if not available
         
@@ -208,6 +204,7 @@ class HTMLReporter:
             "condition2": condition2_name,
             "results_df": results_df,
             "diff_expr": diff_expr,
+            "predictions": predictions,  # Store the predictions for later use
             "top_n": top_n
         })
         logger.info(f"Successfully added differential expression data for {len(results_df)} genes")

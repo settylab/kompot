@@ -147,13 +147,6 @@ def test_differential_expression_fit():
     
     # Now run prediction to get fold changes and metrics
     X_combined = np.vstack([X_condition1, X_condition2])
-    
-    # Add condition indices to make backward compatibility code work
-    diff_expression.n_condition1 = len(X_condition1)
-    diff_expression.n_condition2 = len(X_condition2)
-    diff_expression.condition1_indices = np.arange(diff_expression.n_condition1)
-    diff_expression.condition2_indices = np.arange(diff_expression.n_condition1, diff_expression.n_condition1 + diff_expression.n_condition2)
-    
     predictions = diff_expression.predict(X_combined, compute_mahalanobis=True)
     
     # Check predictions dictionary contains expected keys
@@ -178,14 +171,7 @@ def test_differential_expression_fit():
     assert np.isfinite(predictions['mahalanobis_distances']).all()
     # weighted_mean_log_fold_change is no longer automatically included
     
-    # Check class attributes for backward compatibility
-    assert diff_expression.condition1_imputed is not None
-    assert diff_expression.condition2_imputed is not None
-    assert diff_expression.fold_change is not None
-    assert diff_expression.fold_change_zscores is not None
-    assert diff_expression.mahalanobis_distances is not None
-    assert diff_expression.mean_log_fold_change is not None
-    # weighted_mean_log_fold_change is no longer automatically computed
+    # Class attributes for backward compatibility have been removed
     
     # Run another test to verify basic functionality
     another_diff_expression = DifferentialExpression()
@@ -215,13 +201,6 @@ def test_differential_expression_predict():
     
     # Test prediction on the combined dataset for Mahalanobis distances
     X_combined = np.vstack([X_condition1, X_condition2])
-    
-    # Add condition indices to make backward compatibility code work
-    diff_expression.n_condition1 = len(X_condition1)
-    diff_expression.n_condition2 = len(X_condition2)
-    diff_expression.condition1_indices = np.arange(diff_expression.n_condition1)
-    diff_expression.condition2_indices = np.arange(diff_expression.n_condition1, diff_expression.n_condition1 + diff_expression.n_condition2)
-    
     combined_predictions = diff_expression.predict(X_combined, compute_mahalanobis=True)
     
     # Check that Mahalanobis distances are computed
@@ -304,7 +283,7 @@ def test_compute_weighted_mean_fold_change_standalone():
     assert np.isfinite(weighted_lfc).all()
     
     # Calculate log_density_diff manually
-    log_density_diff = np.exp(np.abs(log_density_condition2 - log_density_condition1))
+    log_density_diff = log_density_condition2 - log_density_condition1
     
     # Calculate using pre-computed log_density_diff
     weighted_lfc_precomputed = compute_weighted_mean_fold_change(
@@ -394,9 +373,7 @@ def test_weighted_fold_change_standalone_detailed():
     )
     
     # Method 2: Using pre-computed log_density_diff
-    log_density_diff = np.exp(
-        np.abs(abundance_results['log_density_condition2'] - abundance_results['log_density_condition1'])
-    )
+    log_density_diff = abundance_results['log_density_condition2'] - abundance_results['log_density_condition1']
     method2_weighted_lfc = compute_weighted_mean_fold_change(
         fold_change,
         log_density_diff=log_density_diff

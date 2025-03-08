@@ -26,6 +26,7 @@ def compute_differential_abundance(
     condition2: str,
     obsm_key: str = "X_pca",
     n_landmarks: Optional[int] = None,
+    landmarks: Optional[np.ndarray] = None,
     log_fold_change_threshold: float = 1.7,
     pvalue_threshold: float = 1e-3,
     jit_compile: bool = False,
@@ -56,7 +57,10 @@ def compute_differential_abundance(
         by default "X_pca".
     n_landmarks : int, optional
         Number of landmarks to use for approximation. If None, use all points,
-        by default None.
+        by default None. Ignored if landmarks is provided.
+    landmarks : np.ndarray, optional
+        Pre-computed landmarks to use. If provided, n_landmarks will be ignored.
+        Shape (n_landmarks, n_features).
     log_fold_change_threshold : float, optional
         Threshold for considering a log fold change significant, by default 1.7.
     pvalue_threshold : float, optional
@@ -92,6 +96,8 @@ def compute_differential_abundance(
     - adata.obs[f"{result_key}_log_fold_change_pvalue"]: P-values for each cell
     - adata.obs[f"{result_key}_log_fold_change_direction"]: Direction of change
     - adata.uns[result_key]: Dictionary with additional information and parameters
+    - If landmarks are computed, they are stored in adata.uns[result_key]['landmarks']
+      for potential reuse in other analyses.
     """
     try:
         import anndata
@@ -127,6 +133,21 @@ def compute_differential_abundance(
     X_condition1 = adata.obsm[obsm_key][mask1]
     X_condition2 = adata.obsm[obsm_key][mask2]
     
+    # Check if we have landmarks in uns for this key and can reuse them
+    stored_landmarks = None
+    if landmarks is None and result_key in adata.uns and 'landmarks' in adata.uns[result_key]:
+        stored_landmarks = adata.uns[result_key]['landmarks']
+        landmarks_dim = stored_landmarks.shape[1]
+        data_dim = adata.obsm[obsm_key].shape[1]
+        
+        # Only use the stored landmarks if dimensions match
+        if landmarks_dim == data_dim:
+            logger.info(f"Using stored landmarks from adata.uns['{result_key}']['landmarks'] with shape {stored_landmarks.shape}")
+            landmarks = stored_landmarks
+        else:
+            logger.warning(f"Stored landmarks have dimension {landmarks_dim} but data has dimension {data_dim}. Computing new landmarks.")
+            landmarks = None
+    
     # Initialize and fit DifferentialAbundance
     diff_abundance = DifferentialAbundance(
         log_fold_change_threshold=log_fold_change_threshold,
@@ -137,7 +158,7 @@ def compute_differential_abundance(
     )
     
     # Fit the estimators
-    diff_abundance.fit(X_condition1, X_condition2, **density_kwargs)
+    diff_abundance.fit(X_condition1, X_condition2, landmarks=landmarks, **density_kwargs)
     
     # Run prediction to compute fold changes and metrics
     X_for_prediction = adata.obsm[obsm_key]
@@ -147,6 +168,14 @@ def compute_differential_abundance(
         pvalue_threshold=pvalue_threshold
     )
     # Note: mean_log_fold_change is no longer computed by default
+    
+    # Store landmarks if they were computed for future reuse
+    if hasattr(diff_abundance, 'computed_landmarks') and diff_abundance.computed_landmarks is not None:
+        # Store the landmarks in adata.uns for future use
+        if result_key not in adata.uns:
+            adata.uns[result_key] = {}
+        adata.uns[result_key]['landmarks'] = diff_abundance.computed_landmarks
+        logger.info(f"Stored computed landmarks in adata.uns['{result_key}']['landmarks']")
     
     # Sanitize condition names for use in column names
     cond1_safe = _sanitize_name(condition1)
@@ -171,6 +200,8 @@ def compute_differential_abundance(
             "obsm_key": obsm_key,
             "log_fold_change_threshold": log_fold_change_threshold,
             "pvalue_threshold": pvalue_threshold,
+            "n_landmarks": n_landmarks,
+            "used_landmarks": True if landmarks is not None else False,
         }
     }
     
@@ -195,6 +226,7 @@ def compute_differential_expression(
     layer: Optional[str] = None,
     genes: Optional[List[str]] = None,
     n_landmarks: Optional[int] = None,
+    landmarks: Optional[np.ndarray] = None,
     use_empirical_variance: bool = False,
     differential_abundance_key: Optional[str] = None,
     sigma: float = 1.0,
@@ -235,7 +267,10 @@ def compute_differential_expression(
         by default None.
     n_landmarks : int, optional
         Number of landmarks to use for approximation. If None, use all points,
-        by default None.
+        by default None. Ignored if landmarks is provided.
+    landmarks : np.ndarray, optional
+        Pre-computed landmarks to use. If provided, n_landmarks will be ignored.
+        Shape (n_landmarks, n_features).
     use_empirical_variance : bool, optional
         Whether to use empirical variance for uncertainty estimation, by default False.
     differential_abundance_key : str, optional
@@ -285,6 +320,8 @@ def compute_differential_expression(
     - adata.layers[f"{result_key}_condition2_imputed"]: Imputed expression for condition 2
     - adata.layers[f"{result_key}_fold_change"]: Log fold change for each cell and gene
     - adata.uns[result_key]: Dictionary with additional information and parameters
+    - If landmarks are computed, they are stored in adata.uns[result_key]['landmarks']
+      for potential reuse in other analyses.
     """
     try:
         import anndata
@@ -310,16 +347,10 @@ def compute_differential_expression(
         # Check for condition-specific column names
         specific_cols = [f"{differential_abundance_key}_log_density_{cond1_safe}", 
                        f"{differential_abundance_key}_log_density_{cond2_safe}"]
-        # Check for generic column names (for backward compatibility)
-        generic_cols = [f"{differential_abundance_key}_log_density_condition1", 
-                      f"{differential_abundance_key}_log_density_condition2"]
         
-        has_specific = all(col in adata.obs for col in specific_cols)
-        has_generic = all(col in adata.obs for col in generic_cols)
-        
-        if not (has_specific or has_generic):
+        if not all(col in adata.obs for col in specific_cols):
             raise ValueError(f"Log density columns not found in adata.obs. "
-                           f"Looked for either {specific_cols} or {generic_cols}. "
+                           f"Expected: {specific_cols}. "
                            f"Available columns: {list(adata.obs.columns)}")
     
     # Make a copy if requested
@@ -372,6 +403,34 @@ def compute_differential_expression(
     else:
         selected_genes = adata.var_names.tolist()
     
+    # Check if we have landmarks in uns for this key and can reuse them
+    stored_landmarks = None
+    if landmarks is None and result_key in adata.uns and 'landmarks' in adata.uns[result_key]:
+        stored_landmarks = adata.uns[result_key]['landmarks']
+        landmarks_dim = stored_landmarks.shape[1]
+        data_dim = adata.obsm[obsm_key].shape[1]
+        
+        # Only use the stored landmarks if dimensions match
+        if landmarks_dim == data_dim:
+            logger.info(f"Using stored landmarks from adata.uns['{result_key}']['landmarks'] with shape {stored_landmarks.shape}")
+            landmarks = stored_landmarks
+        else:
+            logger.warning(f"Stored landmarks have dimension {landmarks_dim} but data has dimension {data_dim}. Computing new landmarks.")
+            landmarks = None
+    
+    # If we have differential_abundance_key, check if there are landmarks stored there
+    if landmarks is None and differential_abundance_key is not None and differential_abundance_key in adata.uns and 'landmarks' in adata.uns[differential_abundance_key]:
+        stored_abund_landmarks = adata.uns[differential_abundance_key]['landmarks']
+        landmarks_dim = stored_abund_landmarks.shape[1]
+        data_dim = adata.obsm[obsm_key].shape[1]
+        
+        # Only use the stored landmarks if dimensions match
+        if landmarks_dim == data_dim:
+            logger.info(f"Using landmarks from abundance analysis in adata.uns['{differential_abundance_key}']['landmarks'] with shape {stored_abund_landmarks.shape}")
+            landmarks = stored_abund_landmarks
+        else:
+            logger.warning(f"Abundance landmarks have dimension {landmarks_dim} but data has dimension {data_dim}. Computing new landmarks.")
+            landmarks = None
     
     # Initialize and fit DifferentialExpression
     diff_expression = DifferentialExpression(
@@ -388,8 +447,17 @@ def compute_differential_expression(
         X_condition2, expr2,
         sigma=sigma,
         ls=ls,
+        landmarks=landmarks,
         **function_kwargs
     )
+    
+    # Store landmarks if they were computed for future reuse
+    if hasattr(diff_expression, 'computed_landmarks') and diff_expression.computed_landmarks is not None:
+        # Store the landmarks in adata.uns for future use
+        if result_key not in adata.uns:
+            adata.uns[result_key] = {}
+        adata.uns[result_key]['landmarks'] = diff_expression.computed_landmarks
+        logger.info(f"Stored computed landmarks in adata.uns['{result_key}']['landmarks']")
     
     # Run prediction to compute fold changes, metrics, and Mahalanobis distances
     X_for_prediction = adata.obsm[obsm_key]
@@ -412,31 +480,68 @@ def compute_differential_expression(
             log_density_condition1 = adata.obs[density_col1]
             log_density_condition2 = adata.obs[density_col2]
         else:
-            # Fall back to generic names for backward compatibility
-            generic_col1 = f"{differential_abundance_key}_log_density_condition1"
-            generic_col2 = f"{differential_abundance_key}_log_density_condition2"
-            
-            if generic_col1 in adata.obs and generic_col2 in adata.obs:
-                log_density_condition1 = adata.obs[generic_col1]
-                log_density_condition2 = adata.obs[generic_col2]
-            else:
-                raise ValueError(f"Log density columns not found in adata.obs. Expected: {density_col1}, {density_col2} or {generic_col1}, {generic_col2}")
+            raise ValueError(f"Log density columns not found in adata.obs. Expected: {density_col1}, {density_col2}")
         
         # Calculate log density difference directly
-        log_density_diff = np.exp(np.abs(log_density_condition2 - log_density_condition1))
+        log_density_diff = log_density_condition2 - log_density_condition1
         
         # Use the standalone function to compute weighted mean fold change with pre-computed difference
+        # The exp(abs()) is now handled inside the function
         expression_results['weighted_mean_log_fold_change'] = compute_weighted_mean_fold_change(
             expression_results['fold_change'],
             log_density_diff=log_density_diff
         )
     
+    # Create result dictionary
+    result_dict = {
+        "lfc_stds": expression_results['lfc_stds'],
+        "bidirectionality": expression_results['bidirectionality'],
+        "mean_log_fold_change": expression_results['mean_log_fold_change'],
+        "condition1_imputed": expression_results['condition1_imputed'],
+        "condition2_imputed": expression_results['condition2_imputed'],
+        "fold_change": expression_results['fold_change'],
+        "fold_change_zscores": expression_results['fold_change_zscores'],
+        "model": diff_expression,
+    }
+    
+    # Add optional result fields
+    if compute_mahalanobis:
+        result_dict["mahalanobis_distances"] = expression_results['mahalanobis_distances']
+        
+    if 'weighted_mean_log_fold_change' in expression_results:
+        result_dict["weighted_mean_log_fold_change"] = expression_results['weighted_mean_log_fold_change']
     
     if inplace:
         # Add gene-level metrics to adata.var
         if compute_mahalanobis:
+            # Make sure mahalanobis_distances is an array with the same length as selected_genes
+            mahalanobis_distances = expression_results['mahalanobis_distances']
+            # Convert list to numpy array if needed
+            if isinstance(mahalanobis_distances, list):
+                mahalanobis_distances = np.array(mahalanobis_distances)
+                
+            # Ensure mahalanobis_distances is 1D before reshaping
+            if len(mahalanobis_distances.shape) > 1:
+                logger.warning(f"mahalanobis_distances has shape {mahalanobis_distances.shape}, flattening to 1D.")
+                # Take the first row if it's a 2D array
+                if mahalanobis_distances.shape[0] < mahalanobis_distances.shape[1]:
+                    mahalanobis_distances = mahalanobis_distances[0]  # Take first row if more columns than rows
+                else:
+                    mahalanobis_distances = mahalanobis_distances[:, 0]  # Take first column otherwise
+            
+            # Check if length matches the expected length
+            if len(mahalanobis_distances) != len(selected_genes):
+                logger.warning(f"Mahalanobis distances length {len(mahalanobis_distances)} doesn't match selected_genes length {len(selected_genes)}. Reshaping.")
+                if len(mahalanobis_distances) < len(selected_genes):
+                    # Pad with NaNs if the array is too short
+                    padding = np.full(len(selected_genes) - len(mahalanobis_distances), np.nan)
+                    mahalanobis_distances = np.concatenate([mahalanobis_distances, padding])
+                else:
+                    # Truncate if the array is too long
+                    mahalanobis_distances = mahalanobis_distances[:len(selected_genes)]
+                
             adata.var[f"{result_key}_mahalanobis"] = pd.Series(np.nan, index=adata.var_names)
-            adata.var.loc[selected_genes, f"{result_key}_mahalanobis"] = expression_results['mahalanobis_distances']
+            adata.var.loc[selected_genes, f"{result_key}_mahalanobis"] = mahalanobis_distances
         
         # Sanitize condition names for use in column names
         cond1_safe = _sanitize_name(condition1)
@@ -446,21 +551,121 @@ def compute_differential_expression(
             # Initialize with np.nan of appropriate shape - use more descriptive column name
             column_name = f"{result_key}_weighted_lfc_{cond2_safe}_vs_{cond1_safe}"
             adata.var[column_name] = pd.Series(np.nan, index=adata.var_names)
-            adata.var.loc[selected_genes, column_name] = expression_results['weighted_mean_log_fold_change']
+            
+            # Extract and verify weighted_mean_log_fold_change
+            weighted_lfc = expression_results['weighted_mean_log_fold_change']
+            # Convert list to numpy array if needed
+            if isinstance(weighted_lfc, list):
+                weighted_lfc = np.array(weighted_lfc)
+                
+            # Ensure weighted_lfc is 1D before reshaping
+            if len(weighted_lfc.shape) > 1:
+                logger.warning(f"weighted_mean_log_fold_change has shape {weighted_lfc.shape}, flattening to 1D.")
+                # Take the first row if it's a 2D array
+                if weighted_lfc.shape[0] < weighted_lfc.shape[1]:
+                    weighted_lfc = weighted_lfc[0]  # Take first row if more columns than rows
+                else:
+                    weighted_lfc = weighted_lfc[:, 0]  # Take first column otherwise
+                
+            if len(weighted_lfc) != len(selected_genes):
+                logger.warning(f"weighted_mean_log_fold_change length {len(weighted_lfc)} doesn't match selected_genes length {len(selected_genes)}. Reshaping.")
+                if len(weighted_lfc) < len(selected_genes):
+                    # Pad with NaNs if the array is too short
+                    padding = np.full(len(selected_genes) - len(weighted_lfc), np.nan)
+                    weighted_lfc = np.concatenate([weighted_lfc, padding])
+                else:
+                    # Truncate if the array is too long
+                    weighted_lfc = weighted_lfc[:len(selected_genes)]
+            adata.var.loc[selected_genes, column_name] = weighted_lfc
         
         # Initialize with np.nan of appropriate shape - use more descriptive column names
         # Add mean log fold change with descriptive name
         mean_lfc_column = f"{result_key}_mean_lfc_{cond2_safe}_vs_{cond1_safe}"
         adata.var[mean_lfc_column] = pd.Series(np.nan, index=adata.var_names)
-        adata.var.loc[selected_genes, mean_lfc_column] = expression_results['mean_log_fold_change']
+        
+        # Extract and verify mean_log_fold_change
+        mean_lfc = expression_results['mean_log_fold_change']
+        # Convert list to numpy array if needed
+        if isinstance(mean_lfc, list):
+            mean_lfc = np.array(mean_lfc)
+        
+        # Ensure mean_lfc is 1D before reshaping
+        if len(mean_lfc.shape) > 1:
+            logger.warning(f"mean_log_fold_change has shape {mean_lfc.shape}, flattening to 1D.")
+            # Take the first row if it's a 2D array
+            if mean_lfc.shape[0] < mean_lfc.shape[1]:
+                mean_lfc = mean_lfc[0]  # Take first row if more columns than rows
+            else:
+                mean_lfc = mean_lfc[:, 0]  # Take first column otherwise
+            
+        if len(mean_lfc) != len(selected_genes):
+            logger.warning(f"mean_log_fold_change length {len(mean_lfc)} doesn't match selected_genes length {len(selected_genes)}. Reshaping.")
+            if len(mean_lfc) < len(selected_genes):
+                # Pad with NaNs if the array is too short
+                padding = np.full(len(selected_genes) - len(mean_lfc), np.nan)
+                mean_lfc = np.concatenate([mean_lfc, padding])
+            else:
+                # Truncate if the array is too long
+                mean_lfc = mean_lfc[:len(selected_genes)]
+        adata.var.loc[selected_genes, mean_lfc_column] = mean_lfc
         
         # Standard deviation of log fold change
         adata.var[f"{result_key}_lfc_std"] = pd.Series(np.nan, index=adata.var_names)
-        adata.var.loc[selected_genes, f"{result_key}_lfc_std"] = expression_results['lfc_stds']
+        
+        # Extract and verify lfc_stds
+        lfc_stds = expression_results['lfc_stds']
+        # Convert list to numpy array if needed
+        if isinstance(lfc_stds, list):
+            lfc_stds = np.array(lfc_stds)
+        
+        # Ensure lfc_stds is 1D before reshaping
+        if len(lfc_stds.shape) > 1:
+            logger.warning(f"lfc_stds has shape {lfc_stds.shape}, flattening to 1D.")
+            # Take the first row if it's a 2D array
+            if lfc_stds.shape[0] < lfc_stds.shape[1]:
+                lfc_stds = lfc_stds[0]  # Take first row if more columns than rows
+            else:
+                lfc_stds = lfc_stds[:, 0]  # Take first column otherwise
+            
+        if len(lfc_stds) != len(selected_genes):
+            logger.warning(f"lfc_stds length {len(lfc_stds)} doesn't match selected_genes length {len(selected_genes)}. Reshaping.")
+            if len(lfc_stds) < len(selected_genes):
+                # Pad with NaNs if the array is too short
+                padding = np.full(len(selected_genes) - len(lfc_stds), np.nan)
+                lfc_stds = np.concatenate([lfc_stds, padding])
+            else:
+                # Truncate if the array is too long
+                lfc_stds = lfc_stds[:len(selected_genes)]
+        adata.var.loc[selected_genes, f"{result_key}_lfc_std"] = lfc_stds
         
         # Bidirectionality score
         adata.var[f"{result_key}_bidirectionality"] = pd.Series(np.nan, index=adata.var_names)
-        adata.var.loc[selected_genes, f"{result_key}_bidirectionality"] = expression_results['bidirectionality']
+        
+        # Extract and verify bidirectionality
+        bidirectionality = expression_results['bidirectionality']
+        # Convert list to numpy array if needed
+        if isinstance(bidirectionality, list):
+            bidirectionality = np.array(bidirectionality)
+        
+        # Ensure bidirectionality is 1D before reshaping
+        if len(bidirectionality.shape) > 1:
+            logger.warning(f"bidirectionality has shape {bidirectionality.shape}, flattening to 1D.")
+            # Take the first row if it's a 2D array
+            if bidirectionality.shape[0] < bidirectionality.shape[1]:
+                bidirectionality = bidirectionality[0]  # Take first row if more columns than rows
+            else:
+                bidirectionality = bidirectionality[:, 0]  # Take first column otherwise
+            
+        if len(bidirectionality) != len(selected_genes):
+            logger.warning(f"bidirectionality length {len(bidirectionality)} doesn't match selected_genes length {len(selected_genes)}. Reshaping.")
+            if len(bidirectionality) < len(selected_genes):
+                # Pad with NaNs if the array is too short
+                padding = np.full(len(selected_genes) - len(bidirectionality), np.nan)
+                bidirectionality = np.concatenate([bidirectionality, padding])
+            else:
+                # Truncate if the array is too long
+                bidirectionality = bidirectionality[:len(selected_genes)]
+        adata.var.loc[selected_genes, f"{result_key}_bidirectionality"] = bidirectionality
         
         # Add cell-gene level results
         n_selected_genes = len(selected_genes)
@@ -501,6 +706,11 @@ def compute_differential_expression(
             condition2_imputed = np.array(expression_results['condition2_imputed'])
             fold_change = np.array(expression_results['fold_change'])
             
+            # Check shapes and reshape if necessary
+            if condition1_imputed.shape != adata.shape:
+                logger.warning(f"condition1_imputed shape {condition1_imputed.shape} doesn't match adata shape {adata.shape}. Skipping layer creation.")
+                return result_dict
+                
             # Sanitize condition names for use in layer names
             cond1_safe = _sanitize_name(condition1)
             cond2_safe = _sanitize_name(condition2)
@@ -510,9 +720,18 @@ def compute_differential_expression(
             imputed2_key = f"{result_key}_imputed_{cond2_safe}"
             fold_change_key = f"{result_key}_fold_change_{cond2_safe}_vs_{cond1_safe}"
             
-            adata.layers[imputed1_key] = condition1_imputed
-            adata.layers[imputed2_key] = condition2_imputed
-            adata.layers[fold_change_key] = fold_change
+            # Create zero matrices and fill gene by gene to avoid shape issues
+            adata.layers[imputed1_key] = np.zeros_like(adata.X)
+            adata.layers[imputed2_key] = np.zeros_like(adata.X)
+            adata.layers[fold_change_key] = np.zeros_like(adata.X)
+            
+            # Use the same approach as in the selected_genes < len(adata.var_names) case
+            for i, gene in enumerate(selected_genes):
+                if i < condition1_imputed.shape[1]:  # Make sure we don't go out of bounds
+                    gene_idx = list(adata.var_names).index(gene)
+                    adata.layers[imputed1_key][:, gene_idx] = condition1_imputed[:, i]
+                    adata.layers[imputed2_key][:, gene_idx] = condition2_imputed[:, i]
+                    adata.layers[fold_change_key][:, gene_idx] = fold_change[:, i]
         
         # Store model and parameters in adata.uns
         adata.uns[result_key] = {
@@ -526,28 +745,11 @@ def compute_differential_expression(
                 "n_landmarks": n_landmarks,
                 "use_empirical_variance": use_empirical_variance,
                 "differential_abundance_key": differential_abundance_key,
+                "used_landmarks": True if landmarks is not None else False,
             },
         }
         
-    # Return results as a dictionary
-    result_dict = {
-        "lfc_stds": expression_results['lfc_stds'],
-        "bidirectionality": expression_results['bidirectionality'],
-        "mean_log_fold_change": expression_results['mean_log_fold_change'],
-        "condition1_imputed": expression_results['condition1_imputed'],
-        "condition2_imputed": expression_results['condition2_imputed'],
-        "fold_change": expression_results['fold_change'],
-        "fold_change_zscores": expression_results['fold_change_zscores'],
-        "model": diff_expression,
-    }
-    
-    # Add optional result fields
-    if compute_mahalanobis:
-        result_dict["mahalanobis_distances"] = expression_results['mahalanobis_distances']
-        
-    if 'weighted_mean_log_fold_change' in expression_results:
-        result_dict["weighted_mean_log_fold_change"] = expression_results['weighted_mean_log_fold_change']
-        
+    # Return the results dictionary
     return result_dict
 
 
@@ -560,10 +762,12 @@ def run_differential_analysis(
     layer: Optional[str] = None,
     genes: Optional[List[str]] = None,
     n_landmarks: Optional[int] = None,
+    landmarks: Optional[np.ndarray] = None,
     compute_abundance: bool = True,
     compute_expression: bool = True,
     abundance_key: str = "kompot_da",
     expression_key: str = "kompot_de",
+    share_landmarks: bool = True,
     jit_compile: bool = False,
     random_state: Optional[int] = None,
     copy: bool = False,
@@ -599,7 +803,10 @@ def run_differential_analysis(
         by default None.
     n_landmarks : int, optional
         Number of landmarks to use for approximation. If None, use all points,
-        by default None.
+        by default None. Ignored if landmarks is provided.
+    landmarks : np.ndarray, optional
+        Pre-computed landmarks to use. If provided, n_landmarks will be ignored.
+        Shape (n_landmarks, n_features).
     compute_abundance : bool, optional
         Whether to compute differential abundance, by default True.
     compute_expression : bool, optional
@@ -610,6 +817,9 @@ def run_differential_analysis(
     expression_key : str, optional
         Key in adata.uns where differential expression results will be stored,
         by default "kompot_de".
+    share_landmarks : bool, optional
+        Whether to share landmarks between abundance and expression analyses,
+        by default True.
     jit_compile : bool, optional
         Whether to use JAX just-in-time compilation, by default False.
     random_state : int, optional
@@ -669,6 +879,7 @@ def run_differential_analysis(
     
     # Run differential abundance if requested
     abundance_result = None
+    abundance_landmarks = None
     if compute_abundance:
         logger.info("Computing differential abundance...")
         abundance_result = compute_differential_abundance(
@@ -678,12 +889,22 @@ def run_differential_analysis(
             condition2=condition2,
             obsm_key=obsm_key,
             n_landmarks=n_landmarks,
+            landmarks=landmarks,
             jit_compile=jit_compile,
             random_state=random_state,
             inplace=True,
             result_key=abundance_key,
             **abundance_kwargs
         )
+        
+        # Check if landmarks are stored in abundance_key
+        if abundance_key in adata.uns and 'landmarks' in adata.uns[abundance_key]:
+            abundance_landmarks = adata.uns[abundance_key]['landmarks']
+            if share_landmarks:
+                logger.info(f"Will reuse landmarks from differential abundance analysis for expression analysis")
+                # Update abundance_key uns to indicate landmarks were shared
+                if 'params' in adata.uns[abundance_key]:
+                    adata.uns[abundance_key]['params']['landmarks_shared_with_expression'] = True
     
     # Run differential expression if requested
     expression_result = None
@@ -700,17 +921,17 @@ def run_differential_analysis(
             
             # Check for condition-specific column names
             specific_cols = [f"{diff_abund_key}_log_density_{cond1_safe}", f"{diff_abund_key}_log_density_{cond2_safe}"]
-            # Check for generic column names (for backward compatibility)
-            generic_cols = [f"{diff_abund_key}_log_density_condition1", f"{diff_abund_key}_log_density_condition2"]
             
-            has_specific = all(col in adata.obs for col in specific_cols)
-            has_generic = all(col in adata.obs for col in generic_cols)
-            
-            if not (has_specific or has_generic):
+            if not all(col in adata.obs for col in specific_cols):
                 logger.warning(f"Log density columns not found in adata.obs. "
-                              f"Looked for either {specific_cols} or {generic_cols}. "
+                              f"Expected: {specific_cols}. "
                               f"Will not compute weighted mean fold changes.")
                 diff_abund_key = None
+        
+        # Use abundance landmarks for expression analysis if available and sharing is enabled
+        expr_landmarks = landmarks
+        if share_landmarks and abundance_landmarks is not None:
+            expr_landmarks = abundance_landmarks
         
         expression_result = compute_differential_expression(
             adata,
@@ -721,6 +942,7 @@ def run_differential_analysis(
             layer=layer,
             genes=genes,
             n_landmarks=n_landmarks,
+            landmarks=expr_landmarks,
             jit_compile=jit_compile,
             random_state=random_state,
             differential_abundance_key=diff_abund_key,
@@ -745,6 +967,21 @@ def run_differential_analysis(
         )
         logger.info(f"HTML report generated at: {report_path}")
         
+    # Store information about landmark sharing in adata.uns
+    if compute_abundance and compute_expression and share_landmarks and abundance_landmarks is not None:
+        # Create a landmarks_info entry if needed
+        if 'landmarks_info' not in adata.uns:
+            adata.uns['landmarks_info'] = {}
+        
+        # Record that landmarks were shared between abundance and expression
+        adata.uns['landmarks_info']['shared_between_analyses'] = True
+        adata.uns['landmarks_info']['source'] = abundance_key
+        adata.uns['landmarks_info']['targets'] = [expression_key]
+        
+        # Store timestamp of sharing
+        from datetime import datetime
+        adata.uns['landmarks_info']['timestamp'] = datetime.now().isoformat()
+    
     # Return the results along with the AnnData
     return {
         "adata": adata,

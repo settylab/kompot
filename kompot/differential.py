@@ -122,6 +122,7 @@ class DifferentialAbundance:
         self, 
         X_condition1: np.ndarray, 
         X_condition2: np.ndarray,
+        landmarks: Optional[np.ndarray] = None,
         **density_kwargs
     ):
         """
@@ -136,6 +137,9 @@ class DifferentialAbundance:
             Cell states for the first condition. Shape (n_cells, n_features).
         X_condition2 : np.ndarray
             Cell states for the second condition. Shape (n_cells, n_features).
+        landmarks : np.ndarray, optional
+            Pre-computed landmarks to use. If provided, n_landmarks will be ignored.
+            Shape (n_landmarks, n_features).
         **density_kwargs : dict
             Additional arguments to pass to the DensityEstimator.
             
@@ -161,18 +165,23 @@ class DifferentialAbundance:
             # Update defaults with user-provided values
             estimator_defaults.update(density_kwargs)
             
-            # Prepare landmarks if requested
-            if self.n_landmarks is not None:
+            # Use provided landmarks if available, otherwise compute them if requested
+            if landmarks is not None:
+                logger.info(f"Using provided landmarks with shape {landmarks.shape}")
+                estimator_defaults['landmarks'] = landmarks
+            elif self.n_landmarks is not None:
                 logger.info(f"Computing {self.n_landmarks:,} landmarks...")
                 # Use mellon's compute_landmarks function to get properly distributed landmarks
                 # Pass the random_state parameter directly to ensure reproducible results
                 X_combined = np.vstack([X_condition1, X_condition2])
-                landmarks = compute_landmarks(
+                computed_landmarks = compute_landmarks(
                     X_combined, 
                     n_landmarks=self.n_landmarks,
                     random_state=self.random_state
                 )
-                estimator_defaults['landmarks'] = landmarks
+                estimator_defaults['landmarks'] = computed_landmarks
+                # Store computed landmarks for future use
+                self.computed_landmarks = computed_landmarks
                 
             # Fit density estimators for both conditions
             logger.info("Fitting density estimator for condition 1...")
@@ -200,9 +209,8 @@ class DifferentialAbundance:
         """
         Predict log density and log fold change for new points.
         
-        This method now computes all fold changes and related metrics, which were
-        previously computed in the fit method. It uses automatic batching to
-        handle large datasets efficiently.
+        This method computes all fold changes and related metrics.
+        It uses automatic batching to handle large datasets efficiently.
         
         Parameters
         ----------
@@ -265,7 +273,7 @@ class DifferentialAbundance:
         log_fold_change_direction[significant & (log_fold_change > 0)] = 'up'
         log_fold_change_direction[significant & (log_fold_change < 0)] = 'down'
         
-        result = {
+        return {
             'log_density_condition1': log_density_condition1,
             'log_density_condition2': log_density_condition2,
             'log_fold_change': log_fold_change,
@@ -274,13 +282,6 @@ class DifferentialAbundance:
             'log_fold_change_pvalue': log_fold_change_pvalue,
             'log_fold_change_direction': log_fold_change_direction,
         }
-        
-        # Store results as attributes for backward compatibility
-        # This allows older code to access results directly as attributes
-        for key, value in result.items():
-            setattr(self, key, value)
-        
-        return result
         
 
 class EmpiricVarianceEstimator:
@@ -292,8 +293,8 @@ class EmpiricVarianceEstimator:
     
     Attributes
     ----------
-    group_estimators : Dict
-        Dictionary of function estimators for each group.
+    group_predictors : Dict
+        Dictionary of prediction functions for each group.
     """
     
     def __init__(
@@ -320,7 +321,7 @@ class EmpiricVarianceEstimator:
         self.batch_size = batch_size
         
         # Will be populated during fit
-        self.group_estimators = {}
+        self.group_predictors = {}
         self.group_centroids = {}
         self._predict_variance_jit = None
     
@@ -333,7 +334,7 @@ class EmpiricVarianceEstimator:
         function_estimator_kwargs: Dict = None
     ):
         """
-        Fit function estimators for each group in the data.
+        Fit function estimators for each group in the data and store only their predictors.
         
         Parameters
         ----------
@@ -367,7 +368,7 @@ class EmpiricVarianceEstimator:
             for group_id in unique_groups
         }
         
-        # Train function estimators for each group
+        # Train function estimators for each group and store only their predictors
         logger.info("Training group-specific function estimators...")
         
         for group_id, indices in group_indices.items():
@@ -379,7 +380,12 @@ class EmpiricVarianceEstimator:
                 # Create and train estimator
                 estimator = mellon.FunctionEstimator(**function_estimator_kwargs)
                 estimator.fit(X_subset, Y_subset)
-                self.group_estimators[group_id] = estimator
+                
+                # Store only the predictor function, not the full estimator
+                self.group_predictors[group_id] = estimator.predict
+                
+                # Immediately delete the estimator to free memory
+                del estimator
             else:
                 logger.warning(f"Skipping group {group_id} (only {len(indices):,} cells < min_cells={min_cells:,})")
         
@@ -402,53 +408,53 @@ class EmpiricVarianceEstimator:
         np.ndarray
             Empirical variance for each new point. Shape (n_cells, n_genes).
         """
-        if not self.group_estimators:
+        if not self.group_predictors:
             raise ValueError("Model not fitted. Call fit() first.")
             
         n_cells = len(X_new)
         
-        # Get the shape of the output from the first estimator
-        # This assumes all estimators produce outputs of the same shape
-        first_estimator = list(self.group_estimators.values())[0]
-        test_pred = first_estimator.predict([X_new[0]])
+        # Get the shape of the output from the first predictor
+        # This assumes all predictors produce outputs of the same shape
+        first_predictor = list(self.group_predictors.values())[0]
+        test_pred = first_predictor([X_new[0]])
         n_genes = test_pred.shape[1] if len(test_pred.shape) > 1 else 1
         
         # Convert input to JAX array to ensure compatibility with JAX functions
         X_new_jax = jnp.array(X_new)
         
-        # If we have no estimators, return zeros
-        if not self.group_estimators:
+        # If we have no predictors, return zeros
+        if not self.group_predictors:
             variance = np.zeros((n_cells, n_genes))
-            logger.warning("No group estimators available. Returning zeros for variance.")
+            logger.warning("No group predictors available. Returning zeros for variance.")
             return variance
         
         # Compile the prediction function if we're using JIT and haven't already
         if self.jit_compile and self._predict_variance_jit is None:
             # Define our variance computation function
-            def compute_variance_from_estimators(X, estimators_list):
-                # Map each estimator to get predictions
-                predictions = [estimator.predict(X) for estimator in estimators_list]
+            def compute_variance_from_predictors(X, predictors_list):
+                # Map each predictor to get predictions
+                predictions = [predictor(X) for predictor in predictors_list]
                 # Stack the predictions
                 stacked = jnp.stack(predictions, axis=0)
                 # Compute variance across groups (axis 0)
                 return jnp.var(stacked, axis=0)
             
             # JIT compile the function
-            self._predict_variance_jit = jax.jit(compute_variance_from_estimators)
+            self._predict_variance_jit = jax.jit(compute_variance_from_predictors)
         
-        # Get list of estimators
-        estimators_list = list(self.group_estimators.values())
+        # Get list of predictors
+        predictors_list = list(self.group_predictors.values())
         
         # Use the JIT-compiled function if available
         if self.jit_compile and self._predict_variance_jit is not None:
-            variance = self._predict_variance_jit(X_new_jax, estimators_list)
+            variance = self._predict_variance_jit(X_new_jax, predictors_list)
             variance = np.array(variance)
         else:
-            # Get predictions from each group estimator
+            # Get predictions from each group predictor
             all_group_predictions = []
-            for estimator in estimators_list:
+            for predictor in predictors_list:
                 # JAX predictors will work with jnp arrays directly
-                group_predictions = estimator.predict(X_new_jax)
+                group_predictions = predictor(X_new_jax)
                 all_group_predictions.append(group_predictions)
             
             # Stack predictions and compute variance using JAX
@@ -498,22 +504,24 @@ def compute_weighted_mean_fold_change(
         if hasattr(log_density_condition2, 'to_numpy'):
             log_density_condition2 = log_density_condition2.to_numpy()
             
-        # Calculate the density difference (weight) for each cell
-        log_density_diff = np.exp(
-            np.abs(log_density_condition2 - log_density_condition1)
-        )
+        # Calculate the density difference for each cell
+        log_density_diff = log_density_condition2 - log_density_condition1
     elif hasattr(log_density_diff, 'to_numpy'):
         # Convert pandas Series to numpy arrays if needed
         log_density_diff = log_density_diff.to_numpy()
     
+    # Convert to numpy array if it's a list
+    if isinstance(fold_change, list):
+        fold_change = np.array(fold_change)
+    
     # Create a weights array with shape (n_cells, 1) for broadcasting
-    weights = log_density_diff.reshape(-1, 1)
+    # Apply np.exp(np.abs(...)) to the log_density_diff as part of the function's logic
+    weights = np.exp(np.abs(log_density_diff.reshape(-1, 1)))
     
     # Weight the fold changes by density difference
     weighted_fold_change = fold_change * weights
     
-    # Compute the weighted mean
-    return np.sum(weighted_fold_change, axis=0) / np.sum(log_density_diff)
+    return np.sum(weighted_fold_change, axis=0) / np.sum(weights)
 
 
 class DifferentialExpression:
@@ -621,6 +629,7 @@ class DifferentialExpression:
         y_condition2: np.ndarray,
         sigma: float = 1.0,
         ls: Optional[float] = None,
+        landmarks: Optional[np.ndarray] = None,
         sample_estimator_ls: Optional[float] = None,
         condition1_sample_indices: Optional[np.ndarray] = None,
         condition2_sample_indices: Optional[np.ndarray] = None,
@@ -646,6 +655,9 @@ class DifferentialExpression:
             Noise level for function estimator, by default 1.0.
         ls : float, optional
             Length scale for the GP kernel. If None, it will be estimated, by default None.
+        landmarks : np.ndarray, optional
+            Pre-computed landmarks to use. If provided, n_landmarks will be ignored.
+            Shape (n_landmarks, n_features).
         sample_estimator_ls : float, optional
             Length scale for the sample-specific variance estimators. If None, will use
             the same value as ls or it will be estimated, by default None.
@@ -675,19 +687,26 @@ class DifferentialExpression:
             # Update defaults with user-provided values
             estimator_defaults.update(function_kwargs)
             
-            # Prepare landmarks if requested
-            if self.n_landmarks is not None:
+            # Use provided landmarks if available, otherwise compute them if requested
+            if landmarks is not None:
+                logger.info(f"Using provided landmarks with shape {landmarks.shape}")
+                estimator_defaults['landmarks'] = landmarks
+                estimator_defaults['gp_type'] = 'fixed'
+            elif self.n_landmarks is not None:
+                logger.info(f"Computing {self.n_landmarks:,} landmarks...")
                 # Use mellon's compute_landmarks function to get properly distributed landmarks
                 # Pass the random_state parameter directly to ensure reproducible results
                 X_combined = np.vstack([X_condition1, X_condition2])
-                landmarks = compute_landmarks(
+                computed_landmarks = compute_landmarks(
                     X_combined, 
                     gp_type='fixed', 
                     n_landmarks=self.n_landmarks,
                     random_state=self.random_state
                 )
-                estimator_defaults['landmarks'] = landmarks
+                estimator_defaults['landmarks'] = computed_landmarks
                 estimator_defaults['gp_type'] = 'fixed'
+                # Store computed landmarks for future use
+                self.computed_landmarks = computed_landmarks
                 
             # If ls is provided, use it directly
             if ls is not None:
@@ -1088,10 +1107,5 @@ class DifferentialExpression:
             
             if np.any(condition2_mask):
                 result['condition2_cells_mean_log_fold_change'] = np.mean(fold_change[condition2_mask], axis=0)
-        
-        # Store results as attributes for backward compatibility
-        # This allows older code to access results directly as attributes
-        for key, value in result.items():
-            setattr(self, key, value)
         
         return result
