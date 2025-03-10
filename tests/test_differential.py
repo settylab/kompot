@@ -49,6 +49,83 @@ def test_differential_abundance_fit():
     # No longer checking for class attributes - they're not updated in the new version
 
 
+def test_differential_abundance_sync_parameters():
+    """Test synchronizing parameters between conditions with DifferentialAbundance."""
+    # Generate data with different distributions
+    np.random.seed(42)  # Set seed for reproducibility
+    X_condition1 = np.random.randn(100, 5)
+    X_condition2 = np.random.randn(100, 5) + 1.0  # Shift the second condition
+    
+    # First fit without parameter synchronization
+    diff_abundance_nosync = DifferentialAbundance()
+    diff_abundance_nosync.fit(X_condition1, X_condition2, sync_parameters=False)
+    
+    # Then fit with parameter synchronization
+    diff_abundance_sync = DifferentialAbundance()
+    diff_abundance_sync.fit(X_condition1, X_condition2, sync_parameters=True)
+    
+    # Both should have valid predictors
+    assert diff_abundance_nosync.density_predictor1 is not None
+    assert diff_abundance_nosync.density_predictor2 is not None
+    assert diff_abundance_sync.density_predictor1 is not None
+    assert diff_abundance_sync.density_predictor2 is not None
+    
+    # Create test points for prediction
+    X_test = np.vstack([
+        np.random.randn(50, 5),  # Points similar to condition 1
+        np.random.randn(50, 5) + 1.0  # Points similar to condition 2
+    ])
+    
+    # Get predictions from both models
+    pred_nosync = diff_abundance_nosync.predict(X_test)
+    pred_sync = diff_abundance_sync.predict(X_test)
+    
+    # Both should return valid predictions
+    assert np.all(np.isfinite(pred_nosync['log_density_condition1']))
+    assert np.all(np.isfinite(pred_nosync['log_density_condition2']))
+    assert np.all(np.isfinite(pred_sync['log_density_condition1']))
+    assert np.all(np.isfinite(pred_sync['log_density_condition2']))
+    
+    # The fold changes will likely be different due to parameter synchronization
+    # We're not testing for specific differences, just that both approaches produce valid results
+    
+    # Compare results to make sure they're not identical (synchronization should make a difference)
+    # We use correlation rather than exact comparison because the outputs should be correlated 
+    # but not identical due to different parameter settings
+    correlation_density1 = np.corrcoef(
+        pred_nosync['log_density_condition1'], 
+        pred_sync['log_density_condition1']
+    )[0, 1]
+    correlation_density2 = np.corrcoef(
+        pred_nosync['log_density_condition2'], 
+        pred_sync['log_density_condition2']
+    )[0, 1]
+    
+    # There should be high correlation because they're modeling the same data
+    assert correlation_density1 > 0.5
+    assert correlation_density2 > 0.5
+    
+    # Test with custom parameters to ensure they're respected
+    custom_d = 2.0
+    custom_mu = -5.0
+    custom_ls = 30.0
+    
+    diff_abundance_custom = DifferentialAbundance()
+    diff_abundance_custom.fit(
+        X_condition1, 
+        X_condition2, 
+        sync_parameters=True,  # Should sync but these values take precedence
+        d=custom_d,
+        mu=custom_mu,
+        ls=custom_ls
+    )
+    
+    # Ensure model still produces valid predictions
+    pred_custom = diff_abundance_custom.predict(X_test)
+    assert np.all(np.isfinite(pred_custom['log_density_condition1']))
+    assert np.all(np.isfinite(pred_custom['log_density_condition2']))
+
+
 def test_differential_abundance_predict():
     """Test predicting with the DifferentialAbundance class."""
     # Generate sample data

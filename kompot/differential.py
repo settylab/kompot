@@ -32,6 +32,10 @@ class DifferentialAbundance:
     This class analyzes the differences in cell density between two conditions
     (e.g., control vs. treatment) using density estimation and fold change analysis.
     
+    The analysis can be performed with synchronized parameters between conditions
+    by setting sync_parameters=True in the fit method, which ensures consistent
+    density estimation across both conditions.
+    
     Attributes
     ----------
     log_density_condition1 : np.ndarray
@@ -51,8 +55,8 @@ class DifferentialAbundance:
     
     Methods
     -------
-    fit(X_condition1, X_condition2, **density_kwargs)
-        Fit density estimators for both conditions and compute differential metrics.
+    fit(X_condition1, X_condition2, sync_parameters=False, **density_kwargs)
+        Fit density estimators for both conditions, optionally with synchronized parameters.
     predict(X_new)
         Predict log density and log fold change for new points.
     """
@@ -168,6 +172,7 @@ class DifferentialAbundance:
         condition1_sample_indices: Optional[np.ndarray] = None,
         condition2_sample_indices: Optional[np.ndarray] = None,
         sample_estimator_ls: Optional[float] = None,
+        sync_parameters: bool = False,
         **density_kwargs
     ):
         """
@@ -197,6 +202,11 @@ class DifferentialAbundance:
         sample_estimator_ls : float, optional
             Length scale for the sample-specific variance estimators. If None, will use
             the same value as ls or it will be estimated, by default None.
+        sync_parameters : bool, optional
+            Whether to synchronize model parameters (d, mu, ls) between both conditions using 
+            the combined dataset. When True, parameters are computed once from the combined data 
+            to ensure models for both conditions use identical parameter values. This is especially 
+            important for consistent density estimation across conditions. Default is False.
         **density_kwargs : dict
             Additional arguments to pass to the DensityEstimator.
             
@@ -238,6 +248,37 @@ class DifferentialAbundance:
                 estimator_defaults['landmarks'] = computed_landmarks
                 # Store computed landmarks for future use
                 self.computed_landmarks = computed_landmarks
+
+            # Handle synchronization of parameters when sync_parameters is True
+            if sync_parameters:
+                # Combine data from both conditions for parameter estimation
+                X_combined = np.vstack([X_condition1, X_condition2])
+                logger.info(f"Synchronizing parameters using combined data with shape {X_combined.shape}")
+                
+                # Compute the fractal dimension if not provided
+                if "d" not in density_kwargs:
+                    d = mellon.parameters.compute_d_factal(X_combined)
+                    estimator_defaults["d"] = d
+                    logger.info(f"Synchronizing parameter d to {d:.4f}")
+                
+                # Precompute nearest neighbor distances if needed for mu or ls
+                if ("mu" not in density_kwargs or "ls" not in density_kwargs):
+                    nn_distances = mellon.parameters.compute_nn_distances(X_combined)
+                
+                # Compute mu if not provided
+                if "mu" not in density_kwargs:
+                    d = estimator_defaults["d"]
+                    mu = mellon.parameters.compute_mu(nn_distances, d)
+                    estimator_defaults["mu"] = mu
+                    logger.info(f"Synchronizing parameter mu to {mu:.4f}")
+                
+                # Compute length scale if not provided
+                if "ls" not in density_kwargs:
+                    base_ls = mellon.parameters.compute_ls(nn_distances)
+                    ls = base_ls * ls_factor
+                    estimator_defaults["ls"] = ls
+                    logger.info(f"Synchronizing parameter ls to {ls:.4f}")
+                
                 
             # Fit density estimators for both conditions
             logger.info("Fitting density estimator for condition 1...")
