@@ -50,7 +50,7 @@ def _extract_conditions_from_key(key: str) -> Optional[Tuple[str, str]]:
 
 
 def _infer_de_keys(adata: AnnData, run_id: int = -1, lfc_key: Optional[str] = None, 
-                   score_key: Optional[str] = "kompot_de_mahalanobis"):
+                   score_key: Optional[str] = None):
     """
     Infer differential expression keys from AnnData object.
     
@@ -74,74 +74,33 @@ def _infer_de_keys(adata: AnnData, run_id: int = -1, lfc_key: Optional[str] = No
     inferred_lfc_key = lfc_key
     inferred_score_key = score_key
     
-    # If keys already provided, use them and return early
-    if inferred_lfc_key is not None and (inferred_score_key is not None or 
-                                        not any(k.startswith("kompot_de_mahalanobis") for k in adata.var.columns)):
+    # If keys already provided, just return them
+    if inferred_lfc_key is not None and inferred_score_key is not None:
         return inferred_lfc_key, inferred_score_key
     
     # Get run info from specified run_id - specifically from kompot_de
     run_info = get_run_from_history(adata, run_id, analysis_type="de")
     
-    if run_info is not None:
-        # Get the result_key or expression_key from run info
-        result_key = None
-        if run_info.get('expression_key'):
-            result_key = run_info['expression_key']
-        elif run_info.get('result_key'):
-            result_key = run_info['result_key']
+    if run_info is not None and 'field_names' in run_info:
+        field_names = run_info['field_names']
         
-        # If we found a key, look for run_info inside it
-        if result_key and result_key in adata.uns and 'run_info' in adata.uns[result_key]:
-            key_run_info = adata.uns[result_key]['run_info']
-            
-            # Get the field names
-            if inferred_lfc_key is None and 'lfc_key' in key_run_info:
-                inferred_lfc_key = key_run_info['lfc_key']
-                # Check for naming collision
-                if inferred_lfc_key not in adata.var.columns:
-                    logger.warning(f"Field name '{inferred_lfc_key}' from run_info not found in adata.var columns")
-                    inferred_lfc_key = None
-                else:
-                    logger.debug(f"Using lfc_key '{inferred_lfc_key}' from run {run_id}")
-            
-            # Try to get mahalanobis_key if not provided
-            if inferred_score_key is None and 'mahalanobis_key' in key_run_info and key_run_info['mahalanobis_key']:
-                inferred_score_key = key_run_info['mahalanobis_key']
-                # Check for naming collision
-                if inferred_score_key not in adata.var.columns:
-                    logger.warning(f"Field name '{inferred_score_key}' from run_info not found in adata.var columns")
-                    inferred_score_key = None
-                else:
-                    logger.debug(f"Using score_key '{inferred_score_key}' from run {run_id}")
-    
-    # We already checked kompot_de history above, so we don't need this section
+        # Get lfc_key from field_names
+        if inferred_lfc_key is None and 'mean_lfc_key' in field_names:
+            inferred_lfc_key = field_names['mean_lfc_key']
+            # Check that column exists
+            if inferred_lfc_key not in adata.var.columns:
+                inferred_lfc_key = None
+        
+        # Get score_key from field_names
+        if inferred_score_key is None and 'mahalanobis_key' in field_names:
+            inferred_score_key = field_names['mahalanobis_key']
+            # Check that column exists
+            if inferred_score_key not in adata.var.columns:
+                inferred_score_key = None
     
     # If lfc_key still not found, raise error
     if inferred_lfc_key is None:
-        logger.error("Could not find lfc_key in run data")
-        logger.error(f"Available columns in adata.var: {list(adata.var.columns)}")
-        raise ValueError("Could not infer lfc_key. Please specify manually.")
-    
-    # Convert negative run_id to positive for more informative logging
-    conditions = _extract_conditions_from_key(inferred_lfc_key)
-    # Get the actual run index for logging (convert negative to positive)
-    if run_id < 0:
-        if 'kompot_de' in adata.uns and 'run_history' in adata.uns['kompot_de']:
-            actual_run_id = len(adata.uns['kompot_de']['run_history']) + run_id
-        else:
-            actual_run_id = run_id
-    else:
-        actual_run_id = run_id
-        
-    # Log which run is being used first
-    if conditions:
-        condition1, condition2 = conditions
-        logger.info(f"Using DE run {actual_run_id}: comparing {condition1} vs {condition2}")
-    else:
-        logger.info(f"Using DE run {actual_run_id}")
-    
-    # Then log the fields being used
-    logger.info(f"Using fields for DE plot - lfc_key: '{inferred_lfc_key}', score_key: '{inferred_score_key}'")
+        raise ValueError("Could not infer lfc_key from the specified run. Please specify manually.")
     
     return inferred_lfc_key, inferred_score_key
 
@@ -172,7 +131,7 @@ def _infer_da_keys(adata: AnnData, run_id: int = -1, lfc_key: Optional[str] = No
     lfc_threshold = None
     pval_threshold = None
     
-    # If both keys already provided, use them and return early
+    # If both keys already provided, just check for thresholds and return
     if inferred_lfc_key is not None and inferred_pval_key is not None:
         # Get run info to check for thresholds
         run_info = get_run_from_history(adata, run_id, analysis_type="da")
@@ -180,6 +139,7 @@ def _infer_da_keys(adata: AnnData, run_id: int = -1, lfc_key: Optional[str] = No
             params = run_info['params']
             lfc_threshold = params.get('log_fold_change_threshold')
             pval_threshold = params.get('pvalue_threshold')
+            
         return inferred_lfc_key, inferred_pval_key, (lfc_threshold, pval_threshold)
     
     # Get run info from specified run_id - specifically from kompot_da
@@ -192,80 +152,30 @@ def _infer_da_keys(adata: AnnData, run_id: int = -1, lfc_key: Optional[str] = No
             lfc_threshold = params.get('log_fold_change_threshold')
             pval_threshold = params.get('pvalue_threshold')
         
-        # Get the result_key or abundance_key from run info
-        result_key = None
-        if run_info.get('abundance_key'):
-            result_key = run_info['abundance_key']
-        elif run_info.get('result_key'):
-            result_key = run_info['result_key']
-        
-        # If we found a key, look for run_info inside it
-        if result_key and result_key in adata.uns and 'run_info' in adata.uns[result_key]:
-            key_run_info = adata.uns[result_key]['run_info']
+        # Get field names directly from the run_info
+        if 'field_names' in run_info:
+            field_names = run_info['field_names']
             
-            # Get the field names
-            if inferred_lfc_key is None and 'lfc_key' in key_run_info:
-                inferred_lfc_key = key_run_info['lfc_key']
-                # Check for naming collision
+            # Get lfc_key from field_names
+            if inferred_lfc_key is None and 'lfc_key' in field_names:
+                inferred_lfc_key = field_names['lfc_key']
+                # Check that column exists
                 if inferred_lfc_key not in adata.obs.columns:
-                    logger.warning(f"Field name '{inferred_lfc_key}' from run_info not found in adata.obs columns")
                     inferred_lfc_key = None
-                else:
-                    logger.debug(f"Using lfc_key '{inferred_lfc_key}' from run {run_id}")
             
-            if inferred_pval_key is None and 'pval_key' in key_run_info:
-                inferred_pval_key = key_run_info['pval_key']
-                # Check for naming collision
+            # Get pval_key from field_names
+            if inferred_pval_key is None and 'pval_key' in field_names:
+                inferred_pval_key = field_names['pval_key']
+                # Check that column exists
                 if inferred_pval_key not in adata.obs.columns:
-                    logger.warning(f"Field name '{inferred_pval_key}' from run_info not found in adata.obs columns")
                     inferred_pval_key = None
-                else:
-                    logger.debug(f"Using pval_key '{inferred_pval_key}' from run {run_id}")
-            
-            # Get thresholds from params if we haven't found them yet
-            if lfc_threshold is None or pval_threshold is None:
-                if 'params' in adata.uns[result_key]:
-                    params = adata.uns[result_key]['params']
-                    if lfc_threshold is None:
-                        lfc_threshold = params.get('log_fold_change_threshold')
-                    if pval_threshold is None:
-                        pval_threshold = params.get('pvalue_threshold')
-    
-    # We already checked kompot_da history above, so we don't need this section
     
     # If keys still not found, raise error
     if inferred_lfc_key is None:
-        logger.error("Could not find lfc_key in run data")
-        logger.error(f"Available columns in adata.obs: {list(adata.obs.columns)}")
-        raise ValueError("Could not infer lfc_key. Please specify manually.")
+        raise ValueError("Could not infer lfc_key from the specified run. Please specify manually.")
     
     if inferred_pval_key is None:
-        logger.error("Could not find pval_key in run data")
-        logger.error(f"Available columns in adata.obs: {list(adata.obs.columns)}")
-        raise ValueError("Could not infer pval_key. Please specify manually.")
-    
-    # Convert negative run_id to positive for more informative logging
-    conditions = _extract_conditions_from_key(inferred_lfc_key)
-    # Get the actual run index for logging (convert negative to positive)
-    if run_id < 0:
-        if 'kompot_da' in adata.uns and 'run_history' in adata.uns['kompot_da']:
-            actual_run_id = len(adata.uns['kompot_da']['run_history']) + run_id
-        else:
-            actual_run_id = run_id
-    else:
-        actual_run_id = run_id
-        
-    # Log which run is being used first
-    if conditions:
-        condition1, condition2 = conditions
-        logger.info(f"Using DA run {actual_run_id}: comparing {condition1} vs {condition2}")
-    else:
-        logger.info(f"Using DA run {actual_run_id}")
-    
-    # Then log the fields and thresholds being used
-    logger.info(f"Using fields for DA plot - lfc_key: '{inferred_lfc_key}', pval_key: '{inferred_pval_key}'")
-    if lfc_threshold is not None or pval_threshold is not None:
-        logger.info(f"Using thresholds - lfc_threshold: {lfc_threshold}, pval_threshold: {pval_threshold}")
+        raise ValueError("Could not infer pval_key from the specified run. Please specify manually.")
     
     return inferred_lfc_key, inferred_pval_key, (lfc_threshold, pval_threshold)
 
@@ -273,7 +183,7 @@ def _infer_da_keys(adata: AnnData, run_id: int = -1, lfc_key: Optional[str] = No
 def volcano_de(
     adata: AnnData,
     lfc_key: str = None,
-    score_key: str = None,  # Will be inferred from lfc_key if not provided
+    score_key: str = None,
     condition1: Optional[str] = None,
     condition2: Optional[str] = None,
     n_top_genes: int = 10,
@@ -390,16 +300,39 @@ def volcano_de(
     text_kwargs = {**default_text_kwargs, **(text_kwargs or {})}
     grid_kwargs = grid_kwargs or {'alpha': 0.3}
     
-    # Infer keys using helper function
+    # Infer keys using helper function - this will get the right keys but won't do any logging
     lfc_key, score_key = _infer_de_keys(adata, run_id, lfc_key, score_key)
     
-    # Extract conditions from lfc_key if not provided
+    # Calculate the actual (positive) run ID for logging
+    if run_id < 0:
+        if 'kompot_de' in adata.uns and 'run_history' in adata.uns['kompot_de']:
+            actual_run_id = len(adata.uns['kompot_de']['run_history']) + run_id
+        else:
+            actual_run_id = run_id
+    else:
+        actual_run_id = run_id
+    
+    # Only try to get conditions if they were not explicitly provided
     if condition1 is None or condition2 is None:
+        # Try to extract from key name
         conditions = _extract_conditions_from_key(lfc_key)
         if conditions:
             condition1, condition2 = conditions
+        else:
+            # If not in key, try getting from run info
+            run_info = get_run_from_history(adata, run_id, analysis_type="de")
+            if run_info is not None and 'params' in run_info:
+                params = run_info['params']
+                if 'conditions' in params and len(params['conditions']) == 2:
+                    condition1 = params['conditions'][0]
+                    condition2 = params['conditions'][1]
     
-    # Only update axis labels, logging of fields and conditions is done earlier
+    # Log which run and fields are being used
+    conditions_str = f": comparing {condition1} vs {condition2}" if condition1 and condition2 else ""
+    logger.info(f"Using DE run {actual_run_id}{conditions_str}")
+    logger.info(f"Using fields for DE plot - lfc_key: '{lfc_key}', score_key: '{score_key}'")
+    
+    # Update axis labels
     if condition1 and condition2 and xlabel == "Log Fold Change":
         # Adjust for new key format where condition1 is the baseline/denominator
         xlabel = f"Log Fold Change: {condition2} / {condition1}"
@@ -632,6 +565,10 @@ def volcano_da(
         Specific run ID to use for fetching field names from run history.
         Negative indices count from the end (-1 is the latest run). If None, 
         uses the latest run information.
+    condition1 : str, optional
+        Name of condition 1 (denominator in fold change)
+    condition2 : str, optional
+        Name of condition 2 (numerator in fold change)
     **kwargs : 
         Additional parameters passed to plt.scatter
         
@@ -645,6 +582,15 @@ def volcano_da(
     # Infer keys using helper function
     lfc_key, pval_key, thresholds = _infer_da_keys(adata, run_id, lfc_key, pval_key)
     
+    # Calculate the actual (positive) run ID for logging
+    if run_id < 0:
+        if 'kompot_da' in adata.uns and 'run_history' in adata.uns['kompot_da']:
+            actual_run_id = len(adata.uns['kompot_da']['run_history']) + run_id
+        else:
+            actual_run_id = run_id
+    else:
+        actual_run_id = run_id
+    
     # Extract the threshold values
     auto_lfc_threshold, auto_pval_threshold = thresholds
     
@@ -656,15 +602,35 @@ def volcano_da(
     if pval_threshold is None and auto_pval_threshold is not None:
         pval_threshold = auto_pval_threshold
         logger.debug(f"Using automatically detected pval_threshold: {pval_threshold}")
-        
-    # Extract conditions to update axis labels (logging of fields is done earlier)
-    conditions = _extract_conditions_from_key(lfc_key)
-    if conditions:
-        condition1, condition2 = conditions
-        # Update axis labels with condition information if not explicitly set
-        if xlabel == "Log Fold Change":
-            # Adjust for new key format where condition1 is the baseline/denominator
-            xlabel = f"Log Fold Change: {condition2} / {condition1}"
+    
+    # Get condition information from the run specified by run_id
+    run_info = get_run_from_history(adata, run_id, analysis_type="da")
+    condition1 = None
+    condition2 = None
+    
+    if run_info is not None and 'params' in run_info:
+        params = run_info['params']
+        if 'conditions' in params and len(params['conditions']) == 2:
+            condition1 = params['conditions'][0]
+            condition2 = params['conditions'][1]
+    
+    # Try to extract from key name if still not found
+    if (condition1 is None or condition2 is None) and lfc_key is not None:
+        conditions = _extract_conditions_from_key(lfc_key)
+        if conditions:
+            condition1, condition2 = conditions
+    
+    # Log which run and fields are being used
+    conditions_str = f": comparing {condition1} vs {condition2}" if condition1 and condition2 else ""
+    logger.info(f"Using DA run {actual_run_id}{conditions_str}")
+    logger.info(f"Using fields for DA plot - lfc_key: '{lfc_key}', pval_key: '{pval_key}'")
+    if lfc_threshold is not None or pval_threshold is not None:
+        logger.info(f"Using thresholds - lfc_threshold: {lfc_threshold}, pval_threshold: {pval_threshold}")
+    
+    # Update axis labels with condition information if not explicitly set
+    if condition1 and condition2 and xlabel == "Log Fold Change":
+        # Adjust for new key format where condition1 is the baseline/denominator
+        xlabel = f"Log Fold Change: {condition2} / {condition1}"
     
     # Create figure if ax not provided - adjust figsize if legend is outside
     if ax is None:

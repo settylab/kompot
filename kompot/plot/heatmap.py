@@ -10,6 +10,7 @@ import seaborn as sns
 import logging
 
 from ..utils import get_run_from_history, KOMPOT_COLORS
+from .volcano import _extract_conditions_from_key, _infer_da_keys
 try:
     import scanpy as sc
     _has_scanpy = True
@@ -17,6 +18,105 @@ except ImportError:
     _has_scanpy = False
 
 logger = logging.getLogger("kompot")
+
+
+def _infer_direction_key(adata: AnnData, run_id: int = -1, direction_column: Optional[str] = None):
+    """
+    Infer direction column for direction barplots from AnnData object.
+    
+    Parameters
+    ----------
+    adata : AnnData
+        AnnData object with differential abundance results
+    run_id : int, optional
+        Run ID to use. Default is -1 (latest run).
+    direction_column : str, optional
+        Direction column to use. If provided, will be returned as is.
+        
+    Returns
+    -------
+    tuple
+        (direction_column, condition1, condition2) with the inferred values
+    """
+    # If direction column already provided, just check if it exists
+    if direction_column is not None:
+        if direction_column in adata.obs.columns:
+            # Try to extract conditions from the column name
+            conditions = _extract_conditions_from_key(direction_column)
+            if conditions:
+                condition1, condition2 = conditions
+                return direction_column, condition1, condition2
+            else:
+                return direction_column, None, None
+        else:
+            logger.warning(f"Provided direction_column '{direction_column}' not found in adata.obs")
+            direction_column = None
+            
+    # Get run info from specified run_id - specifically from kompot_da
+    run_info = get_run_from_history(adata, run_id, analysis_type="da")
+    condition1 = None
+    condition2 = None
+    
+    # Get condition information
+    if run_info is not None and 'params' in run_info:
+        params = run_info['params']
+        if 'conditions' in params and len(params['conditions']) == 2:
+            condition1 = params['conditions'][0]
+            condition2 = params['conditions'][1]
+    
+    # First try to get direction column from run info field_names
+    if run_info is not None and 'field_names' in run_info:
+        field_names = run_info['field_names']
+        if 'direction_key' in field_names:
+            direction_column = field_names['direction_key']
+            # Check that column exists
+            if direction_column not in adata.obs.columns:
+                direction_column = None
+    
+    # If not found in field_names, try the older method with abundance_key
+    if direction_column is None and run_info is not None:
+        if 'abundance_key' in run_info:
+            result_key = run_info['abundance_key']
+            if result_key in adata.uns and 'run_info' in adata.uns[result_key]:
+                key_run_info = adata.uns[result_key]['run_info']
+                if 'direction_key' in key_run_info:
+                    direction_column = key_run_info['direction_key']
+    
+    # If still not found, look for columns matching pattern
+    if direction_column is None:
+        direction_cols = [col for col in adata.obs.columns if "kompot_da_log_fold_change_direction" in col]
+        if not direction_cols:
+            return None, condition1, condition2
+        elif len(direction_cols) == 1:
+            direction_column = direction_cols[0]
+        else:
+            # If conditions provided, try to find matching column
+            if condition1 and condition2:
+                for col in direction_cols:
+                    if f"{condition1}_vs_{condition2}" in col:
+                        direction_column = col
+                        break
+                    elif f"{condition2}_vs_{condition1}" in col:
+                        direction_column = col
+                        # Keep this warning as it's informative about reversed condition order
+                        logger.warning(f"Found direction column with reversed conditions: {col}")
+                        break
+                if direction_column is None:
+                    direction_column = direction_cols[0]
+                    # Keep this warning as it's important information about ambiguity
+                    logger.warning(f"Multiple direction columns found, using the first one: {direction_column}")
+            else:
+                direction_column = direction_cols[0]
+                # Keep this warning as it's important information about ambiguity
+                logger.warning(f"Multiple direction columns found, using the first one: {direction_column}")
+                
+    # If we found a direction column but not conditions, try to extract them from the column name
+    if direction_column is not None and (condition1 is None or condition2 is None):
+        conditions = _extract_conditions_from_key(direction_column)
+        if conditions:
+            condition1, condition2 = conditions
+            
+    return direction_column, condition1, condition2
 
 
 def _infer_heatmap_keys(adata: AnnData, run_id: Optional[int] = None, lfc_key: Optional[str] = None,
@@ -43,96 +143,50 @@ def _infer_heatmap_keys(adata: AnnData, run_id: Optional[int] = None, lfc_key: O
     inferred_lfc_key = lfc_key
     inferred_score_key = score_key
     
-    # If keys already provided, just use them (logging will be done at the end)
+    # If keys already provided, just return them
     if inferred_lfc_key is not None and not (score_key == "kompot_de_mahalanobis" and 
                                         not any(k == score_key for k in adata.var.columns)):
         return inferred_lfc_key, inferred_score_key
     
-    # Try to get key from specific run if requested - specifically from kompot_de first
-    run_info = get_run_from_history(adata, run_id, analysis_type="de")
-    if run_info is not None and run_info.get('expression_key'):
-        de_key = run_info['expression_key']
+    # Use the specified run_id to get keys from the run history
+    if run_id is not None:
+        # Get run info from kompot_de for the specific run_id
+        run_info = get_run_from_history(adata, run_id, analysis_type="de")
         
-        # Check if we have run_info for this key
-        if de_key in adata.uns and 'run_info' in adata.uns[de_key]:
-            key_run_info = adata.uns[de_key]['run_info']
-            if inferred_lfc_key is None and 'lfc_key' in key_run_info:
-                inferred_lfc_key = key_run_info['lfc_key']
+        if run_info is not None and 'field_names' in run_info:
+            field_names = run_info['field_names']
             
-            # Try to use mahalanobis key from run info if available
-            if score_key == "kompot_de_mahalanobis" and 'mahalanobis_key' in key_run_info and key_run_info['mahalanobis_key']:
-                inferred_score_key = key_run_info['mahalanobis_key']
-    
-    # If still no lfc_key, try global history
-    if inferred_lfc_key is None:
-        run_info = get_run_from_history(adata, run_id, history_key="kompot_run_history")
-        if run_info is not None and run_info.get('expression_key'):
-            de_key = run_info['expression_key']
+            # Get lfc_key from field_names
+            if inferred_lfc_key is None and 'mean_lfc_key' in field_names:
+                inferred_lfc_key = field_names['mean_lfc_key']
+                # Check that column exists
+                if inferred_lfc_key not in adata.var.columns:
+                    inferred_lfc_key = None
             
-            # Check if we have run_info for this key
-            if de_key in adata.uns and 'run_info' in adata.uns[de_key]:
-                key_run_info = adata.uns[de_key]['run_info']
-                if inferred_lfc_key is None and 'lfc_key' in key_run_info:
-                    inferred_lfc_key = key_run_info['lfc_key']
-                
-                # Try to use mahalanobis key from run info if available
-                if score_key == "kompot_de_mahalanobis" and 'mahalanobis_key' in key_run_info and key_run_info['mahalanobis_key']:
-                    inferred_score_key = key_run_info['mahalanobis_key']
+            # Get score_key from field_names if needed
+            if score_key == "kompot_de_mahalanobis" and 'mahalanobis_key' in field_names:
+                inferred_score_key = field_names['mahalanobis_key']
+                # Check that column exists
+                if inferred_score_key not in adata.var.columns:
+                    inferred_score_key = None
     
-    # If still no lfc_key, try latest run
-    if (inferred_lfc_key is None or score_key == "kompot_de_mahalanobis") and 'kompot_latest_run' in adata.uns and adata.uns['kompot_latest_run'].get('expression_key'):
-        # Get the latest DE run key
-        de_key = adata.uns['kompot_latest_run']['expression_key']
-        
-        # Check if we have run_info for this key
-        if de_key in adata.uns and 'run_info' in adata.uns[de_key]:
-            run_info = adata.uns[de_key]['run_info']
-            if inferred_lfc_key is None and 'lfc_key' in run_info:
-                inferred_lfc_key = run_info['lfc_key']
-            
-            # Try to use mahalanobis key from run info if available
-            if score_key == "kompot_de_mahalanobis" and 'mahalanobis_key' in run_info and run_info['mahalanobis_key']:
-                inferred_score_key = run_info['mahalanobis_key']
-    
-    # If still not found, try to infer from column names
-    source_description = None
-    if inferred_lfc_key is None:
+    # For backwards compatibility - if run_id is None, try to use latest run 
+    elif inferred_lfc_key is None:
+        # Try to infer from column names
         lfc_keys = [k for k in adata.var.columns if 'kompot_de_' in k and 'lfc' in k.lower()]
         if len(lfc_keys) == 1:
             inferred_lfc_key = lfc_keys[0]
-            source_description = "column names (single match)"
         elif len(lfc_keys) > 1:
             # If multiple keys found, try to find the mean or avg one
             mean_keys = [k for k in lfc_keys if 'mean' in k.lower() or 'avg' in k.lower()]
             if mean_keys:
                 inferred_lfc_key = mean_keys[0]
-                source_description = "column names (mean/avg key)"
             else:
                 inferred_lfc_key = lfc_keys[0]
-                source_description = "column names (first of multiple keys)"
-        else:
-            raise ValueError("Could not infer lfc_key. Please specify manually.")
     
-    # Convert the run_id to a more readable form first
-    if run_id is not None:
-        if run_id < 0:
-            if 'kompot_de' in adata.uns and 'run_history' in adata.uns['kompot_de']:
-                actual_run_id = len(adata.uns['kompot_de']['run_history']) + run_id
-            else:
-                actual_run_id = run_id
-        else:
-            actual_run_id = run_id
-            
-        # Log which run is being used
-        logger.info(f"Using DE run {actual_run_id} for heatmap")
-    else:
-        logger.info("Using latest available DE run for heatmap")
-    
-    # Log the final field selection with source info if available
-    if source_description:
-        logger.info(f"Using fields for heatmap - lfc_key: '{inferred_lfc_key}' (from {source_description}), score_key: '{inferred_score_key}'")
-    else:
-        logger.info(f"Using fields for heatmap - lfc_key: '{inferred_lfc_key}', score_key: '{inferred_score_key}'")
+    # If lfc_key still not found, raise error
+    if inferred_lfc_key is None:
+        raise ValueError("Could not infer lfc_key from the specified run. Please specify manually.")
     
     return inferred_lfc_key, inferred_score_key
 
@@ -175,11 +229,13 @@ def direction_barplot(
         Column in adata.obs to use for grouping (e.g., "cell_type")
     direction_column : str, optional
         Column in adata.obs containing direction information.
-        If None, will try to infer from "kompot_da_log_fold_change_direction" pattern.
+        If None, will try to infer from the run specified by run_id.
     condition1 : str, optional
-        Name of condition 1 (denominator in fold change)
+        Name of condition 1 (denominator in fold change).
+        If None, will try to infer from the run_id.
     condition2 : str, optional
-        Name of condition 2 (numerator in fold change)
+        Name of condition 2 (numerator in fold change).
+        If None, will try to infer from the run_id.
     normalize : str or None, optional
         How to normalize the data. Options:
         - "index": normalize across rows (sum to 100% for each category)
@@ -215,7 +271,8 @@ def direction_barplot(
         Path to save figure. If None, figure is not saved
     run_id : int, optional
         Specific run ID to use for fetching data from run history.
-        Negative indices count from the end (-1 is the latest run). 
+        Negative indices count from the end (-1 is the latest run).
+        This determines which differential abundance run's data is used.
     **kwargs : 
         Additional parameters passed to pandas.DataFrame.plot
         
@@ -235,72 +292,35 @@ def direction_barplot(
     if ylabel is None:
         ylabel = "Percentage (%)" if normalize == "index" else "Count"
     
-    # Get run information if available
-    run_info = get_run_from_history(adata, run_id)
-    
-    # Log run information - always use positive run index for logging
-    if run_info is not None:
-        # Get the actual run index for logging (convert negative to positive)
-        if run_id < 0:
-            if 'kompot_da' in adata.uns and 'run_history' in adata.uns['kompot_da']:
-                actual_run_id = len(adata.uns['kompot_da']['run_history']) + run_id
-            elif 'kompot_run_history' in adata.uns:
-                actual_run_id = len(adata.uns['kompot_run_history']) + run_id
-            else:
-                actual_run_id = run_id
+    # Calculate the actual (positive) run ID for logging
+    actual_run_id = None
+    if run_id < 0:
+        if 'kompot_da' in adata.uns and 'run_history' in adata.uns['kompot_da']:
+            actual_run_id = len(adata.uns['kompot_da']['run_history']) + run_id
+        elif 'kompot_run_history' in adata.uns:
+            actual_run_id = len(adata.uns['kompot_run_history']) + run_id
         else:
             actual_run_id = run_id
-            
-        logger.info(f"Using run {actual_run_id} for direction_barplot")
-            
-        # Extract conditions from run info if available for better logging
-        run_conditions = None
-        if 'params' in run_info and 'condition_key' in run_info['params'] and 'conditions' in run_info['params']:
-            cond_key = run_info['params']['condition_key']
-            conditions = run_info['params']['conditions']
-            if len(conditions) == 2:
-                run_conditions = conditions
-                logger.info(f"Run compares conditions: {conditions[0]} vs {conditions[1]} (key: {cond_key})")
+    else:
+        actual_run_id = run_id
     
-    # Infer direction column if not provided
+    # Use the helper function to infer the direction column and conditions
+    direction_column, inferred_condition1, inferred_condition2 = _infer_direction_key(adata, run_id, direction_column)
+    
+    # Use the inferred conditions if not explicitly provided
+    if condition1 is None:
+        condition1 = inferred_condition1
+    if condition2 is None:
+        condition2 = inferred_condition2
+    
+    # Log which run is being used and the conditions
+    conditions_str = f": comparing {condition1} vs {condition2}" if condition1 and condition2 else ""
+    logger.info(f"Using DA run {actual_run_id} for direction_barplot{conditions_str}")
+    
+    # Raise error if direction column not found
     if direction_column is None:
-        # Try to get direction column from run info
-        if run_info is not None:
-            if 'abundance_key' in run_info:
-                result_key = run_info['abundance_key']
-                if result_key in adata.uns and 'run_info' in adata.uns[result_key]:
-                    key_run_info = adata.uns[result_key]['run_info']
-                    if 'direction_key' in key_run_info:
-                        direction_column = key_run_info['direction_key']
-        
-        # If not found in run info, look for columns matching pattern
-        if direction_column is None:
-            direction_cols = [col for col in adata.obs.columns if "kompot_da_log_fold_change_direction" in col]
-            if not direction_cols:
-                raise ValueError("Could not find direction column. Please specify direction_column.")
-            elif len(direction_cols) == 1:
-                direction_column = direction_cols[0]
-            else:
-                # If conditions provided, try to find matching column
-                if condition1 and condition2:
-                    for col in direction_cols:
-                        if f"{condition1}_vs_{condition2}" in col:
-                            direction_column = col
-                            break
-                        elif f"{condition2}_vs_{condition1}" in col:
-                            direction_column = col
-                            # Keep this warning as it's informative about reversed condition order
-                            logger.warning(f"Found direction column with reversed conditions: {col}")
-                            break
-                    if direction_column is None:
-                        direction_column = direction_cols[0]
-                        # Keep this warning as it's important information about ambiguity
-                        logger.warning(f"Multiple direction columns found, using the first one: {direction_column}")
-                else:
-                    direction_column = direction_cols[0]
-                    # Keep this warning as it's important information about ambiguity
-                    logger.warning(f"Multiple direction columns found, using the first one: {direction_column}")
-                    
+        raise ValueError("Could not find direction column. Please specify direction_column.")
+    
     # Log the plot type and conditions first, then fields
     if condition1 and condition2:
         logger.info(f"Creating direction barplot for {condition1} vs {condition2}")
@@ -309,15 +329,6 @@ def direction_barplot(
     
     # Log the fields being used in the plot
     logger.info(f"Using fields - category_column: '{category_column}', direction_column: '{direction_column}'")
-    
-    # Extract condition names from direction column if not provided
-    if (condition1 is None or condition2 is None) and "_vs_" in direction_column:
-        parts = direction_column.split("_vs_")
-        if len(parts) >= 2:
-            cond_parts = parts[-2:]
-            # Remove any trailing parts after condition names
-            condition1 = cond_parts[0].split("_")[-1]
-            condition2 = cond_parts[1].split("_")[0]
     
     # Create the crosstab
     crosstab = pd.crosstab(
@@ -503,6 +514,44 @@ def heatmap(
     if var_names is None:
         # Infer keys using the helper function
         lfc_key, score_key = _infer_heatmap_keys(adata, run_id, lfc_key, score_key)
+        
+        # Calculate the actual (positive) run ID for logging
+        actual_run_id = None
+        if run_id is not None:
+            if run_id < 0:
+                if 'kompot_de' in adata.uns and 'run_history' in adata.uns['kompot_de']:
+                    actual_run_id = len(adata.uns['kompot_de']['run_history']) + run_id
+                else:
+                    actual_run_id = run_id
+            else:
+                actual_run_id = run_id
+        
+        # Get condition information from the run specified by run_id
+        condition1 = None
+        condition2 = None
+        run_info = get_run_from_history(adata, run_id, analysis_type="de")
+        
+        if run_info is not None and 'params' in run_info:
+            params = run_info['params']
+            if 'conditions' in params and len(params['conditions']) == 2:
+                condition1 = params['conditions'][0]
+                condition2 = params['conditions'][1]
+        
+        # Try to extract from key name if still not found
+        if (condition1 is None or condition2 is None) and lfc_key is not None:
+            conditions = _extract_conditions_from_key(lfc_key)
+            if conditions:
+                condition1, condition2 = conditions
+        
+        # Log which run is being used
+        if run_id is not None:
+            conditions_str = f": comparing {condition1} vs {condition2}" if condition1 and condition2 else ""
+            logger.info(f"Using DE run {actual_run_id} for heatmap{conditions_str}")
+        else:
+            logger.info("Using latest available DE run for heatmap")
+            
+        # Log the fields being used
+        logger.info(f"Using fields for heatmap - lfc_key: '{lfc_key}', score_key: '{score_key}'")
         
         # Get top genes based on score
         de_data = pd.DataFrame({

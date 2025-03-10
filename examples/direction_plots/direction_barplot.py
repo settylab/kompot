@@ -1,6 +1,7 @@
 """
-Example script for creating a stacked bar chart showing the direction of change by cell type
-using Kompot's centralized color definitions.
+Example script for creating a stacked bar chart showing the direction of change by cell type.
+
+This script demonstrates using the direction_barplot function from Kompot.
 """
 
 import numpy as np
@@ -12,80 +13,7 @@ import os
 # Add parent directory to path if running as script
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from kompot.utils import KOMPOT_COLORS
-
-
-def plot_direction_by_cell_type(adata, cell_type_column, direction_column='kompot_da_log_fold_change_direction',
-                                condition1='Control', condition2='Treatment', figsize=(12, 6)):
-    """Create a stacked bar chart showing direction of change by cell type using Kompot colors.
-    
-    Parameters
-    ----------
-    adata : AnnData
-        AnnData object with differential abundance results
-    cell_type_column : str
-        Column in adata.obs containing cell type annotations
-    direction_column : str
-        Column in adata.obs containing direction information
-    condition1 : str
-        Name of the first condition for the title
-    condition2 : str
-        Name of the second condition for the title
-    figsize : tuple
-        Size of the figure
-        
-    Returns
-    -------
-    matplotlib.figure.Figure
-        The figure object
-    """
-    # Create crosstab (percentage of each direction by cell type)
-    crosstab = (
-        pd.crosstab(
-            adata.obs[cell_type_column],
-            adata.obs[direction_column],
-            normalize="index",
-        )
-        * 100
-    )
-
-    # Get colors from Kompot's color palette
-    direction_colors = KOMPOT_COLORS["direction"]
-    
-    # Order columns consistently
-    ordered_columns = []
-    if "up" in crosstab.columns:
-        ordered_columns.append("up")
-    if "down" in crosstab.columns:
-        ordered_columns.append("down")
-    if "neutral" in crosstab.columns:
-        ordered_columns.append("neutral")
-        
-    # Filter columns to only those that exist in the data
-    ordered_columns = [col for col in ordered_columns if col in crosstab.columns]
-    crosstab = crosstab[ordered_columns]
-    
-    # Create color list matching the ordered columns
-    colors = [direction_colors[col] for col in ordered_columns]
-    
-    # Create plot
-    fig, ax = plt.subplots(figsize=figsize)
-    crosstab.plot(
-        kind="bar",
-        stacked=True,
-        color=colors,
-        ax=ax
-    )
-    
-    # Add labels and styling
-    ax.set_xlabel("Cell Type")
-    ax.set_ylabel("Percentage (%)")
-    ax.set_title(f"Direction of Change by Cell Type\n{condition2} vs {condition1}")
-    plt.xticks(rotation=90)
-    ax.legend(title="Direction")
-    plt.tight_layout()
-    
-    return fig
+from kompot.plot.heatmap import direction_barplot
 
 
 if __name__ == "__main__":
@@ -102,12 +30,49 @@ if __name__ == "__main__":
     directions = np.random.choice(['up', 'down', 'neutral'], size=adata.n_obs, p=[0.3, 0.3, 0.4])
     adata.obs['kompot_da_log_fold_change_direction'] = directions
     
-    # Plot and save
-    print("Creating plot...")
-    fig = plot_direction_by_cell_type(adata, 'louvain', condition1='Control', condition2='Treatment')
+    # Add a dummy run in the run history
+    adata.uns['kompot_da'] = {
+        'run_history': [
+            {
+                'params': {
+                    'conditions': ['Control', 'Treatment']
+                },
+                'field_names': {
+                    'direction_key': 'kompot_da_log_fold_change_direction'
+                }
+            }
+        ]
+    }
+    
+    # Plot using the built-in direction_barplot function
+    print("Creating plot with automatic parameter detection...")
+    # The function will automatically infer direction_column and conditions from run_id
+    fig, ax = direction_barplot(
+        adata, 
+        category_column='louvain',
+        return_fig=True
+    )
     
     # Save to file
-    output_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'direction_barplot.png')
+    output_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'direction_barplot_auto.png')
+    fig.savefig(output_file, dpi=300, bbox_inches='tight')
+    print(f"Plot saved to: {output_file}")
+    
+    # Create another plot with explicit parameters
+    print("Creating plot with explicit parameters...")
+    fig, ax = direction_barplot(
+        adata, 
+        category_column='louvain',
+        direction_column='kompot_da_log_fold_change_direction',
+        condition1='Control',
+        condition2='Treatment',
+        title="Custom Title: Cell Type Direction Distribution",
+        stacked=True,
+        return_fig=True
+    )
+    
+    # Save to file
+    output_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'direction_barplot_explicit.png')
     fig.savefig(output_file, dpi=300, bbox_inches='tight')
     print(f"Plot saved to: {output_file}")
     
