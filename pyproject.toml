@@ -4,3 +4,4 @@ build-backend = "setuptools.build_meta"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = "--cov=kompot --cov-report=xml --cov-report=term-missing"
