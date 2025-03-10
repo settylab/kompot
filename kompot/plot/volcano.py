@@ -125,13 +125,19 @@ def _infer_de_keys(adata: AnnData, run_id: int = -1, lfc_key: Optional[str] = No
     logger.debug(f"Detected lfc_key: '{inferred_lfc_key}'")
     logger.debug(f"Detected score_key: '{inferred_score_key}'")
     
-    # Log the final results of the inference at info level
+    # Log the final results of the inference at info level - convert negative run_id to positive
     conditions = _extract_conditions_from_key(inferred_lfc_key)
+    # Get the actual run index for logging (convert negative to positive)
+    if run_id < 0 and 'kompot_run_history' in adata.uns:
+        actual_run_id = len(adata.uns['kompot_run_history']) + run_id
+    else:
+        actual_run_id = run_id
+        
     if conditions:
         condition1, condition2 = conditions
-        logger.info(f"Using DE run {run_id}: comparing {condition1} vs {condition2}")
+        logger.info(f"Using DE run {actual_run_id}: comparing {condition1} vs {condition2}")
     else:
-        logger.info(f"Using DE run {run_id}")
+        logger.info(f"Using DE run {actual_run_id}")
     
     return inferred_lfc_key, inferred_score_key
 
@@ -246,13 +252,19 @@ def _infer_da_keys(adata: AnnData, run_id: int = -1, lfc_key: Optional[str] = No
     logger.debug(f"Detected log_fold_change_threshold: {lfc_threshold}")
     logger.debug(f"Detected pvalue_threshold: {pval_threshold}")
     
-    # Log the final results of the inference at info level
+    # Log the final results of the inference at info level - convert negative run_id to positive
     conditions = _extract_conditions_from_key(inferred_lfc_key)
+    # Get the actual run index for logging (convert negative to positive)
+    if run_id < 0 and 'kompot_run_history' in adata.uns:
+        actual_run_id = len(adata.uns['kompot_run_history']) + run_id
+    else:
+        actual_run_id = run_id
+        
     if conditions:
         condition1, condition2 = conditions
-        logger.info(f"Using DA run {run_id}: comparing {condition1} vs {condition2}")
+        logger.info(f"Using DA run {actual_run_id}: comparing {condition1} vs {condition2}")
     else:
-        logger.info(f"Using DA run {run_id}")
+        logger.info(f"Using DA run {actual_run_id}")
     
     return inferred_lfc_key, inferred_pval_key, (lfc_threshold, pval_threshold)
 

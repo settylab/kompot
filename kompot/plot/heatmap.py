@@ -201,13 +201,15 @@ def direction_barplot(
     # Get run information if available
     run_info = get_run_from_history(adata, run_id)
     
-    # Log run information
+    # Log run information - always use positive run index for logging
     if run_info is not None:
-        if run_id >= 0:
-            logger.info(f"Using run {run_id} for direction_barplot")
+        # Get the actual run index for logging (convert negative to positive)
+        if run_id < 0 and 'kompot_run_history' in adata.uns:
+            actual_run_id = len(adata.uns['kompot_run_history']) + run_id
         else:
-            actual_run_idx = len(adata.uns.get('kompot_run_history', [])) + run_id if 'kompot_run_history' in adata.uns else "unknown"
-            logger.info(f"Using run {actual_run_idx} (from end: {run_id}) for direction_barplot")
+            actual_run_id = run_id
+            
+        logger.info(f"Using run {actual_run_id} for direction_barplot")
             
         # Extract conditions from run info if available for better logging
         run_conditions = None

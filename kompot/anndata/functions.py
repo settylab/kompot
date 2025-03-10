@@ -252,14 +252,17 @@ def compute_differential_abundance(
     cond1_safe = _sanitize_name(condition1)
     cond2_safe = _sanitize_name(condition2)
     
+    # Add suffix when sample variance is used
+    sample_suffix = "_sample_var" if sample_col is not None else ""
+    
     # Assign values to masked cells with more descriptive column names
     # Change to put base condition (condition1) first in the key name
-    adata.obs[f"{result_key}_log_fold_change_{cond1_safe}_vs_{cond2_safe}"] = abundance_results['log_fold_change']
-    adata.obs[f"{result_key}_log_fold_change_zscore_{cond1_safe}_vs_{cond2_safe}"] = abundance_results['log_fold_change_zscore']
-    adata.obs[f"{result_key}_neg_log10_fold_change_pvalue_{cond1_safe}_vs_{cond2_safe}"] = abundance_results['neg_log10_fold_change_pvalue']  # Now using negative log10 p-values (higher = more significant)
+    adata.obs[f"{result_key}_log_fold_change_{cond1_safe}_vs_{cond2_safe}{sample_suffix}"] = abundance_results['log_fold_change']
+    adata.obs[f"{result_key}_log_fold_change_zscore_{cond1_safe}_vs_{cond2_safe}{sample_suffix}"] = abundance_results['log_fold_change_zscore']
+    adata.obs[f"{result_key}_neg_log10_fold_change_pvalue_{cond1_safe}_vs_{cond2_safe}{sample_suffix}"] = abundance_results['neg_log10_fold_change_pvalue']  # Now using negative log10 p-values (higher = more significant)
     
     # Add the direction column
-    direction_col = f"{result_key}_log_fold_change_direction_{cond1_safe}_vs_{cond2_safe}"
+    direction_col = f"{result_key}_log_fold_change_direction_{cond1_safe}_vs_{cond2_safe}{sample_suffix}"
     adata.obs[direction_col] = abundance_results['log_fold_change_direction']
     
     # Add standard color mapping for direction categories in adata.uns
@@ -283,8 +286,8 @@ def compute_differential_abundance(
     adata.uns[f"{direction_col}_colors"] = color_list
     
     # Store log densities for each condition with descriptive names
-    adata.obs[f"{result_key}_log_density_{cond1_safe}"] = abundance_results['log_density_condition1']
-    adata.obs[f"{result_key}_log_density_{cond2_safe}"] = abundance_results['log_density_condition2']
+    adata.obs[f"{result_key}_log_density_{cond1_safe}{sample_suffix}"] = abundance_results['log_density_condition1']
+    adata.obs[f"{result_key}_log_density_{cond2_safe}{sample_suffix}"] = abundance_results['log_density_condition2']
     
     # Prepare parameters, run timestamp, and field metadata
     current_timestamp = datetime.datetime.now().isoformat()
@@ -293,14 +296,15 @@ def compute_differential_abundance(
         "timestamp": current_timestamp,
         "function": "compute_differential_abundance",
         "result_key": result_key,
-        "lfc_key": f"{result_key}_log_fold_change_{cond1_safe}_vs_{cond2_safe}",
-        "zscore_key": f"{result_key}_log_fold_change_zscore_{cond1_safe}_vs_{cond2_safe}",
-        "pval_key": f"{result_key}_neg_log10_fold_change_pvalue_{cond1_safe}_vs_{cond2_safe}",
-        "direction_key": f"{result_key}_log_fold_change_direction_{cond1_safe}_vs_{cond2_safe}",
+        "lfc_key": f"{result_key}_log_fold_change_{cond1_safe}_vs_{cond2_safe}{sample_suffix}",
+        "zscore_key": f"{result_key}_log_fold_change_zscore_{cond1_safe}_vs_{cond2_safe}{sample_suffix}",
+        "pval_key": f"{result_key}_neg_log10_fold_change_pvalue_{cond1_safe}_vs_{cond2_safe}{sample_suffix}",
+        "direction_key": f"{result_key}_log_fold_change_direction_{cond1_safe}_vs_{cond2_safe}{sample_suffix}",
         "density_keys": {
-            "condition1": f"{result_key}_log_density_{cond1_safe}",
-            "condition2": f"{result_key}_log_density_{cond2_safe}"
-        }
+            "condition1": f"{result_key}_log_density_{cond1_safe}{sample_suffix}",
+            "condition2": f"{result_key}_log_density_{cond2_safe}{sample_suffix}"
+        },
+        "uses_sample_variance": sample_col is not None
     }
     
     current_params = {
@@ -695,6 +699,9 @@ def compute_differential_expression(
         cond1_safe = _sanitize_name(condition1)
         cond2_safe = _sanitize_name(condition2)
         
+        # Add suffix when sample variance is used
+        sample_suffix = "_sample_var" if sample_col is not None else ""
+        
         # Add gene-level metrics to adata.var
         if compute_mahalanobis:
             # Make sure mahalanobis_distances is an array with the same length as selected_genes
@@ -723,14 +730,14 @@ def compute_differential_expression(
                     # Truncate if the array is too long
                     mahalanobis_distances = mahalanobis_distances[:len(selected_genes)]
                 
-            mahalanobis_key = f"{result_key}_mahalanobis_{cond1_safe}_vs_{cond2_safe}"
+            mahalanobis_key = f"{result_key}_mahalanobis_{cond1_safe}_vs_{cond2_safe}{sample_suffix}"
             adata.var[mahalanobis_key] = pd.Series(np.nan, index=adata.var_names)
             adata.var.loc[selected_genes, mahalanobis_key] = mahalanobis_distances
         
         if differential_abundance_key is not None:
             # Initialize with np.nan of appropriate shape - use more descriptive column name
             # Change to put base condition (condition1) first in the key name
-            column_name = f"{result_key}_weighted_lfc_{cond1_safe}_vs_{cond2_safe}"
+            column_name = f"{result_key}_weighted_lfc_{cond1_safe}_vs_{cond2_safe}{sample_suffix}"
             adata.var[column_name] = pd.Series(np.nan, index=adata.var_names)
             
             # Extract and verify weighted_mean_log_fold_change
@@ -762,7 +769,7 @@ def compute_differential_expression(
         # Initialize with np.nan of appropriate shape - use more descriptive column names
         # Add mean log fold change with descriptive name
         # Change to put base condition (condition1) first in the key name
-        mean_lfc_column = f"{result_key}_mean_lfc_{cond1_safe}_vs_{cond2_safe}"
+        mean_lfc_column = f"{result_key}_mean_lfc_{cond1_safe}_vs_{cond2_safe}{sample_suffix}"
         adata.var[mean_lfc_column] = pd.Series(np.nan, index=adata.var_names)
         
         # Extract and verify mean_log_fold_change
@@ -792,7 +799,7 @@ def compute_differential_expression(
         adata.var.loc[selected_genes, mean_lfc_column] = mean_lfc
         
         # Standard deviation of log fold change
-        lfc_std_key = f"{result_key}_lfc_std_{cond1_safe}_vs_{cond2_safe}"
+        lfc_std_key = f"{result_key}_lfc_std_{cond1_safe}_vs_{cond2_safe}{sample_suffix}"
         adata.var[lfc_std_key] = pd.Series(np.nan, index=adata.var_names)
         
         # Extract and verify lfc_stds
@@ -822,7 +829,7 @@ def compute_differential_expression(
         adata.var.loc[selected_genes, lfc_std_key] = lfc_stds
         
         # Bidirectionality score
-        bidir_key = f"{result_key}_bidirectionality_{cond1_safe}_vs_{cond2_safe}"
+        bidir_key = f"{result_key}_bidirectionality_{cond1_safe}_vs_{cond2_safe}{sample_suffix}"
         adata.var[bidir_key] = pd.Series(np.nan, index=adata.var_names)
         
         # Extract and verify bidirectionality
@@ -862,10 +869,10 @@ def compute_differential_expression(
             cond2_safe = _sanitize_name(condition2)
             
             # Create descriptive layer names
-            imputed1_key = f"{result_key}_imputed_{cond1_safe}"
-            imputed2_key = f"{result_key}_imputed_{cond2_safe}"
+            imputed1_key = f"{result_key}_imputed_{cond1_safe}{sample_suffix}"
+            imputed2_key = f"{result_key}_imputed_{cond2_safe}{sample_suffix}"
             # Change to put base condition (condition1) first in the key name
-            fold_change_key = f"{result_key}_fold_change_{cond1_safe}_vs_{cond2_safe}"
+            fold_change_key = f"{result_key}_fold_change_{cond1_safe}_vs_{cond2_safe}{sample_suffix}"
 
             if imputed1_key not in adata.layers:
                 adata.layers[imputed1_key] = np.zeros_like(adata.X)
@@ -901,10 +908,10 @@ def compute_differential_expression(
             cond2_safe = _sanitize_name(condition2)
             
             # Create descriptive layer names
-            imputed1_key = f"{result_key}_imputed_{cond1_safe}"
-            imputed2_key = f"{result_key}_imputed_{cond2_safe}"
+            imputed1_key = f"{result_key}_imputed_{cond1_safe}{sample_suffix}"
+            imputed2_key = f"{result_key}_imputed_{cond2_safe}{sample_suffix}"
             # Change to put base condition (condition1) first in the key name
-            fold_change_key = f"{result_key}_fold_change_{cond1_safe}_vs_{cond2_safe}"
+            fold_change_key = f"{result_key}_fold_change_{cond1_safe}_vs_{cond2_safe}{sample_suffix}"
 
             adata.layers[imputed1_key] = condition1_imputed
             adata.layers[imputed2_key] = condition2_imputed
@@ -918,15 +925,16 @@ def compute_differential_expression(
             "function": "compute_differential_expression",
             "result_key": result_key,
             "lfc_key": mean_lfc_column,
-            "weighted_lfc_key": f"{result_key}_weighted_lfc_{cond1_safe}_vs_{cond2_safe}" if differential_abundance_key is not None else None,
-            "mahalanobis_key": f"{result_key}_mahalanobis_{cond1_safe}_vs_{cond2_safe}" if compute_mahalanobis else None,
+            "weighted_lfc_key": f"{result_key}_weighted_lfc_{cond1_safe}_vs_{cond2_safe}{sample_suffix}" if differential_abundance_key is not None else None,
+            "mahalanobis_key": f"{result_key}_mahalanobis_{cond1_safe}_vs_{cond2_safe}{sample_suffix}" if compute_mahalanobis else None,
             "lfc_std_key": lfc_std_key,
             "bidirectionality_key": bidir_key,
             "imputed_layer_keys": {
-                "condition1": f"{result_key}_imputed_{cond1_safe}",
-                "condition2": f"{result_key}_imputed_{cond2_safe}",
-                "fold_change": f"{result_key}_fold_change_{cond1_safe}_vs_{cond2_safe}"
-            }
+                "condition1": f"{result_key}_imputed_{cond1_safe}{sample_suffix}",
+                "condition2": f"{result_key}_imputed_{cond2_safe}{sample_suffix}",
+                "fold_change": f"{result_key}_fold_change_{cond1_safe}_vs_{cond2_safe}{sample_suffix}"
+            },
+            "uses_sample_variance": sample_col is not None
         }
         
         current_params = {
