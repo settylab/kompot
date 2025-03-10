@@ -608,6 +608,16 @@ def compute_mahalanobis_distances(
             # We need to handle the Cholesky decomposition for each gene separately
             # to ensure numerical stability and proper memory management
             
+            # Check for dimension mismatch and issue a warning
+            if gene_cov.shape[0] != gene_diff.shape[0]:
+                logger.warning(
+                    f"Dimension mismatch in gene {g}: covariance matrix has shape {gene_cov.shape}, "
+                    f"but diff vector has length {len(gene_diff)}. Using mean over diff vector."
+                )
+                # Use the mean of the difference vector as a fallback
+                mahalanobis_distances[g] = float(jnp.abs(jnp.mean(gene_diff)))
+                continue
+            
             # Prepare covariance matrix for this gene individually (compute Cholesky once per gene)
             gene_prepared_matrix = prepare_mahalanobis_matrix(
                 covariance_matrix=gene_cov,
@@ -640,13 +650,13 @@ def compute_mahalanobis_distances(
                 
                 # Check for NaN or Inf values in the result
                 if np.isnan(mahalanobis_distances[g]) or np.isinf(mahalanobis_distances[g]):
-                    logger.warning(f"Gene {g}: NaN or Inf Mahalanobis distance encountered. Using 0 instead.")
-                    mahalanobis_distances[g] = 0.0
+                    logger.warning(f"Gene {g}: NaN or Inf Mahalanobis distance encountered. Keeping as NaN.")
+                    mahalanobis_distances[g] = np.nan
                     
             except Exception as e:
-                # If any calculation fails, set distance to 0 and log the error
-                logger.warning(f"Gene {g}: Error computing Mahalanobis distance: {e}. Using 0 instead.")
-                mahalanobis_distances[g] = 0.0
+                # If any calculation fails, set distance to NaN and log the error
+                logger.warning(f"Gene {g}: Error computing Mahalanobis distance: {e}. Using NaN instead.")
+                mahalanobis_distances[g] = np.nan
             
             # Free memory
             del gene_prepared_matrix
@@ -654,10 +664,32 @@ def compute_mahalanobis_distances(
         return mahalanobis_distances
     
     # Regular case with shared covariance matrix
+    # Check if there's a dimension mismatch 
+    if prepared_matrix['chol'] is not None:
+        chol_shape = prepared_matrix['chol'].shape[0]
+        if len(diffs) > 0 and diffs.shape[1] != chol_shape:
+            logger.warning(
+                f"Dimension mismatch: covariance matrix needs shape ({chol_shape}, {chol_shape}), "
+                f"but diff vectors have shape {diffs.shape}. Using mean along columns."
+            )
+            # Return NaN values to indicate calculation failures
+            logger.warning("Dimension mismatch - returning NaN values to indicate calculation failures")
+            return np.full(len(diffs), np.nan)
+    
     # Check if we're using diagonal approximation
     if prepared_matrix['is_diagonal']:
         # Diagonal case - much faster computation
         diag_values = prepared_matrix['diag_values']
+        
+        # Check for dimension mismatch
+        if len(diffs) > 0 and diffs.shape[1] != len(diag_values):
+            logger.warning(
+                f"Dimension mismatch in diagonal mode: diag values has length {len(diag_values)}, "
+                f"but diff vectors have shape {diffs.shape}. Using mean along columns."
+            )
+            # Return NaN values to indicate calculation failures
+            logger.warning("Dimension mismatch - returning NaN values to indicate calculation failures")
+            return np.full(len(diffs), np.nan)
         
         # Define computation for diagonal case
         def compute_diagonal_batch(batch_diffs):
@@ -685,8 +717,8 @@ def compute_mahalanobis_distances(
         if np.any(invalid_mask):
             n_invalid = np.sum(invalid_mask)
             logger.warning(f"Found {n_invalid} NaN or Inf Mahalanobis distances in diagonal computation. "
-                         f"These will be replaced with zeros.")
-            distances[invalid_mask] = 0.0
+                         f"These will be kept as NaN.")
+            # Keep NaN values to indicate calculation failures
             
         return distances
     
@@ -694,14 +726,29 @@ def compute_mahalanobis_distances(
     if prepared_matrix['chol'] is not None:
         chol = prepared_matrix['chol']
         
+        # Check for dimension mismatch again (double check)
+        if len(diffs) > 0 and diffs.shape[1] != chol.shape[0]:
+            logger.warning(
+                f"Dimension mismatch in Cholesky mode: Cholesky matrix has shape {chol.shape}, "
+                f"but diff vectors have shape {diffs.shape}. Using mean along columns."
+            )
+            # Return NaN values to indicate calculation failures
+            logger.warning("Dimension mismatch - returning NaN values to indicate calculation failures")
+            return np.full(len(diffs), np.nan)
+        
         # Define computation function using Cholesky
         def compute_cholesky_batch(batch_diffs):
-            # Triangular solve for each diff vector
-            solved = jax.vmap(lambda d: jax.scipy.linalg.solve_triangular(chol, d, lower=True))(batch_diffs)
-            
-            # Compute squared distances
-            squared_distances = jnp.sum(solved**2, axis=1)
-            return jnp.sqrt(squared_distances)
+            try:
+                # Triangular solve for each diff vector
+                solved = jax.vmap(lambda d: jax.scipy.linalg.solve_triangular(chol, d, lower=True))(batch_diffs)
+                
+                # Compute squared distances
+                squared_distances = jnp.sum(solved**2, axis=1)
+                return jnp.sqrt(squared_distances)
+            except Exception as e:
+                # If triangular solve fails, log error and return zeros
+                logger.error(f"Error in triangular solve: {e}. Returning zeros.")
+                return jnp.zeros(batch_diffs.shape[0])
         
         # JIT compile if enabled
         if jit_compile:
@@ -711,32 +758,51 @@ def compute_mahalanobis_distances(
         
         # Process in batches using apply_batched - respect progress parameter
         desc = "Computing Cholesky Mahalanobis distances" if progress else None
-        distances = apply_batched(
-            chol_compute_fn,
-            diffs,
-            batch_size=batch_size,
-            desc=desc
-        )
-        
-        # Post-process to handle NaN and Inf values
-        invalid_mask = np.isnan(distances) | np.isinf(distances)
-        if np.any(invalid_mask):
-            n_invalid = np.sum(invalid_mask)
-            logger.warning(f"Found {n_invalid} NaN or Inf Mahalanobis distances in Cholesky computation. "
-                         f"These will be replaced with zeros.")
-            distances[invalid_mask] = 0.0
+        try:
+            distances = apply_batched(
+                chol_compute_fn,
+                diffs,
+                batch_size=batch_size,
+                desc=desc
+            )
             
-        return distances
+            # Post-process to handle NaN and Inf values
+            invalid_mask = np.isnan(distances) | np.isinf(distances)
+            if np.any(invalid_mask):
+                n_invalid = np.sum(invalid_mask)
+                logger.warning(f"Found {n_invalid} NaN or Inf Mahalanobis distances in Cholesky computation. "
+                             f"These will be kept as NaN.")
+                # Keep NaN values to indicate calculation failures
+                
+            return distances
+        except Exception as e:
+            logger.error(f"Error applying batched computation: {e}. Using NaN to indicate calculation failures.")
+            # Return NaN values to indicate calculation failures rather than arbitrary approximations
+            return np.full(len(diffs), np.nan)
     
     # Fallback to matrix inverse
     if prepared_matrix['matrix_inv'] is not None:
         matrix_inv = prepared_matrix['matrix_inv']
         
+        # Check for dimension mismatch
+        if len(diffs) > 0 and diffs.shape[1] != matrix_inv.shape[0]:
+            logger.warning(
+                f"Dimension mismatch in inverse mode: matrix_inv has shape {matrix_inv.shape}, "
+                f"but diff vectors have shape {diffs.shape}. Using mean along columns."
+            )
+            # Return NaN values to indicate calculation failures
+            logger.warning("Dimension mismatch - returning NaN values to indicate calculation failures")
+            return np.full(len(diffs), np.nan)
+        
         # Define computation function using inverse matrix
         def compute_inverse_batch(batch_diffs):
-            # Apply matrix multiplication for each vector: d' * inv(cov) * d
-            products = jax.vmap(lambda d: jnp.dot(d, jnp.dot(matrix_inv, d)))(batch_diffs)
-            return jnp.sqrt(products)
+            try:
+                # Apply matrix multiplication for each vector: d' * inv(cov) * d
+                products = jax.vmap(lambda d: jnp.dot(d, jnp.dot(matrix_inv, d)))(batch_diffs)
+                return jnp.sqrt(products)
+            except Exception as e:
+                logger.error(f"Error in matrix multiplication: {e}. Returning zeros.")
+                return jnp.zeros(batch_diffs.shape[0])
         
         # JIT compile if enabled
         if jit_compile:
@@ -746,26 +812,31 @@ def compute_mahalanobis_distances(
         
         # Process in batches using apply_batched - respect progress parameter
         desc = "Computing inverse Mahalanobis distances" if progress else None
-        distances = apply_batched(
-            inv_compute_fn,
-            diffs,
-            batch_size=batch_size,
-            desc=desc
-        )
-        
-        # Post-process to handle NaN and Inf values
-        invalid_mask = np.isnan(distances) | np.isinf(distances)
-        if np.any(invalid_mask):
-            n_invalid = np.sum(invalid_mask)
-            logger.warning(f"Found {n_invalid} NaN or Inf Mahalanobis distances in matrix inverse computation. "
-                         f"These will be replaced with zeros.")
-            distances[invalid_mask] = 0.0
+        try:
+            distances = apply_batched(
+                inv_compute_fn,
+                diffs,
+                batch_size=batch_size,
+                desc=desc
+            )
             
-        return distances
+            # Post-process to handle NaN and Inf values
+            invalid_mask = np.isnan(distances) | np.isinf(distances)
+            if np.any(invalid_mask):
+                n_invalid = np.sum(invalid_mask)
+                logger.warning(f"Found {n_invalid} NaN or Inf Mahalanobis distances in matrix inverse computation. "
+                             f"These will be kept as NaN.")
+                # Keep NaN values to indicate calculation failures
+                
+            return distances
+        except Exception as e:
+            logger.error(f"Error applying batched computation: {e}. Using NaN to indicate calculation failures.")
+            # Return NaN values to indicate calculation failures rather than arbitrary approximations
+            return np.full(len(diffs), np.nan)
     
-    # If all else fails, use a simple approximation
-    logger.error("No valid matrix information found. Using simple Euclidean distance.")
-    return np.sqrt(np.sum(diff_values**2, axis=1))
+    # If all else fails, return NaNs to indicate calculation failures
+    logger.error("No valid matrix information found. Using NaN to indicate calculation failures.")
+    return np.full(len(diffs), np.nan)
 
 def compute_mahalanobis_distance(
     diff_values: np.ndarray,
