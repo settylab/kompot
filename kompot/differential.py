@@ -502,7 +502,8 @@ class SampleVarianceEstimator:
     
     This class manages the computation of empirical variance by fitting function estimators
     or density estimators for each group in the data and computing the variance between their
-    predictions.
+    predictions. Bessel's correction is applied to the variance calculation to ensure
+    unbiased estimation, especially important when the number of samples is small.
     
     Attributes
     ----------
@@ -640,6 +641,10 @@ class SampleVarianceEstimator:
         """
         Predict empirical variance for new points using JAX.
         
+        This method computes the variance with Bessel's correction (using n-1 instead of n
+        in the denominator) to provide an unbiased estimate of the population variance.
+        This correction is particularly important when the number of samples (groups) is small.
+        
         Parameters
         ----------
         X_new : np.ndarray
@@ -709,8 +714,12 @@ class SampleVarianceEstimator:
                 def compute_variance_from_predictions(X, predictions_list):
                     # Stack the predictions
                     stacked = jnp.stack(predictions_list, axis=0)
-                    # Compute variance across groups (axis 0)
-                    return jnp.var(stacked, axis=0)
+                    # Get number of groups
+                    n_groups = stacked.shape[0]
+                    # Apply Bessel's correction for unbiased variance estimate
+                    # Use ddof=1 for Bessel's correction (divide by n-1 instead of n)
+                    # Only apply correction if we have more than 1 group
+                    return jnp.var(stacked, axis=0, ddof=1) if n_groups > 1 else jnp.var(stacked, axis=0)
                 
                 # JIT compile the function
                 self._predict_variance_jit = jax.jit(compute_variance_from_predictions)
@@ -737,7 +746,14 @@ class SampleVarianceEstimator:
             else:
                 # Stack predictions and compute variance using JAX
                 stacked_predictions = jnp.stack(all_group_predictions_jax, axis=0)
-                batch_variance = jnp.var(stacked_predictions, axis=0)
+                # Apply Bessel's correction for unbiased variance estimate
+                n_groups = stacked_predictions.shape[0]
+                # Only apply correction if we have more than 1 group
+                if n_groups > 1:
+                    # Use ddof=1 for Bessel's correction (divide by n-1 instead of n)
+                    batch_variance = jnp.var(stacked_predictions, axis=0, ddof=1)
+                else:
+                    batch_variance = jnp.var(stacked_predictions, axis=0)
                 # Convert back to numpy for compatibility
                 return np.array(batch_variance)
         
@@ -776,8 +792,13 @@ class SampleVarianceEstimator:
             # Process each gene individually to avoid memory issues
             for g in range(n_genes):
                 gene_centered = centered_reshaped[:, :, g]  # (n_cells, n_groups)
-                # Calculate covariance as dot product divided by n_groups
-                gene_cov = (gene_centered @ gene_centered.T) / n_groups
+                
+                # Apply Bessel's correction (divide by n-1 instead of n)
+                # Only apply correction if we have more than 1 group
+                divisor = n_groups - 1 if n_groups > 1 else n_groups
+                
+                # Calculate covariance as dot product divided by (n_groups-1) for Bessel's correction
+                gene_cov = (gene_centered @ gene_centered.T) / divisor
                 cov_matrix[:, :, g] = np.array(gene_cov)
             
             return cov_matrix
