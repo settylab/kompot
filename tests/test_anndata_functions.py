@@ -4,6 +4,8 @@ import numpy as np
 import pytest
 import datetime
 import pandas as pd
+import logging
+from unittest.mock import patch, MagicMock
 
 from kompot.anndata.functions import compute_differential_abundance, compute_differential_expression, run_differential_analysis
 
@@ -83,11 +85,11 @@ def test_sample_col_parameter():
     assert result['model'].variance_predictor2 is not None
     
     # Verify that the sample_col parameter was stored in parameters
-    assert 'test_sample_col' in adata.uns
-    assert 'params' in adata.uns['test_sample_col']
-    assert 'sample_col' in adata.uns['test_sample_col']['params']
-    assert adata.uns['test_sample_col']['params']['sample_col'] == 'sample'
-    assert adata.uns['test_sample_col']['params']['use_sample_variance'] is True
+    assert 'kompot_da' in adata.uns
+    assert 'params' in adata.uns['kompot_da']
+    assert 'sample_col' in adata.uns['kompot_da']['params']
+    assert adata.uns['kompot_da']['params']['sample_col'] == 'sample'
+    assert adata.uns['kompot_da']['params']['use_sample_variance'] is True
     
     # Run a comparison analysis without sample_col
     result_no_samples = compute_differential_abundance(
@@ -104,6 +106,12 @@ def test_sample_col_parameter():
     # Verify variance predictors are None
     assert result_no_samples['model'].variance_predictor1 is None
     assert result_no_samples['model'].variance_predictor2 is None
+    
+    # Verify the parameters are stored in kompot_da
+    assert 'params' in adata.uns['kompot_da']
+    assert 'sample_col' in adata.uns['kompot_da']['params']
+    assert adata.uns['kompot_da']['params']['sample_col'] is None
+    assert adata.uns['kompot_da']['params']['use_sample_variance'] is False
     
     # Check that the two models produce different results
     # The log fold change values should be the same
@@ -166,13 +174,14 @@ class TestRunHistoryPreservation:
             result_key='run1'
         )
         
-        # Check that run_info was created
-        assert 'run1' in self.adata.uns
-        assert 'run_info' in self.adata.uns['run1']
-        assert 'run_history' not in self.adata.uns['run1']
+        # Check that run_info was created in the fixed storage location
+        assert 'kompot_da' in self.adata.uns
+        assert 'run_info' in self.adata.uns['kompot_da']
+        assert 'run_history' in self.adata.uns['kompot_da']
+        assert len(self.adata.uns['kompot_da']['run_history']) == 1
         
         # Make sure the run_info has the required fields
-        run_info = self.adata.uns['run1']['run_info']
+        run_info = self.adata.uns['kompot_da']['run_info']
         assert 'timestamp' in run_info
         assert 'function' in run_info
         assert run_info['function'] == 'compute_differential_abundance'
@@ -189,15 +198,20 @@ class TestRunHistoryPreservation:
             result_key='run1'
         )
         
-        # Check that run_history was created with the first run
-        assert 'run_history' in self.adata.uns['run1']
-        assert len(self.adata.uns['run1']['run_history']) == 1
+        # Check that run_history was updated with the second run
+        assert 'run_history' in self.adata.uns['kompot_da']
+        assert len(self.adata.uns['kompot_da']['run_history']) == 2
         
-        # Check that the history entry has the same structure as run_info
-        history_entry = self.adata.uns['run1']['run_history'][0]
-        assert 'timestamp' in history_entry
-        assert 'function' in history_entry
-        assert history_entry['function'] == 'compute_differential_abundance'
+        # Check that the history entries have the expected structure
+        history_entry1 = self.adata.uns['kompot_da']['run_history'][0]
+        history_entry2 = self.adata.uns['kompot_da']['run_history'][1]
+        
+        # Check both entries
+        for entry in [history_entry1, history_entry2]:
+            assert 'timestamp' in entry
+            assert 'function' in entry
+            assert entry['function'] == 'compute_differential_abundance'
+            assert 'environment' in entry
         
         # Run with a new key
         compute_differential_abundance(
@@ -208,13 +222,14 @@ class TestRunHistoryPreservation:
             result_key='run2'
         )
         
-        # Check that run_info was created for the new key
-        assert 'run2' in self.adata.uns
-        assert 'run_info' in self.adata.uns['run2']
+        # Check that the storage was updated with the new run
+        assert 'kompot_da' in self.adata.uns
+        assert 'run_info' in self.adata.uns['kompot_da']
+        assert len(self.adata.uns['kompot_da']['run_history']) == 3
         
-        # The individual DA function calls don't register in the run_history
-        # Since we only test unit functionality here, we'll skip this check
-        # Run history is tested in the test_global_run_history method
+        # The last run should have the new result_key
+        latest_run = self.adata.uns['kompot_da']['run_history'][-1]
+        assert latest_run['result_key'] == 'run2'
         
     def test_de_run_history_preservation(self):
         """Test that run history is preserved for differential expression."""
@@ -228,13 +243,14 @@ class TestRunHistoryPreservation:
             compute_mahalanobis=False
         )
         
-        # Check that run_info was created
-        assert 'de_run1' in self.adata.uns
-        assert 'run_info' in self.adata.uns['de_run1']
-        assert 'run_history' not in self.adata.uns['de_run1']
+        # Check that run_info was created in the fixed storage location
+        assert 'kompot_de' in self.adata.uns
+        assert 'run_info' in self.adata.uns['kompot_de']
+        assert 'run_history' in self.adata.uns['kompot_de']
+        assert len(self.adata.uns['kompot_de']['run_history']) == 1
         
         # Make sure the run_info has the required fields
-        run_info = self.adata.uns['de_run1']['run_info']
+        run_info = self.adata.uns['kompot_de']['run_info']
         assert 'timestamp' in run_info
         assert 'function' in run_info
         assert run_info['function'] == 'compute_differential_expression'
@@ -252,15 +268,20 @@ class TestRunHistoryPreservation:
             compute_mahalanobis=False
         )
         
-        # Check that run_history was created with the first run
-        assert 'run_history' in self.adata.uns['de_run1']
-        assert len(self.adata.uns['de_run1']['run_history']) == 1
+        # Check that run_history was updated with the second run
+        assert 'run_history' in self.adata.uns['kompot_de']
+        assert len(self.adata.uns['kompot_de']['run_history']) == 2
         
-        # Check that the history entry has the same structure as run_info
-        history_entry = self.adata.uns['de_run1']['run_history'][0]
-        assert 'timestamp' in history_entry
-        assert 'function' in history_entry
-        assert history_entry['function'] == 'compute_differential_expression'
+        # Check that the history entries have the expected structure
+        history_entry1 = self.adata.uns['kompot_de']['run_history'][0]
+        history_entry2 = self.adata.uns['kompot_de']['run_history'][1]
+        
+        # Check both entries
+        for entry in [history_entry1, history_entry2]:
+            assert 'timestamp' in entry
+            assert 'function' in entry
+            assert entry['function'] == 'compute_differential_expression'
+            assert 'environment' in entry
 
     def test_global_run_history(self):
         """Test that global run history is created and updated correctly."""
@@ -317,6 +338,62 @@ class TestRunHistoryPreservation:
         assert self.adata.uns['kompot_latest_run']['expression_key'] == 'grun4'
         
         
+@patch('kompot.anndata.functions.logger.warning')
+def test_compute_differential_abundance_warns_overwrite(mock_warning):
+    """Test that compute_differential_abundance warns when overwriting existing results."""
+    adata = create_test_anndata()
+    
+    # First run to create initial results
+    compute_differential_abundance(adata, groupby='group', condition1='A', condition2='B', result_key='test_key')
+    
+    # Reset mock to clear any prior calls
+    mock_warning.reset_mock()
+    
+    # Second run with same result_key should issue warning
+    compute_differential_abundance(adata, groupby='group', condition1='A', condition2='B', result_key='test_key')
+    
+    # Check that a warning was issued with appropriate text
+    mock_warning.assert_called()
+    args, _ = mock_warning.call_args
+    assert "Results with result_key='test_key' already exist" in args[0]
+    assert "Fields that will be overwritten:" in args[0]
+
+
+@patch('kompot.anndata.functions.logger.warning')
+def test_compute_differential_expression_warns_overwrite(mock_warning):
+    """Test that compute_differential_expression warns when overwriting existing results."""
+    adata = create_test_anndata()
+    
+    # First run to create initial results
+    compute_differential_expression(
+        adata, 
+        groupby='group', 
+        condition1='A', 
+        condition2='B', 
+        result_key='test_key',
+        compute_mahalanobis=False  # Avoid Mahalanobis computation errors in tests
+    )
+    
+    # Reset mock to clear any prior calls
+    mock_warning.reset_mock()
+    
+    # Second run with same result_key should issue warning
+    compute_differential_expression(
+        adata, 
+        groupby='group', 
+        condition1='A', 
+        condition2='B', 
+        result_key='test_key',
+        compute_mahalanobis=False  # Avoid Mahalanobis computation errors in tests
+    )
+    
+    # Check that a warning was issued with appropriate text
+    mock_warning.assert_called()
+    args, _ = mock_warning.call_args
+    assert "Differential expression results with result_key='test_key' already exist" in args[0]
+    assert "Fields that will be overwritten:" in args[0]
+
+
 def test_run_differential_analysis_with_sample_col():
     """Test run_differential_analysis with sample_col parameter."""
     # Create a test AnnData object with sample column
@@ -345,15 +422,19 @@ def test_run_differential_analysis_with_sample_col():
     assert result['differential_expression'].variance_predictor1 is not None
     assert result['differential_expression'].variance_predictor2 is not None
     
-    # Check that parameter was stored correctly for both analyses
-    assert 'sample_run_da' in adata.uns
-    assert 'params' in adata.uns['sample_run_da']
-    assert 'sample_col' in adata.uns['sample_run_da']['params']
-    assert adata.uns['sample_run_da']['params']['sample_col'] == 'sample'
-    assert adata.uns['sample_run_da']['params']['use_sample_variance'] is True
+    # Check that parameter was stored correctly for both analyses in fixed storage locations
+    assert 'kompot_da' in adata.uns
+    assert 'params' in adata.uns['kompot_da']
+    assert 'sample_col' in adata.uns['kompot_da']['params']
+    assert adata.uns['kompot_da']['params']['sample_col'] == 'sample'
+    assert adata.uns['kompot_da']['params']['use_sample_variance'] is True
     
-    assert 'sample_run_de' in adata.uns
-    assert 'params' in adata.uns['sample_run_de']
-    assert 'sample_col' in adata.uns['sample_run_de']['params']
-    assert adata.uns['sample_run_de']['params']['sample_col'] == 'sample'
-    assert adata.uns['sample_run_de']['params']['use_sample_variance'] is True
+    assert 'kompot_de' in adata.uns
+    assert 'params' in adata.uns['kompot_de']
+    assert 'sample_col' in adata.uns['kompot_de']['params']
+    assert adata.uns['kompot_de']['params']['sample_col'] == 'sample'
+    assert adata.uns['kompot_de']['params']['use_sample_variance'] is True
+    
+    # Verify the correct result_key was stored in the run_info
+    assert adata.uns['kompot_da']['run_info']['result_key'] == 'sample_run_da'
+    assert adata.uns['kompot_de']['run_info']['result_key'] == 'sample_run_de'

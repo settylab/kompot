@@ -6,6 +6,16 @@ import jax.numpy as jnp
 from functools import partial
 from typing import Tuple, List, Optional, Union, Callable, Dict, Any
 from anndata import AnnData
+
+# Import _sanitize_name from anndata.functions
+try:
+    from .anndata.functions import _sanitize_name
+except (ImportError, AttributeError):
+    # Define locally if import fails
+    def _sanitize_name(name):
+        """Convert a string to a valid column/key name by replacing invalid characters."""
+        # Replace spaces, slashes, and other common problematic characters
+        return str(name).replace(' ', '_').replace('/', '_').replace('\\', '_').replace('-', '_').replace('.', '_')
 from scipy.linalg import solve_triangular
 
 import pynndescent
@@ -27,9 +37,14 @@ KOMPOT_COLORS = {
 }
 
 
-def get_run_from_history(adata: AnnData, run_id: Optional[int] = None) -> Optional[Dict[str, Any]]:
+def get_run_from_history(
+    adata: AnnData, 
+    run_id: Optional[int] = None, 
+    history_key: str = 'kompot_run_history',
+    analysis_type: Optional[str] = None
+) -> Optional[Dict[str, Any]]:
     """
-    Get run information from kompot_run_history based on run_id.
+    Get run information from run history based on run_id.
     
     Parameters
     ----------
@@ -38,27 +53,322 @@ def get_run_from_history(adata: AnnData, run_id: Optional[int] = None) -> Option
     run_id : int, optional
         Run ID to retrieve. Negative indices count from the end.
         If None, returns None.
+    history_key : str, optional
+        Key in adata.uns where the run history is stored.
+        Default is 'kompot_run_history' for the global history.
+        For analysis-specific history, use either:
+        - 'kompot_da.run_history' for differential abundance runs
+        - 'kompot_de.run_history' for differential expression runs
+        - Or set analysis_type instead for automatic lookup
+        This is only used if analysis_type is None.
+    analysis_type : str, optional
+        Type of analysis to look up: "da", "de", or None.
+        If provided, only looks in the specific analysis type's history
+        and ignores history_key.
         
     Returns
     -------
     dict or None
         The run information dict if found, or None if not found or run_id is None
+        
+    Notes
+    -----
+    The run history is always stored in fixed locations:
+    - adata.uns['kompot_da'] for differential abundance runs
+    - adata.uns['kompot_de'] for differential expression runs
+    - adata.uns['kompot_run_history'] for combined runs
     """
-    if run_id is None or 'kompot_run_history' not in adata.uns:
+    if run_id is None:
+        return None
+    
+    # Use specific analysis history if provided
+    if analysis_type is not None:
+        if analysis_type == "da":
+            history_key = "kompot_da.run_history"
+        elif analysis_type == "de":
+            history_key = "kompot_de.run_history"
+        elif analysis_type == "combined":
+            history_key = "kompot_run_history"
+        else:
+            logger.warning(f"Unknown analysis_type: {analysis_type}. Using provided history_key: {history_key}")
+    
+    # Handle case where history_key is specified as 'storage_key.run_history'
+    if '.' in history_key:
+        parts = history_key.split('.')
+        storage_key = parts[0]
+        subkey = parts[1]
+        if storage_key in adata.uns and subkey in adata.uns[storage_key]:
+            history = adata.uns[storage_key][subkey]
+        else:
+            logger.warning(f"Run history at {storage_key}.{subkey} not found.")
+            return None
+    
+    # Direct access to specified history key
+    elif history_key in adata.uns:
+        history = adata.uns[history_key]
+    
+    # Not found
+    else:
+        logger.warning(f"No run history found at {history_key}.")
+        return None
+    
+    # If history is empty
+    if len(history) == 0:
+        logger.warning(f"Run history at {history_key} is empty.")
         return None
         
     # Handle negative indices (e.g., -1 for latest run)
-    if run_id < 0 and len(adata.uns['kompot_run_history']) >= abs(run_id):
-        adjusted_run_id = len(adata.uns['kompot_run_history']) + run_id
+    if run_id < 0 and len(history) >= abs(run_id):
+        adjusted_run_id = len(history) + run_id
     else:
         adjusted_run_id = run_id
     
     # Find the requested run
-    if 0 <= adjusted_run_id < len(adata.uns['kompot_run_history']):
-        return adata.uns['kompot_run_history'][adjusted_run_id]
+    if 0 <= adjusted_run_id < len(history):
+        return history[adjusted_run_id]
     else:
-        logger.warning(f"Run ID {run_id} not found in kompot_run_history. Using default or latest run.")
+        logger.warning(f"Run ID {run_id} not found in {history_key}. Using default or latest run.")
         return None
+
+
+def get_environment_info() -> Dict[str, str]:
+    """
+    Get information about the current execution environment.
+    
+    Returns
+    -------
+    Dict[str, str]
+        Dictionary with environment information
+    """
+    from datetime import datetime
+    import platform
+    import getpass
+    import socket
+    import os
+    
+    try:
+        hostname = socket.gethostname()
+    except:
+        hostname = "unknown"
+        
+    try:
+        username = getpass.getuser()
+    except:
+        username = "unknown"
+        
+    env_info = {
+        "timestamp": datetime.now().isoformat(),
+        "platform": platform.platform(),
+        "python_version": platform.python_version(),
+        "hostname": hostname,
+        "username": username,
+        "pid": os.getpid()
+    }
+    
+    # Try to get package version if available
+    try:
+        from kompot.version import __version__
+        env_info["kompot_version"] = __version__
+    except ImportError:
+        try:
+            # Alternative way to get version
+            import pkg_resources
+            env_info["kompot_version"] = pkg_resources.get_distribution("kompot").version
+        except:
+            env_info["kompot_version"] = "unknown"
+        
+    return env_info
+
+
+def generate_output_field_names(
+    result_key: str,
+    condition1: str,
+    condition2: str,
+    analysis_type: str = "da",
+    with_sample_suffix: bool = False,
+    sample_suffix: str = "_sample_var"
+) -> Dict[str, str]:
+    """
+    Generate standardized field names for analysis outputs.
+    
+    Parameters
+    ----------
+    result_key : str
+        Base key for results (e.g., "kompot_da", "kompot_de")
+    condition1 : str
+        Name of the first condition
+    condition2 : str
+        Name of the second condition
+    analysis_type : str, optional
+        Type of analysis: "da" for differential abundance or "de" for differential expression
+        By default "da"
+    with_sample_suffix : bool, optional
+        Whether to include sample variance suffix in field names, by default False
+    sample_suffix : str, optional
+        Suffix to add for sample variance variants, by default "_sample_var"
+        
+    Returns
+    -------
+    Dict[str, str]
+        Dictionary mapping field types to their standardized names
+    """
+    # Sanitize condition names
+    cond1_safe = _sanitize_name(condition1)
+    cond2_safe = _sanitize_name(condition2)
+    
+    # Apply suffix when sample variance is used
+    suffix = sample_suffix if with_sample_suffix else ""
+    
+    # Basic fields for both analysis types
+    field_names = {}
+    
+    if analysis_type == "da":
+        # Differential abundance field names
+        field_names.update({
+            "lfc_key": f"{result_key}_log_fold_change_{cond1_safe}_vs_{cond2_safe}{suffix}",
+            "zscore_key": f"{result_key}_log_fold_change_zscore_{cond1_safe}_vs_{cond2_safe}{suffix}",
+            "pval_key": f"{result_key}_neg_log10_fold_change_pvalue_{cond1_safe}_vs_{cond2_safe}{suffix}",
+            "direction_key": f"{result_key}_log_fold_change_direction_{cond1_safe}_vs_{cond2_safe}{suffix}",
+            "density_key_1": f"{result_key}_log_density_{cond1_safe}{suffix}",
+            "density_key_2": f"{result_key}_log_density_{cond2_safe}{suffix}"
+        })
+    elif analysis_type == "de":
+        # Differential expression field names
+        field_names.update({
+            "mahalanobis_key": f"{result_key}_mahalanobis_{cond1_safe}_vs_{cond2_safe}{suffix}",
+            "mean_lfc_key": f"{result_key}_mean_lfc_{cond1_safe}_vs_{cond2_safe}{suffix}",
+            "weighted_lfc_key": f"{result_key}_weighted_lfc_{cond1_safe}_vs_{cond2_safe}{suffix}",
+            "lfc_std_key": f"{result_key}_lfc_std_{cond1_safe}_vs_{cond2_safe}{suffix}",
+            "bidirectionality_key": f"{result_key}_bidirectionality_{cond1_safe}_vs_{cond2_safe}{suffix}",
+            "imputed_key_1": f"{result_key}_imputed_{cond1_safe}{suffix}",
+            "imputed_key_2": f"{result_key}_imputed_{cond2_safe}{suffix}",
+            "fold_change_key": f"{result_key}_fold_change_{cond1_safe}_vs_{cond2_safe}{suffix}"
+        })
+    else:
+        raise ValueError(f"Unknown analysis_type: {analysis_type}. Use 'da' or 'de'.")
+    
+    return field_names
+
+
+def detect_output_field_overwrite(
+    adata: AnnData, 
+    result_key: str, 
+    output_patterns: List[str],
+    location: str = "obs",
+    result_type: str = "results",
+    with_sample_suffix: bool = False,
+    sample_suffix: str = "_sample_var",
+    analysis_type: str = "da"
+) -> Tuple[bool, List[str], Optional[Dict[str, Any]]]:
+    """
+    Detects if we would overwrite existing output fields in an AnnData object.
+    This function scans AnnData object for output fields that match the given patterns
+    and looks through run history to find previous runs that might have created them.
+    
+    Parameters
+    ----------
+    adata : AnnData
+        AnnData object to check for existing fields
+    result_key : str
+        Key under which results are stored (used for field generation, not storage location)
+    output_patterns : List[str]
+        Patterns of output field names to check for (e.g., ["lfc_key", "pval_key"])
+    location : str, optional
+        Location to check for field patterns (e.g., "obs", "var", "layers"), by default "obs"
+    result_type : str, optional
+        Description of the results for warning/error messages, by default "results"
+    with_sample_suffix : bool, optional
+        Whether to also check for patterns with sample suffix, by default False
+    sample_suffix : str, optional
+        Suffix to add when checking for sample variance variants, by default "_sample_var"
+    analysis_type : str, optional
+        Type of analysis ("da" or "de"), determines where run history is stored, by default "da"
+        
+    Returns
+    -------
+    Tuple[bool, List[str], Optional[Dict[str, Any]]]
+        - Boolean indicating if any fields would be overwritten
+        - List of field names that would be overwritten
+        - Previous run info if found in run history, otherwise None
+        
+    Notes
+    -----
+    Run history is stored in adata.uns["kompot_da"] or adata.uns["kompot_de"] based on analysis_type.
+    This function will look in those fixed locations rather than using result_key for storage location.
+    """
+    existing_fields = []
+    
+    # Get the object to check for patterns based on location
+    if location == "obs":
+        obj_to_check = adata.obs
+    elif location == "var":
+        obj_to_check = adata.var
+    elif location == "layers":
+        obj_to_check = adata.layers
+    else:
+        raise ValueError(f"Unknown location: {location}. Use 'obs', 'var', or 'layers'")
+    
+    # Check for patterns in the specified location
+    if hasattr(obj_to_check, 'columns'):  # DataFrame-like (obs or var)
+        for pattern in output_patterns:
+            for column in obj_to_check.columns:
+                if column.startswith(pattern):
+                    existing_fields.append(f"{location}:{column}")
+                    logger.debug(f"Found existing field to be overwritten: {location}:{column}")
+                    break
+                    
+            # Also check with sample suffix if requested
+            if with_sample_suffix:
+                for column in obj_to_check.columns:
+                    if column.startswith(pattern + sample_suffix):
+                        existing_fields.append(f"{location}:{column}")
+                        logger.debug(f"Found existing field with sample suffix to be overwritten: {location}:{column}")
+                        break
+    
+    else:  # dict-like (layers)
+        for pattern in output_patterns:
+            for key in obj_to_check.keys():
+                if key.startswith(pattern):
+                    existing_fields.append(f"{location}:{key}")
+                    logger.debug(f"Found existing field to be overwritten: {location}:{key}")
+                    break
+                    
+            # Also check with sample suffix if requested
+            if with_sample_suffix:
+                for key in obj_to_check.keys():
+                    if key.startswith(pattern + sample_suffix):
+                        existing_fields.append(f"{location}:{key}")
+                        logger.debug(f"Found existing field with sample suffix to be overwritten: {location}:{key}")
+                        break
+    
+    # Infer analysis_type from result_key if not provided
+    if analysis_type is None:
+        if "da" in result_key:
+            analysis_type = "da"
+        elif "de" in result_key:
+            analysis_type = "de"
+    
+    # Look for matching run in run history
+    previous_run = None
+    
+    # Look in the fixed location determined by analysis_type
+    # This is simpler now - we just need to get the latest run from the appropriate fixed location
+    previous_run = get_run_from_history(adata, run_id=-1, analysis_type=analysis_type)
+    
+    # If no previous run in fixed location, try the global history
+    if previous_run is None and 'kompot_run_history' in adata.uns:
+        # Look for most recent run with matching analysis_type in global history
+        matching_runs = []
+        for i, run in enumerate(adata.uns['kompot_run_history']):
+            if run.get('analysis_type') == analysis_type:
+                matching_runs.append((i, run))
+        
+        if matching_runs:
+            # Get the most recent matching run
+            previous_run = matching_runs[-1][1]
+    
+    # Return a tuple with detection results
+    return (len(existing_fields) > 0, existing_fields, previous_run)
 
 
 def build_graph(X: np.ndarray, n_neighbors: int = 15) -> Tuple[List[Tuple[int, int]], pynndescent.NNDescent]:

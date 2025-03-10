@@ -135,14 +135,6 @@ class DifferentialAbundance:
                 logger.info("Sample variance estimation automatically enabled due to presence of variance predictors")
         else:
             self.use_sample_variance = use_sample_variance
-            
-            # If user explicitly enabled sample variance but no variance predictors are provided, log a warning
-            if self.use_sample_variance and variance_predictor1 is None and variance_predictor2 is None:
-                logger.warning(
-                    "Sample variance estimation was explicitly enabled (use_sample_variance=True) "
-                    "but no variance predictors were provided. "
-                    "You will need to provide sample indices in the fit() method."
-                )
         
         # These will be populated after fitting
         self.log_density_condition1 = None
@@ -993,14 +985,6 @@ class DifferentialExpression:
                 logger.info("Sample variance estimation automatically enabled due to presence of variance predictors")
         else:
             self.use_sample_variance = use_sample_variance
-            
-            # If user explicitly enabled sample variance but no variance predictors are provided, log a warning
-            if self.use_sample_variance and variance_predictor1 is None and variance_predictor2 is None:
-                logger.warning(
-                    "Sample variance estimation was explicitly enabled (use_sample_variance=True) "
-                    "but no variance predictors were provided. "
-                    "You will need to provide sample indices in the fit() method."
-                )
         self.batch_size = batch_size
         
         # For Mahalanobis distance computation, use a separate batch size parameter if provided
@@ -1602,18 +1586,22 @@ class DifferentialExpression:
             )
             
             result['mahalanobis_distances'] = mahalanobis_distances
+            # Always add mean_log_fold_change to the result
+            result['mean_log_fold_change'] = mean_log_fold_change
             
             # Use sample variance from mahalanobis calculation for z-scores
             # This will get the full covariance matrix with diag=False
             if self.use_sample_variance:
-                # Z-scores will be computed after this
-                pass
+                # Even with sample variance, we need to provide a default z-score
+                # Compute basic z-scores using the function predictor uncertainties
+                stds = np.sqrt(variance + self.eps)
+                fold_change_zscores = fold_change / stds
+                result['fold_change_zscores'] = fold_change_zscores
             else:
                 # If we're not using sample variance, just use the function predictor uncertainties
                 stds = np.sqrt(variance + self.eps)
                 fold_change_zscores = fold_change / stds
                 result['fold_change_zscores'] = fold_change_zscores
-                result['mean_log_fold_change'] = mean_log_fold_change
         else:
             # If we don't compute mahalanobis, we still need the fold change z-scores
             if self.use_sample_variance:

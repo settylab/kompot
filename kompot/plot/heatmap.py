@@ -48,8 +48,8 @@ def _infer_heatmap_keys(adata: AnnData, run_id: Optional[int] = None, lfc_key: O
                                         not any(k == score_key for k in adata.var.columns)):
         return inferred_lfc_key, inferred_score_key
     
-    # Try to get key from specific run if requested
-    run_info = get_run_from_history(adata, run_id)
+    # Try to get key from specific run if requested - specifically from kompot_de first
+    run_info = get_run_from_history(adata, run_id, analysis_type="de")
     if run_info is not None and run_info.get('expression_key'):
         de_key = run_info['expression_key']
         
@@ -64,6 +64,24 @@ def _infer_heatmap_keys(adata: AnnData, run_id: Optional[int] = None, lfc_key: O
             if score_key == "kompot_de_mahalanobis" and 'mahalanobis_key' in key_run_info and key_run_info['mahalanobis_key']:
                 inferred_score_key = key_run_info['mahalanobis_key']
                 logger.info(f"Using score_key '{inferred_score_key}' from run {run_id}")
+    
+    # If still no lfc_key, try global history
+    if inferred_lfc_key is None:
+        run_info = get_run_from_history(adata, run_id, history_key="kompot_run_history")
+        if run_info is not None and run_info.get('expression_key'):
+            de_key = run_info['expression_key']
+            
+            # Check if we have run_info for this key
+            if de_key in adata.uns and 'run_info' in adata.uns[de_key]:
+                key_run_info = adata.uns[de_key]['run_info']
+                if inferred_lfc_key is None and 'lfc_key' in key_run_info:
+                    inferred_lfc_key = key_run_info['lfc_key']
+                    logger.info(f"Using lfc_key '{inferred_lfc_key}' from run {run_id}")
+                
+                # Try to use mahalanobis key from run info if available
+                if score_key == "kompot_de_mahalanobis" and 'mahalanobis_key' in key_run_info and key_run_info['mahalanobis_key']:
+                    inferred_score_key = key_run_info['mahalanobis_key']
+                    logger.info(f"Using score_key '{inferred_score_key}' from run {run_id}")
     
     # If still no lfc_key, try latest run
     if (inferred_lfc_key is None or score_key == "kompot_de_mahalanobis") and 'kompot_latest_run' in adata.uns and adata.uns['kompot_latest_run'].get('expression_key'):
@@ -204,8 +222,13 @@ def direction_barplot(
     # Log run information - always use positive run index for logging
     if run_info is not None:
         # Get the actual run index for logging (convert negative to positive)
-        if run_id < 0 and 'kompot_run_history' in adata.uns:
-            actual_run_id = len(adata.uns['kompot_run_history']) + run_id
+        if run_id < 0:
+            if 'kompot_da' in adata.uns and 'run_history' in adata.uns['kompot_da']:
+                actual_run_id = len(adata.uns['kompot_da']['run_history']) + run_id
+            elif 'kompot_run_history' in adata.uns:
+                actual_run_id = len(adata.uns['kompot_run_history']) + run_id
+            else:
+                actual_run_id = run_id
         else:
             actual_run_id = run_id
             

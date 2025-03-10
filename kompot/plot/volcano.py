@@ -79,8 +79,8 @@ def _infer_de_keys(adata: AnnData, run_id: int = -1, lfc_key: Optional[str] = No
                                         not any(k.startswith("kompot_de_mahalanobis") for k in adata.var.columns)):
         return inferred_lfc_key, inferred_score_key
     
-    # Get run info from specified run_id
-    run_info = get_run_from_history(adata, run_id)
+    # Get run info from specified run_id - specifically from kompot_de
+    run_info = get_run_from_history(adata, run_id, analysis_type="de")
     
     if run_info is not None:
         # Get the result_key or expression_key from run info
@@ -97,23 +97,24 @@ def _infer_de_keys(adata: AnnData, run_id: int = -1, lfc_key: Optional[str] = No
             # Get the field names
             if inferred_lfc_key is None and 'lfc_key' in key_run_info:
                 inferred_lfc_key = key_run_info['lfc_key']
+                # Check for naming collision
+                if inferred_lfc_key not in adata.var.columns:
+                    logger.warning(f"Field name '{inferred_lfc_key}' from run_info not found in adata.var columns")
+                    inferred_lfc_key = None
+                else:
+                    logger.debug(f"Using lfc_key '{inferred_lfc_key}' from run {run_id}")
             
             # Try to get mahalanobis_key if not provided
             if inferred_score_key is None and 'mahalanobis_key' in key_run_info and key_run_info['mahalanobis_key']:
                 inferred_score_key = key_run_info['mahalanobis_key']
+                # Check for naming collision
+                if inferred_score_key not in adata.var.columns:
+                    logger.warning(f"Field name '{inferred_score_key}' from run_info not found in adata.var columns")
+                    inferred_score_key = None
+                else:
+                    logger.debug(f"Using score_key '{inferred_score_key}' from run {run_id}")
     
-    # If keys still not found, try to directly check the standard key in uns
-    if (inferred_lfc_key is None or inferred_score_key is None) and \
-       "kompot_de" in adata.uns and 'run_info' in adata.uns["kompot_de"]:
-        de_run_info = adata.uns["kompot_de"]['run_info']
-        
-        # Try to get field names directly
-        if inferred_lfc_key is None and 'lfc_key' in de_run_info:
-            inferred_lfc_key = de_run_info['lfc_key']
-        
-        # Try to get mahalanobis_key if not provided
-        if inferred_score_key is None and 'mahalanobis_key' in de_run_info and de_run_info['mahalanobis_key']:
-            inferred_score_key = de_run_info['mahalanobis_key']
+    # We already checked kompot_de history above, so we don't need this section
     
     # If lfc_key still not found, raise error
     if inferred_lfc_key is None:
@@ -128,8 +129,11 @@ def _infer_de_keys(adata: AnnData, run_id: int = -1, lfc_key: Optional[str] = No
     # Log the final results of the inference at info level - convert negative run_id to positive
     conditions = _extract_conditions_from_key(inferred_lfc_key)
     # Get the actual run index for logging (convert negative to positive)
-    if run_id < 0 and 'kompot_run_history' in adata.uns:
-        actual_run_id = len(adata.uns['kompot_run_history']) + run_id
+    if run_id < 0:
+        if 'kompot_de' in adata.uns and 'run_history' in adata.uns['kompot_de']:
+            actual_run_id = len(adata.uns['kompot_de']['run_history']) + run_id
+        else:
+            actual_run_id = run_id
     else:
         actual_run_id = run_id
         
@@ -171,15 +175,15 @@ def _infer_da_keys(adata: AnnData, run_id: int = -1, lfc_key: Optional[str] = No
     # If both keys already provided, use them and return early
     if inferred_lfc_key is not None and inferred_pval_key is not None:
         # Get run info to check for thresholds
-        run_info = get_run_from_history(adata, run_id)
+        run_info = get_run_from_history(adata, run_id, analysis_type="da")
         if run_info is not None and 'params' in run_info:
             params = run_info['params']
             lfc_threshold = params.get('log_fold_change_threshold')
             pval_threshold = params.get('pvalue_threshold')
         return inferred_lfc_key, inferred_pval_key, (lfc_threshold, pval_threshold)
     
-    # Get run info from specified run_id
-    run_info = get_run_from_history(adata, run_id)
+    # Get run info from specified run_id - specifically from kompot_da
+    run_info = get_run_from_history(adata, run_id, analysis_type="da")
     
     if run_info is not None:
         # Check for thresholds in params
@@ -202,9 +206,21 @@ def _infer_da_keys(adata: AnnData, run_id: int = -1, lfc_key: Optional[str] = No
             # Get the field names
             if inferred_lfc_key is None and 'lfc_key' in key_run_info:
                 inferred_lfc_key = key_run_info['lfc_key']
+                # Check for naming collision
+                if inferred_lfc_key not in adata.obs.columns:
+                    logger.warning(f"Field name '{inferred_lfc_key}' from run_info not found in adata.obs columns")
+                    inferred_lfc_key = None
+                else:
+                    logger.debug(f"Using lfc_key '{inferred_lfc_key}' from run {run_id}")
             
             if inferred_pval_key is None and 'pval_key' in key_run_info:
                 inferred_pval_key = key_run_info['pval_key']
+                # Check for naming collision
+                if inferred_pval_key not in adata.obs.columns:
+                    logger.warning(f"Field name '{inferred_pval_key}' from run_info not found in adata.obs columns")
+                    inferred_pval_key = None
+                else:
+                    logger.debug(f"Using pval_key '{inferred_pval_key}' from run {run_id}")
             
             # Get thresholds from params if we haven't found them yet
             if lfc_threshold is None or pval_threshold is None:
@@ -215,25 +231,7 @@ def _infer_da_keys(adata: AnnData, run_id: int = -1, lfc_key: Optional[str] = No
                     if pval_threshold is None:
                         pval_threshold = params.get('pvalue_threshold')
     
-    # If keys still not found, try to directly check the standard key in uns
-    if (inferred_lfc_key is None or inferred_pval_key is None) and "kompot_da" in adata.uns and 'run_info' in adata.uns["kompot_da"]:
-        da_run_info = adata.uns["kompot_da"]['run_info']
-        
-        # Try to get field names directly
-        if inferred_lfc_key is None and 'lfc_key' in da_run_info:
-            inferred_lfc_key = da_run_info['lfc_key']
-        
-        if inferred_pval_key is None and 'pval_key' in da_run_info:
-            inferred_pval_key = da_run_info['pval_key']
-        
-        # Get thresholds from params if we haven't found them yet
-        if lfc_threshold is None or pval_threshold is None:
-            if 'params' in adata.uns["kompot_da"]:
-                params = adata.uns["kompot_da"]['params']
-                if lfc_threshold is None:
-                    lfc_threshold = params.get('log_fold_change_threshold')
-                if pval_threshold is None:
-                    pval_threshold = params.get('pvalue_threshold')
+    # We already checked kompot_da history above, so we don't need this section
     
     # If keys still not found, raise error
     if inferred_lfc_key is None:
@@ -255,8 +253,11 @@ def _infer_da_keys(adata: AnnData, run_id: int = -1, lfc_key: Optional[str] = No
     # Log the final results of the inference at info level - convert negative run_id to positive
     conditions = _extract_conditions_from_key(inferred_lfc_key)
     # Get the actual run index for logging (convert negative to positive)
-    if run_id < 0 and 'kompot_run_history' in adata.uns:
-        actual_run_id = len(adata.uns['kompot_run_history']) + run_id
+    if run_id < 0:
+        if 'kompot_da' in adata.uns and 'run_history' in adata.uns['kompot_da']:
+            actual_run_id = len(adata.uns['kompot_da']['run_history']) + run_id
+        else:
+            actual_run_id = run_id
     else:
         actual_run_id = run_id
         

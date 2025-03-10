@@ -38,6 +38,7 @@ def compute_differential_abundance(
     inplace: bool = True,
     result_key: str = "kompot_da",
     batch_size: Optional[int] = None,
+    overwrite: Optional[bool] = None,
     **density_kwargs
 ) -> Union[Dict[str, np.ndarray], "AnnData"]:
     """
@@ -93,6 +94,11 @@ def compute_differential_abundance(
         If None or 0, all samples will be processed at once. If processing all at once
         causes a memory error, a default batch size of 500 will be used automatically.
         Default is None.
+    overwrite : bool, optional
+        Controls behavior when results with the same result_key already exist:
+        - If None (default): Warn about existing results but proceed with overwriting
+        - If True: Silently overwrite existing results
+        - If False: Raise an error if results would be overwritten
     **density_kwargs : dict
         Additional arguments to pass to the DensityEstimator.
         
@@ -131,6 +137,61 @@ def compute_differential_abundance(
     # Make a copy if requested
     if copy:
         adata = adata.copy()
+        
+    # Check for existing results using the utility functions
+    from ..utils import detect_output_field_overwrite, generate_output_field_names
+    
+    # Generate standardized field names
+    field_names = generate_output_field_names(
+        result_key=result_key,
+        condition1=condition1,
+        condition2=condition2,
+        analysis_type="da",
+        with_sample_suffix=(sample_col is not None),
+        sample_suffix="_sample_var" if sample_col is not None else ""
+    )
+    
+    # Define patterns to check for overwrites using standardized field names
+    column_patterns = [
+        field_names["lfc_key"],
+        field_names["density_key_1"]
+    ]
+    
+    # Detect if we'd overwrite any existing output fields
+    has_overwrites, existing_fields, prev_run = detect_output_field_overwrite(
+        adata=adata,
+        result_key=result_key,
+        output_patterns=column_patterns,
+        with_sample_suffix=(sample_col is not None),
+        sample_suffix="_sample_var" if sample_col is not None else "",
+        result_type="differential abundance",
+        analysis_type="da"
+    )
+    
+    # Handle overwrite detection results
+    if has_overwrites:
+        # Format the message about existing results
+        message = f"Results with result_key='{result_key}' already exist in the dataset."
+        
+        if prev_run:
+            prev_timestamp = prev_run.get('timestamp', 'unknown time')
+            prev_params = prev_run.get('params', {})
+            prev_conditions = f"{prev_params.get('condition1', 'unknown')} vs {prev_params.get('condition2', 'unknown')}"
+            message += f" Previous run was at {prev_timestamp} comparing {prev_conditions}."
+            
+            # List fields that will be overwritten
+            if existing_fields:
+                field_list = ", ".join(existing_fields[:5])
+                if len(existing_fields) > 5:
+                    field_list += f" and {len(existing_fields) - 5} more fields"
+                message += f" Fields that will be overwritten: {field_list}"
+        
+        # Handle overwrite settings
+        if overwrite is False:
+            message += " Set overwrite=True to overwrite or use a different result_key."
+            raise ValueError(message)
+        elif overwrite is None:
+            logger.warning(message + " Results will be overwritten.")
     
     # Extract cell states
     if obsm_key not in adata.obsm:
@@ -248,21 +309,14 @@ def compute_differential_abundance(
         # The actual landmarks are accessible through the model in the result
         logger.info(f"Stored landmarks metadata in adata.uns['{result_key}']['landmarks_info']")
     
-    # Sanitize condition names for use in column names
-    cond1_safe = _sanitize_name(condition1)
-    cond2_safe = _sanitize_name(condition2)
-    
-    # Add suffix when sample variance is used
-    sample_suffix = "_sample_var" if sample_col is not None else ""
-    
-    # Assign values to masked cells with more descriptive column names
-    # Change to put base condition (condition1) first in the key name
-    adata.obs[f"{result_key}_log_fold_change_{cond1_safe}_vs_{cond2_safe}{sample_suffix}"] = abundance_results['log_fold_change']
-    adata.obs[f"{result_key}_log_fold_change_zscore_{cond1_safe}_vs_{cond2_safe}{sample_suffix}"] = abundance_results['log_fold_change_zscore']
-    adata.obs[f"{result_key}_neg_log10_fold_change_pvalue_{cond1_safe}_vs_{cond2_safe}{sample_suffix}"] = abundance_results['neg_log10_fold_change_pvalue']  # Now using negative log10 p-values (higher = more significant)
+    # Use the standardized field names already generated earlier
+    # Assign values to masked cells with descriptive column names
+    adata.obs[field_names["lfc_key"]] = abundance_results['log_fold_change']
+    adata.obs[field_names["zscore_key"]] = abundance_results['log_fold_change_zscore']
+    adata.obs[field_names["pval_key"]] = abundance_results['neg_log10_fold_change_pvalue']  # Now using negative log10 p-values (higher = more significant)
     
     # Add the direction column
-    direction_col = f"{result_key}_log_fold_change_direction_{cond1_safe}_vs_{cond2_safe}{sample_suffix}"
+    direction_col = field_names["direction_key"]
     adata.obs[direction_col] = abundance_results['log_fold_change_direction']
     
     # Add standard color mapping for direction categories in adata.uns
@@ -286,28 +340,14 @@ def compute_differential_abundance(
     adata.uns[f"{direction_col}_colors"] = color_list
     
     # Store log densities for each condition with descriptive names
-    adata.obs[f"{result_key}_log_density_{cond1_safe}{sample_suffix}"] = abundance_results['log_density_condition1']
-    adata.obs[f"{result_key}_log_density_{cond2_safe}{sample_suffix}"] = abundance_results['log_density_condition2']
+    adata.obs[field_names["density_key_1"]] = abundance_results['log_density_condition1']
+    adata.obs[field_names["density_key_2"]] = abundance_results['log_density_condition2']
     
     # Prepare parameters, run timestamp, and field metadata
     current_timestamp = datetime.datetime.now().isoformat()
     
-    current_run_info = {
-        "timestamp": current_timestamp,
-        "function": "compute_differential_abundance",
-        "result_key": result_key,
-        "lfc_key": f"{result_key}_log_fold_change_{cond1_safe}_vs_{cond2_safe}{sample_suffix}",
-        "zscore_key": f"{result_key}_log_fold_change_zscore_{cond1_safe}_vs_{cond2_safe}{sample_suffix}",
-        "pval_key": f"{result_key}_neg_log10_fold_change_pvalue_{cond1_safe}_vs_{cond2_safe}{sample_suffix}",
-        "direction_key": f"{result_key}_log_fold_change_direction_{cond1_safe}_vs_{cond2_safe}{sample_suffix}",
-        "density_keys": {
-            "condition1": f"{result_key}_log_density_{cond1_safe}{sample_suffix}",
-            "condition2": f"{result_key}_log_density_{cond2_safe}{sample_suffix}"
-        },
-        "uses_sample_variance": sample_col is not None
-    }
-    
-    current_params = {
+    # Define parameters dict
+    params_dict = {
         "groupby": groupby,
         "condition1": condition1,
         "condition2": condition2,
@@ -321,19 +361,48 @@ def compute_differential_abundance(
         "use_sample_variance": sample_col is not None,
     }
     
-    # Initialize or update adata.uns[result_key]
-    if result_key not in adata.uns:
-        adata.uns[result_key] = {}
+    current_run_info = {
+        "timestamp": current_timestamp,
+        "function": "compute_differential_abundance",
+        "result_key": result_key,
+        "analysis_type": "da",
+        "lfc_key": field_names["lfc_key"],
+        "zscore_key": field_names["zscore_key"],
+        "pval_key": field_names["pval_key"],
+        "direction_key": field_names["direction_key"],
+        "density_keys": {
+            "condition1": field_names["density_key_1"],
+            "condition2": field_names["density_key_2"]
+        },
+        "field_names": field_names,
+        "uses_sample_variance": sample_col is not None,
+        "params": params_dict
+    }
     
-    # Preserve previous run_info if it exists by moving it to run_history
-    if "run_info" in adata.uns[result_key]:
-        if "run_history" not in adata.uns[result_key]:
-            adata.uns[result_key]["run_history"] = []
-        adata.uns[result_key]["run_history"].append(adata.uns[result_key]["run_info"])
+    # Also maintain separate params for backward compatibility
+    current_params = params_dict.copy()
     
-    # Update with current run info
-    adata.uns[result_key]["params"] = current_params
-    adata.uns[result_key]["run_info"] = current_run_info
+    storage_key = "kompot_da"
+    
+    # Initialize or update adata.uns[storage_key]
+    if storage_key not in adata.uns:
+        adata.uns[storage_key] = {}
+    
+    # Add environment info to the run info
+    from ..utils import get_environment_info
+    env_info = get_environment_info()
+    current_run_info["environment"] = env_info
+    
+    # Initialize run history if it doesn't exist
+    if "run_history" not in adata.uns[storage_key]:
+        adata.uns[storage_key]["run_history"] = []
+    
+    # Always append current run to the run history
+    adata.uns[storage_key]["run_history"].append(current_run_info)
+    
+    # Store current params and run info
+    adata.uns[storage_key]["params"] = current_params
+    adata.uns[storage_key]["run_info"] = current_run_info
     
     # Return results as a dictionary
     return {
@@ -369,6 +438,7 @@ def compute_differential_expression(
     copy: bool = False,
     inplace: bool = True,
     result_key: str = "kompot_de",
+    overwrite: Optional[bool] = None,
     **function_kwargs
 ) -> Union[Dict[str, np.ndarray], "AnnData"]:
     """
@@ -435,6 +505,11 @@ def compute_differential_expression(
         If True, modify adata in place, by default True.
     result_key : str, optional
         Key in adata.uns where results will be stored, by default "kompot_de".
+    overwrite : bool, optional
+        Controls behavior when results with the same result_key already exist:
+        - If None (default): Warn about existing results but proceed with overwriting
+        - If True: Silently overwrite existing results
+        - If False: Raise an error if results would be overwritten
     **function_kwargs : dict
         Additional arguments to pass to the FunctionEstimator.
         
@@ -467,6 +542,86 @@ def compute_differential_expression(
         raise ImportError(
             "Please install anndata and scipy: pip install anndata scipy"
         )
+    
+    # Check for existing results using the utility functions
+    from ..utils import detect_output_field_overwrite, generate_output_field_names
+    
+    # Generate standardized field names
+    field_names = generate_output_field_names(
+        result_key=result_key,
+        condition1=condition1,
+        condition2=condition2,
+        analysis_type="de",
+        with_sample_suffix=(sample_col is not None),
+        sample_suffix="_sample_var" if sample_col is not None else ""
+    )
+    
+    # Define patterns to check for overwrites in var columns using standardized field names
+    var_column_patterns = [
+        field_names["mahalanobis_key"],
+        field_names["mean_lfc_key"],
+        field_names["bidirectionality_key"]
+    ]
+    
+    # Detect if we'd overwrite any existing var columns
+    has_var_overwrites, var_existing_fields, var_prev_run = detect_output_field_overwrite(
+        adata=adata,
+        result_key=result_key,
+        output_patterns=var_column_patterns,
+        location="var",
+        with_sample_suffix=(sample_col is not None),
+        sample_suffix="_sample_var" if sample_col is not None else "",
+        result_type="differential expression (var columns)",
+        analysis_type="de"
+    )
+    
+    # Define patterns to check for overwrites in layers using standardized field names
+    layer_patterns = [
+        field_names["imputed_key_1"],
+        field_names["fold_change_key"]
+    ]
+    
+    # Detect if we'd overwrite any existing layers
+    has_layer_overwrites, layer_existing_fields, layer_prev_run = detect_output_field_overwrite(
+        adata=adata,
+        result_key=result_key,
+        output_patterns=layer_patterns,
+        location="layers",
+        with_sample_suffix=(sample_col is not None),
+        sample_suffix="_sample_var" if sample_col is not None else "",
+        result_type="differential expression (layers)",
+        analysis_type="de"
+    )
+    
+    # Combine results
+    has_overwrites = has_var_overwrites or has_layer_overwrites
+    existing_fields = var_existing_fields + layer_existing_fields
+    prev_run = var_prev_run or layer_prev_run
+    
+    # Handle overwrite detection results
+    if has_overwrites:
+        # Format the message about existing results
+        message = f"Differential expression results with result_key='{result_key}' already exist in the dataset."
+        
+        if prev_run:
+            prev_timestamp = prev_run.get('timestamp', 'unknown time')
+            prev_params = prev_run.get('params', {})
+            prev_conditions = f"{prev_params.get('condition1', 'unknown')} vs {prev_params.get('condition2', 'unknown')}"
+            message += f" Previous run was at {prev_timestamp} comparing {prev_conditions}."
+            
+            # List fields that will be overwritten
+            if existing_fields:
+                field_list = ", ".join(existing_fields[:5])
+                if len(existing_fields) > 5:
+                    field_list += f" and {len(existing_fields) - 5} more fields"
+                message += f" Fields that will be overwritten: {field_list}"
+        
+        # Handle overwrite settings
+        if overwrite is False:
+            message += " Set overwrite=True to overwrite or use a different result_key."
+            raise ValueError(message)
+        elif overwrite is None:
+            logger.warning(message + " Results will be overwritten.")
 
     # Extract cell states
     if obsm_key not in adata.obsm:
@@ -730,14 +885,14 @@ def compute_differential_expression(
                     # Truncate if the array is too long
                     mahalanobis_distances = mahalanobis_distances[:len(selected_genes)]
                 
-            mahalanobis_key = f"{result_key}_mahalanobis_{cond1_safe}_vs_{cond2_safe}{sample_suffix}"
+            mahalanobis_key = field_names["mahalanobis_key"]
             adata.var[mahalanobis_key] = pd.Series(np.nan, index=adata.var_names)
             adata.var.loc[selected_genes, mahalanobis_key] = mahalanobis_distances
         
         if differential_abundance_key is not None:
             # Initialize with np.nan of appropriate shape - use more descriptive column name
-            # Change to put base condition (condition1) first in the key name
-            column_name = f"{result_key}_weighted_lfc_{cond1_safe}_vs_{cond2_safe}{sample_suffix}"
+            # Use the standardized field name from field_names
+            column_name = field_names["weighted_lfc_key"]
             adata.var[column_name] = pd.Series(np.nan, index=adata.var_names)
             
             # Extract and verify weighted_mean_log_fold_change
@@ -768,8 +923,8 @@ def compute_differential_expression(
         
         # Initialize with np.nan of appropriate shape - use more descriptive column names
         # Add mean log fold change with descriptive name
-        # Change to put base condition (condition1) first in the key name
-        mean_lfc_column = f"{result_key}_mean_lfc_{cond1_safe}_vs_{cond2_safe}{sample_suffix}"
+        # Use the standardized field name from field_names
+        mean_lfc_column = field_names["mean_lfc_key"]
         adata.var[mean_lfc_column] = pd.Series(np.nan, index=adata.var_names)
         
         # Extract and verify mean_log_fold_change
@@ -799,7 +954,7 @@ def compute_differential_expression(
         adata.var.loc[selected_genes, mean_lfc_column] = mean_lfc
         
         # Standard deviation of log fold change
-        lfc_std_key = f"{result_key}_lfc_std_{cond1_safe}_vs_{cond2_safe}{sample_suffix}"
+        lfc_std_key = field_names["lfc_std_key"]
         adata.var[lfc_std_key] = pd.Series(np.nan, index=adata.var_names)
         
         # Extract and verify lfc_stds
@@ -829,7 +984,7 @@ def compute_differential_expression(
         adata.var.loc[selected_genes, lfc_std_key] = lfc_stds
         
         # Bidirectionality score
-        bidir_key = f"{result_key}_bidirectionality_{cond1_safe}_vs_{cond2_safe}{sample_suffix}"
+        bidir_key = field_names["bidirectionality_key"]
         adata.var[bidir_key] = pd.Series(np.nan, index=adata.var_names)
         
         # Extract and verify bidirectionality
@@ -864,15 +1019,11 @@ def compute_differential_expression(
         # Process the data to match the shape of the full gene set
         if n_selected_genes < len(adata.var_names):
             # We need to expand the imputed data to the full gene set
-            # Sanitize condition names for use in layer names
-            cond1_safe = _sanitize_name(condition1)
-            cond2_safe = _sanitize_name(condition2)
-            
+            # Use the standardized field names
             # Create descriptive layer names
-            imputed1_key = f"{result_key}_imputed_{cond1_safe}{sample_suffix}"
-            imputed2_key = f"{result_key}_imputed_{cond2_safe}{sample_suffix}"
-            # Change to put base condition (condition1) first in the key name
-            fold_change_key = f"{result_key}_fold_change_{cond1_safe}_vs_{cond2_safe}{sample_suffix}"
+            imputed1_key = field_names["imputed_key_1"]
+            imputed2_key = field_names["imputed_key_2"]
+            fold_change_key = field_names["fold_change_key"]
 
             if imputed1_key not in adata.layers:
                 adata.layers[imputed1_key] = np.zeros_like(adata.X)
@@ -903,15 +1054,11 @@ def compute_differential_expression(
                 logger.warning(f"condition1_imputed shape {condition1_imputed.shape} doesn't match adata shape {adata.shape}. Skipping layer creation.")
                 return result_dict
                 
-            # Sanitize condition names for use in layer names
-            cond1_safe = _sanitize_name(condition1)
-            cond2_safe = _sanitize_name(condition2)
-            
+            # Use the standardized field names
             # Create descriptive layer names
-            imputed1_key = f"{result_key}_imputed_{cond1_safe}{sample_suffix}"
-            imputed2_key = f"{result_key}_imputed_{cond2_safe}{sample_suffix}"
-            # Change to put base condition (condition1) first in the key name
-            fold_change_key = f"{result_key}_fold_change_{cond1_safe}_vs_{cond2_safe}{sample_suffix}"
+            imputed1_key = field_names["imputed_key_1"]
+            imputed2_key = field_names["imputed_key_2"]
+            fold_change_key = field_names["fold_change_key"]
 
             adata.layers[imputed1_key] = condition1_imputed
             adata.layers[imputed2_key] = condition2_imputed
@@ -920,24 +1067,8 @@ def compute_differential_expression(
         # Prepare parameters, run timestamp, and field metadata
         current_timestamp = datetime.datetime.now().isoformat()
         
-        current_run_info = {
-            "timestamp": current_timestamp,
-            "function": "compute_differential_expression",
-            "result_key": result_key,
-            "lfc_key": mean_lfc_column,
-            "weighted_lfc_key": f"{result_key}_weighted_lfc_{cond1_safe}_vs_{cond2_safe}{sample_suffix}" if differential_abundance_key is not None else None,
-            "mahalanobis_key": f"{result_key}_mahalanobis_{cond1_safe}_vs_{cond2_safe}{sample_suffix}" if compute_mahalanobis else None,
-            "lfc_std_key": lfc_std_key,
-            "bidirectionality_key": bidir_key,
-            "imputed_layer_keys": {
-                "condition1": f"{result_key}_imputed_{cond1_safe}{sample_suffix}",
-                "condition2": f"{result_key}_imputed_{cond2_safe}{sample_suffix}",
-                "fold_change": f"{result_key}_fold_change_{cond1_safe}_vs_{cond2_safe}{sample_suffix}"
-            },
-            "uses_sample_variance": sample_col is not None
-        }
-        
-        current_params = {
+        # Define parameters dict
+        params_dict = {
             "groupby": groupby,
             "condition1": condition1,
             "condition2": condition2,
@@ -952,19 +1083,51 @@ def compute_differential_expression(
             "used_landmarks": True if landmarks is not None else False,
         }
         
-        # Initialize or update adata.uns[result_key]
-        if result_key not in adata.uns:
-            adata.uns[result_key] = {}
-            
-        # Preserve previous run_info if it exists by moving it to run_history
-        if "run_info" in adata.uns[result_key]:
-            if "run_history" not in adata.uns[result_key]:
-                adata.uns[result_key]["run_history"] = []
-            adata.uns[result_key]["run_history"].append(adata.uns[result_key]["run_info"])
+        current_run_info = {
+            "timestamp": current_timestamp,
+            "function": "compute_differential_expression",
+            "result_key": result_key,
+            "analysis_type": "de",
+            "lfc_key": field_names["mean_lfc_key"],
+            "weighted_lfc_key": field_names["weighted_lfc_key"] if differential_abundance_key is not None else None,
+            "mahalanobis_key": field_names["mahalanobis_key"] if compute_mahalanobis else None,
+            "lfc_std_key": field_names["lfc_std_key"],
+            "bidirectionality_key": field_names["bidirectionality_key"],
+            "imputed_layer_keys": {
+                "condition1": field_names["imputed_key_1"],
+                "condition2": field_names["imputed_key_2"],
+                "fold_change": field_names["fold_change_key"]
+            },
+            "field_names": field_names,
+            "uses_sample_variance": sample_col is not None,
+            "params": params_dict
+        }
         
-        # Update with current run info
-        adata.uns[result_key]["params"] = current_params
-        adata.uns[result_key]["run_info"] = current_run_info
+        # Also maintain separate params for backward compatibility
+        current_params = params_dict.copy()
+        
+        # Always use fixed key "kompot_de" regardless of result_key
+        storage_key = "kompot_de"
+        
+        # Initialize or update adata.uns[storage_key]
+        if storage_key not in adata.uns:
+            adata.uns[storage_key] = {}
+            
+        # Add environment info to the run info
+        from ..utils import get_environment_info
+        env_info = get_environment_info()
+        current_run_info["environment"] = env_info
+        
+        # Initialize run history if it doesn't exist
+        if "run_history" not in adata.uns[storage_key]:
+            adata.uns[storage_key]["run_history"] = []
+        
+        # Always append current run to the run history
+        adata.uns[storage_key]["run_history"].append(current_run_info)
+        
+        # Store current params and run info
+        adata.uns[storage_key]["params"] = current_params
+        adata.uns[storage_key]["run_info"] = current_run_info
         
     # Return the results dictionary
     return result_dict
@@ -992,6 +1155,7 @@ def run_differential_analysis(
     generate_html_report: bool = True,
     report_dir: str = "kompot_report",
     open_browser: bool = True,
+    overwrite: Optional[bool] = None,
     **kwargs
 ) -> Dict[str, Any]:
     """
@@ -1055,6 +1219,11 @@ def run_differential_analysis(
         Directory where the HTML report will be saved, by default "kompot_report".
     open_browser : bool, optional
         Whether to open the HTML report in a browser, by default True.
+    overwrite : bool, optional
+        Controls behavior when results with the same result_key already exist:
+        - If None (default): Warn about existing results but proceed with overwriting
+        - If True: Silently overwrite existing results
+        - If False: Raise an error if results would be overwritten
     **kwargs : dict
         Additional arguments to pass to compute_differential_abundance and 
         compute_differential_expression.
@@ -1129,6 +1298,7 @@ def run_differential_analysis(
             random_state=random_state,
             inplace=True,
             result_key=abundance_key,
+            overwrite=overwrite,
             **abundance_kwargs
         )
         
@@ -1184,6 +1354,7 @@ def run_differential_analysis(
             differential_abundance_key=diff_abund_key,
             inplace=True,
             result_key=expression_key,
+            overwrite=overwrite,
             **expression_kwargs
         )
     
@@ -1217,8 +1388,10 @@ def run_differential_analysis(
         # Store timestamp of sharing
         adata.uns['landmarks_info']['timestamp'] = datetime.datetime.now().isoformat()
     
-    # Store combined run information in a central location for easier retrieval
-    run_timestamp = datetime.datetime.now().isoformat()
+    # Store combined run information with enhanced environment data
+    # Get environment info
+    from ..utils import get_environment_info
+    env_info = get_environment_info()
     
     # Create a kompot_run_history entry if it doesn't exist
     if 'kompot_run_history' not in adata.uns:
@@ -1227,10 +1400,27 @@ def run_differential_analysis(
     # Add current run info to the history with a run_id for reference
     run_id = len(adata.uns['kompot_run_history'])
     
+    # Create parameters dictionary
+    parameters_dict = {
+        "obsm_key": obsm_key,
+        "share_landmarks": share_landmarks,
+        "ls_factor": ls_factor,
+        "generate_html_report": generate_html_report,
+        "groupby": groupby,
+        "condition1": condition1,
+        "condition2": condition2,
+        "layer": layer,
+        "genes": genes,
+        "n_landmarks": n_landmarks,
+        "compute_abundance": compute_abundance,
+        "compute_expression": compute_expression
+    }
+    
     run_info = {
         "run_id": run_id,
-        "timestamp": run_timestamp,
+        "timestamp": env_info["timestamp"],
         "function": "run_differential_analysis",
+        "analysis_type": "combined",
         "result_key": abundance_key if compute_abundance else (expression_key if compute_expression else None),
         "abundance_key": abundance_key if compute_abundance else None,  # Keep for reference
         "expression_key": expression_key if compute_expression else None,  # Keep for reference
@@ -1239,19 +1429,40 @@ def run_differential_analysis(
             "condition1": condition1,
             "condition2": condition2
         },
-        "parameters": {
-            "obsm_key": obsm_key,
-            "share_landmarks": share_landmarks,
-            "ls_factor": ls_factor,
-            "generate_html_report": generate_html_report
-        }
+        "params": parameters_dict,
+        "environment": env_info  # Add all environment info
     }
     
-    # Add to history
+    # Add to global history
     adata.uns['kompot_run_history'].append(run_info)
+    
+    # Also add to the appropriate specific history locations
+    if compute_abundance:
+        # Make sure kompot_da exists and has a run_history
+        if 'kompot_da' not in adata.uns:
+            adata.uns['kompot_da'] = {}
+        if 'run_history' not in adata.uns['kompot_da']:
+            adata.uns['kompot_da']['run_history'] = []
+        
+        # Add to DA specific history
+        adata.uns['kompot_da']['run_history'].append(run_info)
+    
+    if compute_expression:
+        # Make sure kompot_de exists and has a run_history
+        if 'kompot_de' not in adata.uns:
+            adata.uns['kompot_de'] = {}
+        if 'run_history' not in adata.uns['kompot_de']:
+            adata.uns['kompot_de']['run_history'] = []
+        
+        # Add to DE specific history
+        adata.uns['kompot_de']['run_history'].append(run_info)
     
     # Store the latest run as a separate key for easy access
     adata.uns['kompot_latest_run'] = run_info
+    
+    # Note: The individual analyses (DA and DE) already store their runs 
+    # in the fixed storage locations during their execution.
+    # The global history is maintained separately for combined runs.
     
     # Return the results along with the AnnData
     return {
