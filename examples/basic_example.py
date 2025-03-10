@@ -7,7 +7,6 @@ with both the original API and the new scverse-compatible AnnData API.
 
 import numpy as np
 import matplotlib.pyplot as plt
-import seaborn as sns
 import umap
 import pandas as pd
 
@@ -196,11 +195,14 @@ plt.savefig('fold_change_by_cell_condition.png')
 plt.figure(figsize=(10, 6))
 mahalanobis_distances = expression_results['mahalanobis_distances']
 top_gene_indices = np.argsort(mahalanobis_distances)[-20:]  # Top 20 genes
-sns.barplot(
-    x=top_gene_indices,
-    y=mahalanobis_distances[top_gene_indices],
-    palette='viridis'
+# Use matplotlib instead of seaborn
+colors = plt.cm.viridis(np.linspace(0, 1, len(top_gene_indices)))
+plt.bar(
+    np.arange(len(top_gene_indices)),
+    mahalanobis_distances[top_gene_indices],
+    color=colors
 )
+plt.xticks(np.arange(len(top_gene_indices)), top_gene_indices)
 plt.axhline(y=np.median(mahalanobis_distances), color='r', linestyle='--', label='Median')
 plt.xticks(rotation=45)
 plt.xlabel('Gene Index')

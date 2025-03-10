@@ -389,6 +389,7 @@ class TestPlotFunctions:
             run_id=-1,
             score_key='test_score',  # Use test_score since mahalanobis might not be computed
             n_top_genes=5,
+            diagonal_split=False,  # Explicitly disable diagonal split as we don't have condition data
             return_fig=True
         )
         assert len(result) >= 2
@@ -403,6 +404,7 @@ class TestPlotFunctions:
                 lfc_key=de_keys[0],
                 score_key='test_score',  # Use test_score since mahalanobis might not be computed
                 n_top_genes=5,
+                diagonal_split=False,  # Explicitly disable diagonal split as we don't have condition data
                 return_fig=True
             )
             assert len(result) >= 2

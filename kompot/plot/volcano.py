@@ -731,8 +731,8 @@ def volcano_da(
             )
         else:
             # We'll handle coloring manually instead of using scanpy's scatter
-            import seaborn as sns
-            from matplotlib.colors import ListedColormap
+            # Use matplotlib directly instead of seaborn
+            from matplotlib.colors import ListedColormap, Normalize
             
             # Get the significant indices
             sig_indices = np.where(significant)[0]
@@ -754,13 +754,16 @@ def volcano_da(
                     
                     # If palette is a string, convert it to a color map
                     if isinstance(palette, str):
-                        colors = sns.color_palette(palette, n_colors=len(categories))
+                        # Use matplotlib colormaps instead of seaborn
+                        cmap = plt.cm.get_cmap(palette, len(categories))
+                        colors = [cmap(i/len(categories)) for i in range(len(categories))]
                         color_dict = dict(zip(categories, colors))
                     elif isinstance(palette, dict):
                         color_dict = palette
                     else:
-                        # Use default palette
-                        colors = sns.color_palette("tab10", n_colors=len(categories))
+                        # Use default palette - tab10 equivalent
+                        cmap = plt.cm.get_cmap('tab10', len(categories))
+                        colors = [cmap(i/len(categories)) for i in range(len(categories))]
                         color_dict = dict(zip(categories, colors))
                     
                     # Plot each category separately

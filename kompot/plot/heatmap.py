@@ -3,10 +3,11 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
+import matplotlib.patches as mpatches
+from mpl_toolkits.axes_grid1 import make_axes_locatable
 from typing import Optional, Union, List, Tuple, Dict, Any, Sequence, Literal
 from anndata import AnnData
 import pandas as pd
-import seaborn as sns
 import logging
 
 from ..utils import get_run_from_history, KOMPOT_COLORS
@@ -414,15 +415,642 @@ def direction_barplot(
         plt.show()
 
 
+def _draw_diagonal_split_cell(ax, x, y, w, h, val1, val2, cmap, vmin, vmax, alpha=1.0, edgecolor='none', linewidth=0):
+    """
+    Draw a cell split diagonally with two different values.
+    
+    Parameters
+    ----------
+    ax : matplotlib.axes.Axes
+        The axes to draw on
+    x, y : float
+        The bottom-left coordinates of the cell
+    w, h : float
+        The width and height of the cell
+    val1 : float
+        The value for the lower-left triangle (first condition)
+    val2 : float
+        The value for the upper-right triangle (second condition)
+    cmap : str or colormap
+        The colormap to use
+    vmin, vmax : float
+        The minimum and maximum values for the colormap
+    alpha : float, optional
+        The opacity of the cell
+    edgecolor : str, optional
+        The color of the cell border
+    linewidth : float, optional
+        The width of the cell border
+    """
+    import matplotlib.patches as patches
+    from matplotlib.colors import Normalize
+    
+    # Normalize values
+    norm = Normalize(vmin=vmin, vmax=vmax)
+    cmap_obj = plt.cm.get_cmap(cmap) if isinstance(cmap, str) else cmap
+    
+    # Handle NaN values to prevent black triangles
+    if np.isnan(val1):
+        # Use a very light gray for NaN in lower triangle
+        facecolor1 = (0.9, 0.9, 0.9, 0.5)  # Light gray with transparency
+    else:
+        facecolor1 = cmap_obj(norm(val1))
+        
+    if np.isnan(val2):
+        # Use a very light gray for NaN in upper triangle
+        facecolor2 = (0.9, 0.9, 0.9, 0.5)  # Light gray with transparency
+    else:
+        facecolor2 = cmap_obj(norm(val2))
+    
+    # Create triangles
+    lower_triangle = patches.Polygon(
+        [[x, y], [x+w, y], [x, y+h]], 
+        facecolor=facecolor1, 
+        alpha=alpha, 
+        edgecolor=edgecolor, 
+        linewidth=linewidth
+    )
+    
+    upper_triangle = patches.Polygon(
+        [[x+w, y], [x+w, y+h], [x, y+h]], 
+        facecolor=facecolor2, 
+        alpha=alpha, 
+        edgecolor=edgecolor, 
+        linewidth=linewidth
+    )
+    
+    # Add to axes
+    ax.add_patch(lower_triangle)
+    ax.add_patch(upper_triangle)
+    
+    # No diagonal line between triangles
+
+
+def diagonal_split_heatmap(
+    adata: AnnData,
+    var_names: Optional[Union[List[str], Sequence[str]]] = None,
+    groupby: str = None,
+    n_top_genes: int = 20,
+    gene_list: Optional[Union[List[str], Sequence[str]]] = None,
+    lfc_key: Optional[str] = None,
+    score_key: str = "kompot_de_mahalanobis",
+    layer: Optional[str] = None,
+    standard_scale: Optional[Union[str, int]] = 'var',  # Default to gene-wise z-scoring
+    cmap: Union[str, mcolors.Colormap] = "viridis",
+    condition1_name: Optional[str] = None,
+    condition2_name: Optional[str] = None,
+    figsize: Optional[Tuple[float, float]] = None,
+    show_gene_labels: bool = True,
+    show_group_labels: bool = True,
+    gene_labels_size: int = 10,
+    group_labels_size: int = 12,
+    colorbar_title: str = "Expression",
+    colorbar_kwargs: Optional[Dict[str, Any]] = None,
+    title: Optional[str] = None,
+    sort_genes: bool = True,
+    center: Optional[float] = None,
+    vmin: Optional[float] = None,
+    vmax: Optional[float] = None,
+    ax: Optional[plt.Axes] = None,
+    return_fig: bool = False,
+    save: Optional[str] = None,
+    run_id: Optional[int] = None,
+    condition_column: Optional[str] = None,
+    observed: bool = True,
+    **kwargs
+) -> Union[None, Tuple[plt.Figure, plt.Axes]]:
+    """
+    Create a heatmap with diagonally split cells to display expression values for two conditions.
+    
+    Parameters
+    ----------
+    adata : AnnData
+        AnnData object containing expression data
+    var_names : list, optional
+        List of genes to include in the heatmap. If None, will use top genes
+        based on score_key and lfc_key. This parameter is kept for backwards compatibility,
+        gene_list is the preferred way to specify genes directly.
+    groupby : str, optional
+        Key in adata.obs for grouping cells. If None, no grouping is performed
+    n_top_genes : int, optional
+        Number of top genes to include if var_names and gene_list are None
+    gene_list : list, optional
+        Explicit list of genes to include in the heatmap. Takes precedence over var_names if both are provided.
+    lfc_key : str, optional
+        Key in adata.var for log fold change values.
+        If None, will try to infer from kompot_de_ keys.
+    score_key : str, optional
+        Key in adata.var for significance scores.
+        Default is "kompot_de_mahalanobis"
+    layer : str, optional
+        Layer in AnnData to use for expression values. If None, uses .X
+    standard_scale : str or int, optional
+        Whether to scale the expression values ('var', 'group' or 0 for rows, 1 for columns)
+        Default is 'var' for gene-wise z-scoring
+    cmap : str or colormap, optional
+        Colormap to use for the heatmap
+    condition1_name : str, optional
+        Display name for condition 1 (lower-left triangle). If None, tries to infer from run.
+    condition2_name : str, optional
+        Display name for condition 2 (upper-right triangle). If None, tries to infer from run.
+    figsize : tuple, optional
+        Figure size as (width, height) in inches
+    show_gene_labels : bool, optional
+        Whether to show gene labels
+    show_group_labels : bool, optional
+        Whether to show group labels
+    gene_labels_size : int, optional
+        Font size for gene labels
+    group_labels_size : int, optional
+        Font size for group labels
+    colorbar_title : str, optional
+        Title for the colorbar
+    colorbar_kwargs : dict, optional
+        Additional parameters for colorbar
+    title : str, optional
+        Title for the heatmap
+    sort_genes : bool, optional
+        Whether to sort genes by score
+    center : float, optional
+        Value to center the colormap at
+    vmin : float, optional
+        Minimum value for colormap
+    vmax : float, optional
+        Maximum value for colormap
+    ax : matplotlib.axes.Axes, optional
+        Axes to plot on. If None, creates new figure
+    return_fig : bool, optional
+        If True, returns the figure and axes
+    save : str, optional
+        Path to save figure. If None, figure is not saved
+    run_id : int, optional
+        Specific run ID to use for fetching field names from run history.
+        Negative indices count from the end (-1 is the latest run). If None, 
+        uses the latest run information.
+    condition_column : str, optional
+        Column in adata.obs containing condition information.
+        If None, tries to infer from run_info.
+    observed : bool, optional
+        Whether to use only observed combinations in groupby operations.
+        Default is True, which improves performance with categorical data.
+    **kwargs :
+        Additional parameters passed to cell rendering
+        
+    Returns
+    -------
+    If return_fig is True, returns (fig, ax)
+    """
+    # Set default colorbar kwargs
+    colorbar_kwargs = colorbar_kwargs or {}
+    
+    # Initialize run_info variable
+    run_info = None
+    
+    # If gene_list is provided, use it directly
+    if gene_list is not None:
+        var_names = gene_list
+        logger.info(f"Using provided gene_list with {len(gene_list)} genes/features")
+        
+        # We still need run info for condition names and other parameters
+        run_info = get_run_from_history(adata, run_id, analysis_type="de")
+    # If var_names not provided and no gene_list, get top genes based on DE results
+    elif var_names is None:
+        # Infer keys using the helper function
+        lfc_key, score_key = _infer_heatmap_keys(adata, run_id, lfc_key, score_key)
+        
+        # Calculate the actual (positive) run ID for logging
+        actual_run_id = None
+        if run_id is not None:
+            if run_id < 0:
+                if 'kompot_de' in adata.uns and 'run_history' in adata.uns['kompot_de']:
+                    actual_run_id = len(adata.uns['kompot_de']['run_history']) + run_id
+                else:
+                    actual_run_id = run_id
+            else:
+                actual_run_id = run_id
+        
+        # Get condition information from the run specified by run_id
+        condition1 = None
+        condition2 = None
+        condition_key = None
+        run_info = get_run_from_history(adata, run_id, analysis_type="de")
+        
+        if run_info is not None and 'params' in run_info:
+            params = run_info['params']
+            if 'conditions' in params and len(params['conditions']) == 2:
+                condition1 = params['conditions'][0]
+                condition2 = params['conditions'][1]
+            # In Kompot DE runs, the condition column is called "groupby"
+            if 'groupby' in params:
+                condition_key = params['groupby']
+        
+        # Try to extract from key name if still not found
+        if (condition1 is None or condition2 is None) and lfc_key is not None:
+            conditions = _extract_conditions_from_key(lfc_key)
+            if conditions:
+                condition1, condition2 = conditions
+        
+        # Use condition names for display
+        if condition1_name is None:
+            condition1_name = condition1
+        if condition2_name is None:
+            condition2_name = condition2
+            
+        # If condition_column is None, use the one from run_info
+        if condition_column is None and condition_key is not None:
+            condition_column = condition_key
+            logger.info(f"Using condition_column '{condition_column}' from run information")
+        
+        # Log which run is being used
+        if run_id is not None:
+            conditions_str = f": comparing {condition1} vs {condition2}" if condition1 and condition2 else ""
+            logger.info(f"Using DE run {actual_run_id} for diagonal split heatmap{conditions_str}")
+        else:
+            logger.info("Using latest available DE run for diagonal split heatmap")
+            
+        # Log the fields being used
+        logger.info(f"Using fields for diagonal split heatmap - lfc_key: '{lfc_key}', score_key: '{score_key}'")
+        
+        # Get top genes based on score
+        de_data = pd.DataFrame({
+            'gene': adata.var_names,
+            'lfc': adata.var[lfc_key] if lfc_key in adata.var else np.zeros(adata.n_vars),
+            'score': adata.var[score_key] if score_key in adata.var else np.zeros(adata.n_vars)
+        })
+        
+        if sort_genes:
+            de_data = de_data.sort_values('score', ascending=False)
+            
+        # Get top genes
+        var_names = de_data.head(n_top_genes)['gene'].tolist()
+    
+    # Log the plot type first
+    logger.info(f"Creating diagonal split heatmap with {len(var_names)} genes/features")
+    
+    # Check that condition_column is provided
+    if condition_column is None:
+        logger.warning("No condition_column could be inferred. Diagonal split requires a condition column.")
+        return None
+        
+    # Check that condition_column exists
+    if condition_column not in adata.obs.columns:
+        logger.warning(f"Condition column '{condition_column}' not found in adata.obs columns.")
+        return None
+    
+    # Get known conditions from run_info if available
+    if run_info is not None and 'params' in run_info:
+        params = run_info['params']
+        run_condition1 = params.get('condition1')
+        run_condition2 = params.get('condition2')
+    else:
+        run_condition1 = None
+        run_condition2 = None
+        
+    # Get all unique conditions in the data
+    all_conditions = adata.obs[condition_column].unique()
+    
+    # If we have conditions from run info, use those
+    if run_condition1 is not None and run_condition2 is not None:
+        # Check if these conditions exist in the data
+        if run_condition1 in all_conditions and run_condition2 in all_conditions:
+            unique_conditions = np.array([run_condition1, run_condition2])
+            logger.info(f"Using conditions from run info: {run_condition1} and {run_condition2}")
+        else:
+            missing = []
+            if run_condition1 not in all_conditions:
+                missing.append(run_condition1)
+            if run_condition2 not in all_conditions:
+                missing.append(run_condition2)
+            logger.warning(f"Conditions from run info not found in data: {missing}")
+            
+            # Fall back to the first two conditions if we have exactly two
+            if len(all_conditions) == 2:
+                unique_conditions = all_conditions
+                logger.info(f"Falling back to available conditions: {unique_conditions[0]} and {unique_conditions[1]}")
+            else:
+                logger.warning(f"Diagonal split requires exactly 2 known conditions, but found {len(all_conditions)}.")
+                return None
+    else:
+        # Without run info, check that there are exactly two conditions
+        if len(all_conditions) != 2:
+            logger.warning(f"Diagonal split requires exactly 2 conditions, but found {len(all_conditions)}.")
+            return None
+        unique_conditions = all_conditions
+    
+    # Set condition names, giving priority to explicitly provided names
+    if condition1_name is None:
+        condition1_name = unique_conditions[0]
+    if condition2_name is None:
+        condition2_name = unique_conditions[1]
+    
+    # Log the conditions
+    logger.info(f"Using conditions: {condition1_name} (lower-left triangle) and {condition2_name} (upper-right triangle)")
+    
+    # Extract layer from run parameters if not explicitly provided
+    run_layer = None
+    if layer is None and run_info is not None and 'params' in run_info:
+        run_layer = run_info['params'].get('layer')
+        if run_layer is not None:
+            logger.info(f"Using layer '{run_layer}' from run information")
+            layer = run_layer
+    
+    # Log the data sources being used for the heatmap
+    if layer is not None and layer in adata.layers:
+        logger.info(f"Using expression data from layer: '{layer}'")
+        expr_matrix = adata[:, var_names].layers[layer].toarray() if hasattr(adata.layers[layer], 'toarray') else adata[:, var_names].layers[layer]
+    else:
+        if layer is not None:
+            logger.warning(f"Requested layer '{layer}' not found, falling back to adata.X")
+        logger.info(f"Using expression data from adata.X")
+        expr_matrix = adata[:, var_names].X.toarray() if hasattr(adata.X, 'toarray') else adata[:, var_names].X
+    
+    # Create dataframe with expression data
+    expr_df = pd.DataFrame(expr_matrix, index=adata.obs_names, columns=var_names)
+    
+    # Add condition information to expr_df
+    expr_df[condition_column] = adata.obs[condition_column].values
+    
+    # Group by condition 
+    if groupby is not None and groupby in adata.obs:
+        # Calculate mean expression per group and condition
+        logger.info(f"Grouping expression by '{groupby}' ({adata.obs[groupby].nunique()} groups)")
+        
+        # Add groupby column to expr_df
+        expr_df[groupby] = adata.obs[groupby].values
+        
+        # Group by both groupby and condition_column
+        grouped_expr = expr_df.groupby([groupby, condition_column], observed=observed).mean()
+        
+        # Reshape to have groups as index and genes as columns
+        # This creates a hierarchical column structure
+        unstacked_expr = grouped_expr.unstack(level=1)
+        
+        # Get the condition values for each group
+        condition_values = {}
+        for group in adata.obs[groupby].unique():
+            # Create a dict of {gene: {condition1: value, condition2: value}}
+            group_data = {}
+            for gene in var_names:
+                # Safely extract values for each condition, using NaN for missing data
+                cond_values = {}
+                
+                try:
+                    cond_values[str(condition1_name)] = unstacked_expr.loc[group, (gene, unique_conditions[0])]
+                except KeyError:
+                    logger.debug(f"Missing data for group {group}, gene {gene}, condition {unique_conditions[0]}")
+                    cond_values[str(condition1_name)] = np.nan
+                    
+                try:
+                    cond_values[str(condition2_name)] = unstacked_expr.loc[group, (gene, unique_conditions[1])]
+                except KeyError:
+                    logger.debug(f"Missing data for group {group}, gene {gene}, condition {unique_conditions[1]}")
+                    cond_values[str(condition2_name)] = np.nan
+                
+                # Only add if we have at least one valid value
+                if not (np.isnan(cond_values[str(condition1_name)]) and np.isnan(cond_values[str(condition2_name)])):
+                    group_data[gene] = cond_values
+                else:
+                    logger.warning(f"Missing data for both conditions for group {group}, gene {gene}")
+                    continue
+            condition_values[group] = group_data
+    else:
+        logger.error("Diagonal split heatmap requires a groupby parameter for cell grouping")
+        return None
+    
+    # Scale data if requested
+    if standard_scale == 'var' or standard_scale == 0:
+        # Perform gene-wise z-scoring 
+        logger.info("Applying gene-wise z-scoring (standard_scale='var')")
+        
+        # Create a new condition_values dictionary with z-scored values
+        z_scored_values = {}
+        
+        # For each gene, collect all values for that gene across all groups and conditions
+        for gene in var_names:
+            # Collect all values for this gene
+            gene_values = []
+            for group in condition_values:
+                if gene in condition_values[group]:
+                    gene_values.extend(list(condition_values[group][gene].values()))
+            
+            # Skip genes with no data
+            if not gene_values:
+                continue
+                
+            # Calculate mean and std for this gene
+            gene_mean = np.nanmean(gene_values)
+            gene_std = np.nanstd(gene_values)
+            
+            # Apply z-scoring to each group/condition combination for this gene
+            for group in condition_values:
+                if group not in z_scored_values:
+                    z_scored_values[group] = {}
+                    
+                if gene in condition_values[group]:
+                    gene_data = condition_values[group][gene]
+                    z_scored_gene_data = {}
+                    
+                    for cond, value in gene_data.items():
+                        # Handle division by zero and NaN values
+                        if gene_std > 0 and not np.isnan(value):
+                            z_scored_gene_data[cond] = (value - gene_mean) / gene_std
+                        elif np.isnan(value):
+                            z_scored_gene_data[cond] = np.nan
+                        else:
+                            z_scored_gene_data[cond] = 0
+                            
+                    z_scored_values[group][gene] = z_scored_gene_data
+        
+        # Replace original values with z-scored values
+        condition_values = z_scored_values
+    elif standard_scale == 'group' or standard_scale == 1:
+        logger.info("Applying group-wise z-scoring (standard_scale='group')")
+        
+        # Z-score within each group
+        z_scored_values = {}
+        
+        for group in condition_values:
+            group_values = []
+            for gene_data in condition_values[group].values():
+                group_values.extend(list(gene_data.values()))
+                
+            group_mean = np.nanmean(group_values)
+            group_std = np.nanstd(group_values)
+            
+            z_scored_values[group] = {}
+            for gene, gene_data in condition_values[group].items():
+                z_scored_gene_data = {}
+                
+                for cond, value in gene_data.items():
+                    if group_std > 0:
+                        z_scored_gene_data[cond] = (value - group_mean) / group_std
+                    else:
+                        z_scored_gene_data[cond] = 0
+                        
+                z_scored_values[group][gene] = z_scored_gene_data
+                
+        condition_values = z_scored_values
+        
+    
+    # Determine dimensions and create figure
+    n_rows = len(var_names)
+    n_cols = len(condition_values)
+    
+    # Calculate appropriate figsize if not provided
+    if figsize is None:
+        # Calculate cell size that ensures square tiles
+        base_size = 0.5  # Base cell size
+        
+        # Calculate axes dimensions to ensure square cells
+        width_inches = 6 + n_cols * base_size  # Base width for labels and margins
+        height_inches = 6 + n_rows * base_size  # Base height for labels and margins
+        
+        # Set the figure size
+        figsize = (width_inches, height_inches)
+    
+    # Create figure if axis not provided
+    if ax is None:
+        fig, ax = plt.subplots(figsize=figsize)
+    else:
+        fig = ax.figure
+    
+    # Set up the axes for the heatmap cells
+    ax.set_xlim(0, n_cols)
+    ax.set_ylim(0, n_rows)
+    
+    # Remove frame and spines
+    ax.set_frame_on(False)
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+    
+    # Force square cells by setting aspect ratio
+    ax.set_aspect('equal')
+    
+    # Determine min/max values for colormap normalization
+    if vmin is None or vmax is None:
+        all_values = []
+        for group_data in condition_values.values():
+            for gene_data in group_data.values():
+                all_values.extend(list(gene_data.values()))
+        
+        if vmin is None:
+            vmin = np.nanmin(all_values)
+        if vmax is None:
+            vmax = np.nanmax(all_values)
+    
+    # Create a colormap instance
+    cmap_obj = plt.cm.get_cmap(cmap) if isinstance(cmap, str) else cmap
+    
+    # Create a grid of diagonally split cells
+    groups = list(condition_values.keys())
+    
+    for row_idx, gene in enumerate(var_names):
+        for col_idx, group in enumerate(groups):
+            if gene in condition_values[group]:
+                gene_data = condition_values[group][gene]
+                val1 = gene_data[str(condition1_name)]
+                val2 = gene_data[str(condition2_name)]
+                
+                # Draw diagonal split cell with no edgecolor
+                # Check for None or NaN values that might cause black triangles
+                if val1 is None or (isinstance(val1, (int, float)) and np.isnan(val1)):
+                    logger.debug(f"Found NaN or None for lower triangle: {group}, {gene}, {condition1_name}")
+                
+                if val2 is None or (isinstance(val2, (int, float)) and np.isnan(val2)):
+                    logger.debug(f"Found NaN or None for upper triangle: {group}, {gene}, {condition2_name}")
+                
+                _draw_diagonal_split_cell(
+                    ax, col_idx, n_rows - row_idx - 1, 1, 1, 
+                    val1, val2, cmap_obj, vmin, vmax, 
+                    edgecolor='none', linewidth=0
+                )
+    
+    # Set tick positions
+    ax.set_xticks(np.arange(0.5, n_cols))
+    ax.set_yticks(np.arange(0.5, n_rows))
+    
+    # Set tick labels
+    if show_group_labels:
+        ax.set_xticklabels(groups, rotation=90, fontsize=group_labels_size)
+    else:
+        ax.set_xticklabels([])
+        
+    if show_gene_labels:
+        ax.set_yticklabels(var_names[::-1], fontsize=gene_labels_size)
+    else:
+        ax.set_yticklabels([])
+    
+    # Add a custom legend for the diagonal split
+    from matplotlib.patches import Patch
+    
+    # Create custom legend elements with no edges
+    legend_elements = [
+        Patch(facecolor='none', edgecolor='none', label=f'{condition1_name} (lower left)'),
+        Patch(facecolor='none', edgecolor='none', label=f'{condition2_name} (upper right)')
+    ]
+    
+    # Adjust grid display
+    ax.grid(False)
+    
+    # Add axes labels
+    ax.set_xlabel(groupby)
+    ax.set_ylabel("Genes")
+    
+    # Add title if provided
+    if title:
+        ax.set_title(title)
+    
+    # Create a grid layout for the legend and colorbar
+    from mpl_toolkits.axes_grid1 import make_axes_locatable
+    divider = make_axes_locatable(ax)
+    
+    # Create a more compact colorbar on the right
+    cax = divider.append_axes("right", size="3%", pad=0.6)
+    cax.set_frame_on(False)
+    
+    # Create the colorbar
+    default_cbar_kwargs = {'cax': cax, 'orientation': 'vertical'}
+    combined_cbar_kwargs = {**default_cbar_kwargs, **(colorbar_kwargs or {})}
+    sm = plt.cm.ScalarMappable(cmap=cmap_obj, norm=plt.Normalize(vmin=vmin, vmax=vmax))
+    sm.set_array([])
+    cbar = plt.colorbar(sm, **combined_cbar_kwargs)
+    cbar.outline.set_visible(False)  # Remove colorbar outline
+    cbar.ax.tick_params(grid_alpha=0)  # Remove grid lines from colorbar
+    
+    # Set colorbar label based on whether data was z-scored
+    if standard_scale == 'var' or standard_scale == 0:
+        cbar.set_label('Z-score' if colorbar_title == "Expression" else colorbar_title, labelpad=10)
+    else:
+        cbar.set_label(colorbar_title, labelpad=10)
+        
+    # Place the legend below the colorbar
+    legend_ax = fig.add_axes([0.87, 0.6, 0.12, 0.1])  # [left, bottom, width, height]
+    legend_ax.axis('off')  # Turn off the axis for the legend axes
+    
+    # Add the legend to the dedicated legend axes
+    legend_ax.legend(handles=legend_elements, loc='center', 
+                   title="Conditions", frameon=False)
+    
+    # Save figure if path provided
+    if save:
+        plt.savefig(save, dpi=300, bbox_inches='tight')
+    
+    # Return figure and axes if requested
+    if return_fig:
+        return fig, ax
+    # Don't automatically show the figure
+
+
 def heatmap(
     adata: AnnData,
     var_names: Optional[Union[List[str], Sequence[str]]] = None,
     groupby: str = None,
     n_top_genes: int = 20,
+    gene_list: Optional[Union[List[str], Sequence[str]]] = None,
     lfc_key: Optional[str] = None,
     score_key: str = "kompot_de_mahalanobis",
     layer: Optional[str] = None,
-    standard_scale: Optional[Union[str, int]] = None,
+    standard_scale: Optional[Union[str, int]] = 'var',  # Default to gene-wise z-scoring
     cmap: Union[str, mcolors.Colormap] = "viridis",
     dendrogram: bool = False,
     swap_axes: bool = False,
@@ -442,6 +1070,12 @@ def heatmap(
     return_fig: bool = False,
     save: Optional[str] = None,
     run_id: Optional[int] = None,
+    split_by_condition: bool = False,
+    condition_column: Optional[str] = None,
+    observed: bool = True,
+    diagonal_split: bool = True,
+    condition1_name: Optional[str] = None,
+    condition2_name: Optional[str] = None,
     **kwargs
 ) -> Union[None, Tuple[plt.Figure, plt.Axes, Optional[plt.Axes]]]:
     """
@@ -453,11 +1087,14 @@ def heatmap(
         AnnData object containing expression data
     var_names : list, optional
         List of genes to include in the heatmap. If None, will use top genes
-        based on score_key and lfc_key
+        based on score_key and lfc_key. This parameter is kept for backwards compatibility,
+        gene_list is the preferred way to specify genes directly.
     groupby : str, optional
         Key in adata.obs for grouping cells. If None, no grouping is performed
     n_top_genes : int, optional
-        Number of top genes to include if var_names is None
+        Number of top genes to include if var_names and gene_list are None
+    gene_list : list, optional
+        Explicit list of genes to include in the heatmap. Takes precedence over var_names if both are provided.
     lfc_key : str, optional
         Key in adata.var for log fold change values.
         If None, will try to infer from kompot_de_ keys.
@@ -468,6 +1105,7 @@ def heatmap(
         Layer in AnnData to use for expression values. If None, uses .X
     standard_scale : str or int, optional
         Whether to scale the expression values ('var', 'group' or 0 for rows, 1 for columns)
+        Default is 'var' for gene-wise z-scoring
     cmap : str or colormap, optional
         Colormap to use for the heatmap
     dendrogram : bool, optional
@@ -508,18 +1146,110 @@ def heatmap(
         Specific run ID to use for fetching field names from run history.
         Negative indices count from the end (-1 is the latest run). If None, 
         uses the latest run information.
+    split_by_condition : bool, optional
+        Whether to split each group by condition (e.g., Young/Old) to show contrast.
+        Requires condition_column to be provided.
+    condition_column : str, optional
+        Column in adata.obs containing condition information for splitting.
+        If None, tries to infer from run_info.
+    observed : bool, optional
+        Whether to use only observed combinations in groupby operations.
+        Default is True, which improves performance with categorical data.
+    diagonal_split : bool, optional
+        Whether to use diagonal split cells to show two conditions in each tile.
+        Default is True. If True, redirects to diagonal_split_heatmap function.
+    condition1_name : str, optional
+        Display name for condition 1 in diagonal split (lower-left triangle).
+    condition2_name : str, optional
+        Display name for condition 2 in diagonal split (upper-right triangle).
     **kwargs :
-        Additional parameters passed to sns.heatmap
+        Additional parameters passed to sns.heatmap or sns.clustermap
         
     Returns
     -------
     If return_fig is True, returns (fig, main_ax, [dendrogram_ax])
     """
+    # Get run info for parameter extraction
+    run_info = get_run_from_history(adata, run_id, analysis_type="de")
+    
+    # Extract parameters from run_info (only if not explicitly provided)
+    if run_info is not None and 'params' in run_info:
+        params = run_info['params']
+        
+        # Extract condition column if needed
+        if (split_by_condition or diagonal_split) and condition_column is None:
+            # In Kompot DE runs, the condition column is called "groupby"
+            if 'groupby' in params:
+                condition_key = params['groupby']
+                condition_column = condition_key
+                logger.info(f"Using condition_column '{condition_column}' from run information")
+        
+        # Extract layer if not explicitly provided
+        if layer is None and 'layer' in params:
+            layer = params['layer']
+            logger.info(f"Using layer '{layer}' from run information")
+        
+        # Extract condition names if not provided
+        if condition1_name is None and 'condition1' in params:
+            condition1_name = params['condition1']
+        if condition2_name is None and 'condition2' in params:
+            condition2_name = params['condition2']
+    
+    # Check if diagonal split is requested
+    if diagonal_split:
+        return diagonal_split_heatmap(
+            adata=adata,
+            var_names=var_names,
+            groupby=groupby,
+            n_top_genes=n_top_genes,
+            gene_list=gene_list,
+            lfc_key=lfc_key,
+            score_key=score_key,
+            layer=layer,
+            standard_scale=standard_scale,
+            cmap=cmap,
+            condition1_name=condition1_name,
+            condition2_name=condition2_name,
+            figsize=figsize,
+            show_gene_labels=show_gene_labels,
+            show_group_labels=show_group_labels,
+            gene_labels_size=gene_labels_size,
+            group_labels_size=group_labels_size,
+            colorbar_title=colorbar_title,
+            colorbar_kwargs=colorbar_kwargs,
+            title=title,
+            sort_genes=sort_genes,
+            center=center,
+            vmin=vmin,
+            vmax=vmax,
+            ax=ax,
+            return_fig=return_fig,
+            save=save,
+            run_id=run_id,
+            condition_column=condition_column,
+            observed=observed,
+            **kwargs
+        )
+    
     # Set default colorbar kwargs
     colorbar_kwargs = colorbar_kwargs or {}
     
-    # If var_names not provided, get top genes based on DE results
-    if var_names is None:
+    # Set defaults for grid removal
+    if 'linewidths' not in kwargs:
+        kwargs['linewidths'] = 0
+    
+    # Initialize run_info variable
+    run_info = None
+    
+    # If gene_list is provided, use it directly
+    if gene_list is not None:
+        var_names = gene_list
+        logger.info(f"Using provided gene_list with {len(gene_list)} genes/features")
+        
+        # We still need run info for condition names and other parameters
+        run_info = get_run_from_history(adata, run_id, analysis_type="de")
+    # If var_names not provided and no gene_list, get top genes based on DE results
+    elif var_names is None:
         # Infer keys using the helper function
         lfc_key, score_key = _infer_heatmap_keys(adata, run_id, lfc_key, score_key)
         
@@ -582,17 +1312,42 @@ def heatmap(
         logger.info(f"Using expression data from layer: '{layer}'")
         expr_matrix = adata[:, var_names].layers[layer].toarray() if hasattr(adata.layers[layer], 'toarray') else adata[:, var_names].layers[layer]
     else:
+        if layer is not None:
+            logger.warning(f"Requested layer '{layer}' not found, falling back to adata.X")
         logger.info(f"Using expression data from adata.X")
         expr_matrix = adata[:, var_names].X.toarray() if hasattr(adata.X, 'toarray') else adata[:, var_names].X
     
     # Create dataframe with expression data
     expr_df = pd.DataFrame(expr_matrix, index=adata.obs_names, columns=var_names)
     
+    # If condition splitting is requested, check that condition_column is provided
+    if split_by_condition and condition_column is None:
+        logger.warning("split_by_condition=True but no condition_column provided. Disabling split_by_condition.")
+        split_by_condition = False
+    
+    # Add condition information to expr_df if splitting by condition
+    if split_by_condition and condition_column in adata.obs:
+        expr_df[condition_column] = adata.obs[condition_column].values
+    
     # Group by condition if provided
     if groupby is not None and groupby in adata.obs:
-        # Calculate mean expression per group
+        # Calculate mean expression per group, optionally splitting by condition
         logger.info(f"Grouping expression by '{groupby}' ({adata.obs[groupby].nunique()} groups)")
-        grouped_expr = expr_df.groupby(adata.obs[groupby]).mean()
+        
+        if split_by_condition and condition_column in adata.obs:
+            logger.info(f"Splitting each group by '{condition_column}'")
+            # Add groupby column to expr_df
+            expr_df[groupby] = adata.obs[groupby].values
+            # Group by both groupby and condition_column
+            grouped_expr = expr_df.groupby([groupby, condition_column], observed=observed).mean()
+            # Reshape the MultiIndex DataFrame to have condition-specific columns
+            # This creates a hierarchical column structure with gene names and conditions
+            grouped_expr = grouped_expr.unstack(level=1)
+        else:
+            # Add groupby column to expr_df
+            expr_df[groupby] = adata.obs[groupby].values
+            # Group by just groupby
+            grouped_expr = expr_df.groupby(groupby, observed=observed).mean()
     else:
         logger.info(f"No grouping applied (showing all {len(expr_df)} cells)")
         grouped_expr = expr_df
@@ -600,65 +1355,183 @@ def heatmap(
     # Scale data if requested
     if standard_scale == 'group' or standard_scale == 1:
         # Scale by group (cols)
-        grouped_expr = (grouped_expr - grouped_expr.mean(axis=0)) / grouped_expr.std(axis=0)
+        logger.info("Applying group-wise z-scoring (standard_scale='group')")
+        if split_by_condition:
+            # Scale each gene separately across all conditions
+            for gene in var_names:
+                gene_data = grouped_expr.loc[:, gene]
+                # Handle NaN values and zeros
+                gene_mean = gene_data.mean(skipna=True)
+                gene_std = gene_data.std(skipna=True)
+                if gene_std > 0:
+                    grouped_expr.loc[:, gene] = (gene_data - gene_mean) / gene_std
+                # NaN values remain NaN
+        else:
+            # Properly handle NaN values
+            means = grouped_expr.mean(axis=0, skipna=True)
+            stds = grouped_expr.std(axis=0, skipna=True)
+            # Avoid division by zero
+            stds = stds.replace(0, 1)
+            # Apply z-scoring
+            grouped_expr = (grouped_expr - means) / stds
+            
     elif standard_scale == 'var' or standard_scale == 0:
         # Scale by gene (rows)
-        grouped_expr = (grouped_expr.T - grouped_expr.T.mean(axis=0)) / grouped_expr.T.std(axis=0)
-        grouped_expr = grouped_expr.T
+        logger.info("Applying gene-wise z-scoring (standard_scale='var')")
+        if split_by_condition:
+            # Handle hierarchical columns by scaling each group separately
+            for group_idx in grouped_expr.index:
+                group_data = grouped_expr.loc[group_idx]
+                # Handle NaN values and zeros
+                group_mean = group_data.mean(skipna=True)
+                group_std = group_data.std(skipna=True)
+                if group_std > 0:
+                    grouped_expr.loc[group_idx] = (group_data - group_mean) / group_std
+                # NaN values remain NaN
+        else:
+            # Transpose, z-score each column (which is a gene), then transpose back
+            data_T = grouped_expr.T
+            
+            # Properly handle NaN values
+            means = data_T.mean(axis=0, skipna=True)
+            stds = data_T.std(axis=0, skipna=True)
+            # Avoid division by zero
+            stds = stds.replace(0, 1)
+            # Apply z-scoring
+            data_T_zscore = (data_T - means) / stds
+            
+            # Transpose back
+            grouped_expr = data_T_zscore.T
     
     # Swap axes if requested
     if swap_axes:
         grouped_expr = grouped_expr.T
     
-    # Set up figure and axes
-    if ax is None:
+    # Only create a new figure if dendrogram=False, or if ax is provided
+    # For dendrogram=True, clustermap will create its own figure
+    if not dendrogram and ax is None:
         # Calculate appropriate figsize if not provided
         if figsize is None:
-            # Base size on number of genes and groups
+            # Get dimensions
             n_rows, n_cols = grouped_expr.shape
-            figsize = (8 + n_cols * 0.3, 6 + n_rows * 0.3)
+            
+            # Calculate cell size that ensures square tiles
+            base_size = 0.5  # Base cell size
+            
+            # Calculate axes dimensions to ensure square cells
+            width_inches = 6 + n_cols * base_size  # Base width for labels and margins
+            height_inches = 6 + n_rows * base_size  # Base height for labels and margins
+            
+            # Set the figure size
+            figsize = (width_inches, height_inches)
         
         # Create figure
         fig, ax = plt.subplots(figsize=figsize)
-    else:
+    elif ax is not None:
         fig = ax.figure
     
     # Create the heatmap
     dendrogram_ax = None
     if dendrogram:
-        # With dendrogram - use clustermap
-        grid = sns.clustermap(
-            grouped_expr,
-            cmap=cmap,
-            center=center,
-            vmin=vmin,
-            vmax=vmax,
-            xticklabels=show_group_labels if not swap_axes else show_gene_labels,
-            yticklabels=show_gene_labels if not swap_axes else show_group_labels,
-            cbar_kws={"label": colorbar_title, **colorbar_kwargs},
-            **kwargs
-        )
-        # Extract main axes and adjust label sizes
-        ax = grid.ax_heatmap
-        if title:
-            plt.suptitle(title)
-        fig = grid.fig
+        logger.warning("Dendrogram option is not currently supported. Using standard heatmap instead.")
+        
+    # Get the data matrix
+    data = grouped_expr.values
+    rows = grouped_expr.index
+    cols = grouped_expr.columns
+    
+    # Create figure and axes if not provided
+    if ax is None:
+        # Calculate appropriate figsize if not provided
+        if figsize is None:
+            # Calculate aspect ratio that ensures square tiles
+            n_rows, n_cols = data.shape
+            # Base width includes space for labels and legend
+            base_width = 8  # Base width for labels and margins
+            base_height = 6  # Base height for labels and margins
+            
+            # Calculate cell size that ensures square tiles
+            cell_size = min(0.5, 12 / max(n_rows, n_cols))
+            
+            # Calculate figsize to maintain square cells
+            figsize = (base_width + n_cols * cell_size, base_height + n_rows * cell_size)
+        
+        fig, ax = plt.subplots(figsize=figsize)
     else:
-        # Without dendrogram - use regular heatmap
-        sns.heatmap(
-            grouped_expr,
-            cmap=cmap,
-            center=center,
-            vmin=vmin,
-            vmax=vmax,
-            ax=ax,
-            xticklabels=show_group_labels if not swap_axes else show_gene_labels,
-            yticklabels=show_gene_labels if not swap_axes else show_group_labels,
-            cbar_kws={"label": colorbar_title, **colorbar_kwargs},
-            **kwargs
-        )
-        if title:
-            ax.set_title(title)
+        fig = ax.figure
+    
+    # Determine color normalization
+    if center is not None:
+        # Use diverging normalization
+        vmin = np.nanmin(data) if vmin is None else vmin
+        vmax = np.nanmax(data) if vmax is None else vmax
+        # Ensure vmin and vmax are equidistant from center
+        max_distance = max(abs(vmin - center), abs(vmax - center))
+        vmin = center - max_distance
+        vmax = center + max_distance
+        norm = mcolors.TwoSlopeNorm(vcenter=center, vmin=vmin, vmax=vmax)
+    else:
+        # Use standard normalization
+        vmin = np.nanmin(data) if vmin is None else vmin
+        vmax = np.nanmax(data) if vmax is None else vmax
+        norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
+    
+    # Get colormap
+    cmap_obj = plt.cm.get_cmap(cmap) if isinstance(cmap, str) else cmap
+    
+    # Create the heatmap using imshow
+    im = ax.imshow(
+        data,
+        aspect='equal',  # Use equal aspect to ensure square cells
+        cmap=cmap_obj,
+        norm=norm,
+        origin='upper',
+        **{k: v for k, v in kwargs.items() if k not in ['linewidths', 'linecolor']}
+    )
+    
+    # Force square cells by setting aspect ratio
+    ax.set_aspect('equal')
+    
+    # Configure axes - remove frame and spines
+    ax.set_frame_on(False)
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+    ax.grid(False)
+    
+    # Set tick positions
+    ax.set_xticks(np.arange(len(cols)))
+    ax.set_yticks(np.arange(len(rows)))
+    
+    # Set tick labels
+    if show_group_labels if not swap_axes else show_gene_labels:
+        ax.set_xticklabels(cols, rotation=90, fontsize=group_labels_size if not swap_axes else gene_labels_size)
+    else:
+        ax.set_xticklabels([])
+        
+    if show_gene_labels if not swap_axes else show_group_labels:
+        ax.set_yticklabels(rows, fontsize=gene_labels_size if not swap_axes else group_labels_size)
+    else:
+        ax.set_yticklabels([])
+    
+    # Create a grid layout for the colorbar
+    from mpl_toolkits.axes_grid1 import make_axes_locatable
+    divider = make_axes_locatable(ax)
+    
+    # Create the colorbar to the right of the main axis
+    cax = divider.append_axes("right", size="5%", pad=0.5)
+    cax.set_frame_on(False)
+    
+    # Create the colorbar vertically
+    default_cbar_kwargs = {'cax': cax, 'orientation': 'vertical'}
+    combined_cbar_kwargs = {**default_cbar_kwargs, **(colorbar_kwargs or {})}
+    cbar = plt.colorbar(im, **combined_cbar_kwargs)
+    cbar.outline.set_visible(False)  # Remove colorbar outline
+    cbar.ax.tick_params(grid_alpha=0)  # Remove grid lines from colorbar
+    cbar.set_label(colorbar_title, labelpad=10)  # Add padding to the colorbar label
+    
+    # Set title if provided
+    if title:
+        ax.set_title(title)
     
     # Adjust label sizes
     if swap_axes:
@@ -672,8 +1545,6 @@ def heatmap(
         if show_group_labels:
             ax.set_xticklabels(ax.get_xticklabels(), fontsize=group_labels_size)
     
-    plt.tight_layout()
-    
     # Save figure if path provided
     if save:
         plt.savefig(save, dpi=300, bbox_inches='tight')
@@ -681,6 +1552,4 @@ def heatmap(
     # Return figure and axes if requested
     if return_fig:
         return fig, ax, dendrogram_ax
-    elif save is None:
-        # Only show if not saving and not returning
-        plt.show()
+    # Don't automatically show the figure
