@@ -20,7 +20,7 @@ setup(
     long_description_content_type='text/markdown',
     url='https://github.com/settylab/kompot',
     packages=find_packages(),
-    python_requires='>=3.7',
+    python_requires='>=3.9',
     install_requires=[
         'numpy>=1.20.0',
         'scipy>=1.7.0',
@@ -31,6 +31,11 @@ setup(
         'mellon>=1.5.0',
         'matplotlib>=3.5.0',
         'seaborn>=0.12.0',
+        'tqdm>=4.60.0',
+        'anndata>=0.8.0',
+        'pynndescent>=0.5.0',
+        'python-igraph>=0.10.0',
+        'leidenalg>=0.9.0',
         'importlib-resources>=5.0.0;python_version<"3.9"',
     ],
     extras_require={
@@ -59,14 +64,14 @@ setup(
         ],
     },
     classifiers=[
-        'Development Status :: 3 - Alpha',
+        'Development Status :: 4 - Beta',
         'Intended Audience :: Science/Research',
         'License :: OSI Approved :: GNU General Public License v3 (GPLv3)',
         'Programming Language :: Python :: 3',
-        'Programming Language :: Python :: 3.7',
-        'Programming Language :: Python :: 3.8',
         'Programming Language :: Python :: 3.9',
         'Programming Language :: Python :: 3.10',
+        'Programming Language :: Python :: 3.11',
+        'Programming Language :: Python :: 3.13',
         'Topic :: Scientific/Engineering :: Bio-Informatics',
     ],
 )

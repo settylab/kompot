@@ -47,6 +47,10 @@ To install all optional dependencies:
 pip install kompot[all]
 ```
 
+### JAX Installation
+
+Kompot depends on JAX for efficient computations. By default, the CPU version of JAX is used, which is recommended for most users as it provides good performance without memory constraints.
+
 See [Palantir GitHub](https://github.com/dpeerlab/Palantir) for more installation details.
 
 ## Usage Example
