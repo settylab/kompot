@@ -122,11 +122,7 @@ def _infer_de_keys(adata: AnnData, run_id: int = -1, lfc_key: Optional[str] = No
         logger.error(f"Available columns in adata.var: {list(adata.var.columns)}")
         raise ValueError("Could not infer lfc_key. Please specify manually.")
     
-    # Log details at debug level for troubleshooting
-    logger.debug(f"Detected lfc_key: '{inferred_lfc_key}'")
-    logger.debug(f"Detected score_key: '{inferred_score_key}'")
-    
-    # Log the final results of the inference at info level - convert negative run_id to positive
+    # Convert negative run_id to positive for more informative logging
     conditions = _extract_conditions_from_key(inferred_lfc_key)
     # Get the actual run index for logging (convert negative to positive)
     if run_id < 0:
@@ -137,11 +133,15 @@ def _infer_de_keys(adata: AnnData, run_id: int = -1, lfc_key: Optional[str] = No
     else:
         actual_run_id = run_id
         
+    # Log which run is being used first
     if conditions:
         condition1, condition2 = conditions
         logger.info(f"Using DE run {actual_run_id}: comparing {condition1} vs {condition2}")
     else:
         logger.info(f"Using DE run {actual_run_id}")
+    
+    # Then log the fields being used
+    logger.info(f"Using fields for DE plot - lfc_key: '{inferred_lfc_key}', score_key: '{inferred_score_key}'")
     
     return inferred_lfc_key, inferred_score_key
 
@@ -244,13 +244,7 @@ def _infer_da_keys(adata: AnnData, run_id: int = -1, lfc_key: Optional[str] = No
         logger.error(f"Available columns in adata.obs: {list(adata.obs.columns)}")
         raise ValueError("Could not infer pval_key. Please specify manually.")
     
-    # Log details at debug level for troubleshooting
-    logger.debug(f"Detected lfc_key: '{inferred_lfc_key}'")
-    logger.debug(f"Detected pval_key: '{inferred_pval_key}'")
-    logger.debug(f"Detected log_fold_change_threshold: {lfc_threshold}")
-    logger.debug(f"Detected pvalue_threshold: {pval_threshold}")
-    
-    # Log the final results of the inference at info level - convert negative run_id to positive
+    # Convert negative run_id to positive for more informative logging
     conditions = _extract_conditions_from_key(inferred_lfc_key)
     # Get the actual run index for logging (convert negative to positive)
     if run_id < 0:
@@ -261,11 +255,17 @@ def _infer_da_keys(adata: AnnData, run_id: int = -1, lfc_key: Optional[str] = No
     else:
         actual_run_id = run_id
         
+    # Log which run is being used first
     if conditions:
         condition1, condition2 = conditions
         logger.info(f"Using DA run {actual_run_id}: comparing {condition1} vs {condition2}")
     else:
         logger.info(f"Using DA run {actual_run_id}")
+    
+    # Then log the fields and thresholds being used
+    logger.info(f"Using fields for DA plot - lfc_key: '{inferred_lfc_key}', pval_key: '{inferred_pval_key}'")
+    if lfc_threshold is not None or pval_threshold is not None:
+        logger.info(f"Using thresholds - lfc_threshold: {lfc_threshold}, pval_threshold: {pval_threshold}")
     
     return inferred_lfc_key, inferred_pval_key, (lfc_threshold, pval_threshold)
 
@@ -399,14 +399,10 @@ def volcano_de(
         if conditions:
             condition1, condition2 = conditions
     
-    # Log what we're plotting
-    if condition1 and condition2:
-        logger.info(f"Volcano DE plot: {condition1} vs {condition2} using {score_key}")
-        
-        # Update axis labels with condition information if not explicitly set
-        if xlabel == "Log Fold Change":
-            # Adjust for new key format where condition1 is the baseline/denominator
-            xlabel = f"Log Fold Change: {condition2} / {condition1}"
+    # Only update axis labels, logging of fields and conditions is done earlier
+    if condition1 and condition2 and xlabel == "Log Fold Change":
+        # Adjust for new key format where condition1 is the baseline/denominator
+        xlabel = f"Log Fold Change: {condition2} / {condition1}"
                 
     # Create figure if ax not provided - adjust figsize if legend is outside
     if ax is None:
@@ -661,21 +657,14 @@ def volcano_da(
         pval_threshold = auto_pval_threshold
         logger.debug(f"Using automatically detected pval_threshold: {pval_threshold}")
         
-    # Log the run information and thresholds in a single message
+    # Extract conditions to update axis labels (logging of fields is done earlier)
     conditions = _extract_conditions_from_key(lfc_key)
     if conditions:
         condition1, condition2 = conditions
-        if lfc_threshold is not None and pval_threshold is not None:
-            logger.info(f"Volcano plot: {condition1} vs {condition2}, thresholds: lfc={lfc_threshold:.2f}, pval={pval_threshold:.2e}")
-        else:
-            logger.info(f"Volcano plot: {condition1} vs {condition2}")
-            
         # Update axis labels with condition information if not explicitly set
         if xlabel == "Log Fold Change":
             # Adjust for new key format where condition1 is the baseline/denominator
             xlabel = f"Log Fold Change: {condition2} / {condition1}"
-    elif lfc_threshold is not None and pval_threshold is not None:
-        logger.info(f"Volcano plot using thresholds: lfc={lfc_threshold:.2f}, pval={pval_threshold:.2e}")
     
     # Create figure if ax not provided - adjust figsize if legend is outside
     if ax is None:

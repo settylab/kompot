@@ -43,7 +43,7 @@ def _infer_heatmap_keys(adata: AnnData, run_id: Optional[int] = None, lfc_key: O
     inferred_lfc_key = lfc_key
     inferred_score_key = score_key
     
-    # If keys already provided, use them
+    # If keys already provided, just use them (logging will be done at the end)
     if inferred_lfc_key is not None and not (score_key == "kompot_de_mahalanobis" and 
                                         not any(k == score_key for k in adata.var.columns)):
         return inferred_lfc_key, inferred_score_key
@@ -58,12 +58,10 @@ def _infer_heatmap_keys(adata: AnnData, run_id: Optional[int] = None, lfc_key: O
             key_run_info = adata.uns[de_key]['run_info']
             if inferred_lfc_key is None and 'lfc_key' in key_run_info:
                 inferred_lfc_key = key_run_info['lfc_key']
-                logger.info(f"Using lfc_key '{inferred_lfc_key}' from run {run_id}")
             
             # Try to use mahalanobis key from run info if available
             if score_key == "kompot_de_mahalanobis" and 'mahalanobis_key' in key_run_info and key_run_info['mahalanobis_key']:
                 inferred_score_key = key_run_info['mahalanobis_key']
-                logger.info(f"Using score_key '{inferred_score_key}' from run {run_id}")
     
     # If still no lfc_key, try global history
     if inferred_lfc_key is None:
@@ -76,12 +74,10 @@ def _infer_heatmap_keys(adata: AnnData, run_id: Optional[int] = None, lfc_key: O
                 key_run_info = adata.uns[de_key]['run_info']
                 if inferred_lfc_key is None and 'lfc_key' in key_run_info:
                     inferred_lfc_key = key_run_info['lfc_key']
-                    logger.info(f"Using lfc_key '{inferred_lfc_key}' from run {run_id}")
                 
                 # Try to use mahalanobis key from run info if available
                 if score_key == "kompot_de_mahalanobis" and 'mahalanobis_key' in key_run_info and key_run_info['mahalanobis_key']:
                     inferred_score_key = key_run_info['mahalanobis_key']
-                    logger.info(f"Using score_key '{inferred_score_key}' from run {run_id}")
     
     # If still no lfc_key, try latest run
     if (inferred_lfc_key is None or score_key == "kompot_de_mahalanobis") and 'kompot_latest_run' in adata.uns and adata.uns['kompot_latest_run'].get('expression_key'):
@@ -93,27 +89,50 @@ def _infer_heatmap_keys(adata: AnnData, run_id: Optional[int] = None, lfc_key: O
             run_info = adata.uns[de_key]['run_info']
             if inferred_lfc_key is None and 'lfc_key' in run_info:
                 inferred_lfc_key = run_info['lfc_key']
-                logger.info(f"Using lfc_key '{inferred_lfc_key}' from latest run information")
             
             # Try to use mahalanobis key from run info if available
             if score_key == "kompot_de_mahalanobis" and 'mahalanobis_key' in run_info and run_info['mahalanobis_key']:
                 inferred_score_key = run_info['mahalanobis_key']
-                logger.info(f"Using score_key '{inferred_score_key}' from latest run information")
     
     # If still not found, try to infer from column names
+    source_description = None
     if inferred_lfc_key is None:
         lfc_keys = [k for k in adata.var.columns if 'kompot_de_' in k and 'lfc' in k.lower()]
         if len(lfc_keys) == 1:
             inferred_lfc_key = lfc_keys[0]
+            source_description = "column names (single match)"
         elif len(lfc_keys) > 1:
             # If multiple keys found, try to find the mean or avg one
             mean_keys = [k for k in lfc_keys if 'mean' in k.lower() or 'avg' in k.lower()]
             if mean_keys:
                 inferred_lfc_key = mean_keys[0]
+                source_description = "column names (mean/avg key)"
             else:
                 inferred_lfc_key = lfc_keys[0]
+                source_description = "column names (first of multiple keys)"
         else:
             raise ValueError("Could not infer lfc_key. Please specify manually.")
+    
+    # Convert the run_id to a more readable form first
+    if run_id is not None:
+        if run_id < 0:
+            if 'kompot_de' in adata.uns and 'run_history' in adata.uns['kompot_de']:
+                actual_run_id = len(adata.uns['kompot_de']['run_history']) + run_id
+            else:
+                actual_run_id = run_id
+        else:
+            actual_run_id = run_id
+            
+        # Log which run is being used
+        logger.info(f"Using DE run {actual_run_id} for heatmap")
+    else:
+        logger.info("Using latest available DE run for heatmap")
+    
+    # Log the final field selection with source info if available
+    if source_description:
+        logger.info(f"Using fields for heatmap - lfc_key: '{inferred_lfc_key}' (from {source_description}), score_key: '{inferred_score_key}'")
+    else:
+        logger.info(f"Using fields for heatmap - lfc_key: '{inferred_lfc_key}', score_key: '{inferred_score_key}'")
     
     return inferred_lfc_key, inferred_score_key
 
@@ -253,7 +272,6 @@ def direction_barplot(
                     key_run_info = adata.uns[result_key]['run_info']
                     if 'direction_key' in key_run_info:
                         direction_column = key_run_info['direction_key']
-                        logger.info(f"Using direction column '{direction_column}' from run info")
         
         # If not found in run info, look for columns matching pattern
         if direction_column is None:
@@ -262,25 +280,35 @@ def direction_barplot(
                 raise ValueError("Could not find direction column. Please specify direction_column.")
             elif len(direction_cols) == 1:
                 direction_column = direction_cols[0]
-                logger.info(f"Using direction column: {direction_column}")
             else:
                 # If conditions provided, try to find matching column
                 if condition1 and condition2:
                     for col in direction_cols:
                         if f"{condition1}_vs_{condition2}" in col:
                             direction_column = col
-                            logger.info(f"Using direction column matching conditions: {direction_column}")
                             break
                         elif f"{condition2}_vs_{condition1}" in col:
                             direction_column = col
+                            # Keep this warning as it's informative about reversed condition order
                             logger.warning(f"Found direction column with reversed conditions: {col}")
                             break
                     if direction_column is None:
                         direction_column = direction_cols[0]
+                        # Keep this warning as it's important information about ambiguity
                         logger.warning(f"Multiple direction columns found, using the first one: {direction_column}")
                 else:
                     direction_column = direction_cols[0]
+                    # Keep this warning as it's important information about ambiguity
                     logger.warning(f"Multiple direction columns found, using the first one: {direction_column}")
+                    
+    # Log the plot type and conditions first, then fields
+    if condition1 and condition2:
+        logger.info(f"Creating direction barplot for {condition1} vs {condition2}")
+    else:
+        logger.info(f"Creating direction barplot")
+    
+    # Log the fields being used in the plot
+    logger.info(f"Using fields - category_column: '{category_column}', direction_column: '{direction_column}'")
     
     # Extract condition names from direction column if not provided
     if (condition1 is None or condition2 is None) and "_vs_" in direction_column:
@@ -489,10 +517,15 @@ def heatmap(
         # Get top genes
         var_names = de_data.head(n_top_genes)['gene'].tolist()
     
-    # Get expression data for the selected genes
+    # Log the plot type first
+    logger.info(f"Creating heatmap with {len(var_names)} genes/features")
+    
+    # Log the data sources being used for the heatmap
     if layer is not None and layer in adata.layers:
+        logger.info(f"Using expression data from layer: '{layer}'")
         expr_matrix = adata[:, var_names].layers[layer].toarray() if hasattr(adata.layers[layer], 'toarray') else adata[:, var_names].layers[layer]
     else:
+        logger.info(f"Using expression data from adata.X")
         expr_matrix = adata[:, var_names].X.toarray() if hasattr(adata.X, 'toarray') else adata[:, var_names].X
     
     # Create dataframe with expression data
@@ -501,8 +534,10 @@ def heatmap(
     # Group by condition if provided
     if groupby is not None and groupby in adata.obs:
         # Calculate mean expression per group
+        logger.info(f"Grouping expression by '{groupby}' ({adata.obs[groupby].nunique()} groups)")
         grouped_expr = expr_df.groupby(adata.obs[groupby]).mean()
     else:
+        logger.info(f"No grouping applied (showing all {len(expr_df)} cells)")
         grouped_expr = expr_df
     
     # Scale data if requested
