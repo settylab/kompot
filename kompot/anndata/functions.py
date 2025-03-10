@@ -925,15 +925,18 @@ def compute_differential_expression(
                 
             # Mahalanobis distance IS impacted by sample variance
             mahalanobis_key = field_names["mahalanobis_key"]
-            adata.var[mahalanobis_key] = pd.Series(np.nan, index=adata.var_names)
+            # Check if column already exists and initialize only if it doesn't
+            if mahalanobis_key not in adata.var:
+                adata.var[mahalanobis_key] = pd.Series(np.nan, index=adata.var_names)
             adata.var.loc[selected_genes, mahalanobis_key] = mahalanobis_distances
         
         if differential_abundance_key is not None:
-            # Initialize with np.nan of appropriate shape - use more descriptive column name
             # Use the standardized field name from field_names
             # Weighted mean log fold change is NOT impacted by sample variance
             column_name = field_names["weighted_lfc_key"]
-            adata.var[column_name] = pd.Series(np.nan, index=adata.var_names)
+            # Check if column already exists and initialize only if it doesn't
+            if column_name not in adata.var:
+                adata.var[column_name] = pd.Series(np.nan, index=adata.var_names)
             
             # Extract and verify weighted_mean_log_fold_change
             weighted_lfc = expression_results['weighted_mean_log_fold_change']
@@ -961,12 +964,13 @@ def compute_differential_expression(
                     weighted_lfc = weighted_lfc[:len(selected_genes)]
             adata.var.loc[selected_genes, column_name] = weighted_lfc
         
-        # Initialize with np.nan of appropriate shape - use more descriptive column names
         # Add mean log fold change with descriptive name
         # Use the standardized field name from field_names
         # Mean log fold change is NOT impacted by sample variance
         mean_lfc_column = field_names["mean_lfc_key"]
-        adata.var[mean_lfc_column] = pd.Series(np.nan, index=adata.var_names)
+        # Check if column already exists and initialize only if it doesn't
+        if mean_lfc_column not in adata.var:
+            adata.var[mean_lfc_column] = pd.Series(np.nan, index=adata.var_names)
         
         # Extract and verify mean_log_fold_change
         mean_lfc = expression_results['mean_log_fold_change']
@@ -996,7 +1000,9 @@ def compute_differential_expression(
         
         # Standard deviation of log fold change - this IS impacted by sample variance
         lfc_std_key = field_names["lfc_std_key"]
-        adata.var[lfc_std_key] = pd.Series(np.nan, index=adata.var_names)
+        # Check if column already exists and initialize only if it doesn't
+        if lfc_std_key not in adata.var:
+            adata.var[lfc_std_key] = pd.Series(np.nan, index=adata.var_names)
         
         # Extract and verify lfc_stds
         lfc_stds = expression_results['lfc_stds']
@@ -1026,7 +1032,9 @@ def compute_differential_expression(
         
         # Bidirectionality score - NOT impacted by sample variance
         bidir_key = field_names["bidirectionality_key"]
-        adata.var[bidir_key] = pd.Series(np.nan, index=adata.var_names)
+        # Check if column already exists and initialize only if it doesn't
+        if bidir_key not in adata.var:
+            adata.var[bidir_key] = pd.Series(np.nan, index=adata.var_names)
         
         # Extract and verify bidirectionality
         bidirectionality = expression_results['bidirectionality']
@@ -1066,6 +1074,7 @@ def compute_differential_expression(
             imputed2_key = field_names["imputed_key_2"]
             fold_change_key = field_names["fold_change_key"]
 
+            # Initialize layers only if they don't already exist
             if imputed1_key not in adata.layers:
                 adata.layers[imputed1_key] = np.zeros_like(adata.X)
             if imputed2_key not in adata.layers:
@@ -1101,6 +1110,7 @@ def compute_differential_expression(
             imputed2_key = field_names["imputed_key_2"]
             fold_change_key = field_names["fold_change_key"]
 
+            # Only create or overwrite these layers if the data shape matches
             adata.layers[imputed1_key] = condition1_imputed
             adata.layers[imputed2_key] = condition2_imputed
             adata.layers[fold_change_key] = fold_change
