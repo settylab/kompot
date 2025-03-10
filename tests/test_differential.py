@@ -131,6 +131,137 @@ def test_differential_abundance_predict_with_thresholds():
     assert loose_significant >= default_significant
 
 
+def test_differential_abundance_with_sample_variance():
+    """Test DifferentialAbundance with sample variance estimation."""
+    # Generate sample data with 3 samples per condition
+    n_cells_per_sample = 30
+    n_samples = 3
+    
+    # Create sample data with distinct sample characteristics
+    X_condition1_samples = []
+    X_condition2_samples = []
+    
+    # Simulate different samples with slightly different distributions
+    for i in range(n_samples):
+        # Each sample has slightly different characteristics
+        X_sample1 = np.random.randn(n_cells_per_sample, 5) + i * 0.2
+        X_sample2 = np.random.randn(n_cells_per_sample, 5) + 0.5 + i * 0.2
+        
+        X_condition1_samples.append(X_sample1)
+        X_condition2_samples.append(X_sample2)
+    
+    # Combine samples
+    X_condition1 = np.vstack(X_condition1_samples)
+    X_condition2 = np.vstack(X_condition2_samples)
+    
+    # Create sample indices
+    condition1_sample_indices = np.array([0] * n_cells_per_sample + [1] * n_cells_per_sample + [2] * n_cells_per_sample)
+    condition2_sample_indices = np.array([0] * n_cells_per_sample + [1] * n_cells_per_sample + [2] * n_cells_per_sample)
+    
+    # Test points
+    X_test = np.random.randn(50, 5)
+    
+    # Create and fit model without sample variance
+    diff_abundance_no_variance = DifferentialAbundance(
+        use_sample_variance=False
+    )
+    diff_abundance_no_variance.fit(X_condition1, X_condition2)
+    
+    # Create and fit model with sample variance
+    diff_abundance_with_variance = DifferentialAbundance(
+        use_sample_variance=True
+    )
+    diff_abundance_with_variance.fit(
+        X_condition1, 
+        X_condition2,
+        condition1_sample_indices=condition1_sample_indices,
+        condition2_sample_indices=condition2_sample_indices
+    )
+    
+    # Verify variance predictors are created
+    assert diff_abundance_with_variance.variance_predictor1 is not None
+    assert diff_abundance_with_variance.variance_predictor2 is not None
+    
+    # Verify model without variance doesn't have variance predictors
+    assert diff_abundance_no_variance.variance_predictor1 is None
+    assert diff_abundance_no_variance.variance_predictor2 is None
+    
+    # Make predictions with both models
+    pred_no_variance = diff_abundance_no_variance.predict(X_test)
+    pred_with_variance = diff_abundance_with_variance.predict(X_test)
+    
+    # Both models should return the same output structure with all required keys
+    assert 'log_density_condition1' in pred_no_variance
+    assert 'log_density_condition2' in pred_no_variance
+    assert 'log_fold_change' in pred_no_variance
+    assert 'log_fold_change_zscore' in pred_no_variance
+    assert 'neg_log10_fold_change_pvalue' in pred_no_variance
+    assert 'log_fold_change_direction' in pred_no_variance
+    
+    assert 'log_density_condition1' in pred_with_variance
+    assert 'log_density_condition2' in pred_with_variance
+    assert 'log_fold_change' in pred_with_variance
+    assert 'log_fold_change_zscore' in pred_with_variance
+    assert 'neg_log10_fold_change_pvalue' in pred_with_variance
+    assert 'log_fold_change_direction' in pred_with_variance
+    
+    # The basic log density predictions should be the same
+    np.testing.assert_allclose(
+        pred_no_variance['log_density_condition1'], 
+        pred_with_variance['log_density_condition1'], 
+        rtol=1e-5
+    )
+    np.testing.assert_allclose(
+        pred_no_variance['log_density_condition2'], 
+        pred_with_variance['log_density_condition2'], 
+        rtol=1e-5
+    )
+    
+    # The log fold change should be the same
+    np.testing.assert_allclose(
+        pred_no_variance['log_fold_change'], 
+        pred_with_variance['log_fold_change'], 
+        rtol=1e-5
+    )
+    
+    # The uncertainties should be different, with the variance model generally having higher uncertainty
+    # The log_fold_change_uncertainty with variance should generally be >= without variance
+    # But due to numerical precision, we can't assert all elements are greater
+    # So we just check that the mean uncertainty is higher
+    assert np.mean(pred_with_variance['log_fold_change_uncertainty']) >= np.mean(pred_no_variance['log_fold_change_uncertainty'])
+    
+    # The z-scores should generally be different due to different uncertainty values
+    # Lower z-scores in the variance model (due to higher uncertainty)
+    assert np.mean(np.abs(pred_with_variance['log_fold_change_zscore'])) <= np.mean(np.abs(pred_no_variance['log_fold_change_zscore']))
+    
+    # The uncertainty values should be finite
+    assert np.all(np.isfinite(pred_with_variance['log_fold_change_uncertainty']))
+    
+    # Test model with explicit sample landmarks
+    n_landmarks = 20
+    X_combined = np.vstack([X_condition1, X_condition2])
+    landmarks = X_combined[np.random.choice(len(X_combined), n_landmarks, replace=False)]
+    
+    diff_abundance_with_landmarks = DifferentialAbundance(
+        use_sample_variance=True
+    )
+    diff_abundance_with_landmarks.fit(
+        X_condition1, 
+        X_condition2,
+        landmarks=landmarks,
+        condition1_sample_indices=condition1_sample_indices,
+        condition2_sample_indices=condition2_sample_indices
+    )
+    
+    # Make predictions with landmarks model
+    pred_with_landmarks = diff_abundance_with_landmarks.predict(X_test)
+    
+    # The predictions should still be valid
+    assert np.all(np.isfinite(pred_with_landmarks['log_fold_change']))
+    assert np.all(np.isfinite(pred_with_landmarks['log_fold_change_zscore']))
+    assert np.all(np.isfinite(pred_with_landmarks['neg_log10_fold_change_pvalue']))
+
+
 def test_differential_expression_fit():
     """Test fitting the DifferentialExpression class."""
     # Generate sample data

@@ -355,7 +355,7 @@ def plot_gene_expression(
                 adata,
                 basis=basis.replace("X_", ""),
                 color=gene,
-                title=f"Mean Log Fold Change\n{condition2 or 'Condition 2'} vs {condition1 or 'Condition 1'}",
+                title=f"Log Fold Change\n{condition2 or 'Condition 2'} vs {condition1 or 'Condition 1'}",
                 layer=fold_change_layer,
                 color_map=cmap_fold_change,
                 show=False,
@@ -383,7 +383,7 @@ def plot_gene_expression(
                 **scatter_kwargs
             )
             plt.colorbar(scatter3, ax=axs[1, 1])
-            axs[1, 1].set_title(f"Mean Log Fold Change\n{condition2 or 'Condition 2'} vs {condition1 or 'Condition 1'}")
+            axs[1, 1].set_title(f"Log Fold Change\n{condition2 or 'Condition 2'} vs {condition1 or 'Condition 1'}")
             axs[1, 1].set_xlabel("UMAP 1")
             axs[1, 1].set_ylabel("UMAP 2")
             axs[1, 1].grid(False)
@@ -415,7 +415,7 @@ def plot_gene_expression(
             )
             plt.colorbar(scatter3, ax=axs[1, 1])
             
-            axs[1, 1].set_title(f"Mean Log Fold Change\n{condition2 or 'Condition 2'} vs {condition1 or 'Condition 1'}")
+            axs[1, 1].set_title(f"Log Fold Change\n{condition2 or 'Condition 2'} vs {condition1 or 'Condition 1'}")
             axs[1, 1].set_xlabel("Cell index")
             axs[1, 1].set_ylabel("Fold Change")
             axs[1, 1].grid(False)

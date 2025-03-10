@@ -62,9 +62,13 @@ class DifferentialAbundance:
         log_fold_change_threshold: float = 1.0,
         pvalue_threshold: float = 1e-2,
         n_landmarks: Optional[int] = None,
+        use_sample_variance: Optional[bool] = None,
+        eps: float = 1e-12,
         jit_compile: bool = False,
         density_predictor1: Optional[Any] = None,
         density_predictor2: Optional[Any] = None,
+        variance_predictor1: Optional[Any] = None,
+        variance_predictor2: Optional[Any] = None,
         random_state: Optional[int] = None,
         batch_size: Optional[int] = None,
     ):
@@ -79,12 +83,26 @@ class DifferentialAbundance:
             Threshold for considering a p-value significant, by default 1e-2.
         n_landmarks : int, optional
             Number of landmarks to use for approximation. If None, use all points, by default None.
+        use_sample_variance : bool, optional
+            Whether to use sample variance for uncertainty estimation. By default None.
+            - If None (recommended): Automatically determined based on variance_predictor1/2 
+              or whether sample indices are provided in fit().
+            - If True: Force use of sample variance (even if no predictors/indices available).
+            - If False: Disable sample variance (even if predictors/indices are available).
+        eps : float, optional
+            Small constant for numerical stability, by default 1e-12.
         jit_compile : bool, optional
             Whether to use JAX just-in-time compilation, by default False.
         density_predictor1 : Any, optional
             Precomputed density predictor for condition 1, typically from DensityEstimator.predict
         density_predictor2 : Any, optional
             Precomputed density predictor for condition 2, typically from DensityEstimator.predict
+        variance_predictor1 : Any, optional
+            Precomputed variance predictor for condition 1. If provided, will be used for uncertainty calculation
+            and will automatically enable sample variance calculation (unless explicitly disabled).
+        variance_predictor2 : Any, optional
+            Precomputed variance predictor for condition 2. If provided, will be used for uncertainty calculation
+            and will automatically enable sample variance calculation (unless explicitly disabled).
         random_state : int, optional
             Random seed for reproducible landmark selection when n_landmarks is specified.
             Controls the random selection of points when using approximation, by default None.
@@ -97,19 +115,30 @@ class DifferentialAbundance:
         self.log_fold_change_threshold = log_fold_change_threshold
         self.pvalue_threshold = pvalue_threshold
         self.n_landmarks = n_landmarks
+        self.eps = eps
         self.jit_compile = jit_compile
         self.random_state = random_state
         self.batch_size = batch_size
         
-        # Store random_state for reproducible landmark selection if specified
-        # We don't need to set np.random.seed here anymore as we'll pass the 
-        # random_state directly to compute_landmarks
+        # Store whether user explicitly set use_sample_variance
+        self.use_sample_variance_explicit = use_sample_variance is not None
         
-        # Store condition sizes and indices
-        self.n_condition1 = None
-        self.n_condition2 = None
-        self.condition1_indices = None
-        self.condition2_indices = None
+        # Set use_sample_variance based on variance predictors
+        # If variance predictors are provided, automatically use sample variance unless explicitly disabled
+        if use_sample_variance is None:
+            self.use_sample_variance = (variance_predictor1 is not None or variance_predictor2 is not None)
+            if self.use_sample_variance:
+                logger.info("Sample variance estimation automatically enabled due to presence of variance predictors")
+        else:
+            self.use_sample_variance = use_sample_variance
+            
+            # If user explicitly enabled sample variance but no variance predictors are provided, log a warning
+            if self.use_sample_variance and variance_predictor1 is None and variance_predictor2 is None:
+                logger.warning(
+                    "Sample variance estimation was explicitly enabled (use_sample_variance=True) "
+                    "but no variance predictors were provided. "
+                    "You will need to provide sample indices in the fit() method."
+                )
         
         # These will be populated after fitting
         self.log_density_condition1 = None
@@ -126,12 +155,19 @@ class DifferentialAbundance:
         self.density_predictor1 = density_predictor1
         self.density_predictor2 = density_predictor2
         
+        # Variance predictors
+        self.variance_predictor1 = variance_predictor1
+        self.variance_predictor2 = variance_predictor2
+        
     def fit(
         self, 
         X_condition1: np.ndarray, 
         X_condition2: np.ndarray,
         landmarks: Optional[np.ndarray] = None,
         ls_factor: float = 10.0,
+        condition1_sample_indices: Optional[np.ndarray] = None,
+        condition2_sample_indices: Optional[np.ndarray] = None,
+        sample_estimator_ls: Optional[float] = None,
         **density_kwargs
     ):
         """
@@ -152,6 +188,15 @@ class DifferentialAbundance:
         ls_factor : float, optional
             Multiplication factor to apply to length scale when it's automatically inferred,
             by default 10.0. Only used when ls is not explicitly provided in density_kwargs.
+        condition1_sample_indices : np.ndarray, optional
+            Sample indices for first condition. Used for sample variance estimation.
+            Unique values in this array define different sample groups.
+        condition2_sample_indices : np.ndarray, optional
+            Sample indices for second condition. Used for sample variance estimation.
+            Unique values in this array define different sample groups.
+        sample_estimator_ls : float, optional
+            Length scale for the sample-specific variance estimators. If None, will use
+            the same value as ls or it will be estimated, by default None.
         **density_kwargs : dict
             Additional arguments to pass to the DensityEstimator.
             
@@ -160,12 +205,8 @@ class DifferentialAbundance:
         self
             The fitted instance.
         """
-        # Store original condition sizes for indexing
-        self.n_condition1 = len(X_condition1)
-        self.n_condition2 = len(X_condition2)
-        self.condition1_indices = np.arange(self.n_condition1)
-        self.condition2_indices = np.arange(self.n_condition1, self.n_condition1 + self.n_condition2)
-        
+
+        # Create or use density predictors
         if self.density_predictor1 is None or self.density_predictor2 is None:
             # Configure density estimator defaults
             estimator_defaults = {
@@ -211,6 +252,71 @@ class DifferentialAbundance:
             logger.info("Density estimators fitted. Call predict() to compute fold changes.")
         else:
             logger.info("Density estimators have already been fitted. Call predict() to compute fold changes.")
+            
+        # Check if sample indices are provided
+        have_sample_indices = (condition1_sample_indices is not None or condition2_sample_indices is not None)
+        
+        # Auto-enable sample variance if sample indices are provided
+        if have_sample_indices:
+            if not self.use_sample_variance_explicit:
+                self.use_sample_variance = True
+                logger.info("Sample variance estimation automatically enabled due to provided sample indices")
+        
+        # Check for contradictory inputs - user explicitly requested sample variance but didn't provide indices
+        if self.use_sample_variance_explicit and self.use_sample_variance is True and not have_sample_indices and self.variance_predictor1 is None and self.variance_predictor2 is None:
+            raise ValueError(
+                "Sample variance estimation was explicitly enabled (use_sample_variance=True), "
+                "but no sample indices or variance predictors were provided. "
+                "Please provide at least one of: condition1_sample_indices, condition2_sample_indices, "
+                "variance_predictor1, or variance_predictor2."
+            )
+            
+        # Handle sample-specific variance if enabled and sample indices are provided
+        if self.use_sample_variance and have_sample_indices:
+            logger.info("Setting up sample variance estimation...")
+            
+            # Set up density estimator parameters for sample-specific models
+            sample_estimator_kwargs = estimator_defaults.copy() if 'estimator_defaults' in locals() else density_kwargs.copy()
+            
+            # Use specific length scale if provided
+            if sample_estimator_ls is not None:
+                sample_estimator_kwargs['ls'] = sample_estimator_ls
+            
+            # Fit variance estimator for condition 1
+            if condition1_sample_indices is not None:
+                logger.info("Fitting sample-specific variance estimator for condition 1 using provided indices...")
+                condition1_variance_estimator = SampleVarianceEstimator(
+                    eps=self.eps,
+                    estimator_type='density'
+                )
+                # Set a flag to indicate this estimator is called from DifferentialAbundance
+                condition1_variance_estimator._called_from_differential = True
+                
+                condition1_variance_estimator.fit(
+                    X=X_condition1, 
+                    grouping_vector=condition1_sample_indices,
+                    ls_factor=ls_factor,
+                    estimator_kwargs=sample_estimator_kwargs
+                )
+                self.variance_predictor1 = condition1_variance_estimator.predict
+            
+            # Fit variance estimator for condition 2
+            if condition2_sample_indices is not None:
+                logger.info("Fitting sample-specific variance estimator for condition 2 using provided indices...")
+                condition2_variance_estimator = SampleVarianceEstimator(
+                    eps=self.eps,
+                    estimator_type='density'
+                )
+                # Set a flag to indicate this estimator is called from DifferentialAbundance
+                condition2_variance_estimator._called_from_differential = True
+                
+                condition2_variance_estimator.fit(
+                    X=X_condition2, 
+                    grouping_vector=condition2_sample_indices,
+                    ls_factor=ls_factor,
+                    estimator_kwargs=sample_estimator_kwargs
+                )
+                self.variance_predictor2 = condition2_variance_estimator.predict
         
         return self
     
@@ -218,7 +324,8 @@ class DifferentialAbundance:
         self, 
         X_new: np.ndarray,
         log_fold_change_threshold: Optional[float] = None,
-        pvalue_threshold: Optional[float] = None
+        pvalue_threshold: Optional[float] = None,
+        progress: bool = True
     ) -> Dict[str, np.ndarray]:
         """
         Predict log density and log fold change for new points.
@@ -236,6 +343,8 @@ class DifferentialAbundance:
         pvalue_threshold : float, optional
             Threshold for considering a p-value significant. If None, uses the
             threshold specified during initialization.
+        progress : bool, optional
+            Whether to show progress bars for operations, by default True.
             
         Returns
         -------
@@ -246,7 +355,7 @@ class DifferentialAbundance:
             - 'log_fold_change': Log fold change between conditions
             - 'log_fold_change_uncertainty': Uncertainty in the log fold change
             - 'log_fold_change_zscore': Z-scores for the log fold change
-            - 'log_fold_change_pvalue': P-values for the log fold change
+            - 'neg_log10_fold_change_pvalue': Negative log10 p-values for the log fold change
             - 'log_fold_change_direction': Direction of change ('up', 'down', or 'neutral')
         """
         if self.density_predictor1 is None or self.density_predictor2 is None:
@@ -273,35 +382,78 @@ class DifferentialAbundance:
             
         def compute_uncertainty2(X_batch):
             return self.density_predictor2.uncertainty(X_batch)
+            
+        # Functions for computing empirical variances using batches when sample variance is enabled
+        if self.use_sample_variance and self.variance_predictor1 is not None:
+            def compute_sample_variance1(X_batch):
+                return self.variance_predictor1(X_batch, diag=True)
+        else:
+            def compute_sample_variance1(X_batch):
+                return np.zeros(len(X_batch))
+                
+        if self.use_sample_variance and self.variance_predictor2 is not None:
+            def compute_sample_variance2(X_batch):
+                return self.variance_predictor2(X_batch, diag=True)
+        else:
+            def compute_sample_variance2(X_batch):
+                return np.zeros(len(X_batch))
         
         # Apply batched processing to the expensive operations
         log_density_condition1 = apply_batched(
             compute_density1, 
             X_new, 
             batch_size=batch_size, 
-            desc="Computing density (condition 1)"
+            desc="Computing density (condition 1)" if progress else None
         )
         
         log_density_condition2 = apply_batched(
             compute_density2, 
             X_new, 
             batch_size=batch_size,
-            desc="Computing density (condition 2)"
+            desc="Computing density (condition 2)" if progress else None
         )
         
         log_density_uncertainty_condition1 = apply_batched(
             compute_uncertainty1, 
             X_new, 
             batch_size=batch_size,
-            desc="Computing uncertainty (condition 1)"
+            desc="Computing uncertainty (condition 1)" if progress else None
         )
         
         log_density_uncertainty_condition2 = apply_batched(
             compute_uncertainty2, 
             X_new, 
             batch_size=batch_size,
-            desc="Computing uncertainty (condition 2)"
+            desc="Computing uncertainty (condition 2)" if progress else None
         )
+        
+        # Compute sample variance if enabled
+        if self.use_sample_variance:
+            if self.variance_predictor1 is not None:
+                logger.info("Computing sample-specific variance for condition 1...")
+                sample_variance1 = apply_batched(
+                    compute_sample_variance1,
+                    X_new,
+                    batch_size=batch_size,
+                    desc="Computing sample variance (condition 1)" if progress else None
+                )
+                # Add sample variance to uncertainty
+                # For density, sample_variance1 will be of shape (n_cells, 1)
+                # We need to flatten it to match log_density_uncertainty_condition1
+                sample_variance1 = sample_variance1.flatten()
+                log_density_uncertainty_condition1 += sample_variance1
+            
+            if self.variance_predictor2 is not None:
+                logger.info("Computing sample-specific variance for condition 2...")
+                sample_variance2 = apply_batched(
+                    compute_sample_variance2,
+                    X_new,
+                    batch_size=batch_size,
+                    desc="Computing sample variance (condition 2)" if progress else None
+                )
+                # Add sample variance to uncertainty
+                sample_variance2 = sample_variance2.flatten()
+                log_density_uncertainty_condition2 += sample_variance2
         
         # The rest of the computation is lightweight and can be done all at once
         # Compute log fold change and uncertainty
@@ -309,7 +461,7 @@ class DifferentialAbundance:
         log_fold_change_uncertainty = log_density_uncertainty_condition1 + log_density_uncertainty_condition2
         
         # Compute z-scores
-        sd = np.sqrt(log_fold_change_uncertainty + 1e-16)
+        sd = np.sqrt(log_fold_change_uncertainty + self.eps)
         log_fold_change_zscore = log_fold_change / sd
         
         # Compute p-values in natural log (base e)
@@ -346,21 +498,25 @@ class DifferentialAbundance:
 
 class SampleVarianceEstimator:
     """
-    Compute local sample variances of gene expressions.
+    Compute local sample variances of gene expressions or density.
     
     This class manages the computation of empirical variance by fitting function estimators
-    for each group in the data and computing the variance between their predictions.
+    or density estimators for each group in the data and computing the variance between their
+    predictions.
     
     Attributes
     ----------
     group_predictors : Dict
         Dictionary of prediction functions for each group.
+    estimator_type : str
+        Type of estimator used ('function' for gene expression, 'density' for cell density).
     """
     
     def __init__(
         self,
         eps: float = 1e-12,
         jit_compile: bool = True,
+        estimator_type: str = 'function'
     ):
         """
         Initialize the SampleVarianceEstimator.
@@ -371,9 +527,16 @@ class SampleVarianceEstimator:
             Small constant for numerical stability, by default 1e-12.
         jit_compile : bool, optional
             Whether to use JAX just-in-time compilation, by default True.
+        estimator_type : str, optional
+            Type of estimator to use ('function' for gene expression, 'density' for cell density),
+            by default 'function'.
         """
         self.eps = eps
         self.jit_compile = jit_compile
+        self.estimator_type = estimator_type
+        
+        if estimator_type not in ['function', 'density']:
+            raise ValueError("estimator_type must be either 'function' or 'density'")
         
         # Will be populated during fit
         self.group_predictors = {}
@@ -383,42 +546,44 @@ class SampleVarianceEstimator:
     def fit(
         self, 
         X: np.ndarray,
-        Y: np.ndarray, 
-        grouping_vector: np.ndarray,
+        Y: np.ndarray = None, 
+        grouping_vector: np.ndarray = None,
         min_cells: int = 10,
         ls_factor: float = 10.0,
-        function_estimator_kwargs: Dict = None
+        estimator_kwargs: Dict = None
     ):
         """
-        Fit function estimators for each group in the data and store only their predictors.
+        Fit estimators for each group in the data and store only their predictors.
         
         Parameters
         ----------
         X : np.ndarray
             Cell states. Shape (n_cells, n_features).
-        Y : np.ndarray
-            Gene expression values. Shape (n_cells, n_genes).
+        Y : np.ndarray, optional
+            Gene expression values. Shape (n_cells, n_genes). 
+            Required for function estimator, not used for density estimator.
         grouping_vector : np.ndarray
             Vector specifying which group each cell belongs to. Shape (n_cells,).
         min_cells : int
-            Minimum number of cells for group to train a function estimator. Default is 10.
+            Minimum number of cells for group to train an estimator. Default is 10.
         ls_factor : float, optional
             Multiplication factor to apply to length scale when it's automatically inferred, 
-            by default 10.0. Only used when ls is not explicitly provided in function_estimator_kwargs.
-        function_estimator_kwargs : Dict, optional
-            Additional arguments to pass to FunctionEstimator constructor.
+            by default 10.0. Only used when ls is not explicitly provided in estimator_kwargs.
+        estimator_kwargs : Dict, optional
+            Additional arguments to pass to the estimator constructor
+            (FunctionEstimator or DensityEstimator).
             
         Returns
         -------
         self
             The fitted instance.
         """
-        if function_estimator_kwargs is None:
-            function_estimator_kwargs = {}
+        if estimator_kwargs is None:
+            estimator_kwargs = {}
         
-        # Add ls_factor to function_estimator_kwargs if ls is not already specified
-        if 'ls' not in function_estimator_kwargs:
-            function_estimator_kwargs['ls_factor'] = ls_factor
+        # Add ls_factor to estimator_kwargs if ls is not already specified
+        if 'ls' not in estimator_kwargs:
+            estimator_kwargs['ls_factor'] = ls_factor
         
         # Get unique groups
         unique_groups = np.unique(grouping_vector)
@@ -431,18 +596,35 @@ class SampleVarianceEstimator:
             for group_id in unique_groups
         }
         
-        # Train function estimators for each group and store only their predictors
-        logger.info("Training group-specific function estimators...")
+        # Train estimators for each group and store only their predictors
+        logger.info(f"Training group-specific {self.estimator_type} estimators...")
         
         for group_id, indices in group_indices.items():
             if len(indices) >= min_cells:  # Only train if we have enough data points
                 logger.info(f"Training estimator for group {group_id} with {len(indices)} cells")
                 X_subset = X[indices]
-                Y_subset = Y[indices]
                 
-                # Create and train estimator
-                estimator = mellon.FunctionEstimator(**function_estimator_kwargs)
-                estimator.fit(X_subset, Y_subset)
+                if self.estimator_type == 'function':
+                    if Y is None:
+                        raise ValueError("Y must be provided for function estimator type")
+                    Y_subset = Y[indices]
+                    
+                    # Create and train function estimator
+                    estimator = mellon.FunctionEstimator(**estimator_kwargs)
+                    estimator.fit(X_subset, Y_subset)
+                
+                else:  # density estimator
+                    # Configure density estimator defaults
+                    density_defaults = {
+                        'd_method': 'fractal',
+                        'predictor_with_uncertainty': True,
+                        'optimizer': 'advi',
+                    }
+                    density_defaults.update(estimator_kwargs)
+                    
+                    # Create and train density estimator
+                    estimator = mellon.DensityEstimator(**density_defaults)
+                    estimator.fit(X_subset)
                 
                 # Store only the predictor function, not the full estimator
                 self.group_predictors[group_id] = estimator.predict
@@ -469,8 +651,12 @@ class SampleVarianceEstimator:
         Returns
         -------
         np.ndarray
-            If diag=True: Empirical variance for each new point. Shape (n_cells, n_genes).
-            If diag=False: Full covariance matrix between all pairs of cells. Shape (n_cells, n_cells, n_genes).
+            If diag=True: 
+                For function estimators: Empirical variance for each new point. Shape (n_cells, n_genes).
+                For density estimators: Empirical variance for each new point. Shape (n_cells, 1).
+            If diag=False: 
+                For function estimators: Full covariance matrix. Shape (n_cells, n_cells, n_genes).
+                For density estimators: Full covariance matrix. Shape (n_cells, n_cells, 1).
         """
         # Check if group_predictors exists (model was initialized)
         if not hasattr(self, 'group_predictors'):
@@ -489,16 +675,22 @@ class SampleVarianceEstimator:
         # Get the shape of the output from the first predictor
         # This assumes all predictors produce outputs of the same shape
         first_predictor = list(self.group_predictors.values())[0]
-        test_pred = first_predictor([X_new[0]])
-        n_genes = test_pred.shape[1] if len(test_pred.shape) > 1 else 1
         
-        # Check if we're processing too many genes at once (>500) in a specific case
-        if n_genes > 100 and len(self.group_predictors) > 1 and hasattr(self, '_called_from_differential') and self._called_from_differential:
-            logger.warning(
-                f"Computing sample variance for {n_genes} genes may require significant memory. "
-                f"If you encounter memory issues, consider running differential expression analysis "
-                f"on smaller gene sets (max 500 genes) at a time."
-            )
+        if self.estimator_type == 'function':
+            test_pred = first_predictor([X_new[0]])
+            n_genes = test_pred.shape[1] if len(test_pred.shape) > 1 else 1
+            
+            # Check if we're processing too many genes at once (>100) in a specific case
+            if n_genes > 100 and len(self.group_predictors) > 1 and hasattr(self, '_called_from_differential') and self._called_from_differential:
+                logger.warning(
+                    f"Computing sample variance for {n_genes} genes may require significant memory. "
+                    f"If you encounter memory issues, consider running differential expression analysis "
+                    f"on smaller gene sets (max 100 genes) at a time."
+                )
+        else:  # density estimator
+            test_pred = first_predictor([X_new[0]])
+            # For density, we'll reshape to have a singleton dimension for consistency
+            n_genes = 1
         
         # If we have no predictors, raise an error
         if not self.group_predictors:
@@ -526,7 +718,13 @@ class SampleVarianceEstimator:
             # Get predictions from each group predictor
             all_group_predictions = []
             for predictor in predictors_list:
-                group_predictions = predictor(X_new)
+                if self.estimator_type == 'function':
+                    group_predictions = predictor(X_new)
+                else:  # density estimator
+                    group_predictions = predictor(X_new, normalize=True)
+                    # Reshape to have shape (n_cells, 1) for consistency
+                    group_predictions = np.reshape(group_predictions, (-1, 1))
+                
                 all_group_predictions.append(group_predictions)
             
             # Convert to JAX arrays
@@ -552,7 +750,13 @@ class SampleVarianceEstimator:
             group_predictions = []
             for predictor in predictors_list:
                 # Get predictions for all cells at once
-                pred = predictor(X_new)
+                if self.estimator_type == 'function':
+                    pred = predictor(X_new)
+                else:  # density estimator
+                    pred = predictor(X_new, normalize=True)
+                    # Reshape to have shape (n_cells, 1) for consistency
+                    pred = np.reshape(pred, (-1, 1))
+                
                 group_predictions.append(jnp.array(pred))
             
             # Stack predictions across groups - shape (n_groups, n_cells, n_genes)
@@ -917,11 +1121,11 @@ class DifferentialExpression:
                     )
                 
                 condition1_variance_estimator.fit(
-                    X_condition1, 
-                    y_condition1, 
-                    condition1_sample_indices,
+                    X=X_condition1, 
+                    Y=y_condition1, 
+                    grouping_vector=condition1_sample_indices,
                     ls_factor=ls_factor,
-                    function_estimator_kwargs=sample_estimator_kwargs
+                    estimator_kwargs=sample_estimator_kwargs
                 )
                 self.variance_predictor1 = condition1_variance_estimator.predict
             
@@ -943,11 +1147,11 @@ class DifferentialExpression:
                     )
                 
                 condition2_variance_estimator.fit(
-                    X_condition2, 
-                    y_condition2, 
-                    condition2_sample_indices,
+                    X=X_condition2, 
+                    Y=y_condition2, 
+                    grouping_vector=condition2_sample_indices,
                     ls_factor=ls_factor,
-                    function_estimator_kwargs=sample_estimator_kwargs
+                    estimator_kwargs=sample_estimator_kwargs
                 )
                 self.variance_predictor2 = condition2_variance_estimator.predict
         

@@ -305,3 +305,73 @@ def test_large_data_handling():
             rtol=1e-5,
             atol=1e-8
         )
+
+
+def test_sample_variance_estimator_density_mode():
+    """Test that the SampleVarianceEstimator works in density mode."""
+    # Generate some sample data
+    n_cells = 20
+    n_features = 5
+    n_groups = 2
+    
+    X = np.random.randn(n_cells, n_features)
+    grouping_vector = np.random.randint(0, n_groups, size=n_cells)
+    
+    # Initialize and fit the estimator in density mode
+    estimator = SampleVarianceEstimator(estimator_type='density')
+    estimator.fit(X=X, grouping_vector=grouping_vector)
+    
+    # Test with diag=True
+    variance_diag_true = estimator.predict(X, diag=True)
+    
+    # Check the shape - for density, it should be (n_cells, 1)
+    assert variance_diag_true.shape == (n_cells, 1)
+    
+    # Test with diag=False
+    variance_diag_false = estimator.predict(X, diag=False)
+    
+    # Check the shape - for density, it should be (n_cells, n_cells, 1)
+    assert variance_diag_false.shape == (n_cells, n_cells, 1)
+    
+    # Verify symmetry of the covariance matrix
+    cov_matrix = variance_diag_false[:, :, 0]
+    np.testing.assert_allclose(
+        cov_matrix,
+        cov_matrix.T,
+        rtol=1e-5,
+        atol=1e-8
+    )
+    
+    # Verify the diagonal elements match the diag=True result
+    for i in range(n_cells):
+        np.testing.assert_allclose(
+            variance_diag_false[i, i, 0],
+            variance_diag_true[i, 0],
+            rtol=1e-5,
+            atol=1e-8
+        )
+
+
+def test_sample_variance_estimator_invalid_type():
+    """Test that the SampleVarianceEstimator raises an error for invalid estimator_type."""
+    # Try to initialize with invalid estimator_type
+    with pytest.raises(ValueError, match="estimator_type must be either 'function' or 'density'"):
+        SampleVarianceEstimator(estimator_type='invalid')
+
+
+def test_sample_variance_estimator_function_mode_without_y():
+    """Test that the SampleVarianceEstimator raises an error when Y is not provided in function mode."""
+    # Generate some sample data
+    n_cells = 20
+    n_features = 5
+    n_groups = 2
+    
+    X = np.random.randn(n_cells, n_features)
+    grouping_vector = np.random.randint(0, n_groups, size=n_cells)
+    
+    # Initialize in function mode (default)
+    estimator = SampleVarianceEstimator()
+    
+    # Try to fit without providing Y
+    with pytest.raises(ValueError, match="Y must be provided for function estimator type"):
+        estimator.fit(X=X, grouping_vector=grouping_vector)
