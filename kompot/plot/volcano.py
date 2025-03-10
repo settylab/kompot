@@ -303,7 +303,7 @@ def volcano_de(
     # Infer keys using helper function - this will get the right keys but won't do any logging
     lfc_key, score_key = _infer_de_keys(adata, run_id, lfc_key, score_key)
     
-    # Calculate the actual (positive) run ID for logging
+    # Calculate the actual (positive) run ID for logging - use same logic as volcano_da
     if run_id < 0:
         if 'kompot_de' in adata.uns and 'run_history' in adata.uns['kompot_de']:
             actual_run_id = len(adata.uns['kompot_de']['run_history']) + run_id
