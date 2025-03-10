@@ -100,11 +100,34 @@ def plot_gene_expression(
     # Infer keys using helper function
     lfc_key, score_key = _infer_de_keys(adata, run_id, lfc_key, score_key)
     
+    # Calculate the actual (positive) run ID for logging - same as volcano_da
+    if run_id < 0:
+        if 'kompot_de' in adata.uns and 'run_history' in adata.uns['kompot_de']:
+            actual_run_id = len(adata.uns['kompot_de']['run_history']) + run_id
+        else:
+            actual_run_id = run_id
+    else:
+        actual_run_id = run_id
+    
     # Extract conditions from lfc_key if not provided
     if condition1 is None or condition2 is None:
+        # Try to extract conditions from the key name
         conditions = _extract_conditions_from_key(lfc_key)
         if conditions:
             condition1, condition2 = conditions
+        else:
+            # If not in key, try getting from run info
+            run_info = get_run_from_history(adata, run_id, analysis_type="de")
+            if run_info is not None and 'params' in run_info:
+                params = run_info['params']
+                if 'conditions' in params and len(params['conditions']) == 2:
+                    condition1 = params['conditions'][0]
+                    condition2 = params['conditions'][1]
+    
+    # Log which run and fields are being used - same pattern as volcano_da
+    conditions_str = f": comparing {condition1} vs {condition2}" if condition1 and condition2 else ""
+    logger.info(f"Using DE run {actual_run_id}{conditions_str}")
+    logger.info(f"Using fields for gene expression plot - lfc_key: '{lfc_key}', score_key: '{score_key}'")
             
     # Extract fold change and score for the gene
     gene_lfc = adata.var.loc[gene, lfc_key] if lfc_key in adata.var else "Unknown"

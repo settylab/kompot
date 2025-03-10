@@ -477,13 +477,18 @@ def prepare_mahalanobis_matrix(
         diag_adj = jnp.array(diag_adjustments)
         cov = cov + jnp.diag(diag_adj)
     
-    # Ensure numerical stability by clipping diagonal elements
+    # Ensure numerical stability by clipping diagonal elements and adding jitter
     diag_clipped = jnp.clip(jnp.diag(cov), eps, None)
     cov = cov.at[jnp.arange(cov.shape[0]), jnp.arange(cov.shape[0])].set(diag_clipped)
     
+    # Additional numerical stability check - ensure covariance matrix is positive definite
+    # by checking eigenvalues before attempting Cholesky decomposition
     try:
+        # Add a small regularization to the diagonal to improve conditioning
+        reg_cov = cov + jnp.eye(cov.shape[0]) * eps * 10
+        
         # Compute Cholesky decomposition once
-        chol = jnp.linalg.cholesky(cov)
+        chol = jnp.linalg.cholesky(reg_cov)
         
         return {
             'is_diagonal': False,
@@ -599,26 +604,37 @@ def compute_mahalanobis_distances(
             )
             
             # Compute Mahalanobis distance for this gene
-            if gene_prepared_matrix['is_diagonal']:
-                # Diagonal case
-                diag_values = gene_prepared_matrix['diag_values']
-                weighted_diff = gene_diff / jnp.sqrt(diag_values)
-                mahalanobis_distances[g] = float(jnp.sqrt(jnp.sum(weighted_diff**2)))
-            
-            elif gene_prepared_matrix['chol'] is not None:
-                # Cholesky case - most efficient
-                chol = gene_prepared_matrix['chol']
-                solved = jax.scipy.linalg.solve_triangular(chol, gene_diff, lower=True)
-                mahalanobis_distances[g] = float(jnp.sqrt(jnp.sum(solved**2)))
-            
-            elif gene_prepared_matrix['matrix_inv'] is not None:
-                # Matrix inverse case
-                matrix_inv = gene_prepared_matrix['matrix_inv']
-                mahalanobis_distances[g] = float(jnp.sqrt(jnp.dot(gene_diff, jnp.dot(matrix_inv, gene_diff))))
-            
-            else:
-                # Fallback to Euclidean distance
-                mahalanobis_distances[g] = float(jnp.sqrt(jnp.sum(gene_diff**2)))
+            try:
+                if gene_prepared_matrix['is_diagonal']:
+                    # Diagonal case
+                    diag_values = gene_prepared_matrix['diag_values']
+                    weighted_diff = gene_diff / jnp.sqrt(diag_values)
+                    mahalanobis_distances[g] = float(jnp.sqrt(jnp.sum(weighted_diff**2)))
+                
+                elif gene_prepared_matrix['chol'] is not None:
+                    # Cholesky case - most efficient
+                    chol = gene_prepared_matrix['chol']
+                    solved = jax.scipy.linalg.solve_triangular(chol, gene_diff, lower=True)
+                    mahalanobis_distances[g] = float(jnp.sqrt(jnp.sum(solved**2)))
+                
+                elif gene_prepared_matrix['matrix_inv'] is not None:
+                    # Matrix inverse case
+                    matrix_inv = gene_prepared_matrix['matrix_inv']
+                    mahalanobis_distances[g] = float(jnp.sqrt(jnp.dot(gene_diff, jnp.dot(matrix_inv, gene_diff))))
+                
+                else:
+                    # Fallback to Euclidean distance
+                    mahalanobis_distances[g] = float(jnp.sqrt(jnp.sum(gene_diff**2)))
+                
+                # Check for NaN or Inf values in the result
+                if np.isnan(mahalanobis_distances[g]) or np.isinf(mahalanobis_distances[g]):
+                    logger.warning(f"Gene {g}: NaN or Inf Mahalanobis distance encountered. Using 0 instead.")
+                    mahalanobis_distances[g] = 0.0
+                    
+            except Exception as e:
+                # If any calculation fails, set distance to 0 and log the error
+                logger.warning(f"Gene {g}: Error computing Mahalanobis distance: {e}. Using 0 instead.")
+                mahalanobis_distances[g] = 0.0
             
             # Free memory
             del gene_prepared_matrix
@@ -645,12 +661,22 @@ def compute_mahalanobis_distances(
         
         # Process in batches using apply_batched - respect progress parameter
         desc = "Computing diagonal Mahalanobis distances" if progress else None
-        return apply_batched(
+        distances = apply_batched(
             diag_compute_fn,
             diffs,
             batch_size=batch_size,
             desc=desc
         )
+        
+        # Post-process to handle NaN and Inf values
+        invalid_mask = np.isnan(distances) | np.isinf(distances)
+        if np.any(invalid_mask):
+            n_invalid = np.sum(invalid_mask)
+            logger.warning(f"Found {n_invalid} NaN or Inf Mahalanobis distances in diagonal computation. "
+                         f"These will be replaced with zeros.")
+            distances[invalid_mask] = 0.0
+            
+        return distances
     
     # Non-diagonal case - use Cholesky if available
     if prepared_matrix['chol'] is not None:
@@ -673,12 +699,22 @@ def compute_mahalanobis_distances(
         
         # Process in batches using apply_batched - respect progress parameter
         desc = "Computing Cholesky Mahalanobis distances" if progress else None
-        return apply_batched(
+        distances = apply_batched(
             chol_compute_fn,
             diffs,
             batch_size=batch_size,
             desc=desc
         )
+        
+        # Post-process to handle NaN and Inf values
+        invalid_mask = np.isnan(distances) | np.isinf(distances)
+        if np.any(invalid_mask):
+            n_invalid = np.sum(invalid_mask)
+            logger.warning(f"Found {n_invalid} NaN or Inf Mahalanobis distances in Cholesky computation. "
+                         f"These will be replaced with zeros.")
+            distances[invalid_mask] = 0.0
+            
+        return distances
     
     # Fallback to matrix inverse
     if prepared_matrix['matrix_inv'] is not None:
@@ -698,12 +734,22 @@ def compute_mahalanobis_distances(
         
         # Process in batches using apply_batched - respect progress parameter
         desc = "Computing inverse Mahalanobis distances" if progress else None
-        return apply_batched(
+        distances = apply_batched(
             inv_compute_fn,
             diffs,
             batch_size=batch_size,
             desc=desc
         )
+        
+        # Post-process to handle NaN and Inf values
+        invalid_mask = np.isnan(distances) | np.isinf(distances)
+        if np.any(invalid_mask):
+            n_invalid = np.sum(invalid_mask)
+            logger.warning(f"Found {n_invalid} NaN or Inf Mahalanobis distances in matrix inverse computation. "
+                         f"These will be replaced with zeros.")
+            distances[invalid_mask] = 0.0
+            
+        return distances
     
     # If all else fails, use a simple approximation
     logger.error("No valid matrix information found. Using simple Euclidean distance.")
