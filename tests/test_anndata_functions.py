@@ -3,11 +3,12 @@
 import numpy as np
 import pytest
 import datetime
+import pandas as pd
 
 from kompot.anndata.functions import compute_differential_abundance, compute_differential_expression, run_differential_analysis
 
 
-def create_test_anndata(n_cells=100, n_genes=20):
+def create_test_anndata(n_cells=100, n_genes=20, with_sample_col=False):
     """Create a test AnnData object."""
     try:
         import anndata
@@ -28,10 +29,27 @@ def create_test_anndata(n_cells=100, n_genes=20):
     }
     
     # Create observation dataframe
-    import pandas as pd
-    obs = pd.DataFrame({
-        'group': groups
-    })
+    obs_dict = {'group': groups}
+    
+    # Add sample column if requested (3 samples per condition)
+    if with_sample_col:
+        # Create 3 samples per condition, each with equal number of cells
+        n_samples_per_condition = 3
+        cells_per_sample = n_cells // (2 * n_samples_per_condition)
+        
+        sample_ids = []
+        for condition in ['A', 'B']:
+            for sample_id in range(n_samples_per_condition):
+                sample_name = f"{condition}_sample_{sample_id}"
+                sample_ids.extend([sample_name] * cells_per_sample)
+        
+        # If there are any remaining cells due to division, assign them to the last sample
+        while len(sample_ids) < n_cells:
+            sample_ids.append(f"B_sample_{n_samples_per_condition-1}")
+            
+        obs_dict['sample'] = sample_ids
+    
+    obs = pd.DataFrame(obs_dict)
     
     # Create var_names
     var_names = [f'gene_{i}' for i in range(n_genes)]
@@ -40,6 +58,94 @@ def create_test_anndata(n_cells=100, n_genes=20):
     var = pd.DataFrame(index=var_names)
     
     return anndata.AnnData(X=X, obs=obs, var=var, obsm=obsm)
+
+
+def test_sample_col_parameter():
+    """Test the sample_col parameter in compute_differential_abundance."""
+    # Create a test AnnData object with sample column
+    adata = create_test_anndata(with_sample_col=True)
+    
+    # Run differential abundance analysis with sample_col parameter
+    result = compute_differential_abundance(
+        adata,
+        groupby='group',
+        condition1='A',
+        condition2='B',
+        sample_col='sample',
+        result_key='test_sample_col'
+    )
+    
+    # Check that the model has sample variance enabled
+    assert result['model'].use_sample_variance is True
+    
+    # Check that variance predictors were created
+    assert result['model'].variance_predictor1 is not None
+    assert result['model'].variance_predictor2 is not None
+    
+    # Verify that the sample_col parameter was stored in parameters
+    assert 'test_sample_col' in adata.uns
+    assert 'params' in adata.uns['test_sample_col']
+    assert 'sample_col' in adata.uns['test_sample_col']['params']
+    assert adata.uns['test_sample_col']['params']['sample_col'] == 'sample'
+    assert adata.uns['test_sample_col']['params']['use_sample_variance'] is True
+    
+    # Run a comparison analysis without sample_col
+    result_no_samples = compute_differential_abundance(
+        adata,
+        groupby='group',
+        condition1='A',
+        condition2='B',
+        result_key='test_no_sample_col'
+    )
+    
+    # Verify model doesn't use sample variance
+    assert result_no_samples['model'].use_sample_variance is False
+    
+    # Verify variance predictors are None
+    assert result_no_samples['model'].variance_predictor1 is None
+    assert result_no_samples['model'].variance_predictor2 is None
+    
+    # Check that the two models produce different results
+    # The log fold change values should be the same
+    np.testing.assert_allclose(
+        result['log_fold_change'], 
+        result_no_samples['log_fold_change']
+    )
+    
+    # Check that both models have valid outputs 
+    assert 'neg_log10_fold_change_pvalue' in result
+    assert 'neg_log10_fold_change_pvalue' in result_no_samples
+    
+    # Check that both models have the direction classifications
+    assert 'log_fold_change_direction' in result
+    assert 'log_fold_change_direction' in result_no_samples
+    
+    # Check if the variance predictors were used
+    assert result['model'].variance_predictor1 is not None
+    assert result['model'].variance_predictor2 is not None
+    assert result_no_samples['model'].variance_predictor1 is None
+    assert result_no_samples['model'].variance_predictor2 is None
+    
+    # Verify that sample variance affects uncertainty calculations
+    # Use a subset of points for efficiency
+    X_test = adata.obsm['DM_EigenVectors'][:20]  # Just use 20 test points
+    
+    # Get uncertainty by running predict directly on both models
+    test_result_with_var = result['model'].predict(X_test)
+    test_result_no_var = result_no_samples['model'].predict(X_test)
+    
+    with_var_uncertainty = test_result_with_var['log_fold_change_uncertainty']
+    no_var_uncertainty = test_result_no_var['log_fold_change_uncertainty']
+    
+    # Verify that sample variance is being used by checking if uncertainty is higher
+    assert np.mean(with_var_uncertainty) > np.mean(no_var_uncertainty), \
+        f"Expected higher uncertainty with sample variance ({np.mean(with_var_uncertainty):.6f} > {np.mean(no_var_uncertainty):.6f})"
+    
+    # Verify that sample variances are non-zero
+    sample_variance1 = result['model'].variance_predictor1(X_test, diag=True).flatten()
+    sample_variance2 = result['model'].variance_predictor2(X_test, diag=True).flatten()
+    assert np.mean(sample_variance1) > 0, "Sample variance for condition 1 should be greater than zero"
+    assert np.mean(sample_variance2) > 0, "Sample variance for condition 2 should be greater than zero"
 
 
 class TestRunHistoryPreservation:
@@ -209,3 +315,45 @@ class TestRunHistoryPreservation:
         # Check latest run was updated
         assert self.adata.uns['kompot_latest_run']['abundance_key'] == 'grun3'
         assert self.adata.uns['kompot_latest_run']['expression_key'] == 'grun4'
+        
+        
+def test_run_differential_analysis_with_sample_col():
+    """Test run_differential_analysis with sample_col parameter."""
+    # Create a test AnnData object with sample column
+    adata = create_test_anndata(with_sample_col=True)
+    
+    # Run the full differential analysis with sample_col
+    result = run_differential_analysis(
+        adata,
+        groupby='group',
+        condition1='A',
+        condition2='B',
+        sample_col='sample',  # Pass sample_col to both abundance and expression
+        abundance_key='sample_run_da',
+        expression_key='sample_run_de',
+        generate_html_report=False,
+        compute_mahalanobis=False  # Turn off Mahalanobis to avoid errors in testing
+    )
+    
+    # Verify the abundance result used sample variance
+    assert result['differential_abundance'].use_sample_variance is True
+    assert result['differential_abundance'].variance_predictor1 is not None
+    assert result['differential_abundance'].variance_predictor2 is not None
+    
+    # Verify the expression result used sample variance
+    assert result['differential_expression'].use_sample_variance is True
+    assert result['differential_expression'].variance_predictor1 is not None
+    assert result['differential_expression'].variance_predictor2 is not None
+    
+    # Check that parameter was stored correctly for both analyses
+    assert 'sample_run_da' in adata.uns
+    assert 'params' in adata.uns['sample_run_da']
+    assert 'sample_col' in adata.uns['sample_run_da']['params']
+    assert adata.uns['sample_run_da']['params']['sample_col'] == 'sample'
+    assert adata.uns['sample_run_da']['params']['use_sample_variance'] is True
+    
+    assert 'sample_run_de' in adata.uns
+    assert 'params' in adata.uns['sample_run_de']
+    assert 'sample_col' in adata.uns['sample_run_de']['params']
+    assert adata.uns['sample_run_de']['params']['sample_col'] == 'sample'
+    assert adata.uns['sample_run_de']['params']['use_sample_variance'] is True

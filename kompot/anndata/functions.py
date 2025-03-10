@@ -28,6 +28,7 @@ def compute_differential_abundance(
     obsm_key: str = "DM_EigenVectors",
     n_landmarks: Optional[int] = None,
     landmarks: Optional[np.ndarray] = None,
+    sample_col: Optional[str] = None,
     log_fold_change_threshold: float = 1.0,
     pvalue_threshold: float = 1e-3,
     ls_factor: float = 10.0,
@@ -64,6 +65,10 @@ def compute_differential_abundance(
     landmarks : np.ndarray, optional
         Pre-computed landmarks to use. If provided, n_landmarks will be ignored.
         Shape (n_landmarks, n_features).
+    sample_col : str, optional
+        Column name in adata.obs containing sample labels. If provided, these will be used
+        to compute sample-specific variance and will automatically enable sample variance
+        estimation.
     log_fold_change_threshold : float, optional
         Threshold for considering a log fold change significant, by default 1.7.
     pvalue_threshold : float, optional
@@ -163,6 +168,22 @@ def compute_differential_abundance(
     X_condition1 = adata.obsm[obsm_key][mask1]
     X_condition2 = adata.obsm[obsm_key][mask2]
     
+    # Extract sample indices from sample_col if provided
+    condition1_sample_indices = None
+    condition2_sample_indices = None
+    
+    if sample_col is not None:
+        if sample_col not in adata.obs:
+            raise ValueError(f"Column '{sample_col}' not found in adata.obs. Available columns: {list(adata.obs.columns)}")
+        
+        # Extract sample indices for each condition
+        condition1_sample_indices = adata.obs[sample_col][mask1].values
+        condition2_sample_indices = adata.obs[sample_col][mask2].values
+        
+        logger.info(f"Using sample column '{sample_col}' for sample variance estimation")
+        logger.info(f"Found {len(np.unique(condition1_sample_indices))} unique sample(s) in condition 1")
+        logger.info(f"Found {len(np.unique(condition2_sample_indices))} unique sample(s) in condition 2")
+    
     # Check if we have landmarks in uns for this key and can reuse them
     stored_landmarks = None
     if landmarks is None and result_key in adata.uns and 'landmarks' in adata.uns[result_key]:
@@ -189,7 +210,15 @@ def compute_differential_abundance(
     )
     
     # Fit the estimators
-    diff_abundance.fit(X_condition1, X_condition2, landmarks=landmarks, ls_factor=ls_factor, **density_kwargs)
+    diff_abundance.fit(
+        X_condition1, 
+        X_condition2, 
+        landmarks=landmarks, 
+        ls_factor=ls_factor, 
+        condition1_sample_indices=condition1_sample_indices,
+        condition2_sample_indices=condition2_sample_indices,
+        **density_kwargs
+    )
     
     # Run prediction to compute fold changes and metrics
     X_for_prediction = adata.obsm[obsm_key]
@@ -284,6 +313,8 @@ def compute_differential_abundance(
         "n_landmarks": n_landmarks,
         "ls_factor": ls_factor,
         "used_landmarks": True if landmarks is not None else False,
+        "sample_col": sample_col,
+        "use_sample_variance": sample_col is not None,
     }
     
     # Initialize or update adata.uns[result_key]
@@ -1060,7 +1091,7 @@ def run_differential_analysis(
     
     # Separate kwargs for each analysis type
     abundance_kwargs = {k: v for k, v in kwargs.items() if k in [
-        'log_fold_change_threshold', 'pvalue_threshold', 'batch_size'
+        'log_fold_change_threshold', 'pvalue_threshold', 'batch_size', 'sample_col'
     ]}
     
     expression_kwargs = {k: v for k, v in kwargs.items() if k in [
