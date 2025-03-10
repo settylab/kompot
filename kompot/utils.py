@@ -187,7 +187,7 @@ def generate_output_field_names(
     analysis_type: str = "da",
     with_sample_suffix: bool = False,
     sample_suffix: str = "_sample_var"
-) -> Dict[str, str]:
+) -> Dict[str, Any]:
     """
     Generate standardized field names for analysis outputs.
     
@@ -209,8 +209,8 @@ def generate_output_field_names(
         
     Returns
     -------
-    Dict[str, str]
-        Dictionary mapping field types to their standardized names
+    Dict[str, Any]
+        Dictionary mapping field types to their standardized names and metadata
     """
     # Sanitize condition names
     cond1_safe = _sanitize_name(condition1)
@@ -220,30 +220,42 @@ def generate_output_field_names(
     suffix = sample_suffix if with_sample_suffix else ""
     
     # Basic fields for both analysis types
-    field_names = {}
+    field_names = {"sample_variance_impacted_fields": []}
     
     if analysis_type == "da":
+        # Define which fields are actually impacted by sample variance
+        # Fields like log_fold_change, log_density are not affected by sample variance
+        sample_variance_impacted = ["zscore_key", "pval_key", "direction_key"]
+        
         # Differential abundance field names
         field_names.update({
-            "lfc_key": f"{result_key}_log_fold_change_{cond1_safe}_vs_{cond2_safe}{suffix}",
+            "lfc_key": f"{result_key}_log_fold_change_{cond1_safe}_vs_{cond2_safe}",
             "zscore_key": f"{result_key}_log_fold_change_zscore_{cond1_safe}_vs_{cond2_safe}{suffix}",
             "pval_key": f"{result_key}_neg_log10_fold_change_pvalue_{cond1_safe}_vs_{cond2_safe}{suffix}",
             "direction_key": f"{result_key}_log_fold_change_direction_{cond1_safe}_vs_{cond2_safe}{suffix}",
-            "density_key_1": f"{result_key}_log_density_{cond1_safe}{suffix}",
-            "density_key_2": f"{result_key}_log_density_{cond2_safe}{suffix}"
+            "density_key_1": f"{result_key}_log_density_{cond1_safe}",
+            "density_key_2": f"{result_key}_log_density_{cond2_safe}"
         })
+        field_names["sample_variance_impacted_fields"] = sample_variance_impacted
+        
     elif analysis_type == "de":
+        # Define which fields are actually impacted by sample variance
+        # Fields like mean_lfc, bidirectionality, imputed data, fold_change are not affected by sample variance
+        sample_variance_impacted = ["mahalanobis_key", "lfc_std_key"]
+        
         # Differential expression field names
         field_names.update({
             "mahalanobis_key": f"{result_key}_mahalanobis_{cond1_safe}_vs_{cond2_safe}{suffix}",
-            "mean_lfc_key": f"{result_key}_mean_lfc_{cond1_safe}_vs_{cond2_safe}{suffix}",
-            "weighted_lfc_key": f"{result_key}_weighted_lfc_{cond1_safe}_vs_{cond2_safe}{suffix}",
+            "mean_lfc_key": f"{result_key}_mean_lfc_{cond1_safe}_vs_{cond2_safe}",
+            "weighted_lfc_key": f"{result_key}_weighted_lfc_{cond1_safe}_vs_{cond2_safe}",
             "lfc_std_key": f"{result_key}_lfc_std_{cond1_safe}_vs_{cond2_safe}{suffix}",
-            "bidirectionality_key": f"{result_key}_bidirectionality_{cond1_safe}_vs_{cond2_safe}{suffix}",
-            "imputed_key_1": f"{result_key}_imputed_{cond1_safe}{suffix}",
-            "imputed_key_2": f"{result_key}_imputed_{cond2_safe}{suffix}",
-            "fold_change_key": f"{result_key}_fold_change_{cond1_safe}_vs_{cond2_safe}{suffix}"
+            "bidirectionality_key": f"{result_key}_bidirectionality_{cond1_safe}_vs_{cond2_safe}",
+            "imputed_key_1": f"{result_key}_imputed_{cond1_safe}",
+            "imputed_key_2": f"{result_key}_imputed_{cond2_safe}",
+            "fold_change_key": f"{result_key}_fold_change_{cond1_safe}_vs_{cond2_safe}"
         })
+        field_names["sample_variance_impacted_fields"] = sample_variance_impacted
+        
     else:
         raise ValueError(f"Unknown analysis_type: {analysis_type}. Use 'da' or 'de'.")
     

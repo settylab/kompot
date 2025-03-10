@@ -152,9 +152,12 @@ def compute_differential_abundance(
     )
     
     # Define patterns to check for overwrites using standardized field names
+    # Include both sample-variance-impacted and non-impacted fields
     column_patterns = [
-        field_names["lfc_key"],
-        field_names["density_key_1"]
+        field_names["lfc_key"],             # Not impacted by sample variance
+        field_names["density_key_1"],       # Not impacted by sample variance
+        field_names["zscore_key"],          # Impacted by sample variance
+        field_names["direction_key"]        # Impacted by sample variance
     ]
     
     # Detect if we'd overwrite any existing output fields
@@ -184,7 +187,23 @@ def compute_differential_abundance(
                 field_list = ", ".join(existing_fields[:5])
                 if len(existing_fields) > 5:
                     field_list += f" and {len(existing_fields) - 5} more fields"
-                message += f" Fields that will be overwritten: {field_list}"
+                
+                # Add note about partial overwrites if switching sample variance mode
+                prev_sample_var = prev_run.get('params', {}).get('use_sample_variance', False)
+                current_sample_var = (sample_col is not None)
+                
+                if prev_sample_var != current_sample_var:
+                    if current_sample_var:
+                        message += (f" Fields that will be overwritten: {field_list}. "
+                                   f"Note: Only fields NOT affected by sample variance (like log_fold_change, log_density) "
+                                   f"will be overwritten since they don't use the sample variance suffix. "
+                                   f"These results will likely be identical if other parameters haven't changed.")
+                    else:
+                        message += (f" Fields that will be overwritten: {field_list}. "
+                                   f"Note: Only fields NOT affected by sample variance will be overwritten "
+                                   f"since sample variance-specific fields use a different suffix.")
+                else:
+                    message += f" Fields that will be overwritten: {field_list}"
         
         # Handle overwrite settings
         if overwrite is False:
@@ -311,6 +330,7 @@ def compute_differential_abundance(
     
     # Use the standardized field names already generated earlier
     # Assign values to masked cells with descriptive column names
+    # For fields not impacted by sample variance, we don't add the suffix
     adata.obs[field_names["lfc_key"]] = abundance_results['log_fold_change']
     adata.obs[field_names["zscore_key"]] = abundance_results['log_fold_change_zscore']
     adata.obs[field_names["pval_key"]] = abundance_results['neg_log10_fold_change_pvalue']  # Now using negative log10 p-values (higher = more significant)
@@ -339,7 +359,7 @@ def compute_differential_abundance(
     # Save colors to adata.uns with the _colors postfix
     adata.uns[f"{direction_col}_colors"] = color_list
     
-    # Store log densities for each condition with descriptive names
+    # Store log densities for each condition with descriptive names - these are not impacted by sample variance
     adata.obs[field_names["density_key_1"]] = abundance_results['log_density_condition1']
     adata.obs[field_names["density_key_2"]] = abundance_results['log_density_condition2']
     
@@ -558,9 +578,10 @@ def compute_differential_expression(
     
     # Define patterns to check for overwrites in var columns using standardized field names
     var_column_patterns = [
-        field_names["mahalanobis_key"],
-        field_names["mean_lfc_key"],
-        field_names["bidirectionality_key"]
+        field_names["mahalanobis_key"],      # Impacted by sample variance
+        field_names["mean_lfc_key"],         # Not impacted by sample variance
+        field_names["bidirectionality_key"], # Not impacted by sample variance
+        field_names["lfc_std_key"]           # Impacted by sample variance
     ]
     
     # Detect if we'd overwrite any existing var columns
@@ -577,8 +598,8 @@ def compute_differential_expression(
     
     # Define patterns to check for overwrites in layers using standardized field names
     layer_patterns = [
-        field_names["imputed_key_1"],
-        field_names["fold_change_key"]
+        field_names["imputed_key_1"],        # Not impacted by sample variance
+        field_names["fold_change_key"]       # Not impacted by sample variance
     ]
     
     # Detect if we'd overwrite any existing layers
@@ -614,7 +635,24 @@ def compute_differential_expression(
                 field_list = ", ".join(existing_fields[:5])
                 if len(existing_fields) > 5:
                     field_list += f" and {len(existing_fields) - 5} more fields"
-                message += f" Fields that will be overwritten: {field_list}"
+                
+                # Add note about partial overwrites if switching sample variance mode
+                prev_sample_var = prev_run.get('params', {}).get('use_sample_variance', False)
+                current_sample_var = (sample_col is not None)
+                
+                if prev_sample_var != current_sample_var:
+                    if current_sample_var:
+                        message += (f" Fields that will be overwritten: {field_list}. "
+                                   f"Note: Only fields NOT affected by sample variance (like mean_log_fold_change, "
+                                   f"bidirectionality, imputed data, fold_change) will be overwritten since they "
+                                   f"don't use the sample variance suffix. These results will likely be identical "
+                                   f"if other parameters haven't changed.")
+                    else:
+                        message += (f" Fields that will be overwritten: {field_list}. "
+                                   f"Note: Only fields NOT affected by sample variance will be overwritten "
+                                   f"since sample variance-specific fields use a different suffix.")
+                else:
+                    message += f" Fields that will be overwritten: {field_list}"
         
         # Handle overwrite settings
         if overwrite is False:
@@ -885,6 +923,7 @@ def compute_differential_expression(
                     # Truncate if the array is too long
                     mahalanobis_distances = mahalanobis_distances[:len(selected_genes)]
                 
+            # Mahalanobis distance IS impacted by sample variance
             mahalanobis_key = field_names["mahalanobis_key"]
             adata.var[mahalanobis_key] = pd.Series(np.nan, index=adata.var_names)
             adata.var.loc[selected_genes, mahalanobis_key] = mahalanobis_distances
@@ -892,6 +931,7 @@ def compute_differential_expression(
         if differential_abundance_key is not None:
             # Initialize with np.nan of appropriate shape - use more descriptive column name
             # Use the standardized field name from field_names
+            # Weighted mean log fold change is NOT impacted by sample variance
             column_name = field_names["weighted_lfc_key"]
             adata.var[column_name] = pd.Series(np.nan, index=adata.var_names)
             
@@ -924,6 +964,7 @@ def compute_differential_expression(
         # Initialize with np.nan of appropriate shape - use more descriptive column names
         # Add mean log fold change with descriptive name
         # Use the standardized field name from field_names
+        # Mean log fold change is NOT impacted by sample variance
         mean_lfc_column = field_names["mean_lfc_key"]
         adata.var[mean_lfc_column] = pd.Series(np.nan, index=adata.var_names)
         
@@ -953,7 +994,7 @@ def compute_differential_expression(
                 mean_lfc = mean_lfc[:len(selected_genes)]
         adata.var.loc[selected_genes, mean_lfc_column] = mean_lfc
         
-        # Standard deviation of log fold change
+        # Standard deviation of log fold change - this IS impacted by sample variance
         lfc_std_key = field_names["lfc_std_key"]
         adata.var[lfc_std_key] = pd.Series(np.nan, index=adata.var_names)
         
@@ -983,7 +1024,7 @@ def compute_differential_expression(
                 lfc_stds = lfc_stds[:len(selected_genes)]
         adata.var.loc[selected_genes, lfc_std_key] = lfc_stds
         
-        # Bidirectionality score
+        # Bidirectionality score - NOT impacted by sample variance
         bidir_key = field_names["bidirectionality_key"]
         adata.var[bidir_key] = pd.Series(np.nan, index=adata.var_names)
         
@@ -1020,7 +1061,7 @@ def compute_differential_expression(
         if n_selected_genes < len(adata.var_names):
             # We need to expand the imputed data to the full gene set
             # Use the standardized field names
-            # Create descriptive layer names
+            # Create descriptive layer names - these are NOT affected by sample variance
             imputed1_key = field_names["imputed_key_1"]
             imputed2_key = field_names["imputed_key_2"]
             fold_change_key = field_names["fold_change_key"]
@@ -1055,7 +1096,7 @@ def compute_differential_expression(
                 return result_dict
                 
             # Use the standardized field names
-            # Create descriptive layer names
+            # Create descriptive layer names - these are NOT affected by sample variance
             imputed1_key = field_names["imputed_key_1"]
             imputed2_key = field_names["imputed_key_2"]
             fold_change_key = field_names["fold_change_key"]
