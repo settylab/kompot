@@ -20,7 +20,6 @@ Key features:
 - JAX-accelerated computations
 - Empirical variance estimation
 - **Full scverse compatibility with direct AnnData integration**
-- Uses diffusion maps (from Palantir) as the default cell state representation
 - **Visualization tools** for differential expression and abundance results
 
 ## Installation
@@ -51,7 +50,7 @@ pip install kompot[all]
 
 Kompot depends on JAX for efficient computations. By default, the CPU version of JAX is used, which is recommended for most users as it provides good performance without memory constraints.
 
-See [Palantir GitHub](https://github.com/dpeerlab/Palantir) for more installation details.
+See [JAX GitHub](https://github.com/google/jax) for more installation details.
 
 ## Usage Example
 

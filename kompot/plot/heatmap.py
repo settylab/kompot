@@ -148,19 +148,27 @@ def _infer_heatmap_keys(adata: AnnData, run_id: Optional[int] = None, lfc_key: O
                                         not any(k == score_key for k in adata.var.columns)):
         return inferred_lfc_key, inferred_score_key
     
-    # Use the specified run_id to get keys from the run history
-    if run_id is not None:
+    # Use the specified run_id to get keys from the run history if lfc_key is not provided
+    if inferred_lfc_key is None:
         # Get run info from kompot_de for the specific run_id
+        # First, try to use the provided run_id (which may be None)
         run_info = get_run_from_history(adata, run_id, analysis_type="de")
+        
+        # If that fails and run_id is None, try using -1 for the latest run
+        if run_info is None and run_id is None:
+            run_info = get_run_from_history(adata, -1, analysis_type="de")
+            if run_info is not None:
+                logger.info("Using latest run (run_id=-1) for key inference")
         
         if run_info is not None and 'field_names' in run_info:
             field_names = run_info['field_names']
             
             # Get lfc_key from field_names
-            if inferred_lfc_key is None and 'mean_lfc_key' in field_names:
+            if 'mean_lfc_key' in field_names:
                 inferred_lfc_key = field_names['mean_lfc_key']
                 # Check that column exists
                 if inferred_lfc_key not in adata.var.columns:
+                    logger.warning(f"Found mean_lfc_key '{inferred_lfc_key}' in run info, but column not in adata.var")
                     inferred_lfc_key = None
             
             # Get score_key from field_names if needed
@@ -168,10 +176,10 @@ def _infer_heatmap_keys(adata: AnnData, run_id: Optional[int] = None, lfc_key: O
                 inferred_score_key = field_names['mahalanobis_key']
                 # Check that column exists
                 if inferred_score_key not in adata.var.columns:
+                    logger.warning(f"Found mahalanobis_key '{inferred_score_key}' in run info, but column not in adata.var")
                     inferred_score_key = None
-    
-    # For backwards compatibility - if run_id is None, try to use latest run 
-    elif inferred_lfc_key is None:
+        
+    # For backwards compatibility - if we still don't have an lfc_key, try to infer from column names
         # Try to infer from column names
         lfc_keys = [k for k in adata.var.columns if 'kompot_de_' in k and 'lfc' in k.lower()]
         if len(lfc_keys) == 1:

@@ -81,6 +81,10 @@ def _infer_de_keys(adata: AnnData, run_id: int = -1, lfc_key: Optional[str] = No
     # Get run info from specified run_id - specifically from kompot_de
     run_info = get_run_from_history(adata, run_id, analysis_type="de")
     
+    # If the run_info is None but a run_id was specified, log this
+    if run_info is None and run_id is not None:
+        logger.warning(f"Could not find run information for run_id={run_id}, analysis_type=de")
+    
     if run_info is not None and 'field_names' in run_info:
         field_names = run_info['field_names']
         
@@ -90,12 +94,14 @@ def _infer_de_keys(adata: AnnData, run_id: int = -1, lfc_key: Optional[str] = No
             # Check that column exists
             if inferred_lfc_key not in adata.var.columns:
                 inferred_lfc_key = None
+                logger.warning(f"Found mean_lfc_key '{inferred_lfc_key}' in run info, but column not in adata.var")
         
         # Get score_key from field_names
         if inferred_score_key is None and 'mahalanobis_key' in field_names:
             inferred_score_key = field_names['mahalanobis_key']
             # Check that column exists
             if inferred_score_key not in adata.var.columns:
+                logger.warning(f"Found mahalanobis_key '{inferred_score_key}' in run info, but column not in adata.var")
                 inferred_score_key = None
     
     # If lfc_key still not found, raise error
@@ -161,6 +167,7 @@ def _infer_da_keys(adata: AnnData, run_id: int = -1, lfc_key: Optional[str] = No
                 inferred_lfc_key = field_names['lfc_key']
                 # Check that column exists
                 if inferred_lfc_key not in adata.obs.columns:
+                    logger.warning(f"Found lfc_key '{inferred_lfc_key}' in run info, but column not in adata.obs")
                     inferred_lfc_key = None
             
             # Get pval_key from field_names
@@ -168,6 +175,7 @@ def _infer_da_keys(adata: AnnData, run_id: int = -1, lfc_key: Optional[str] = No
                 inferred_pval_key = field_names['pval_key']
                 # Check that column exists
                 if inferred_pval_key not in adata.obs.columns:
+                    logger.warning(f"Found pval_key '{inferred_pval_key}' in run info, but column not in adata.obs")
                     inferred_pval_key = None
     
     # If keys still not found, raise error

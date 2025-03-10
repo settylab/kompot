@@ -115,17 +115,27 @@ def create_test_data_with_multiple_runs():
     if 'de_run3' not in adata.uns:
         adata.uns['de_run3'] = {}
     adata.uns['de_run3']['run_info'] = {
-        'lfc_key': lfc_key_name,
-        'mahalanobis_key': mahalanobis_key
+        'field_names': {
+            'mean_lfc_key': lfc_key_name,
+            'mahalanobis_key': mahalanobis_key
+        }
     }
     
-    # Make sure kompot_de has proper run_info
+    # Make sure kompot_de has proper run_info and run_history
     if 'kompot_de' not in adata.uns:
         adata.uns['kompot_de'] = {}
-    adata.uns['kompot_de']['run_info'] = {
-        'lfc_key': lfc_key_name,
-        'mahalanobis_key': mahalanobis_key
-    }
+    if 'run_history' not in adata.uns['kompot_de']:
+        adata.uns['kompot_de']['run_history'] = []
+    
+    # Add de_run3 to kompot_de run_history
+    adata.uns['kompot_de']['run_history'].append({
+        'run_id': 0,
+        'expression_key': 'de_run3',
+        'field_names': {
+            'mean_lfc_key': lfc_key_name,
+            'mahalanobis_key': mahalanobis_key
+        }
+    })
     
     # Add test DA metric fields if they don't exist
     lfc_key_da = 'da_run3_log_fold_change_A_vs_B'
@@ -140,16 +150,54 @@ def create_test_data_with_multiple_runs():
     if 'da_run3' not in adata.uns:
         adata.uns['da_run3'] = {}
     adata.uns['da_run3']['run_info'] = {
-        'lfc_key': lfc_key_da,
-        'pval_key': pval_key_da
+        'field_names': {
+            'lfc_key': lfc_key_da,
+            'pval_key': pval_key_da
+        }
     }
     
-    # Make sure kompot_da has proper run_info
+    # Make sure kompot_da has proper run_info and run_history
     if 'kompot_da' not in adata.uns:
         adata.uns['kompot_da'] = {}
-    adata.uns['kompot_da']['run_info'] = {
-        'lfc_key': lfc_key_da,
-        'pval_key': pval_key_da
+    if 'run_history' not in adata.uns['kompot_da']:
+        adata.uns['kompot_da']['run_history'] = []
+    
+    # Add da_run3 to kompot_da run_history
+    adata.uns['kompot_da']['run_history'].append({
+        'run_id': 0,
+        'abundance_key': 'da_run3',
+        'field_names': {
+            'lfc_key': lfc_key_da,
+            'pval_key': pval_key_da
+        }
+    })
+    
+    # Create the global run history for the tests to use
+    if 'kompot_run_history' not in adata.uns:
+        adata.uns['kompot_run_history'] = []
+    
+    # Add the combined run to the global history
+    adata.uns['kompot_run_history'].append({
+        'run_id': 0,
+        'abundance_key': 'da_run3',
+        'expression_key': 'de_run3',
+        'field_names': {
+            'de': {
+                'mean_lfc_key': lfc_key_name,
+                'mahalanobis_key': mahalanobis_key
+            },
+            'da': {
+                'lfc_key': lfc_key_da,
+                'pval_key': pval_key_da
+            }
+        }
+    })
+    
+    # Store the latest run
+    adata.uns['kompot_latest_run'] = {
+        'run_id': 0,
+        'abundance_key': 'da_run3',
+        'expression_key': 'de_run3'
     }
     
     return adata

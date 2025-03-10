@@ -186,7 +186,7 @@ def test_memory_sensitive_batch_reduction():
         mock_warning.assert_called_once()
         warning_msg = mock_warning.call_args[0][0]
         assert "genes may require significant memory" in warning_msg
-        assert "max 500 genes" in warning_msg
+        assert "max 100 genes" in warning_msg
         
         # Verify the result has the expected shape
         assert result.shape == (n_cells, n_cells, n_genes)
