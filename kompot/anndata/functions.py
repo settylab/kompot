@@ -576,48 +576,44 @@ def compute_differential_expression(
         sample_suffix="_sample_var" if sample_col is not None else ""
     )
     
-    # Define patterns to check for overwrites in var columns using standardized field names
-    var_column_patterns = [
-        field_names["mahalanobis_key"],      # Impacted by sample variance
-        field_names["mean_lfc_key"],         # Not impacted by sample variance
-        field_names["bidirectionality_key"], # Not impacted by sample variance
-        field_names["lfc_std_key"]           # Impacted by sample variance
-    ]
+    # Collect all patterns for both var columns and layers
+    all_patterns = {
+        "var": [
+            field_names["mahalanobis_key"],      # Impacted by sample variance
+            field_names["mean_lfc_key"],         # Not impacted by sample variance
+            field_names["bidirectionality_key"], # Not impacted by sample variance
+            field_names["lfc_std_key"]           # Impacted by sample variance
+        ],
+        "layers": [
+            field_names["imputed_key_1"],        # Not impacted by sample variance
+            field_names["fold_change_key"]       # Not impacted by sample variance
+        ]
+    }
     
-    # Detect if we'd overwrite any existing var columns
-    has_var_overwrites, var_existing_fields, var_prev_run = detect_output_field_overwrite(
-        adata=adata,
-        result_key=result_key,
-        output_patterns=var_column_patterns,
-        location="var",
-        with_sample_suffix=(sample_col is not None),
-        sample_suffix="_sample_var" if sample_col is not None else "",
-        result_type="differential expression (var columns)",
-        analysis_type="de"
-    )
+    # Track overall results
+    has_overwrites = False
+    existing_fields = []
+    prev_run = None
     
-    # Define patterns to check for overwrites in layers using standardized field names
-    layer_patterns = [
-        field_names["imputed_key_1"],        # Not impacted by sample variance
-        field_names["fold_change_key"]       # Not impacted by sample variance
-    ]
-    
-    # Detect if we'd overwrite any existing layers
-    has_layer_overwrites, layer_existing_fields, layer_prev_run = detect_output_field_overwrite(
-        adata=adata,
-        result_key=result_key,
-        output_patterns=layer_patterns,
-        location="layers",
-        with_sample_suffix=(sample_col is not None),
-        sample_suffix="_sample_var" if sample_col is not None else "",
-        result_type="differential expression (layers)",
-        analysis_type="de"
-    )
-    
-    # Combine results
-    has_overwrites = has_var_overwrites or has_layer_overwrites
-    existing_fields = var_existing_fields + layer_existing_fields
-    prev_run = var_prev_run or layer_prev_run
+    # Check each location only once to avoid duplicate warnings
+    for location, patterns in all_patterns.items():
+        # Detect if we'd overwrite any existing fields in this location
+        has_loc_overwrites, loc_fields, loc_prev_run = detect_output_field_overwrite(
+            adata=adata,
+            result_key=result_key,
+            output_patterns=patterns,
+            location=location,
+            with_sample_suffix=(sample_col is not None),
+            sample_suffix="_sample_var" if sample_col is not None else "",
+            result_type=f"differential expression ({location})",
+            analysis_type="de"
+        )
+        
+        # Update overall results
+        has_overwrites = has_overwrites or has_loc_overwrites
+        existing_fields.extend(loc_fields)
+        if loc_prev_run is not None:
+            prev_run = loc_prev_run
     
     # Handle overwrite detection results
     if has_overwrites:

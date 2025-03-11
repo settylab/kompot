@@ -100,7 +100,9 @@ def get_run_from_history(
         if storage_key in adata.uns and subkey in adata.uns[storage_key]:
             history = adata.uns[storage_key][subkey]
         else:
-            logger.warning(f"Run history at {storage_key}.{subkey} not found.")
+            # Only show a warning if this is not the run_history subkey - first-time runs shouldn't warn
+            if subkey != 'run_history':
+                logger.warning(f"Run history at {storage_key}.{subkey} not found.")
             return None
     
     # Direct access to specified history key
@@ -109,7 +111,9 @@ def get_run_from_history(
     
     # Not found
     else:
-        logger.warning(f"No run history found at {history_key}.")
+        # Only show a warning if this is not a standard run_history key
+        if not history_key.endswith('run_history'):
+            logger.warning(f"No run history found at {history_key}.")
         return None
     
     # If history is empty
@@ -360,14 +364,14 @@ def detect_output_field_overwrite(
         elif "de" in result_key:
             analysis_type = "de"
     
-    # Look for matching run in run history
+    # Look for matching run in run history - we'll check both specific and global locations with a single call
     previous_run = None
     
-    # Look in the fixed location determined by analysis_type
-    # This is simpler now - we just need to get the latest run from the appropriate fixed location
-    previous_run = get_run_from_history(adata, run_id=-1, analysis_type=analysis_type)
+    # First try to get the run from the analysis-specific history using the analysis_type 
+    if analysis_type:
+        previous_run = get_run_from_history(adata, run_id=-1, analysis_type=analysis_type)
     
-    # If no previous run in fixed location, try the global history
+    # If no previous run found and we have a global history, check there as a fallback
     if previous_run is None and 'kompot_run_history' in adata.uns:
         # Look for most recent run with matching analysis_type in global history
         matching_runs = []
