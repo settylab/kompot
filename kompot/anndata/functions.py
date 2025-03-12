@@ -39,6 +39,7 @@ def compute_differential_abundance(
     result_key: str = "kompot_da",
     batch_size: Optional[int] = None,
     overwrite: Optional[bool] = None,
+    store_landmarks: bool = False,
     **density_kwargs
 ) -> Union[Dict[str, np.ndarray], "AnnData"]:
     """
@@ -99,6 +100,10 @@ def compute_differential_abundance(
         - If None (default): Warn about existing results but proceed with overwriting
         - If True: Silently overwrite existing results
         - If False: Raise an error if results would be overwritten
+    store_landmarks : bool, optional
+        Whether to store landmarks in adata.uns for future reuse, by default False.
+        Setting to True will allow reusing landmarks with future analyses but may 
+        significantly increase the AnnData file size.
     **density_kwargs : dict
         Additional arguments to pass to the DensityEstimator.
         
@@ -264,9 +269,15 @@ def compute_differential_abundance(
         logger.info(f"Found {len(np.unique(condition1_sample_indices))} unique sample(s) in condition 1")
         logger.info(f"Found {len(np.unique(condition2_sample_indices))} unique sample(s) in condition 2")
     
-    # Check if we have landmarks in uns for this key and can reuse them
+    # Check if we have landmarks that can be reused
     stored_landmarks = None
-    if landmarks is None and result_key in adata.uns and 'landmarks' in adata.uns[result_key]:
+    
+    # First check if landmarks are directly provided
+    if landmarks is not None:
+        logger.info(f"Using provided landmarks with shape {landmarks.shape}")
+    
+    # Next, check if we have landmarks in uns for this specific result_key
+    elif result_key in adata.uns and 'landmarks' in adata.uns[result_key]:
         stored_landmarks = adata.uns[result_key]['landmarks']
         landmarks_dim = stored_landmarks.shape[1]
         data_dim = adata.obsm[obsm_key].shape[1]
@@ -276,8 +287,52 @@ def compute_differential_abundance(
             logger.info(f"Using stored landmarks from adata.uns['{result_key}']['landmarks'] with shape {stored_landmarks.shape}")
             landmarks = stored_landmarks
         else:
-            logger.warning(f"Stored landmarks have dimension {landmarks_dim} but data has dimension {data_dim}. Computing new landmarks.")
-            landmarks = None
+            logger.warning(f"Stored landmarks have dimension {landmarks_dim} but data has dimension {data_dim}. Will check for other landmarks.")
+    
+    # If still no landmarks, check for any other landmarks in standard storage_key
+    if landmarks is None:
+        storage_key = "kompot_da"
+        
+        if storage_key in adata.uns and storage_key != result_key and 'landmarks' in adata.uns[storage_key]:
+            other_landmarks = adata.uns[storage_key]['landmarks']
+            landmarks_dim = other_landmarks.shape[1]
+            data_dim = adata.obsm[obsm_key].shape[1]
+            
+            # Only use the stored landmarks if dimensions match
+            if landmarks_dim == data_dim:
+                logger.info(f"Reusing stored landmarks from adata.uns['{storage_key}']['landmarks'] with shape {other_landmarks.shape}")
+                landmarks = other_landmarks
+            else:
+                logger.warning(f"Other stored landmarks have dimension {landmarks_dim} but data has dimension {data_dim}. Will check for other landmarks.")
+    
+    # If still no landmarks, check in all other kompot_* keys for valid landmarks            
+    if landmarks is None:
+        for key in adata.uns.keys():
+            if key.startswith('kompot_') and key != result_key and key != storage_key and 'landmarks' in adata.uns[key]:
+                check_landmarks = adata.uns[key]['landmarks'] 
+                landmarks_dim = check_landmarks.shape[1]
+                data_dim = adata.obsm[obsm_key].shape[1]
+                
+                # Only use the stored landmarks if dimensions match
+                if landmarks_dim == data_dim:
+                    logger.info(f"Reusing landmarks from adata.uns['{key}']['landmarks'] with shape {check_landmarks.shape}")
+                    landmarks = check_landmarks
+                    break
+                else:
+                    logger.debug(f"Found landmarks in {key} but dimensions don't match: {landmarks_dim} vs {data_dim}")
+                
+    # If still no landmarks, specifically check for DE landmarks for backward compatibility
+    if landmarks is None and "kompot_de" in adata.uns and 'landmarks' in adata.uns["kompot_de"]:
+        de_landmarks = adata.uns["kompot_de"]['landmarks']
+        landmarks_dim = de_landmarks.shape[1]
+        data_dim = adata.obsm[obsm_key].shape[1]
+        
+        # Only use the stored landmarks if dimensions match
+        if landmarks_dim == data_dim:
+            logger.info(f"Reusing differential expression landmarks from adata.uns['kompot_de']['landmarks'] with shape {de_landmarks.shape}")
+            landmarks = de_landmarks
+        else:
+            logger.warning(f"DE landmarks have dimension {landmarks_dim} but data has dimension {data_dim}. Computing new landmarks.")
     
     # Initialize and fit DifferentialAbundance
     diff_abundance = DifferentialAbundance(
@@ -309,24 +364,45 @@ def compute_differential_abundance(
     )
     # Note: mean_log_fold_change is no longer computed by default
     
-    # Store landmark metadata for future reference (not the actual array)
+    # Handle landmarks for future reference
     if hasattr(diff_abundance, 'computed_landmarks') and diff_abundance.computed_landmarks is not None:
         # Initialize if needed
         if result_key not in adata.uns:
             adata.uns[result_key] = {}
         
-        # Store metadata about landmarks, not the actual array (which is large)
+        # Get landmarks info
         landmarks_shape = diff_abundance.computed_landmarks.shape
         landmarks_dtype = str(diff_abundance.computed_landmarks.dtype)
         
-        adata.uns[result_key]['landmarks_info'] = {
+        # Create landmarks info
+        landmarks_info = {
             'shape': landmarks_shape,
             'dtype': landmarks_dtype,
             'source': 'computed',
-            'n_landmarks': landmarks_shape[0]
+            'n_landmarks': landmarks_shape[0],
+            'timestamp': datetime.datetime.now().isoformat()
         }
-        # The actual landmarks are accessible through the model in the result
-        logger.info(f"Stored landmarks metadata in adata.uns['{result_key}']['landmarks_info']")
+        
+        # Store landmarks info in both locations
+        adata.uns[result_key]['landmarks_info'] = landmarks_info
+        
+        storage_key = "kompot_da"
+        if storage_key not in adata.uns:
+            adata.uns[storage_key] = {}
+        adata.uns[storage_key]['landmarks_info'] = landmarks_info.copy()
+        
+        # Store the actual landmarks if requested
+        if store_landmarks:
+            adata.uns[result_key]['landmarks'] = diff_abundance.computed_landmarks
+            
+            # Store only in the result_key, not automatically in storage_key
+            # We'll check across keys when searching for landmarks
+            
+            logger.info(f"Stored landmarks in adata.uns['{result_key}']['landmarks'] with shape {landmarks_shape} for future reuse")
+        else:
+            logger.info(f"Landmark storage skipped (store_landmarks=False). Compute with store_landmarks=True to enable landmark reuse.")
+    else:
+        logger.info("No computed landmarks found to store. Check if landmarks were pre-computed or if n_landmarks is set correctly.")
     
     # Use the standardized field names already generated earlier
     # Assign values to masked cells with descriptive column names
@@ -459,6 +535,7 @@ def compute_differential_expression(
     inplace: bool = True,
     result_key: str = "kompot_de",
     overwrite: Optional[bool] = None,
+    store_landmarks: bool = False,
     **function_kwargs
 ) -> Union[Dict[str, np.ndarray], "AnnData"]:
     """
@@ -530,6 +607,10 @@ def compute_differential_expression(
         - If None (default): Warn about existing results but proceed with overwriting
         - If True: Silently overwrite existing results
         - If False: Raise an error if results would be overwritten
+    store_landmarks : bool, optional
+        Whether to store landmarks in adata.uns for future reuse, by default False.
+        Setting to True will allow reusing landmarks with future analyses but may 
+        significantly increase the AnnData file size.
     **function_kwargs : dict
         Additional arguments to pass to the FunctionEstimator.
         
@@ -742,9 +823,15 @@ def compute_differential_expression(
     else:
         selected_genes = adata.var_names.tolist()
     
-    # Check if we have landmarks in uns for this key and can reuse them
+    # Check if we have landmarks that can be reused
     stored_landmarks = None
-    if landmarks is None and result_key in adata.uns and 'landmarks' in adata.uns[result_key]:
+    
+    # First check if landmarks are directly provided
+    if landmarks is not None:
+        logger.info(f"Using provided landmarks with shape {landmarks.shape}")
+    
+    # Next, check if we have landmarks in uns for this specific result_key
+    elif result_key in adata.uns and 'landmarks' in adata.uns[result_key]:
         stored_landmarks = adata.uns[result_key]['landmarks']
         landmarks_dim = stored_landmarks.shape[1]
         data_dim = adata.obsm[obsm_key].shape[1]
@@ -754,8 +841,7 @@ def compute_differential_expression(
             logger.info(f"Using stored landmarks from adata.uns['{result_key}']['landmarks'] with shape {stored_landmarks.shape}")
             landmarks = stored_landmarks
         else:
-            logger.warning(f"Stored landmarks have dimension {landmarks_dim} but data has dimension {data_dim}. Computing new landmarks.")
-            landmarks = None
+            logger.warning(f"Stored landmarks have dimension {landmarks_dim} but data has dimension {data_dim}. Will check for other landmarks.")
     
     # If we have differential_abundance_key, check if there are landmarks stored there
     if landmarks is None and differential_abundance_key is not None and differential_abundance_key in adata.uns and 'landmarks' in adata.uns[differential_abundance_key]:
@@ -768,8 +854,52 @@ def compute_differential_expression(
             logger.info(f"Using landmarks from abundance analysis in adata.uns['{differential_abundance_key}']['landmarks'] with shape {stored_abund_landmarks.shape}")
             landmarks = stored_abund_landmarks
         else:
-            logger.warning(f"Abundance landmarks have dimension {landmarks_dim} but data has dimension {data_dim}. Computing new landmarks.")
-            landmarks = None
+            logger.warning(f"Abundance landmarks have dimension {landmarks_dim} but data has dimension {data_dim}. Will check for other landmarks.")
+    
+    # If still no landmarks, check for any other landmarks in standard storage_key
+    if landmarks is None:
+        storage_key = "kompot_de"
+        
+        if storage_key in adata.uns and storage_key != result_key and 'landmarks' in adata.uns[storage_key]:
+            other_landmarks = adata.uns[storage_key]['landmarks']
+            landmarks_dim = other_landmarks.shape[1]
+            data_dim = adata.obsm[obsm_key].shape[1]
+            
+            # Only use the stored landmarks if dimensions match
+            if landmarks_dim == data_dim:
+                logger.info(f"Reusing stored DE landmarks from adata.uns['{storage_key}']['landmarks'] with shape {other_landmarks.shape}")
+                landmarks = other_landmarks
+            else:
+                logger.warning(f"Other stored DE landmarks have dimension {landmarks_dim} but data has dimension {data_dim}. Will check for other landmarks.")
+    
+    # If still no landmarks, check in all other kompot_* keys for valid landmarks
+    if landmarks is None:
+        for key in adata.uns.keys():
+            if key.startswith('kompot_') and key != result_key and key != storage_key and key != differential_abundance_key and 'landmarks' in adata.uns[key]:
+                check_landmarks = adata.uns[key]['landmarks'] 
+                landmarks_dim = check_landmarks.shape[1]
+                data_dim = adata.obsm[obsm_key].shape[1]
+                
+                # Only use the stored landmarks if dimensions match
+                if landmarks_dim == data_dim:
+                    logger.info(f"Reusing landmarks from adata.uns['{key}']['landmarks'] with shape {check_landmarks.shape}")
+                    landmarks = check_landmarks
+                    break
+                else:
+                    logger.debug(f"Found landmarks in {key} but dimensions don't match: {landmarks_dim} vs {data_dim}")
+    
+    # As a last resort, check for DA landmarks for backward compatibility
+    if landmarks is None and "kompot_da" in adata.uns and 'landmarks' in adata.uns["kompot_da"] and (differential_abundance_key != "kompot_da"):
+        da_landmarks = adata.uns["kompot_da"]['landmarks']
+        landmarks_dim = da_landmarks.shape[1]
+        data_dim = adata.obsm[obsm_key].shape[1]
+        
+        # Only use the stored landmarks if dimensions match
+        if landmarks_dim == data_dim:
+            logger.info(f"Reusing differential abundance landmarks from adata.uns['kompot_da']['landmarks'] with shape {da_landmarks.shape}")
+            landmarks = da_landmarks
+        else:
+            logger.warning(f"DA landmarks have dimension {landmarks_dim} but data has dimension {data_dim}. Computing new landmarks.")
     
     # Initialize and fit DifferentialExpression
     use_sample_variance = sample_col is not None
@@ -811,24 +941,45 @@ def compute_differential_expression(
         **function_kwargs
     )
     
-    # Store landmark metadata for future reference (not the actual array)
+    # Handle landmarks for future reference
     if hasattr(diff_expression, 'computed_landmarks') and diff_expression.computed_landmarks is not None:
         # Initialize if needed
         if result_key not in adata.uns:
             adata.uns[result_key] = {}
         
-        # Store metadata about landmarks, not the actual array (which is large)
+        # Get landmarks info
         landmarks_shape = diff_expression.computed_landmarks.shape
         landmarks_dtype = str(diff_expression.computed_landmarks.dtype)
         
-        adata.uns[result_key]['landmarks_info'] = {
+        # Create landmarks info
+        landmarks_info = {
             'shape': landmarks_shape,
             'dtype': landmarks_dtype,
             'source': 'computed',
-            'n_landmarks': landmarks_shape[0]
+            'n_landmarks': landmarks_shape[0],
+            'timestamp': datetime.datetime.now().isoformat()
         }
-        # The actual landmarks are accessible through the model in the result
-        logger.info(f"Stored landmarks metadata in adata.uns['{result_key}']['landmarks_info']")
+        
+        # Store landmarks info in both locations
+        adata.uns[result_key]['landmarks_info'] = landmarks_info
+        
+        storage_key = "kompot_de"
+        if storage_key not in adata.uns:
+            adata.uns[storage_key] = {}
+        adata.uns[storage_key]['landmarks_info'] = landmarks_info.copy()
+        
+        # Store the actual landmarks if requested
+        if store_landmarks:
+            adata.uns[result_key]['landmarks'] = diff_expression.computed_landmarks
+            
+            # Store only in the result_key, not automatically in storage_key
+            # We'll check across keys when searching for landmarks
+            
+            logger.info(f"Stored landmarks in adata.uns['{result_key}']['landmarks'] with shape {landmarks_shape} for future reuse")
+        else:
+            logger.info(f"Landmark storage skipped (store_landmarks=False). Compute with store_landmarks=True to enable landmark reuse.")
+    else:
+        logger.info("No computed landmarks found to store. Check if landmarks were pre-computed or if n_landmarks is set correctly.")
     
     # Run prediction to compute fold changes, metrics, and Mahalanobis distances
     X_for_prediction = adata.obsm[obsm_key]
@@ -1203,6 +1354,7 @@ def run_differential_analysis(
     report_dir: str = "kompot_report",
     open_browser: bool = True,
     overwrite: Optional[bool] = None,
+    store_landmarks: bool = False,
     **kwargs
 ) -> Dict[str, Any]:
     """
@@ -1271,6 +1423,10 @@ def run_differential_analysis(
         - If None (default): Warn about existing results but proceed with overwriting
         - If True: Silently overwrite existing results
         - If False: Raise an error if results would be overwritten
+    store_landmarks : bool, optional
+        Whether to store landmarks in adata.uns for future reuse, by default False.
+        Setting to True will allow reusing landmarks with future analyses but may 
+        significantly increase the AnnData file size.
     **kwargs : dict
         Additional arguments to pass to compute_differential_abundance and 
         compute_differential_expression.
@@ -1346,17 +1502,22 @@ def run_differential_analysis(
             inplace=True,
             result_key=abundance_key,
             overwrite=overwrite,
+            store_landmarks=store_landmarks,
             **abundance_kwargs
         )
         
         # Check if landmarks are stored in abundance_key
-        if abundance_key in adata.uns and 'landmarks' in adata.uns[abundance_key]:
+        if store_landmarks and abundance_key in adata.uns and 'landmarks' in adata.uns[abundance_key]:
             abundance_landmarks = adata.uns[abundance_key]['landmarks']
             if share_landmarks:
                 logger.info(f"Will reuse landmarks from differential abundance analysis for expression analysis")
                 # Update abundance_key uns to indicate landmarks were shared
                 if 'params' in adata.uns[abundance_key]:
                     adata.uns[abundance_key]['params']['landmarks_shared_with_expression'] = True
+        elif share_landmarks and 'model' in abundance_result and hasattr(abundance_result['model'], 'computed_landmarks'):
+            # If landmarks weren't stored but are available in the model, use them for sharing
+            abundance_landmarks = abundance_result['model'].computed_landmarks
+            logger.info(f"Using landmarks from abundance model for expression analysis (not stored in adata)")
     
     # Run differential expression if requested
     expression_result = None
@@ -1402,6 +1563,7 @@ def run_differential_analysis(
             inplace=True,
             result_key=expression_key,
             overwrite=overwrite,
+            store_landmarks=store_landmarks,
             **expression_kwargs
         )
     
@@ -1423,7 +1585,7 @@ def run_differential_analysis(
         
     # Store information about landmark sharing in adata.uns
     if compute_abundance and compute_expression and share_landmarks and abundance_landmarks is not None:
-        # Create a landmarks_info entry if needed
+        # Create a shared landmarks entry if needed
         if 'landmarks_info' not in adata.uns:
             adata.uns['landmarks_info'] = {}
         
@@ -1434,6 +1596,10 @@ def run_differential_analysis(
         
         # Store timestamp of sharing
         adata.uns['landmarks_info']['timestamp'] = datetime.datetime.now().isoformat()
+        
+        # Record that landmarks were shared during computation, but don't synchronize storage
+        if store_landmarks:
+            logger.info(f"Landmarks shared during computation between {abundance_key} and {expression_key}")
     
     # Store combined run information with enhanced environment data
     # Get environment info

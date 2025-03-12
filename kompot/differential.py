@@ -228,6 +228,8 @@ class DifferentialAbundance:
             if landmarks is not None:
                 logger.info(f"Using provided landmarks with shape {landmarks.shape}")
                 estimator_defaults['landmarks'] = landmarks
+                # Store provided landmarks for future use
+                self.computed_landmarks = landmarks
             elif self.n_landmarks is not None:
                 # Use mellon's compute_landmarks function to get properly distributed landmarks
                 # Pass the random_state parameter directly to ensure reproducible results
@@ -1078,6 +1080,8 @@ class DifferentialExpression:
                 logger.info(f"Using provided landmarks with shape {landmarks.shape}")
                 estimator_defaults['landmarks'] = landmarks
                 estimator_defaults['gp_type'] = 'fixed'
+                # Store provided landmarks for future use
+                self.computed_landmarks = landmarks
             elif self.n_landmarks is not None:
                 # Use mellon's compute_landmarks function to get properly distributed landmarks
                 # Pass the random_state parameter directly to ensure reproducible results

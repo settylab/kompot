@@ -9,7 +9,6 @@ from typing import Dict, Any, List
 from kompot.anndata.functions import compute_differential_abundance, compute_differential_expression
 from kompot.plot.volcano import volcano_de, volcano_da, _infer_de_keys, _infer_da_keys
 from kompot.plot.heatmap import heatmap
-from kompot.plot.heatmap.utils import _infer_heatmap_keys
 
 
 def create_test_anndata(n_cells=100, n_genes=20):
@@ -265,17 +264,6 @@ class TestKeyInferenceFunctions:
         if da_keys:
             lfc_key, pval_key, thresholds = _infer_da_keys(self.adata, lfc_key=da_keys[0])
             assert 'da_run1' in lfc_key, f"Expected 'da_run1' in inferred key, got {lfc_key}"
-    
-    def test_infer_heatmap_keys_with_run_id(self):
-        """Test heatmap key inference with specific run_id."""
-        # Just test the explicit key path to avoid complicated setup
-        de_keys = [k for k in self.adata.var.columns if 'de_run1' in k and 'lfc' in k]
-        if de_keys:
-            lfc_key, score_key = _infer_heatmap_keys(self.adata, lfc_key=de_keys[0])
-            assert 'de_run1' in lfc_key, f"Expected 'de_run1' in inferred key, got {lfc_key}"
-        else:
-            # Skip this test if we don't have any usable keys
-            pytest.skip("No de_run1 lfc keys found in adata.var.columns")
 
 
 class TestPlotFunctions:

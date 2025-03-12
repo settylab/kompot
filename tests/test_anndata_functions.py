@@ -438,3 +438,193 @@ def test_run_differential_analysis_with_sample_col():
     # Verify the correct result_key was stored in the run_info
     assert adata.uns['kompot_da']['run_info']['result_key'] == 'sample_run_da'
     assert adata.uns['kompot_de']['run_info']['result_key'] == 'sample_run_de'
+
+
+def test_landmark_reuse_and_storage():
+    """Test landmark reuse and optional storage feature with independent storage."""
+    # Create a test AnnData object
+    adata = create_test_anndata()
+    
+    # First run with landmarks storage enabled
+    result1 = run_differential_analysis(
+        adata,
+        groupby='group',
+        condition1='A',
+        condition2='B',
+        abundance_key='store_landmarks_run',
+        expression_key='store_landmarks_run_de',
+        generate_html_report=False,
+        compute_mahalanobis=False,  # Turn off Mahalanobis to avoid errors in testing
+        store_landmarks=True,  # Enable landmark storage
+        share_landmarks=True,  # Enable landmark sharing
+        n_landmarks=50,  # Explicitly set n_landmarks to ensure they are computed
+    )
+    
+    # Verify landmarks were stored only in result keys (not in standard locations after changes)
+    assert 'store_landmarks_run' in adata.uns
+    assert 'landmarks' in adata.uns['store_landmarks_run']
+    assert 'landmarks_info' in adata.uns['store_landmarks_run']
+    
+    assert 'store_landmarks_run_de' in adata.uns
+    assert 'landmarks' in adata.uns['store_landmarks_run_de']
+    assert 'landmarks_info' in adata.uns['store_landmarks_run_de']
+    
+    # Standard keys should exist but without landmarks (only landmarks_info)
+    assert 'kompot_da' in adata.uns
+    assert 'landmarks' not in adata.uns['kompot_da'], "With new implementation, landmarks should not be synchronized to standard keys"
+    assert 'landmarks_info' in adata.uns['kompot_da']
+    
+    assert 'kompot_de' in adata.uns
+    assert 'landmarks' not in adata.uns['kompot_de'], "With new implementation, landmarks should not be synchronized to standard keys"
+    assert 'landmarks_info' in adata.uns['kompot_de']
+    
+    # Extract landmarks for comparison
+    da_landmarks = adata.uns['store_landmarks_run']['landmarks']
+    de_landmarks = adata.uns['store_landmarks_run_de']['landmarks']
+    
+    # No longer enforcing landmarks are the SAME OBJECT - they might be different objects with same values
+    assert da_landmarks.shape == de_landmarks.shape, "Expected landmarks to have the same shape"
+    
+    # Extract the shape for verification
+    landmarks_shape = da_landmarks.shape
+    
+    # Run another analysis with store_landmarks=False
+    result2 = compute_differential_abundance(
+        adata,
+        groupby='group',
+        condition1='A',
+        condition2='B',
+        result_key='no_store_landmarks_run',
+        store_landmarks=False,  # Don't store landmarks
+        n_landmarks=50,  # Explicitly set n_landmarks to ensure they are computed
+    )
+    
+    # Verify landmarks info is stored but not landmarks
+    assert 'no_store_landmarks_run' in adata.uns
+    assert 'landmarks_info' in adata.uns['no_store_landmarks_run']
+    assert 'landmarks' not in adata.uns['no_store_landmarks_run']
+    
+    # Now run another analysis with reuse of landmarks
+    result3 = compute_differential_expression(
+        adata,
+        groupby='group',
+        condition1='A',
+        condition2='B',
+        result_key='reuse_landmarks_run',
+        compute_mahalanobis=False,  # Turn off Mahalanobis to avoid errors in testing
+        store_landmarks=True,  # Enable landmark storage
+        n_landmarks=50,  # Explicitly set n_landmarks to ensure they are computed
+    )
+    
+    # Verify landmarks were reused from previous runs
+    assert 'reuse_landmarks_run' in adata.uns
+    assert 'landmarks' in adata.uns['reuse_landmarks_run']
+    
+    # The shape should be the same as the original landmarks
+    reused_landmarks = adata.uns['reuse_landmarks_run']['landmarks']
+    assert reused_landmarks.shape == landmarks_shape, "Expected reused landmarks to have the same shape"
+    
+    # Test sequential reuse by keeping one of the landmarks and deleting the other
+    # With our new implementation, we should be able to find and reuse any stored landmarks
+    # as long as they have the right shape
+    
+    # Save a copy of the DA landmarks for reference
+    landmarks_shape = adata.uns['store_landmarks_run']['landmarks'].shape
+    
+    # Remove one of the landmarks but keep the other
+    if 'store_landmarks_run_de' in adata.uns:
+        del adata.uns['store_landmarks_run_de']['landmarks']
+    
+    # Run another analysis - it should find and use the remaining landmarks
+    # But we need to provide n_landmarks since our test setup has deleted some landmarks
+    # This ensures we can compute new ones if needed
+    result4 = compute_differential_abundance(
+        adata,
+        groupby='group',
+        condition1='A',
+        condition2='B',
+        result_key='reuse_from_standard_run',
+        store_landmarks=True,  # Enable landmark storage
+        n_landmarks=50,  # Provide n_landmarks since we're missing some landmarks now
+    )
+    
+    # Verify standard results were generated
+    assert 'reuse_from_standard_run' in adata.uns
+    assert 'landmarks_info' in adata.uns['reuse_from_standard_run']
+
+
+def test_landmark_cross_analysis_search():
+    """Test the new cross-analysis landmark search feature."""
+    # Create a test AnnData object
+    adata = create_test_anndata()
+    
+    # First, store both landmarks in the standard locations
+    # Use explicit n_landmarks to ensure they're computed
+    adata.uns['kompot_da'] = {}
+    adata.uns['kompot_de'] = {}
+    
+    # Create landmarks with different shapes but same dimensions
+    # The shape doesn't need to be exact, but the dimensions must match the DM_EigenVectors (10)
+    random_da_landmarks = np.random.normal(0, 1, (40, 10))
+    random_de_landmarks = np.random.normal(0, 1, (60, 10))
+    
+    # Store them 
+    adata.uns['kompot_da']['landmarks'] = random_da_landmarks
+    adata.uns['kompot_de']['landmarks'] = random_de_landmarks
+    
+    # Now run DA without explicit landmarks - it should find and use the kompot_da landmarks
+    compute_differential_abundance(
+        adata,
+        groupby='group',
+        condition1='A',
+        condition2='B',
+        result_key='landmark_search_da',
+        store_landmarks=True,
+        # Don't provide n_landmarks to force reuse
+    )
+    
+    # Verify landmarks were stored and match those in kompot_da
+    assert 'landmark_search_da' in adata.uns
+    assert 'landmarks' in adata.uns['landmark_search_da']
+    assert adata.uns['landmark_search_da']['landmarks'].shape == adata.uns['kompot_da']['landmarks'].shape
+    
+    # Now run DE - it should find and use the kompot_de landmarks
+    compute_differential_expression(
+        adata,
+        groupby='group',
+        condition1='A',
+        condition2='B',
+        result_key='landmark_search_de',
+        compute_mahalanobis=False,
+        store_landmarks=True,
+        # Don't provide n_landmarks to force reuse
+    )
+    
+    # Verify DE has landmarks stored that match those in kompot_de
+    assert 'landmark_search_de' in adata.uns
+    assert 'landmarks' in adata.uns['landmark_search_de']
+    assert adata.uns['landmark_search_de']['landmarks'].shape == adata.uns['kompot_de']['landmarks'].shape
+    
+    # Create a custom landmark key that's not standard but used by our cross-search functionality
+    adata.uns['kompot_custom'] = {}
+    adata.uns['kompot_custom']['landmarks'] = np.random.normal(0, 1, (75, 10))
+    
+    # Delete the standard storage locations to force use of the custom location
+    del adata.uns['kompot_da']['landmarks'] 
+    del adata.uns['kompot_de']['landmarks']
+    
+    # Run another analysis that should find and use these custom landmarks
+    compute_differential_abundance(
+        adata,
+        groupby='group',
+        condition1='A',
+        condition2='B',
+        result_key='custom_landmark_search',
+        store_landmarks=True,
+        # Don't provide n_landmarks to force search
+    )
+    
+    # Verify the custom landmarks were found and reused
+    assert 'custom_landmark_search' in adata.uns
+    assert 'landmarks' in adata.uns['custom_landmark_search']
+    assert adata.uns['custom_landmark_search']['landmarks'].shape == adata.uns['kompot_custom']['landmarks'].shape
