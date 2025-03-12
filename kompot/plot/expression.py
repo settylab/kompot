@@ -8,10 +8,108 @@ import warnings
 import logging
 
 from ..utils import get_run_from_history, KOMPOT_COLORS
-from .volcano import _extract_conditions_from_key, _infer_de_keys
+from .volcano import _extract_conditions_from_key
 
 # Get the pre-configured logger
 logger = logging.getLogger("kompot")
+
+
+def _infer_expression_keys(adata: AnnData, run_id: int = -1, lfc_key: Optional[str] = None, 
+                           score_key: Optional[str] = None, strict: bool = False):
+    """
+    Infer expression-related keys from AnnData object for gene expression visualization.
+    
+    Parameters
+    ----------
+    adata : AnnData
+        AnnData object with differential expression results
+    run_id : int, optional
+        Run ID to use. Default is -1 (the latest run).
+    lfc_key : str, optional
+        Log fold change key. If provided, will be returned as is.
+    score_key : str, optional
+        Score key. If provided, will be returned as is unless the default
+        value needs to be replaced with a run-specific key.
+    strict : bool, optional
+        If True, raises errors when keys can't be inferred. If False, returns 
+        None for missing keys. Default is False.
+        
+    Returns
+    -------
+    tuple
+        (lfc_key, score_key) with the inferred keys
+    """
+    inferred_lfc_key = lfc_key
+    inferred_score_key = score_key
+    
+    # If keys already provided, just return them
+    if inferred_lfc_key is not None and inferred_score_key is not None:
+        return inferred_lfc_key, inferred_score_key
+    
+    # Get run info from specified run_id - specifically from kompot_de
+    run_info = get_run_from_history(adata, run_id, analysis_type="de")
+    
+    # If the run_info is None but a run_id was specified, log this
+    if run_info is None and run_id is not None:
+        logger.warning(f"Could not find run information for run_id={run_id}, analysis_type=de")
+    
+    if run_info is not None and 'field_names' in run_info:
+        field_names = run_info['field_names']
+        
+        # Get lfc_key from field_names
+        if inferred_lfc_key is None and 'mean_lfc_key' in field_names:
+            inferred_lfc_key = field_names['mean_lfc_key']
+            # Check that column exists
+            if inferred_lfc_key not in adata.var.columns:
+                inferred_lfc_key = None
+                logger.warning(f"Found mean_lfc_key '{inferred_lfc_key}' in run info, but column not in adata.var")
+        
+        # Get score_key from field_names
+        if inferred_score_key is None and 'mahalanobis_key' in field_names:
+            inferred_score_key = field_names['mahalanobis_key']
+            # Check that column exists
+            if inferred_score_key not in adata.var.columns:
+                logger.warning(f"Found mahalanobis_key '{inferred_score_key}' in run info, but column not in adata.var")
+                inferred_score_key = None
+    
+    # If lfc_key still not found, try to find a reasonable candidate in adata.var
+    if inferred_lfc_key is None:
+        # Look for columns with 'lfc' or 'fold_change' in the name
+        lfc_candidates = [col for col in adata.var.columns if 'lfc' in col.lower() 
+                         or 'fold_change' in col.lower() or 'log_fold_change' in col.lower()]
+        if lfc_candidates:
+            # Prefer columns with 'kompot' in the name
+            kompot_lfc = [col for col in lfc_candidates if 'kompot' in col.lower()]
+            if kompot_lfc:
+                inferred_lfc_key = kompot_lfc[0]
+                logger.info(f"Inferred lfc_key as '{inferred_lfc_key}' from column names")
+            else:
+                inferred_lfc_key = lfc_candidates[0]
+                logger.info(f"Inferred lfc_key as '{inferred_lfc_key}' from column names")
+                
+    # If score_key still not found, try to find a reasonable candidate
+    if inferred_score_key is None:
+        # Look for columns with 'mahalanobis' or 'score' in the name
+        score_candidates = [col for col in adata.var.columns if 'mahalanobis' in col.lower() 
+                           or 'score' in col.lower() or 'significance' in col.lower()]
+        if score_candidates:
+            # Prefer columns with 'kompot' in the name
+            kompot_score = [col for col in score_candidates if 'kompot' in col.lower()]
+            if kompot_score:
+                inferred_score_key = kompot_score[0]
+                logger.info(f"Inferred score_key as '{inferred_score_key}' from column names")
+            else:
+                inferred_score_key = score_candidates[0]
+                logger.info(f"Inferred score_key as '{inferred_score_key}' from column names")
+    
+    # If keys still not found, raise errors if strict mode or just return None
+    if inferred_lfc_key is None and strict:
+        raise ValueError("Could not infer lfc_key from the specified run. Please specify manually.")
+    
+    if inferred_score_key is None and strict:
+        raise ValueError("Could not infer score_key from the specified run. Please specify manually.")
+    
+    return inferred_lfc_key, inferred_score_key
 
 try:
     import scanpy as sc
@@ -100,8 +198,16 @@ def plot_gene_expression(
     # Get gene index
     gene_idx = adata.var_names.get_loc(gene)
     
-    # Infer keys using helper function
-    lfc_key, score_key = _infer_de_keys(adata, run_id, lfc_key, score_key)
+    # Infer keys using our specialized helper function
+    # Pass strict=False to avoid raising errors when keys can't be inferred
+    lfc_key, score_key = _infer_expression_keys(adata, run_id, lfc_key, score_key, strict=False)
+    
+    # If keys are still None, provide a helpful warning
+    if lfc_key is None:
+        logger.warning("Could not infer lfc_key. Some functionality may be limited.")
+        
+    if score_key is None:
+        logger.warning("Could not infer score_key. Some functionality may be limited.")
     
     # Calculate the actual (positive) run ID for logging - same as volcano_da
     if run_id < 0:
@@ -118,7 +224,7 @@ def plot_gene_expression(
     # Extract conditions from lfc_key if not provided
     if condition1 is None or condition2 is None:
         # Try to extract conditions from the key name
-        conditions = _extract_conditions_from_key(lfc_key)
+        conditions = _extract_conditions_from_key(lfc_key) if lfc_key is not None else None
         if conditions:
             condition1, condition2 = conditions
         else:
@@ -128,11 +234,22 @@ def plot_gene_expression(
                 if 'conditions' in params and len(params['conditions']) == 2:
                     condition1 = params['conditions'][0]
                     condition2 = params['conditions'][1]
+        
+        # If still none, provide defaults
+        if condition1 is None:
+            condition1 = "Condition 1"
+            logger.info(f"No condition1 found, using default: '{condition1}'")
+        if condition2 is None:
+            condition2 = "Condition 2"
+            logger.info(f"No condition2 found, using default: '{condition2}'")
     
     # Log which run and fields are being used - same pattern as volcano_da
     conditions_str = f": comparing {condition1} vs {condition2}" if condition1 and condition2 else ""
     logger.info(f"Using DE run {actual_run_id}{conditions_str}")
-    logger.info(f"Using fields for gene expression plot - lfc_key: '{lfc_key}', score_key: '{score_key}'")
+    
+    lfc_str = f"'{lfc_key}'" if lfc_key is not None else "None"
+    score_str = f"'{score_key}'" if score_key is not None else "None"
+    logger.info(f"Using fields for gene expression plot - lfc_key: {lfc_str}, score_key: {score_str}")
     
     # Try to infer layer from run_info if not explicitly provided
     if layer is None and run_info is not None and 'params' in run_info:
@@ -147,8 +264,8 @@ def plot_gene_expression(
                 logger.info(f"Ignoring fold_change layer '{inferred_layer}' inferred from run, using adata.X instead")
             
     # Extract fold change and score for the gene
-    gene_lfc = adata.var.loc[gene, lfc_key] if lfc_key in adata.var else "Unknown"
-    gene_score = adata.var.loc[gene, score_key] if score_key in adata.var else "Unknown"
+    gene_lfc = adata.var.loc[gene, lfc_key] if lfc_key is not None and lfc_key in adata.var else "Unknown"
+    gene_score = adata.var.loc[gene, score_key] if score_key is not None and score_key in adata.var else "Unknown"
     
     # Check if embedding basis exists
     if basis not in adata.obsm:
