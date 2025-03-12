@@ -52,10 +52,10 @@ def plot_gene_expression(
         Name of the gene to visualize
     lfc_key : str, optional
         Key in adata.var for log fold change values.
-        If None, will try to infer from kompot_de_ keys.
+        If None, will try to infer from ``kompot_de_`` keys.
     score_key : str, optional
         Key in adata.var for significance scores.
-        If None, will try to infer from kompot_de_ keys.
+        If None, will try to infer from ``kompot_de_`` keys.
     condition1 : str, optional
         Name of condition 1 (denominator in fold change)
     condition2 : str, optional

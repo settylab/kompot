@@ -232,10 +232,10 @@ def volcano_de(
         AnnData object containing differential expression results in .var
     lfc_key : str, optional
         Key in adata.var for log fold change values.
-        If None, will try to infer from kompot_de_ keys.
+        If None, will try to infer from ``kompot_de_`` keys.
     score_key : str, optional
         Key in adata.var for significance scores.
-        Default is "kompot_de_mahalanobis"
+        Default is ``"kompot_de_mahalanobis"``
     condition1 : str, optional
         Name of condition 1 (negative log fold change)
     condition2 : str, optional
@@ -514,10 +514,10 @@ def volcano_da(
         AnnData object containing differential abundance results
     lfc_key : str, optional
         Key in adata.obs for log fold change values.
-        If None, will try to infer from kompot_da_ keys.
+        If None, will try to infer from ``kompot_da_`` keys.
     pval_key : str, optional
         Key in adata.obs for p-values.
-        If None, will try to infer from kompot_da_ keys.
+        If None, will try to infer from ``kompot_da_`` keys.
     group_key : str, optional
         Key in adata.obs to group cells by (for coloring)
     log_transform_pval : bool, optional

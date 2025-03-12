@@ -7,6 +7,7 @@
 
    Differential Analysis <differential>
    AnnData Integration <anndata>
+   Plotting <plotting>
    Utilities <utils>
    Reporter <reporter>
 
@@ -36,6 +37,7 @@ Key features:
 - Support for covariance matrices and optional landmarks
 - JAX-accelerated computations
 - Empirical variance estimation
+- Visualization tools (volcano plots, heatmaps, expression plots)
 - **Full scverse compatibility with direct AnnData integration**
 
 .. toctree::

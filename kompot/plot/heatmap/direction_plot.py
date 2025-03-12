@@ -150,12 +150,11 @@ def direction_barplot(
     run_id: int = -1,
     **kwargs,
 ) -> Optional[Tuple[plt.Figure, plt.Axes]]:
-    """
-    Create a barplot showing the direction of change distribution across categories.
+    """Create a barplot showing the direction of change distribution across categories.
 
     This function creates a stacked or grouped barplot showing the distribution of
     up/down/neutral changes across different categories (like cell types).
-
+    
     Parameters
     ----------
     adata : AnnData
@@ -172,20 +171,18 @@ def direction_barplot(
         Name of condition 2 (numerator in fold change).
         If None, will try to infer from the run_id.
     normalize : str or None, optional
-        How to normalize the data. Options:
-        - "index": normalize across rows (sum to 100% for each category)
-        - "columns": normalize across columns (sum to 100% for each direction)
-        - None: use raw counts
+        How to normalize the data. Options: "index" (normalize rows), 
+        "columns" (normalize columns), or None (raw counts).
     figsize : tuple, optional
         Figure size as (width, height) in inches
     title : str, optional
-        Plot title. If None and conditions provided, uses "Direction of Change by {category_column}\n{condition1} vs {condition2}"
+        Plot title. If None and conditions provided, uses "Direction of Change by {category_column}\\n{condition1} vs {condition2}"
     xlabel : str, optional
         Label for x-axis. If None, uses the category_column
     ylabel : str, optional
         Label for y-axis. Defaults to "Percentage (%)" when normalize="index", otherwise "Count"
     colors : dict, optional
-        Dictionary mapping direction values to colors. Default is {"up": "#d73027", "down": "#4575b4", "neutral": "#d3d3d3"}
+        Dictionary mapping direction values to colors.
     rotation : float, optional
         Rotation angle for x-tick labels
     legend_title : str, optional
@@ -207,13 +204,11 @@ def direction_barplot(
     run_id : int, optional
         Specific run ID to use for fetching data from run history.
         Negative indices count from the end (-1 is the latest run).
-        This determines which differential abundance run's data is used.
-    **kwargs :
-        Additional parameters passed to pandas.DataFrame.plot
-
+    
     Returns
     -------
-    If return_fig is True, returns (fig, ax)
+    tuple or None
+        If return_fig is True, returns (fig, ax)
     """
     # Default colors if not provided
     if colors is None:
