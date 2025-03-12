@@ -39,7 +39,7 @@ def heatmap(
     score_key: Optional[str] = None,
     layer: Optional[str] = None,
     standard_scale: Optional[Union[str, int]] = "var",  # Default to gene-wise z-scoring
-    cmap: Union[str, mcolors.Colormap] = "viridis",
+    cmap: Optional[Union[str, mcolors.Colormap]] = None,
     dendrogram: bool = False,  # Whether to show dendrograms
     cluster_rows: bool = True,  # Whether to cluster rows
     cluster_cols: bool = True,  # Whether to cluster columns
@@ -52,13 +52,13 @@ def heatmap(
     show_group_labels: bool = True,
     gene_labels_size: int = 10,
     group_labels_size: int = 12,
-    colorbar_title: str = "Expression",
+    colorbar_title: Optional[str] = None,
     colorbar_kwargs: Optional[Dict[str, Any]] = None,
     title: Optional[str] = None,
     sort_genes: bool = True,
-    center: Optional[float] = None,
-    vmin: Optional[float] = None,
-    vmax: Optional[float] = None,
+    vcenter: Optional[Union[float, str]] = None,
+    vmin: Optional[Union[float, str]] = None,
+    vmax: Optional[Union[float, str]] = None,
     ax: Optional[plt.Axes] = None,
     return_fig: bool = False,
     save: Optional[str] = None,
@@ -106,10 +106,14 @@ def heatmap(
     layer : str, optional
         Layer in AnnData to use for expression values. If None, uses .X
     standard_scale : str or int, optional
-        Whether to scale the expression values ('var', 'group' or 0, 1)
-        Default is 'var' for gene-wise z-scoring
+        Whether to scale the expression values ('var', 'group' or 0, 1).
+        Default is 'var' for gene-wise z-scoring. When any z-scoring is applied,
+        the colormap is automatically centered at 0 (vcenter=0), uses symmetric limits (equal
+        positive and negative ranges), and uses a divergent colormap unless
+        vcenter, vmin, vmax, or cmap is explicitly specified.
     cmap : str or colormap, optional
-        Colormap to use for the heatmap
+        Colormap to use for the heatmap. If None, defaults to "coolwarm" (divergent) when 
+        z-scoring is applied, and "viridis" (sequential) otherwise.
     dendrogram : bool, optional
         Whether to show dendrograms for hierarchical clustering
     cluster_rows : bool, optional
@@ -142,19 +146,32 @@ def heatmap(
     group_labels_size : int, optional
         Font size for group labels
     colorbar_title : str, optional
-        Title for the colorbar
+        Title for the colorbar. If None, will default to "Z-score" when any z-scoring is applied
+        (standard_scale="var", standard_scale="group", or standard_scale=0, 1),
+        and "Expression" otherwise.
     colorbar_kwargs : dict, optional
-        Additional parameters for colorbar
+        Additional parameters for colorbar customization. Supported keys include:
+        - 'label_kwargs': dict with parameters for colorbar label (e.g. fontsize, color)
+        - 'locator': A matplotlib Locator instance for tick positions
+        - 'formatter': A matplotlib Formatter instance for tick labels
+        - Any attribute of matplotlib colorbar instance
     title : str, optional
         Title for the heatmap
     sort_genes : bool, optional
         Whether to sort genes by score
-    center : float, optional
-        Value to center the colormap at
-    vmin : float, optional
-        Minimum value for colormap
-    vmax : float, optional
-        Maximum value for colormap
+    vcenter : float or str, optional
+        Value to center the colormap at. If None and any z-scoring is applied 
+        (standard_scale='var', 'group', 0, or 1), the colormap will be centered at 0.
+        If None and no z-scoring is applied, a standard (non-centered) colormap will be used.
+        Can be specified as a percentile using 'p<number>' format (e.g., 'p50' for median).
+    vmin : float or str, optional
+        Minimum value for colormap. If None and z-scoring is applied, will use a 
+        symmetric limit based on the maximum absolute value of the data.
+        Can be specified as a percentile using 'p<number>' format (e.g., 'p5' for 5th percentile).
+    vmax : float or str, optional
+        Maximum value for colormap. If None and z-scoring is applied, will use a
+        symmetric limit based on the maximum absolute value of the data.
+        Can be specified as a percentile using 'p<number>' format (e.g., 'p95' for 95th percentile).
     ax : matplotlib.axes.Axes, optional
         Axes to plot on. If None, creates new figure
     return_fig : bool, optional
@@ -201,6 +218,7 @@ def heatmap(
     condition2 = None
     condition_key = None
     actual_run_id = None
+    inferred_layer = None
     
     if run_info is not None and "params" in run_info:
         params = run_info["params"]
@@ -210,6 +228,14 @@ def heatmap(
         # In Kompot DE runs, the condition column is called "groupby"
         if "groupby" in params:
             condition_key = params["groupby"]
+        # Try to infer layer from run_info
+        if "layer" in params:
+            inferred_layer = params["layer"]
+            
+    # Use inferred layer if no explicit layer is provided
+    if layer is None and inferred_layer is not None:
+        layer = inferred_layer
+        logger.info(f"Using layer '{layer}' inferred from run information")
     
     # Try to extract from key name if still not found
     if (condition1 is None or condition2 is None) and lfc_key is not None:
@@ -311,42 +337,35 @@ def heatmap(
         n_groups = len(cond1_means)
         n_genes = len(var_names)
 
-        # Apply gene-wise scaling if needed
+        # Apply scaling if needed
         if standard_scale is not None:
-            # Single scaling to avoid duplicate log messages
-            if standard_scale == "var" or standard_scale == 0:
-                logger.info("Applying gene-wise z-scoring (standard_scale='var')")
-                
-                # Get shared columns to ensure proper alignment
-                shared_cols = list(set(cond1_means.columns).intersection(set(cond2_means.columns)))
-                
-                # Create a MultiIndex DataFrame with both conditions
-                # This ensures z-scoring happens across both conditions together
-                combined = pd.concat(
-                    [
-                        cond1_means[shared_cols], 
-                        cond2_means[shared_cols]
-                    ], 
-                    keys=["cond1", "cond2"],
-                    names=["condition", "group"]
-                )
-                
-                # Apply gene-wise scaling - set is_split=True to ensure proper handling of hierarchical structure
-                scaled = _apply_scaling(combined, standard_scale, is_split=True, has_hierarchical_index=True, log_message=False)
-                
-                # Extract the results
-                cond1_means_scaled = scaled.loc["cond1"].copy()
-                cond2_means_scaled = scaled.loc["cond2"].copy()
-                
-                # Copy scaled values back to original dataframes to preserve any columns
-                # that might not have been in both conditions
-                for col in shared_cols:
-                    cond1_means[col] = cond1_means_scaled[col]
-                    cond2_means[col] = cond2_means_scaled[col]
-            else:
-                # Apply regular scaling
-                cond1_means = _apply_scaling(cond1_means, standard_scale, log_message=False)
-                cond2_means = _apply_scaling(cond2_means, standard_scale)
+            # Get shared columns to ensure proper alignment
+            shared_cols = list(set(cond1_means.columns).intersection(set(cond2_means.columns)))
+            
+            # Create a MultiIndex DataFrame with both conditions
+            # This ensures z-scoring happens across both conditions together
+            combined = pd.concat(
+                [
+                    cond1_means[shared_cols], 
+                    cond2_means[shared_cols]
+                ], 
+                keys=["cond1", "cond2"],
+                names=["condition", "group"]
+            )
+            
+            # Apply scaling - set is_split=True to ensure proper handling of hierarchical structure
+            # Use log_message=True to let the utility function handle logging
+            scaled = _apply_scaling(combined, standard_scale, is_split=True, has_hierarchical_index=True)
+            
+            # Extract the results
+            cond1_means_scaled = scaled.loc["cond1"].copy()
+            cond2_means_scaled = scaled.loc["cond2"].copy()
+            
+            # Copy scaled values back to original dataframes to preserve any columns
+            # that might not have been in both conditions
+            for col in shared_cols:
+                cond1_means[col] = cond1_means_scaled[col]
+                cond2_means[col] = cond2_means_scaled[col]
 
         # Calculate a custom figure size with fixed aspect ratio tiles and consistent spacing
         if figsize is None:
@@ -702,9 +721,96 @@ def heatmap(
         )
         all_data = all_data[~np.isnan(all_data)]  # Remove NaN values
 
+        # Determine if we're using z-scoring
+        is_zscored = standard_scale == "var" or standard_scale == 0 or standard_scale == "group" or standard_scale == 1
+
+        # Set default colormap based on whether we're using z-scoring
+        effective_cmap = cmap
+        if effective_cmap is None:
+            if is_zscored:
+                effective_cmap = "coolwarm"  # Default divergent colormap for z-scored data
+            else:
+                effective_cmap = "viridis"   # Default sequential colormap for raw data
+        
+        # Determine if we should use a centered colormap
+        # When z-scoring, always default to vcenter=0 
+        # Otherwise, don't center unless explicitly specified
+        if is_zscored and vcenter is None:
+            # Default to centering at 0 for z-scored data
+            effective_vcenter = 0
+        else:
+            # Use provided vcenter or None
+            effective_vcenter = vcenter
+        
+        # Process percentile-based limits if specified
+        def parse_percentile(value, data):
+            """Convert percentile string (e.g., 'p5') to actual value from data."""
+            if isinstance(value, str) and value.startswith('p'):
+                try:
+                    percentile = float(value[1:])
+                    if 0 <= percentile <= 100:
+                        return np.nanpercentile(data, percentile)
+                    else:
+                        logger.warning(f"Invalid percentile {percentile}, must be between 0 and 100. Using None instead.")
+                        return None
+                except ValueError:
+                    logger.warning(f"Invalid percentile format '{value}'. Use 'p<number>' (e.g., 'p5'). Using None instead.")
+                    return None
+            return value
+        
+        # Parse percentile values if specified
+        parsed_vcenter = parse_percentile(effective_vcenter, all_data)
+        parsed_vmin = parse_percentile(vmin, all_data)
+        parsed_vmax = parse_percentile(vmax, all_data)
+        
+        # For z-scored data, use symmetric limits by default unless vmin/vmax are explicitly provided
+        effective_vmin = parsed_vmin
+        effective_vmax = parsed_vmax
+        effective_vcenter = parsed_vcenter
+        
+        if is_zscored and parsed_vmin is None and parsed_vmax is None:
+            # Find the maximum absolute value to use for symmetric limits
+            abs_max = np.max(np.abs(all_data))
+            effective_vmin = -abs_max
+            effective_vmax = abs_max
+            logger.info(f"Using symmetric colormap limits [-{abs_max:.2f}, {abs_max:.2f}] for z-scored data")
+        
+        # Ensure vmin, vcenter, and vmax are in the correct order
+        # For TwoSlopeNorm: vmin < vcenter < vmax must be true
+        if effective_vcenter is not None:
+            # If vcenter is defined, ensure vmin < vcenter < vmax
+            
+            # Handle cases where vmin >= vcenter
+            if effective_vmin is not None and effective_vmin >= effective_vcenter:
+                original_vmin = effective_vmin
+                effective_vmin = effective_vcenter - 1e-6  # Set slightly below vcenter
+                logger.warning(
+                    f"vmin ({original_vmin:.4f}) must be less than vcenter ({effective_vcenter:.4f}). "
+                    f"Setting vmin to {effective_vmin:.4f}."
+                )
+                
+            # Handle cases where vmax <= vcenter
+            if effective_vmax is not None and effective_vmax <= effective_vcenter:
+                original_vmax = effective_vmax
+                effective_vmax = effective_vcenter + 1e-6  # Set slightly above vcenter
+                logger.warning(
+                    f"vmax ({original_vmax:.4f}) must be greater than vcenter ({effective_vcenter:.4f}). "
+                    f"Setting vmax to {effective_vmax:.4f}."
+                )
+                
+        # Ensure vmin < vmax even without vcenter
+        if (effective_vmin is not None and effective_vmax is not None and 
+            effective_vmin >= effective_vmax):
+            # Swap values if vmin >= vmax
+            logger.warning(
+                f"vmin ({effective_vmin:.4f}) must be less than vmax ({effective_vmax:.4f}). "
+                f"Swapping values."
+            )
+            effective_vmin, effective_vmax = effective_vmax, effective_vmin
+
         # Set up colormap normalization
         norm, cmap_obj, vmin, vmax = _setup_colormap_normalization(
-            all_data, center, vmin, vmax, cmap
+            all_data, effective_vcenter, effective_vmin, effective_vmax, effective_cmap
         )
 
         # Use the calculated tile dimensions for each cell based on the base unit
@@ -848,10 +954,13 @@ def heatmap(
             colorbar_height = 0.5  # Use 50% of sidebar for colorbar
             # Create colorbar axes in the bottom portion of sidebar with a gap
             gap = 0.1  # 10% gap in the middle
+            
+            # Make the colorbar narrower (reduce size)
+            colorbar_width = 0.25  # Reduce from 0.4 to 0.25 (smaller colorbar)
             colorbar_ax = fig.add_axes([
-                bbox.x0 + bbox.width * 0.3,  # Center horizontally with 30% margin on each side
+                bbox.x0 + bbox.width * (0.5 - colorbar_width/2),  # Center horizontally 
                 bbox.y0,  # Start from bottom of sidebar
-                bbox.width * 0.4,  # Make narrower than full sidebar
+                bbox.width * colorbar_width,  # Make narrower for smaller colorbar
                 bbox.height * (1 - legend_height - gap) # Fill remaining space minus gap
             ])
             # Don't turn off axis for colorbar - we need to see the ticks and labels
@@ -864,36 +973,54 @@ def heatmap(
         sm.set_array([])
         cbar = fig.colorbar(sm, cax=cax)
         
-        # Style the colorbar but keep the ticks and labels
+        # Style the colorbar
         cbar.outline.set_visible(False)
         cbar.ax.tick_params(axis='y', which='both', length=4, width=1, direction='out')
         cbar.ax.grid(False)
         
-        # Make spines invisible except for the left one
+        # Make all spines invisible for a cleaner look
         for spine_name, spine in cbar.ax.spines.items():
-            if spine_name == 'left':
-                spine.set_visible(True)
-                spine.set_linewidth(0.5)
-            else:
-                spine.set_visible(False)
+            spine.set_visible(False)
 
         # Set colorbar label based on whether data was z-scored
-        if standard_scale == "var" or standard_scale == 0:
-            label_text = "Z-score" if colorbar_title == "Expression" else colorbar_title
+        if colorbar_title is None:
+            if is_zscored:
+                label_text = "Z-score"
+            else:
+                label_text = "Expression"
         else:
             label_text = colorbar_title
             
-        cbar.set_label(label_text, labelpad=10, fontweight='bold', fontsize=12)
+        # Use colorbar_kwargs to override default label settings if provided
+        label_kwargs = {'labelpad': 10, 'fontweight': 'bold', 'fontsize': 12}
+        if colorbar_kwargs and 'label_kwargs' in colorbar_kwargs:
+            label_kwargs.update(colorbar_kwargs.get('label_kwargs', {}))
+            
+        cbar.set_label(label_text, **label_kwargs)
         
         # Ensure ticks are visible with proper font size
         cbar.ax.tick_params(labelsize=10)
         
-        # Force a minimum of 3 ticks on the colorbar
-        if len(cbar.ax.get_yticks()) < 3:
-            cbar.ax.yaxis.set_major_locator(plt.MaxNLocator(3))
+        # Set exactly 3 ticks on the colorbar by default
+        cbar.ax.yaxis.set_major_locator(plt.MaxNLocator(3))
             
         # Ensure tick labels have proper formatting
         cbar.ax.yaxis.set_major_formatter(plt.FormatStrFormatter('%.1f'))
+        
+        # Apply any additional colorbar formatting from colorbar_kwargs
+        if colorbar_kwargs:
+            # Apply any tick locator if specified
+            if 'locator' in colorbar_kwargs:
+                cbar.ax.yaxis.set_major_locator(colorbar_kwargs['locator'])
+            
+            # Apply any formatter if specified
+            if 'formatter' in colorbar_kwargs:
+                cbar.ax.yaxis.set_major_formatter(colorbar_kwargs['formatter'])
+                
+            # Apply any other colorbar properties
+            for key, value in colorbar_kwargs.items():
+                if key not in ['label_kwargs', 'locator', 'formatter'] and hasattr(cbar, key):
+                    setattr(cbar, key, value)
 
         # Save figure if path provided
         if save:

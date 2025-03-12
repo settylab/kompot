@@ -1148,6 +1148,14 @@ class DifferentialExpression:
             # Use specific length scale if provided
             if sample_estimator_ls is not None:
                 sample_estimator_kwargs['ls'] = sample_estimator_ls
+            else:
+                try:
+                    sample_estimator_kwargs['ls'] = self.function_predictor1.cov_func.ls
+                except AttributeError as e:
+                    logger.warning(
+                        f"Could not extract ls for sample variance from predictor: {e} "
+                        "This could lead to inflated Mahalanobis distances."
+                    )
             
             # Fit variance estimator for condition 1
             if condition1_sample_indices is not None:

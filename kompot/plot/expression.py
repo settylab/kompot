@@ -33,6 +33,7 @@ def plot_gene_expression(
     cmap_fold_change: str = "RdBu_r",
     title: Optional[str] = None,
     run_id: int = -1,
+    layer: Optional[str] = None,
     save: Optional[str] = None,
     return_fig: bool = False,
     **kwargs
@@ -72,6 +73,8 @@ def plot_gene_expression(
         Overall figure title. If None, uses gene name.
     run_id : int, optional
         Run ID to use. Default is -1 (latest run).
+    layer : str, optional
+        Layer in AnnData to use for expression values. If None, uses adata.X or infers from run information.
     save : str, optional
         Path to save figure. If None, figure is not saved
     return_fig : bool, optional
@@ -109,6 +112,9 @@ def plot_gene_expression(
     else:
         actual_run_id = run_id
     
+    # Get run info for both conditions and layer
+    run_info = get_run_from_history(adata, run_id, analysis_type="de")
+    
     # Extract conditions from lfc_key if not provided
     if condition1 is None or condition2 is None:
         # Try to extract conditions from the key name
@@ -117,7 +123,6 @@ def plot_gene_expression(
             condition1, condition2 = conditions
         else:
             # If not in key, try getting from run info
-            run_info = get_run_from_history(adata, run_id, analysis_type="de")
             if run_info is not None and 'params' in run_info:
                 params = run_info['params']
                 if 'conditions' in params and len(params['conditions']) == 2:
@@ -128,6 +133,18 @@ def plot_gene_expression(
     conditions_str = f": comparing {condition1} vs {condition2}" if condition1 and condition2 else ""
     logger.info(f"Using DE run {actual_run_id}{conditions_str}")
     logger.info(f"Using fields for gene expression plot - lfc_key: '{lfc_key}', score_key: '{score_key}'")
+    
+    # Try to infer layer from run_info if not explicitly provided
+    if layer is None and run_info is not None and 'params' in run_info:
+        params = run_info['params']
+        if 'layer' in params:
+            inferred_layer = params['layer']
+            # Don't use fold_change layers for expression visualization
+            if "fold_change" not in inferred_layer:
+                layer = inferred_layer
+                logger.info(f"Using layer '{layer}' inferred from run information")
+            else:
+                logger.info(f"Ignoring fold_change layer '{inferred_layer}' inferred from run, using adata.X instead")
             
     # Extract fold change and score for the gene
     gene_lfc = adata.var.loc[gene, lfc_key] if lfc_key in adata.var else "Unknown"
@@ -144,14 +161,84 @@ def plot_gene_expression(
     condition2_layer = None
     fold_change_layer = None
     
-    # Try to find imputed expression layers
-    for layer in adata.layers.keys():
-        if 'imputed' in layer and condition1 and condition1.lower() in layer.lower():
-            condition1_layer = layer
-        elif 'imputed' in layer and condition2 and condition2.lower() in layer.lower():
-            condition2_layer = layer
-        elif 'fold_change' in layer:
-            fold_change_layer = layer
+    # First try to get them from run_info
+    if run_info is not None:
+        # Check if imputed_layer_keys is directly in run_info
+        if 'imputed_layer_keys' in run_info:
+            imputed_keys = run_info['imputed_layer_keys']
+            # The keys may be named condition1/condition2, but the actual imputed layers
+            # correspond to the specific condition names (e.g., Young/Old)
+            if 'condition1' in imputed_keys:
+                # Map to the correct condition based on run_info
+                if run_info.get('params', {}).get('condition1') == condition1:
+                    condition1_layer = imputed_keys['condition1']
+                    logger.info(f"Using condition1 imputed layer '{condition1_layer}' for '{condition1}'")
+                elif run_info.get('params', {}).get('condition1') == condition2:
+                    condition2_layer = imputed_keys['condition1']
+                    logger.info(f"Using condition1 imputed layer '{condition2_layer}' for '{condition2}'")
+                
+            if 'condition2' in imputed_keys:
+                # Map to the correct condition based on run_info
+                if run_info.get('params', {}).get('condition2') == condition2:
+                    condition2_layer = imputed_keys['condition2']
+                    logger.info(f"Using condition2 imputed layer '{condition2_layer}' for '{condition2}'")
+                elif run_info.get('params', {}).get('condition2') == condition1:
+                    condition1_layer = imputed_keys['condition2']
+                    logger.info(f"Using condition2 imputed layer '{condition1_layer}' for '{condition1}'")
+                
+            if 'fold_change' in imputed_keys:
+                fold_change_layer = imputed_keys['fold_change']
+                logger.info(f"Using fold_change layer '{fold_change_layer}' from run_info")
+        
+        # Otherwise check field_names
+        elif 'field_names' in run_info:
+            field_names = run_info['field_names']
+            params = run_info.get('params', {})
+            
+            # Map the imputed layers based on the actual condition names in params
+            if 'imputed_key_1' in field_names and 'imputed_key_2' in field_names:
+                # Get condition names from params
+                param_condition1 = params.get('condition1')
+                param_condition2 = params.get('condition2')
+                
+                # Map to the correct layers based on condition names
+                if param_condition1 == condition1 and param_condition2 == condition2:
+                    # Standard mapping
+                    condition1_layer = field_names['imputed_key_1']
+                    condition2_layer = field_names['imputed_key_2']
+                    logger.info(f"Using imputed layer '{condition1_layer}' for '{condition1}'")
+                    logger.info(f"Using imputed layer '{condition2_layer}' for '{condition2}'")
+                elif param_condition1 == condition2 and param_condition2 == condition1:
+                    # Reversed mapping
+                    condition1_layer = field_names['imputed_key_2']
+                    condition2_layer = field_names['imputed_key_1']
+                    logger.info(f"Using imputed layer '{condition1_layer}' for '{condition1}'")
+                    logger.info(f"Using imputed layer '{condition2_layer}' for '{condition2}'")
+                else:
+                    # Fall back to position-based mapping if condition names don't match
+                    condition1_layer = field_names['imputed_key_1']
+                    condition2_layer = field_names['imputed_key_2']
+                    logger.info(f"Using imputed layer '{condition1_layer}' for condition 1")
+                    logger.info(f"Using imputed layer '{condition2_layer}' for condition 2")
+                    
+            # Get fold change layer
+            if 'fold_change_key' in field_names:
+                fold_change_layer = field_names['fold_change_key']
+                logger.info(f"Using fold_change layer '{fold_change_layer}' from field_names")
+    
+    # If layers still not found, try to find them by name pattern
+    if condition1_layer is None or condition2_layer is None or fold_change_layer is None:
+        logger.info("Some layers not found in run_info, searching by name pattern")
+        for layer_name in adata.layers.keys():
+            if condition1_layer is None and 'imputed' in layer_name and condition1 and condition1.lower() in layer_name.lower():
+                condition1_layer = layer_name
+                logger.info(f"Found condition1 imputed layer '{condition1_layer}' by name pattern")
+            elif condition2_layer is None and 'imputed' in layer_name and condition2 and condition2.lower() in layer_name.lower():
+                condition2_layer = layer_name
+                logger.info(f"Found condition2 imputed layer '{condition2_layer}' by name pattern")
+            elif fold_change_layer is None and 'fold_change' in layer_name:
+                fold_change_layer = layer_name
+                logger.info(f"Found fold_change layer '{fold_change_layer}' by name pattern")
             
     # Create figure and axes
     fig, axs = plt.subplots(2, 2, figsize=figsize)
@@ -176,15 +263,25 @@ def plot_gene_expression(
             adata, 
             basis=basis.replace("X_", ""),
             color=gene,
-            title=f"Original Expression",
+            title=f"Original Expression{' ('+layer+')' if layer else ''}",
             color_map=cmap_expression,
+            layer=layer,  # Use the inferred or specified layer
             show=False,
             ax=axs[0, 0],
             **kwargs
         )
     else:
         # Fallback to simple scatter plot
-        orig_values = adata[:, gene].X
+        if layer is not None and layer in adata.layers:
+            # Use specified/inferred layer
+            logger.info(f"Using expression data from layer: '{layer}'")
+            orig_values = adata[:, gene].layers[layer]
+        else:
+            # Use default X matrix
+            if layer is not None:
+                logger.warning(f"Requested layer '{layer}' not found, falling back to adata.X")
+            orig_values = adata[:, gene].X
+            
         if hasattr(orig_values, 'toarray'):
             orig_values = orig_values.toarray().flatten()
         else:
@@ -206,7 +303,7 @@ def plot_gene_expression(
             cmap=cmap_expression,
             **scatter_kwargs
         )
-        axs[0, 0].set_title(f"Original Expression")
+        axs[0, 0].set_title(f"Original Expression{' ('+layer+')' if layer else ''}")
         axs[0, 0].set_xlabel("Cell index")
         axs[0, 0].set_ylabel("Expression")
         

@@ -453,7 +453,7 @@ def _calculate_figsize(
     return (width_inches, height_inches)
 
 
-def _setup_colormap_normalization(data, center, vmin, vmax, cmap):
+def _setup_colormap_normalization(data, vcenter, vmin, vmax, cmap):
     """
     Set up colormap normalization for heatmap.
     
@@ -461,7 +461,7 @@ def _setup_colormap_normalization(data, center, vmin, vmax, cmap):
     ----------
     data : array-like
         Data to visualize
-    center : float or None
+    vcenter : float or None
         Center value for diverging colormaps
     vmin : float or None
         Minimum value for colormap
@@ -487,9 +487,9 @@ def _setup_colormap_normalization(data, center, vmin, vmax, cmap):
         vmax += 0.1
         
     # Set up normalization
-    if center is not None:
+    if vcenter is not None:
         # Use diverging normalization
-        norm = mcolors.TwoSlopeNorm(vmin=vmin, vcenter=center, vmax=vmax)
+        norm = mcolors.TwoSlopeNorm(vmin=vmin, vcenter=vcenter, vmax=vmax)
     else:
         # Use standard normalization
         norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
