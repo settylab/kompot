@@ -120,10 +120,10 @@ def compute_differential_expression(
         - If True: Silently overwrite existing results
         - If False: Raise an error if results would be overwritten
         
-        Note: When running with sample_col for a subset of genes that were previously
+        Note: When running with sample_col for a subset of cells that were previously
         analyzed without sample variance, only fields affected by sample variance will 
-        be modified. Fields unaffected by sample variance will be preserved if the 
-        parameters match, or overwritten otherwise.
+        be modified. Fields unaffected by sample variance will be overwritten but not
+        change if the parameters match.
     store_landmarks : bool, optional
         Whether to store landmarks in adata.uns for future reuse, by default False.
         Setting to True will allow reusing landmarks with future analyses but may 
