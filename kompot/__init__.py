@@ -15,6 +15,11 @@ from kompot.version import __version__
 # Re-export Mellon tools directly
 from mellon import DensityEstimator, FunctionEstimator, Predictor
 
+# Set mellon logger level to warning to reduce verbosity
+import mellon
+import logging
+mellon.logger.setLevel(logging.WARNING)
+
 # Export Kompot's additional functionality
 from kompot.differential import DifferentialAbundance, DifferentialExpression
 from kompot.anndata import (

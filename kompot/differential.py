@@ -13,6 +13,7 @@ from sklearn.neighbors import NearestNeighbors
 
 import mellon
 from mellon.parameters import compute_landmarks
+
 from .utils import (
     compute_mahalanobis_distance, 
     compute_mahalanobis_distances, 
@@ -284,7 +285,7 @@ class DifferentialAbundance:
             density_estimator_condition2 = mellon.DensityEstimator(**estimator_defaults)
             density_estimator_condition2.fit(X_condition2)
             self.density_predictor2 = density_estimator_condition2.predict
-            logger.info("Density estimators fitted. Call predict() to compute fold changes.")
+            logger.debug("Density estimators fitted. Call predict() to compute fold changes.")
         else:
             logger.info("Density estimators have already been fitted. Call predict() to compute fold changes.")
             
@@ -637,7 +638,7 @@ class SampleVarianceEstimator:
         
         for group_id, indices in group_indices.items():
             if len(indices) >= min_cells:  # Only train if we have enough data points
-                logger.info(f"Training estimator for group {group_id} with {len(indices)} cells")
+                logger.info(f"Training estimator for group {group_id} with {len(indices):,} cells")
                 X_subset = X[indices]
                 
                 if self.estimator_type == 'function':

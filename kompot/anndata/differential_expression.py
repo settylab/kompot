@@ -113,9 +113,17 @@ def compute_differential_expression(
         Key in adata.uns where results will be stored, by default "kompot_de".
     overwrite : bool, optional
         Controls behavior when results with the same result_key already exist:
-        - If None (default): Warn about existing results but proceed with overwriting
+        - If None (default): Behaves contextually:
+          * For partial reruns with sample variance added where other parameters match,
+            logs an informative message at INFO level and proceeds with overwriting
+          * For other cases, warns about existing results but proceeds with overwriting
         - If True: Silently overwrite existing results
         - If False: Raise an error if results would be overwritten
+        
+        Note: When running with sample_col for a subset of genes that were previously
+        analyzed without sample variance, only fields affected by sample variance will 
+        be modified. Fields unaffected by sample variance will be preserved if the 
+        parameters match, or overwritten otherwise.
     store_landmarks : bool, optional
         Whether to store landmarks in adata.uns for future reuse, by default False.
         Setting to True will allow reusing landmarks with future analyses but may 
@@ -226,13 +234,31 @@ def compute_differential_expression(
                 prev_sample_var = prev_run.get('params', {}).get('use_sample_variance', False)
                 current_sample_var = (sample_col is not None)
                 
+                # Check if parameters coincide for the partial rerun case
+                params_match = True
+                
+                # These are the key parameters that should match for a valid partial rerun
+                key_params = ['groupby', 'condition1', 'condition2', 'obsm_key', 'layer', 'ls_factor']
+                
+                for param in key_params:
+                    curr_val = locals().get(param)
+                    prev_val = prev_params.get(param)
+                    if curr_val != prev_val:
+                        params_match = False
+                        logger.debug(f"Parameter mismatch: {param} (current: {curr_val}, previous: {prev_val})")
+                
                 if prev_sample_var != current_sample_var:
-                    if current_sample_var:
+                    if current_sample_var and params_match:
                         message += (f" Fields that will be overwritten: {field_list}. "
                                    f"Note: Only fields NOT affected by sample variance (like mean_log_fold_change, "
                                    f"bidirectionality, imputed data, fold_change) will be overwritten since they "
                                    f"don't use the sample variance suffix. These results will likely be identical "
                                    f"if other parameters haven't changed.")
+                    elif current_sample_var:
+                        message += (f" Fields that will be overwritten: {field_list}. "
+                                   f"Note: Only fields NOT affected by sample variance (like mean_log_fold_change, "
+                                   f"bidirectionality, imputed data, fold_change) will be overwritten since they "
+                                   f"don't use the sample variance suffix.")
                     else:
                         message += (f" Fields that will be overwritten: {field_list}. "
                                    f"Note: Only fields NOT affected by sample variance will be overwritten "
@@ -245,7 +271,32 @@ def compute_differential_expression(
             message += " Set overwrite=True to overwrite or use a different result_key."
             raise ValueError(message)
         elif overwrite is None:
-            logger.warning(message + " Results will be overwritten.")
+            # Determine if this is a partial rerun with sample variance where parameters match
+            params_match = False
+            if prev_run:
+                prev_params = prev_run.get('params', {})
+                prev_sample_var = prev_params.get('use_sample_variance', False)
+                current_sample_var = (sample_col is not None)
+                
+                # Check if this is a partial rerun with sample variance added
+                if current_sample_var and not prev_sample_var:
+                    # Check if key parameters match
+                    params_match = True
+                    key_params = ['groupby', 'condition1', 'condition2', 'obsm_key', 'layer', 'ls_factor']
+                    
+                    for param in key_params:
+                        curr_val = locals().get(param)
+                        prev_val = prev_params.get(param)
+                        if curr_val != prev_val:
+                            params_match = False
+                            logger.debug(f"Parameter mismatch: {param} (current: {curr_val}, previous: {prev_val})")
+            
+            # If this is a partial rerun with matching parameters, log as info instead of warning
+            if prev_run and params_match and current_sample_var and not prev_sample_var:
+                logger.info(message + " This is a partial rerun with sample variance added to a previous analysis with matching parameters. " +
+                          "Set overwrite=False to prevent overwriting or overwrite=True to silence this message.")
+            else:
+                logger.warning(message + " Set overwrite=False to prevent overwriting or overwrite=True to silence this message.")
 
     # Extract cell states
     if obsm_key not in adata.obsm:
