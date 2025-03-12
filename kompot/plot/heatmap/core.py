@@ -245,11 +245,22 @@ def heatmap(
     if condition1 is None or condition2 is None:
         if run_info is not None and "params" in run_info:
             params = run_info["params"]
-            if "conditions" in params and len(params["conditions"]) == 2:
+            # First check if condition1 and condition2 are directly in params
+            if "condition1" in params and "condition2" in params:
+                if condition1 is None:
+                    condition1 = params["condition1"]
+                    logger.info(f"Inferred condition1='{condition1}' from run information")
+                if condition2 is None:
+                    condition2 = params["condition2"]
+                    logger.info(f"Inferred condition2='{condition2}' from run information")
+            # Fallback to conditions list if available
+            elif "conditions" in params and len(params["conditions"]) == 2:
                 if condition1 is None:
                     condition1 = params["conditions"][0]
+                    logger.info(f"Inferred condition1='{condition1}' from run information")
                 if condition2 is None:
                     condition2 = params["conditions"][1]
+                    logger.info(f"Inferred condition2='{condition2}' from run information")
                     
     # In Kompot DE runs, the condition column is called "groupby"
     if run_info is not None and "params" in run_info:
