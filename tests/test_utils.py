@@ -24,14 +24,15 @@ def test_compute_mahalanobis_distance():
     expected_distance = np.sqrt(np.sum(diff_values**2))
     assert np.isclose(distance, expected_distance)
     
-    # Test with diagonal adjustments
-    diag_adjustments = np.array([0.5, 0.5, 0.5])
-    distance_with_adj = compute_mahalanobis_distance(
-        diff_values, covariance_matrix, diag_adjustments
+    # Test with a different covariance matrix
+    scaled_covariance = np.eye(3) * 2.0
+    distance_with_scaled_cov = compute_mahalanobis_distance(
+        diff_values, scaled_covariance
     )
     
-    # With adjustments, the distance should change
-    assert distance_with_adj != distance
+    # With scaled covariance, the distance should change
+    scaled_expected_distance = np.sqrt(np.sum((diff_values**2) / 2.0))
+    assert np.isclose(distance_with_scaled_cov, scaled_expected_distance)
 
 
 def test_find_landmarks():
@@ -158,19 +159,12 @@ def test_gene_specific_mahalanobis_distances():
     gene_covariances[:, :, 1] = np.array([[2.0, 0.5], [0.5, 2.0]])  # Custom for gene 2
     gene_covariances[:, :, 2] = np.array([[3.0, 0.0], [0.0, 3.0]])  # Scaled identity for gene 3
     
-    # Create a placeholder prepared_matrix (will be ignored for gene-specific computation)
-    dummy_matrix = prepare_mahalanobis_matrix(
-        covariance_matrix=np.eye(2),
-        eps=1e-10,
-        jit_compile=False
-    )
-    
-    # Compute gene-specific Mahalanobis distances
+    # Compute gene-specific Mahalanobis distances with the new interface
     distances = compute_mahalanobis_distances(
         diff_values=diff_values,
-        prepared_matrix=dummy_matrix,
-        gene_covariances=gene_covariances,
-        jit_compile=False
+        covariance=gene_covariances,
+        jit_compile=False,
+        eps=1e-10
     )
     
     # Check that we get the expected results

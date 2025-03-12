@@ -1331,7 +1331,10 @@ class DifferentialExpression:
                         # Check if we have gene-specific covariance matrices (shape has 3 dimensions)
                         if len(combined_variance.shape) == 3:
                             # We have per-gene covariance matrices with shape (points, points, genes)
-                            gene_specific_covariance = combined_variance
+                            # Need to add combined_cov to each gene's covariance slice
+                            gene_specific_covariance = np.zeros_like(combined_variance)
+                            for g in range(combined_variance.shape[2]):
+                                gene_specific_covariance[:, :, g] = combined_variance[:, :, g] + combined_cov
                             logger.info(f"Using gene-specific covariance matrices with shape {gene_specific_covariance.shape}")
                         else:
                             # Add the sample variance to the combined covariance from function predictors
@@ -1341,7 +1344,10 @@ class DifferentialExpression:
                         # Only add variance1 if variance2 is not available
                         if len(variance1.shape) == 3:
                             # We have per-gene covariance matrices
-                            gene_specific_covariance = variance1
+                            # Need to add combined_cov to each gene's covariance slice
+                            gene_specific_covariance = np.zeros_like(variance1)
+                            for g in range(variance1.shape[2]):
+                                gene_specific_covariance[:, :, g] = variance1[:, :, g] + combined_cov
                             logger.info(f"Using gene-specific covariance matrices from variance1 with shape {gene_specific_covariance.shape}")
                         else:
                             combined_cov += variance1
@@ -1357,7 +1363,10 @@ class DifferentialExpression:
                     # Check if we have gene-specific covariance matrices
                     if len(variance2.shape) == 3:
                         # We have per-gene covariance matrices
-                        gene_specific_covariance = variance2
+                        # Need to add combined_cov to each gene's covariance slice
+                        gene_specific_covariance = np.zeros_like(variance2)
+                        for g in range(variance2.shape[2]):
+                            gene_specific_covariance[:, :, g] = variance2[:, :, g] + combined_cov
                         logger.info(f"Using gene-specific covariance matrices from variance2 with shape {gene_specific_covariance.shape}")
                     else:
                         # Add variance2 to the combined covariance
@@ -1368,84 +1377,47 @@ class DifferentialExpression:
                     logger.error(error_msg)
                     raise RuntimeError(error_msg) from e
         
-        # Choose different approaches based on whether we have gene-specific covariance matrices
-        if gene_specific_covariance is not None:
-            # Use gene-specific covariance matrices
-            logger.info("Computing Mahalanobis distances with gene-specific covariance matrices...")
-            
-            # Transpose fold_change to get shape (n_genes, n_points) for easier gene-wise processing
-            fold_change_transposed = fold_change_subset.T
-            
-            # For gene-specific covariance, we don't use the combined_cov (shared covariance)
-            # since each gene gets its own covariance matrix
-            # We still need a dummy placeholder matrix for the compute_mahalanobis_distances function
-            prepared_matrix = {
-                'is_diagonal': False,
-                'diag_values': None,
-                'chol': None,
-                'matrix_inv': None
-            }
-            
-            try:
-                # Compute Mahalanobis distances for all genes using gene-specific covariance
-                logger.info(f"Computing Mahalanobis distances for {fold_change_transposed.shape[0]:,} genes with gene-specific covariance matrices...")
+        # Transpose fold_change to get shape (n_genes, n_points) for easier gene-wise processing
+        fold_change_transposed = fold_change_subset.T
+        
+        # Choose the approach based on whether we have gene-specific covariance matrices
+        try:
+            if gene_specific_covariance is not None:
+                # Use gene-specific covariance matrices (3D tensor)
+                logger.debug(f"Computing Mahalanobis distances for {fold_change_transposed.shape[0]:,} genes with gene-specific covariance matrices...")
                 
-                # Compute all distances using our utility function with gene-specific covariance
-                # This will handle the Cholesky decomposition for each gene individually
+                # Compute all distances using the unified utility function with gene-specific covariance
                 mahalanobis_distances = compute_mahalanobis_distances(
                     diff_values=fold_change_transposed,
-                    prepared_matrix=prepared_matrix,  # This is just a placeholder
+                    covariance=gene_specific_covariance,
                     batch_size=self.mahalanobis_batch_size,  
                     jit_compile=self.jit_compile,
-                    gene_covariances=gene_specific_covariance,  # Pass gene-specific covariance matrices
-                    progress=progress  # Pass progress parameter to control tqdm display
+                    eps=self.eps,
+                    progress=progress
                 )
                 
                 logger.info(f"Successfully computed Mahalanobis distances for {len(mahalanobis_distances):,} genes using gene-specific covariance")
-            
-            except Exception as e:
-                logger.warning(f"Error with gene-specific computation: {e}. Falling back to shared covariance.")
-                # Fall back to combined covariance if gene-specific fails
-                gene_specific_covariance = None  # Reset to trigger fallback
-        
-        # If gene-specific approach failed or wasn't available, use the traditional approach
-        if gene_specific_covariance is None:
-            # Prepare the matrix (compute Cholesky decomposition once)
-            logger.info("Preparing covariance matrix for efficient Mahalanobis distance computation...")
-            prepared_matrix = prepare_mahalanobis_matrix(
-                covariance_matrix=combined_cov,
-                diag_adjustments=None,  # No need for separate diagonal adjustments, they're already in combined_cov
-                eps=self.eps,
-                jit_compile=self.jit_compile
-            )
-            
-            # Transpose fold_change to get shape (n_genes, n_points) for easier gene-wise processing
-            fold_change_transposed = fold_change_subset.T
-            
-            # Compute Mahalanobis distances for all genes at once using batched computation
-            logger.info(f"Computing Mahalanobis distances for {fold_change_transposed.shape[0]:,} genes with shared covariance...")
-            
-            # Use the mahalanobis_batch_size from the class instance
-            batch_size = self.mahalanobis_batch_size
-            
-            try:
-                # Compute all distances using our utility function that handles batching internally
+            else:
+                # Use shared covariance matrix (2D matrix)
+                logger.info(f"Computing Mahalanobis distances for {fold_change_transposed.shape[0]:,} genes with shared covariance...")
+                
+                # Compute all distances using the unified utility function with the combined covariance matrix
                 mahalanobis_distances = compute_mahalanobis_distances(
                     diff_values=fold_change_transposed,
-                    prepared_matrix=prepared_matrix,
-                    batch_size=batch_size,
+                    covariance=combined_cov,
+                    batch_size=self.mahalanobis_batch_size,
                     jit_compile=self.jit_compile,
-                    progress=progress  # Pass progress parameter to control tqdm display
+                    eps=self.eps,
+                    progress=progress
                 )
                 
                 logger.info(f"Successfully computed Mahalanobis distances for {len(mahalanobis_distances):,} genes")
-            
-            except Exception as e:
-                error_msg = (f"Failed to compute Mahalanobis distances: {str(e)}. "
-                           f"Try manually reducing batch_size or disable Mahalanobis "
-                           f"distance calculation with compute_mahalanobis=False")
-                logger.error(error_msg)
-                raise RuntimeError(error_msg) from e
+        except Exception as e:
+            error_msg = (f"Failed to compute Mahalanobis distances: {str(e)}. "
+                       f"Try manually reducing batch_size or disable Mahalanobis "
+                       f"distance calculation with compute_mahalanobis=False")
+            logger.error(error_msg)
+            raise RuntimeError(error_msg) from e
 
         return mahalanobis_distances
     

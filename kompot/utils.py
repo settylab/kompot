@@ -539,35 +539,36 @@ def prepare_mahalanobis_matrix(
 
 def compute_mahalanobis_distances(
     diff_values: np.ndarray,
-    prepared_matrix: dict,
+    covariance: Union[np.ndarray, jnp.ndarray],
     batch_size: int = 500,
     jit_compile: bool = True,
-    gene_covariances: Optional[np.ndarray] = None,
+    eps: float = 1e-10,
     progress: bool = True,
 ) -> np.ndarray:
     """
     Compute Mahalanobis distances for multiple difference vectors efficiently.
     
-    This function takes preprocessed matrix information and computes the Mahalanobis
-    distance for each provided difference vector. It supports batched computation for
-    memory efficiency.
+    This function computes the Mahalanobis distance for each provided difference vector
+    using the provided covariance matrix or tensor. It handles both single covariance
+    matrix and gene-specific covariance tensors.
     
     Parameters
     ----------
     diff_values : np.ndarray
         The difference vectors for which to compute Mahalanobis distances.
         Shape should be (n_samples, n_features) or (n_features, n_samples).
-    prepared_matrix : dict
-        A dictionary from prepare_mahalanobis_matrix containing matrix information.
+    covariance : np.ndarray or jnp.ndarray
+        Covariance matrix or tensor:
+        - If 2D shape (n_points, n_points): shared covariance for all vectors
+        - If 3D shape (n_points, n_points, n_genes): gene-specific covariance matrices
     batch_size : int, optional
         Number of vectors to process at once, by default 500.
     jit_compile : bool, optional
         Whether to use JAX just-in-time compilation, by default True.
-    gene_covariances : np.ndarray, optional
-        Gene-specific covariance matrices with shape (n_points, n_points, n_genes).
-        If provided, will use gene-specific covariance for each gene.
+    eps : float, optional
+        Small constant for numerical stability, by default 1e-10.
     progress : bool, optional
-        Whether to show a progress bar for gene-specific calculations, by default True.
+        Whether to show a progress bar for calculations, by default True.
         
     Returns
     -------
@@ -577,40 +578,42 @@ def compute_mahalanobis_distances(
     from .batch_utils import apply_batched
     from tqdm.auto import tqdm
     
-    # Convert input to JAX array
+    # Convert inputs to JAX arrays
     diffs = jnp.array(diff_values)
+    cov = jnp.array(covariance)
     
     # Handle different input shapes - we want (n_genes, n_points) for gene-wise processing
     if len(diffs.shape) == 1:
         # Single vector, reshape to (1, n_features)
         diffs = diffs.reshape(1, -1)
     
-    # Special case: gene-specific covariance matrices
-    if gene_covariances is not None:
+    # Determine if we have gene-specific covariance matrices (3D tensor)
+    is_gene_specific = len(cov.shape) == 3
+    
+    # Special case: gene-specific covariance matrices (3D tensor)
+    if is_gene_specific:
         logger.info(f"Computing Mahalanobis distances using gene-specific covariance matrices")
         n_genes = diffs.shape[0]
-        mahalanobis_distances = np.zeros(n_genes)
+        n_points = cov.shape[1]  # Each gene has a covariance of shape (n_points, n_points)
         
-        # Get the combined covariance from prepared_matrix for broadcasting
-        combined_cov = None
-        if prepared_matrix['chol'] is not None:
-            combined_cov = jnp.dot(prepared_matrix['chol'], prepared_matrix['chol'].T)
-        elif prepared_matrix['matrix_inv'] is not None:
-            combined_cov = jnp.linalg.pinv(prepared_matrix['matrix_inv'])
+        # Verify tensor dimensions
+        if cov.shape[2] != n_genes:
+            logger.warning(
+                f"Gene dimension mismatch: covariance has {cov.shape[2]} genes, "
+                f"but diff values has {n_genes} genes. Using genes from diff values."
+            )
+            # If there's a mismatch, truncate or pad the shorter dimension
+            min_genes = min(cov.shape[2], n_genes)
+            n_genes = min_genes
+            
+        mahalanobis_distances = np.zeros(n_genes)
         
         # Process each gene separately to save memory, with progress bar
         gene_iterator = tqdm(range(n_genes), desc="Computing gene-specific Mahalanobis distances") if progress else range(n_genes)
         for g in gene_iterator:
             # Get the gene-specific difference vector and covariance
             gene_diff = diffs[g]
-            gene_cov = gene_covariances[:, :, g]
-            
-            # Add the combined_cov to gene_cov if it exists
-            if combined_cov is not None:
-                gene_cov = gene_cov + combined_cov
-            
-            # We need to handle the Cholesky decomposition for each gene separately
-            # to ensure numerical stability and proper memory management
+            gene_cov = cov[:, :, g]
             
             # Check for dimension mismatch and issue a warning
             if gene_cov.shape[0] != gene_diff.shape[0]:
@@ -622,36 +625,34 @@ def compute_mahalanobis_distances(
                 mahalanobis_distances[g] = float(jnp.abs(jnp.mean(gene_diff)))
                 continue
             
-            # Prepare covariance matrix for this gene individually (compute Cholesky once per gene)
-            gene_prepared_matrix = prepare_mahalanobis_matrix(
-                covariance_matrix=gene_cov,
-                eps=1e-10,  # Use slightly larger eps for numerical stability
-                jit_compile=jit_compile
-            )
-            
-            # Compute Mahalanobis distance for this gene
             try:
-                if gene_prepared_matrix['is_diagonal']:
-                    # Diagonal case
-                    diag_values = gene_prepared_matrix['diag_values']
+                # Try diagonal approximation first for efficiency
+                diag_values = jnp.diag(gene_cov)
+                diag_sum = jnp.sum(diag_values)
+                total_sum = jnp.sum(jnp.abs(gene_cov))
+                diag_ratio = diag_sum / total_sum if total_sum > 0 else 0
+                
+                if diag_ratio > 0.95:
+                    # Use fast diagonal approximation 
+                    diag_values = jnp.clip(diag_values, eps, None)  # Ensure stability
                     weighted_diff = gene_diff / jnp.sqrt(diag_values)
                     mahalanobis_distances[g] = float(jnp.sqrt(jnp.sum(weighted_diff**2)))
-                
-                elif gene_prepared_matrix['chol'] is not None:
-                    # Cholesky case - most efficient
-                    chol = gene_prepared_matrix['chol']
-                    solved = jax.scipy.linalg.solve_triangular(chol, gene_diff, lower=True)
-                    mahalanobis_distances[g] = float(jnp.sqrt(jnp.sum(solved**2)))
-                
-                elif gene_prepared_matrix['matrix_inv'] is not None:
-                    # Matrix inverse case
-                    matrix_inv = gene_prepared_matrix['matrix_inv']
-                    mahalanobis_distances[g] = float(jnp.sqrt(jnp.dot(gene_diff, jnp.dot(matrix_inv, gene_diff))))
-                
                 else:
-                    # Fallback to Euclidean distance
-                    mahalanobis_distances[g] = float(jnp.sqrt(jnp.sum(gene_diff**2)))
-                
+                    # Use Cholesky decomposition for full covariance matrix
+                    # Add a small diagonal term for numerical stability
+                    gene_cov_stable = gene_cov + jnp.eye(gene_cov.shape[0]) * eps
+                    
+                    try:
+                        # Compute Cholesky once for this gene
+                        chol = jnp.linalg.cholesky(gene_cov_stable)
+                        solved = jax.scipy.linalg.solve_triangular(chol, gene_diff, lower=True)
+                        mahalanobis_distances[g] = float(jnp.sqrt(jnp.sum(solved**2)))
+                    except Exception as chol_error:
+                        # If Cholesky fails, try matrix inverse
+                        logger.warning(f"Gene {g}: Cholesky decomposition failed: {chol_error}. Using pseudoinverse.")
+                        matrix_inv = jnp.linalg.pinv(gene_cov_stable)
+                        mahalanobis_distances[g] = float(jnp.sqrt(jnp.dot(gene_diff, jnp.dot(matrix_inv, gene_diff))))
+            
                 # Check for NaN or Inf values in the result
                 if np.isnan(mahalanobis_distances[g]) or np.isinf(mahalanobis_distances[g]):
                     logger.warning(f"Gene {g}: NaN or Inf Mahalanobis distance encountered. Keeping as NaN.")
@@ -662,83 +663,70 @@ def compute_mahalanobis_distances(
                 logger.warning(f"Gene {g}: Error computing Mahalanobis distance: {e}. Using NaN instead.")
                 mahalanobis_distances[g] = np.nan
             
-            # Free memory
-            del gene_prepared_matrix
-            
         return mahalanobis_distances
     
-    # Regular case with shared covariance matrix
-    # Check if there's a dimension mismatch 
-    if prepared_matrix['chol'] is not None:
-        chol_shape = prepared_matrix['chol'].shape[0]
-        if len(diffs) > 0 and diffs.shape[1] != chol_shape:
-            logger.warning(
-                f"Dimension mismatch: covariance matrix needs shape ({chol_shape}, {chol_shape}), "
-                f"but diff vectors have shape {diffs.shape}. Using mean along columns."
-            )
-            # Return NaN values to indicate calculation failures
-            logger.warning("Dimension mismatch - returning NaN values to indicate calculation failures")
-            return np.full(len(diffs), np.nan)
-    
-    # Check if we're using diagonal approximation
-    if prepared_matrix['is_diagonal']:
-        # Diagonal case - much faster computation
-        diag_values = prepared_matrix['diag_values']
-        
-        # Check for dimension mismatch
-        if len(diffs) > 0 and diffs.shape[1] != len(diag_values):
-            logger.warning(
-                f"Dimension mismatch in diagonal mode: diag values has length {len(diag_values)}, "
-                f"but diff vectors have shape {diffs.shape}. Using mean along columns."
-            )
-            # Return NaN values to indicate calculation failures
-            logger.warning("Dimension mismatch - returning NaN values to indicate calculation failures")
-            return np.full(len(diffs), np.nan)
-        
-        # Define computation for diagonal case
-        def compute_diagonal_batch(batch_diffs):
-            # For diagonal matrix, Mahalanobis is just a weighted Euclidean distance
-            weighted_diffs = batch_diffs / jnp.sqrt(diag_values)
-            return jnp.sqrt(jnp.sum(weighted_diffs**2, axis=1))
-        
-        # JIT compile if enabled
-        if jit_compile:
-            diag_compute_fn = jax.jit(compute_diagonal_batch)
-        else:
-            diag_compute_fn = compute_diagonal_batch
-        
-        # Process in batches using apply_batched - respect progress parameter
-        desc = "Computing diagonal Mahalanobis distances" if progress else None
-        distances = apply_batched(
-            diag_compute_fn,
-            diffs,
-            batch_size=batch_size,
-            desc=desc
+    # Case: shared covariance matrix (2D matrix)
+    # First check for dimension mismatch
+    if len(diffs) > 0 and diffs.shape[1] != cov.shape[0]:
+        logger.warning(
+            f"Dimension mismatch: covariance matrix has shape {cov.shape}, "
+            f"but diff vectors have shape {diffs.shape}. Unable to compute distances."
         )
-        
-        # Post-process to handle NaN and Inf values
-        invalid_mask = np.isnan(distances) | np.isinf(distances)
-        if np.any(invalid_mask):
-            n_invalid = np.sum(invalid_mask)
-            logger.warning(f"Found {n_invalid} NaN or Inf Mahalanobis distances in diagonal computation. "
-                         f"These will be kept as NaN.")
-            # Keep NaN values to indicate calculation failures
-            
-        return distances
+        # Return NaN values to indicate calculation failures
+        return np.full(len(diffs), np.nan)
     
-    # Non-diagonal case - use Cholesky if available
-    if prepared_matrix['chol'] is not None:
-        chol = prepared_matrix['chol']
+    # Try diagonal approximation first if the matrix is large enough
+    if cov.shape[0] > 10:
+        diag_values = jnp.diag(cov)
+        diag_sum = jnp.sum(diag_values)
+        total_sum = jnp.sum(jnp.abs(cov))
+        diag_ratio = diag_sum / total_sum if total_sum > 0 else 0
         
-        # Check for dimension mismatch again (double check)
-        if len(diffs) > 0 and diffs.shape[1] != chol.shape[0]:
-            logger.warning(
-                f"Dimension mismatch in Cholesky mode: Cholesky matrix has shape {chol.shape}, "
-                f"but diff vectors have shape {diffs.shape}. Using mean along columns."
+        # If matrix is nearly diagonal, use faster diagonal approximation
+        if diag_ratio > 0.95:
+            logger.info("Using fast diagonal matrix approximation")
+            
+            # Ensure numerical stability
+            diag_values = jnp.clip(diag_values, eps, None)
+            
+            # Define computation for diagonal case
+            def compute_diagonal_batch(batch_diffs):
+                # For diagonal matrix, Mahalanobis is just a weighted Euclidean distance
+                weighted_diffs = batch_diffs / jnp.sqrt(diag_values)
+                return jnp.sqrt(jnp.sum(weighted_diffs**2, axis=1))
+            
+            # JIT compile if enabled
+            if jit_compile:
+                diag_compute_fn = jax.jit(compute_diagonal_batch)
+            else:
+                diag_compute_fn = compute_diagonal_batch
+            
+            # Process in batches using apply_batched - respect progress parameter
+            desc = "Computing diagonal Mahalanobis distances" if progress else None
+            distances = apply_batched(
+                diag_compute_fn,
+                diffs,
+                batch_size=batch_size,
+                desc=desc
             )
-            # Return NaN values to indicate calculation failures
-            logger.warning("Dimension mismatch - returning NaN values to indicate calculation failures")
-            return np.full(len(diffs), np.nan)
+            
+            # Post-process to handle NaN and Inf values
+            invalid_mask = np.isnan(distances) | np.isinf(distances)
+            if np.any(invalid_mask):
+                n_invalid = np.sum(invalid_mask)
+                logger.warning(f"Found {n_invalid} NaN or Inf Mahalanobis distances in diagonal computation. "
+                             f"These will be kept as NaN.")
+                
+            return distances
+    
+    # For non-diagonal matrices, use Cholesky decomposition
+    # Ensure numerical stability by adding a small diagonal term
+    cov_stable = cov + jnp.eye(cov.shape[0]) * eps
+    
+    try:
+        # Compute Cholesky decomposition once for all genes
+        logger.info("Computing Cholesky decomposition for covariance matrix")
+        chol = jnp.linalg.cholesky(cov_stable)
         
         # Define computation function using Cholesky
         def compute_cholesky_batch(batch_diffs):
@@ -776,27 +764,17 @@ def compute_mahalanobis_distances(
                 n_invalid = np.sum(invalid_mask)
                 logger.warning(f"Found {n_invalid} NaN or Inf Mahalanobis distances in Cholesky computation. "
                              f"These will be kept as NaN.")
-                # Keep NaN values to indicate calculation failures
                 
             return distances
         except Exception as e:
-            logger.error(f"Error applying batched computation: {e}. Using NaN to indicate calculation failures.")
-            # Return NaN values to indicate calculation failures rather than arbitrary approximations
-            return np.full(len(diffs), np.nan)
+            logger.error(f"Error applying batched computation: {e}. Falling back to matrix inverse.")
+    except Exception as chol_error:
+        logger.warning(f"Cholesky decomposition failed: {chol_error}. Using pseudoinverse.")
     
-    # Fallback to matrix inverse
-    if prepared_matrix['matrix_inv'] is not None:
-        matrix_inv = prepared_matrix['matrix_inv']
-        
-        # Check for dimension mismatch
-        if len(diffs) > 0 and diffs.shape[1] != matrix_inv.shape[0]:
-            logger.warning(
-                f"Dimension mismatch in inverse mode: matrix_inv has shape {matrix_inv.shape}, "
-                f"but diff vectors have shape {diffs.shape}. Using mean along columns."
-            )
-            # Return NaN values to indicate calculation failures
-            logger.warning("Dimension mismatch - returning NaN values to indicate calculation failures")
-            return np.full(len(diffs), np.nan)
+    # Fallback to matrix inverse if Cholesky fails
+    try:
+        logger.info("Computing pseudoinverse of covariance matrix")
+        matrix_inv = jnp.linalg.pinv(cov_stable)
         
         # Define computation function using inverse matrix
         def compute_inverse_batch(batch_diffs):
@@ -805,8 +783,8 @@ def compute_mahalanobis_distances(
                 products = jax.vmap(lambda d: jnp.dot(d, jnp.dot(matrix_inv, d)))(batch_diffs)
                 return jnp.sqrt(products)
             except Exception as e:
-                logger.error(f"Error in matrix multiplication: {e}. Returning zeros.")
-                return jnp.zeros(batch_diffs.shape[0])
+                logger.error(f"Error in matrix multiplication: {e}. Returning NaN values.")
+                return jnp.full(batch_diffs.shape[0], np.nan)
         
         # JIT compile if enabled
         if jit_compile:
@@ -816,45 +794,37 @@ def compute_mahalanobis_distances(
         
         # Process in batches using apply_batched - respect progress parameter
         desc = "Computing inverse Mahalanobis distances" if progress else None
-        try:
-            distances = apply_batched(
-                inv_compute_fn,
-                diffs,
-                batch_size=batch_size,
-                desc=desc
-            )
+        distances = apply_batched(
+            inv_compute_fn,
+            diffs,
+            batch_size=batch_size,
+            desc=desc
+        )
+        
+        # Post-process to handle NaN and Inf values
+        invalid_mask = np.isnan(distances) | np.isinf(distances)
+        if np.any(invalid_mask):
+            n_invalid = np.sum(invalid_mask)
+            logger.warning(f"Found {n_invalid} NaN or Inf Mahalanobis distances in matrix inverse computation. "
+                         f"These will be kept as NaN.")
             
-            # Post-process to handle NaN and Inf values
-            invalid_mask = np.isnan(distances) | np.isinf(distances)
-            if np.any(invalid_mask):
-                n_invalid = np.sum(invalid_mask)
-                logger.warning(f"Found {n_invalid} NaN or Inf Mahalanobis distances in matrix inverse computation. "
-                             f"These will be kept as NaN.")
-                # Keep NaN values to indicate calculation failures
-                
-            return distances
-        except Exception as e:
-            logger.error(f"Error applying batched computation: {e}. Using NaN to indicate calculation failures.")
-            # Return NaN values to indicate calculation failures rather than arbitrary approximations
-            return np.full(len(diffs), np.nan)
-    
-    # If all else fails, return NaNs to indicate calculation failures
-    logger.error("No valid matrix information found. Using NaN to indicate calculation failures.")
-    return np.full(len(diffs), np.nan)
+        return distances
+    except Exception as e:
+        logger.error(f"Both Cholesky and pseudoinverse methods failed: {e}. Returning NaN values.")
+        # If all else fails, return NaNs to indicate calculation failures
+        return np.full(len(diffs), np.nan)
 
 def compute_mahalanobis_distance(
     diff_values: np.ndarray,
     covariance_matrix: np.ndarray,
-    diag_adjustments: Optional[np.ndarray] = None,
-    eps: float = 1e-12,
+    eps: float = 1e-10,
     jit_compile: bool = True,
 ) -> float:
     """
     Compute the Mahalanobis distance for a vector given a covariance matrix.
     
     This is a convenience function for computing a single Mahalanobis distance.
-    For multiple vectors, use prepare_mahalanobis_matrix and compute_mahalanobis_distances
-    for better performance.
+    For multiple vectors, use compute_mahalanobis_distances for better performance.
     
     Parameters
     ----------
@@ -862,10 +832,8 @@ def compute_mahalanobis_distance(
         The difference vector for which to compute the Mahalanobis distance.
     covariance_matrix : np.ndarray
         The covariance matrix.
-    diag_adjustments : np.ndarray, optional
-        Additional diagonal adjustments for the covariance matrix, by default None.
     eps : float, optional
-        Small constant for numerical stability, by default 1e-12.
+        Small constant for numerical stability, by default 1e-10.
     jit_compile : bool, optional
         Whether to use JAX just-in-time compilation, by default True.
         
@@ -874,27 +842,24 @@ def compute_mahalanobis_distance(
     float
         The Mahalanobis distance.
     """
-    # Prepare the matrix
-    prepared_matrix = prepare_mahalanobis_matrix(
-        covariance_matrix=covariance_matrix,
-        diag_adjustments=diag_adjustments,
-        eps=eps,
-        jit_compile=jit_compile
-    )
+    # Ensure diff_values is a single vector
+    if len(diff_values.shape) > 1 and diff_values.shape[0] > 1:
+        # Multiple vectors - take just the first one for single distance calculation
+        diff = diff_values[0]
+    else:
+        diff = diff_values
     
-    # Compute distance for single vector
+    # Compute distance using the new unified function
     distances = compute_mahalanobis_distances(
-        diff_values=diff_values,
-        prepared_matrix=prepared_matrix,
+        diff_values=diff,
+        covariance=covariance_matrix,
         batch_size=1,
-        jit_compile=jit_compile
+        jit_compile=jit_compile,
+        eps=eps
     )
     
     # Return the single distance
-    if len(distances) > 1:
-        return float(distances[0])
-    else:
-        return float(distances.item())
+    return float(distances.item())
 
 
 def find_optimal_resolution(
