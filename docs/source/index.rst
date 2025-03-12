@@ -17,6 +17,7 @@
    :maxdepth: 2
 
    Tutorial Notebook <notebooks/tutorial_notebook.ipynb>
+   Sample-Specific Variance Analysis <notebooks/sample_variance.ipynb>
 
 Kompot
 ======
