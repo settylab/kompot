@@ -8,7 +8,7 @@ from typing import Dict, Any, List
 import matplotlib as mpl
 
 # Import the functions to test
-from kompot.plot.heatmap import heatmap, diagonal_split_heatmap
+from kompot.plot.heatmap import heatmap
 from kompot.plot.heatmap.utils import (
     _prepare_gene_list, 
     _get_expression_matrix,
@@ -285,8 +285,8 @@ class TestHeatmapWithImplicitRunId:
         assert result[0] is not None  # fig
         assert result[1] is not None  # ax
     
-    def test_diagonal_split_heatmap_with_implicit_run_id(self):
-        """Test the diagonal_split_heatmap function works with implicit run_id=-1."""
+    def test_heatmap_with_diagonal_split_and_implicit_run_id(self):
+        """Test the heatmap function with diagonal_split=True works with implicit run_id=-1."""
         # Skip if kompot_run_history doesn't exist
         if 'kompot_run_history' not in self.adata.uns:
             pytest.skip("kompot_run_history not found in adata.uns")
@@ -306,17 +306,18 @@ class TestHeatmapWithImplicitRunId:
         # Failures would raise an exception rather than returning None
         assert result is None or (isinstance(result, tuple) and len(result) >= 2)
     
-    def test_diagonal_split_heatmap_with_explicit_parameters(self):
-        """Test the diagonal_split_heatmap function with explicit parameters."""
+    def test_heatmap_with_diagonal_split_and_explicit_parameters(self):
+        """Test the heatmap function with diagonal_split=True and explicit parameters."""
         # Test with explicit genes and lfc_key
         test_genes = [f'gene_{i}' for i in range(5)]
-        result = diagonal_split_heatmap(
+        result = heatmap(
             self.adata,
             gene_list=test_genes,
             lfc_key='test_lfc',
             score_key='test_score',
             groupby='group',
             condition_column='condition',
+            diagonal_split=True,
             return_fig=True
         )
         

@@ -288,6 +288,15 @@ def direction_barplot(
     if normalize == "index":
         crosstab = crosstab * 100
 
+    # Reorder columns to have neutral at the top of the stack
+    if "neutral" in crosstab.columns and len(crosstab.columns) > 1:
+        # Get all columns except neutral
+        other_cols = [col for col in crosstab.columns if col != "neutral"]
+        # Create new column order with neutral last (appears at top in stacked plot)
+        new_col_order = other_cols + ["neutral"]
+        # Reorder the dataframe columns
+        crosstab = crosstab[new_col_order]
+
     # Sort by a specific direction if requested
     if sort_by is not None and sort_by in crosstab.columns:
         crosstab = crosstab.sort_values(by=sort_by, ascending=ascending)
@@ -309,6 +318,9 @@ def direction_barplot(
         **kwargs,
     )
 
+    # Remove grid lines
+    ax.grid(False)
+
     # Set title if provided or can be inferred
     if title is None and condition1 and condition2:
         title = f"Direction of Change by {category_column}\n{condition1} vs {condition2}"
@@ -319,8 +331,27 @@ def direction_barplot(
     ax.set_xlabel(xlabel or category_column)
     ax.set_ylabel(ylabel)
 
-    # Set legend
-    ax.legend(title=legend_title, loc=legend_loc)
+    # Set legend with no box and outside the plot
+    # Also reverse the order of elements (up first)
+    handles, labels = ax.get_legend_handles_labels()
+    order = []
+    if "up" in labels:
+        order.append(labels.index("up"))
+    if "neutral" in labels:
+        order.append(labels.index("neutral"))
+    if "down" in labels:
+        order.append(labels.index("down"))
+    if not order:  # If none of the expected labels found, keep original order
+        order = list(range(len(labels)))
+    
+    ax.legend(
+        [handles[i] for i in order], 
+        [labels[i] for i in order], 
+        title=legend_title, 
+        loc='center left', 
+        bbox_to_anchor=(1.0, 0.5),
+        frameon=False
+    )
 
     # Adjust layout
     plt.tight_layout()
