@@ -1214,7 +1214,7 @@ class DifferentialExpression:
                 self.variance_predictor2 = condition2_variance_estimator.predict
         
         # The fit method now only creates estimators and doesn't compute fold changes
-        logger.info("Function estimators fitted. Call predict() to compute fold changes.")
+        logger.debug("Function estimators fitted. Call predict() to compute fold changes.")
         
         return self
         

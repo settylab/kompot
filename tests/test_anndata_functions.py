@@ -7,7 +7,7 @@ import pandas as pd
 import logging
 from unittest.mock import patch, MagicMock
 
-from kompot.anndata.functions import compute_differential_abundance, compute_differential_expression, run_differential_analysis
+from kompot.anndata import compute_differential_abundance, compute_differential_expression, run_differential_analysis
 
 
 def create_test_anndata(n_cells=100, n_genes=20, with_sample_col=False):
@@ -338,7 +338,7 @@ class TestRunHistoryPreservation:
         assert self.adata.uns['kompot_latest_run']['expression_key'] == 'grun4'
         
         
-@patch('kompot.anndata.functions.logger.warning')
+@patch('kompot.anndata.differential_abundance.logger.warning')
 def test_compute_differential_abundance_warns_overwrite(mock_warning):
     """Test that compute_differential_abundance warns when overwriting existing results."""
     adata = create_test_anndata()
@@ -359,7 +359,7 @@ def test_compute_differential_abundance_warns_overwrite(mock_warning):
     assert "Fields that will be overwritten:" in args[0]
 
 
-@patch('kompot.anndata.functions.logger.warning')
+@patch('kompot.anndata.differential_expression.logger.warning')
 def test_compute_differential_expression_warns_overwrite(mock_warning):
     """Test that compute_differential_expression warns when overwriting existing results."""
     adata = create_test_anndata()
