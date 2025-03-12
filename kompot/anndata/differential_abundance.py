@@ -97,9 +97,17 @@ def compute_differential_abundance(
         Default is None.
     overwrite : bool, optional
         Controls behavior when results with the same result_key already exist:
-        - If None (default): Warn about existing results but proceed with overwriting
+        - If None (default): Behaves contextually:
+          * For partial reruns with sample variance added where other parameters match,
+            logs an informative message at INFO level and proceeds with overwriting
+          * For other cases, warns about existing results but proceeds with overwriting
         - If True: Silently overwrite existing results
         - If False: Raise an error if results would be overwritten
+        
+        Note: When running with sample_col for a subset of cells that were previously
+        analyzed without sample variance, only fields affected by sample variance will 
+        be modified. Fields unaffected by sample variance will be preserved if the 
+        parameters match, or overwritten otherwise.
     store_landmarks : bool, optional
         Whether to store landmarks in adata.uns for future reuse, by default False.
         Setting to True will allow reusing landmarks with future analyses but may 
@@ -214,7 +222,32 @@ def compute_differential_abundance(
             message += " Set overwrite=True to overwrite or use a different result_key."
             raise ValueError(message)
         elif overwrite is None:
-            logger.warning(message + " Results will be overwritten.")
+            # Determine if this is a partial rerun with sample variance where parameters match
+            params_match = False
+            if prev_run:
+                prev_params = prev_run.get('params', {})
+                prev_sample_var = prev_params.get('use_sample_variance', False)
+                current_sample_var = (sample_col is not None)
+                
+                # Check if this is a partial rerun with sample variance added
+                if current_sample_var and not prev_sample_var:
+                    # Check if key parameters match
+                    params_match = True
+                    key_params = ['groupby', 'condition1', 'condition2', 'obsm_key', 'ls_factor']
+                    
+                    for param in key_params:
+                        curr_val = locals().get(param)
+                        prev_val = prev_params.get(param)
+                        if curr_val != prev_val:
+                            params_match = False
+                            logger.debug(f"Parameter mismatch: {param} (current: {curr_val}, previous: {prev_val})")
+            
+            # If this is a partial rerun with matching parameters, log as info instead of warning
+            if prev_run and params_match and current_sample_var and not prev_sample_var:
+                logger.info(message + " This is a partial rerun with sample variance added to a previous analysis with matching parameters. " +
+                          "Set overwrite=False to prevent overwriting or overwrite=True to silence this message.")
+            else:
+                logger.warning(message + " Set overwrite=False to prevent overwriting or overwrite=True to silence this message.")
     
     # Extract cell states
     if obsm_key not in adata.obsm:
@@ -401,7 +434,7 @@ def compute_differential_abundance(
         else:
             logger.info(f"Landmark storage skipped (store_landmarks=False). Compute with store_landmarks=True to enable landmark reuse.")
     else:
-        logger.info("No computed landmarks found to store. Check if landmarks were pre-computed or if n_landmarks is set correctly.")
+        logger.debug("No computed landmarks found to store. Check if landmarks were pre-computed or if n_landmarks is set correctly.")
     
     # Use the standardized field names already generated earlier
     # Assign values to masked cells with descriptive column names

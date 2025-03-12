@@ -523,7 +523,7 @@ def compute_differential_expression(
         else:
             logger.info(f"Landmark storage skipped (store_landmarks=False). Compute with store_landmarks=True to enable landmark reuse.")
     else:
-        logger.info("No computed landmarks found to store. Check if landmarks were pre-computed or if n_landmarks is set correctly.")
+        logger.debug("No computed landmarks found to store. Check if landmarks were pre-computed or if n_landmarks is set correctly.")
     
     # Run prediction to compute fold changes, metrics, and Mahalanobis distances
     X_for_prediction = adata.obsm[obsm_key]
