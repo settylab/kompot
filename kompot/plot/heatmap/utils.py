@@ -14,14 +14,13 @@ from ..volcano import _extract_conditions_from_key
 logger = logging.getLogger("kompot")
 
 
-def _infer_heatmap_keys(
+def _infer_score_key(
     adata: AnnData,
     run_id: Optional[int] = None,
-    lfc_key: Optional[str] = None,
     score_key: Optional[str] = None,
-):
+) -> Optional[str]:
     """
-    Infer heatmap keys from AnnData object.
+    Infer score key from AnnData object.
 
     Parameters
     ----------
@@ -29,19 +28,17 @@ def _infer_heatmap_keys(
         AnnData object with differential expression results
     run_id : int, optional
         Run ID to use. If None, uses latest run (-1).
-    lfc_key : str, optional
-        Log fold change key. If provided, will be returned as is.
     score_key : str, optional
-        Score key. If None, will be inferred from run information.
+        Score key. If provided, will be returned as is.
 
     Returns
     -------
-    tuple
-        (lfc_key, score_key) with the inferred keys
+    str or None
+        Inferred score key
     """
-    # If both keys already provided, return them
-    if lfc_key is not None and score_key is not None:
-        return lfc_key, score_key
+    # If score_key already provided, return it
+    if score_key is not None:
+        return score_key
 
     # Get run info from kompot_de for the specified run_id
     effective_run_id = -1 if run_id is None else run_id
@@ -49,42 +46,29 @@ def _infer_heatmap_keys(
     
     if run_info is None:
         logger.warning(f"No valid run found with run_id={effective_run_id}")
-        return lfc_key, score_key
+        return None
         
-    # Extract keys from field_names if present
-    inferred_lfc_key = lfc_key
-    inferred_score_key = score_key
+    # Extract score_key from field_names if present
+    inferred_score_key = None
     
     if "field_names" in run_info:
         field_names = run_info["field_names"]
-
-        # Get lfc_key from field_names if not provided
-        if inferred_lfc_key is None and "mean_lfc_key" in field_names:
-            inferred_lfc_key = field_names["mean_lfc_key"]
-
-        # Get score_key from field_names if not provided
-        if inferred_score_key is None and "mahalanobis_key" in field_names:
+        
+        # Get score_key from field_names
+        if "mahalanobis_key" in field_names:
             inferred_score_key = field_names["mahalanobis_key"]
-
-    # If lfc_key not found, raise error
-    if inferred_lfc_key is None:
-        raise ValueError(
-            "Could not infer lfc_key from the specified run. Please specify manually."
-        )
-
-    return inferred_lfc_key, inferred_score_key
+    
+    return inferred_score_key
 
 
 def _prepare_gene_list(
     adata: AnnData,
     var_names: Optional[Union[List[str], Sequence[str]]] = None,
-    gene_list: Optional[Union[List[str], Sequence[str]]] = None,
     n_top_genes: int = 20,
-    lfc_key: Optional[str] = None,
     score_key: Optional[str] = None,
     sort_genes: bool = True,
     run_id: Optional[int] = None,
-) -> Tuple[List[str], Optional[str], Optional[str], Dict]:
+) -> Tuple[List[str], Optional[str], Dict]:
     """
     Prepare the list of genes to be included in the heatmap.
     
@@ -93,13 +77,9 @@ def _prepare_gene_list(
     adata : AnnData
         AnnData object containing expression data
     var_names : list, optional
-        List of gene names (legacy parameter)
-    gene_list : list, optional
-        Explicit list of genes to include
+        List of genes to include
     n_top_genes : int
         Number of top genes to include
-    lfc_key : str, optional
-        Key for log fold change values. If None, inferred from run_id.
     score_key : str, optional
         Key for significance scores. If None, inferred from run_id.
     sort_genes : bool
@@ -111,7 +91,6 @@ def _prepare_gene_list(
     -------
     Tuple containing:
     - List of gene names
-    - LFC key used
     - Score key used 
     - Run info dictionary
     """
@@ -121,19 +100,13 @@ def _prepare_gene_list(
     # Get run info from history once
     run_info = get_run_from_history(adata, effective_run_id, analysis_type="de")
     
-    # If gene_list is provided, use it directly
-    if gene_list is not None:
-        var_names = gene_list
-        logger.info(f"Using provided gene_list with {len(gene_list)} genes/features")
-        return var_names, lfc_key, score_key, run_info
-        
     # If var_names is provided, use it directly
     if var_names is not None:
-        return var_names, lfc_key, score_key, run_info
+        return var_names, score_key, run_info
         
-    # If var_names not provided and no gene_list, get top genes based on DE results
-    # Infer keys using the helper function
-    lfc_key, score_key = _infer_heatmap_keys(adata, effective_run_id, lfc_key, score_key)
+    # If var_names not provided, get top genes based on DE results
+    # Infer score_key using the helper function
+    score_key = _infer_score_key(adata, effective_run_id, score_key)
 
     # Extract condition information for logging
     condition1 = condition2 = None
@@ -142,12 +115,6 @@ def _prepare_gene_list(
         if "conditions" in params and len(params["conditions"]) == 2:
             condition1 = params["conditions"][0]
             condition2 = params["conditions"][1]
-
-    # If conditions not found in run_info, try to extract from lfc_key
-    if (condition1 is None or condition2 is None) and lfc_key is not None:
-        conditions = _extract_conditions_from_key(lfc_key)
-        if conditions:
-            condition1, condition2 = conditions
 
     # Convert negative run_id to positive value for logging
     if effective_run_id < 0 and "kompot_de" in adata.uns and "run_history" in adata.uns["kompot_de"]:
@@ -161,20 +128,15 @@ def _prepare_gene_list(
     logger.info(log_message)
 
     # Log the fields being used
-    logger.info(f"Using fields for heatmap - lfc_key: '{lfc_key}', score_key: '{score_key}'")
+    logger.info(f"Using field for heatmap - score_key: '{score_key}'")
 
     # Get top genes based on score
     de_data = pd.DataFrame(
         {
             "gene": adata.var_names,
-            "lfc": (
-                adata.var[lfc_key]
-                if lfc_key in adata.var
-                else np.zeros(adata.n_vars)
-            ),
             "score": (
                 adata.var[score_key]
-                if score_key in adata.var
+                if score_key and score_key in adata.var
                 else np.zeros(adata.n_vars)
             ),
         }
@@ -185,7 +147,7 @@ def _prepare_gene_list(
 
     # Get top genes
     var_names = de_data.head(n_top_genes)["gene"].tolist()
-    return var_names, lfc_key, score_key, run_info
+    return var_names, score_key, run_info
 
 
 def _get_expression_matrix(

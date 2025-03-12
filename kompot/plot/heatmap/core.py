@@ -16,7 +16,7 @@ from matplotlib.gridspec import GridSpec
 
 from ..volcano import _extract_conditions_from_key
 from ...utils import get_run_from_history, KOMPOT_COLORS
-from .utils import (_infer_heatmap_keys, _prepare_gene_list, _get_expression_matrix, 
+from .utils import (_prepare_gene_list, _get_expression_matrix, 
                    _filter_excluded_groups, _apply_scaling, _calculate_figsize, 
                    _setup_colormap_normalization)
 from .visualization import _draw_diagonal_split_cell
@@ -34,8 +34,7 @@ def heatmap(
     var_names: Optional[Union[List[str], Sequence[str]]] = None,
     groupby: str = None,
     n_top_genes: int = 20,
-    gene_list: Optional[Union[List[str], Sequence[str]]] = None,
-    lfc_key: Optional[str] = None,
+    genes: Optional[Union[List[str], Sequence[str]]] = None,
     score_key: Optional[str] = None,
     layer: Optional[str] = None,
     standard_scale: Optional[Union[str, int]] = "var",  # Default to gene-wise z-scoring
@@ -54,6 +53,7 @@ def heatmap(
     group_labels_size: int = 12,
     colorbar_title: Optional[str] = None,
     colorbar_kwargs: Optional[Dict[str, Any]] = None,
+    layout_config: Optional[Dict[str, float]] = None,  # Configuration for layout spacing
     title: Optional[str] = None,
     sort_genes: bool = True,
     vcenter: Optional[Union[float, str]] = None,
@@ -65,6 +65,8 @@ def heatmap(
     run_id: Optional[int] = None,
     condition_column: Optional[str] = None,
     observed: bool = True,
+    condition1: Optional[str] = None,
+    condition2: Optional[str] = None,
     condition1_name: Optional[str] = None,
     condition2_name: Optional[str] = None,
     exclude_groups: Optional[Union[str, List[str]]] = None,
@@ -89,17 +91,14 @@ def heatmap(
         AnnData object containing expression data
     var_names : list, optional
         List of genes to include in the heatmap. If None, will use top genes
-        based on score_key and lfc_key.
+        based on score_key.
     groupby : str, optional
         Key in adata.obs for grouping cells
     n_top_genes : int, optional
         Number of top genes to include if var_names is None
-    gene_list : list, optional
-        Explicit list of genes to include in the heatmap. 
-        Takes precedence over var_names if both are provided.
-    lfc_key : str, optional
-        Key in adata.var for log fold change values.
-        If None, will try to infer from run information.
+    genes : list, optional
+        Alternative parameter name for specifying genes to include.
+        Takes precedence over var_names if provided.
     score_key : str, optional
         Key in adata.var for significance scores.
         If None, will try to infer from run information.
@@ -155,6 +154,20 @@ def heatmap(
         - 'locator': A matplotlib Locator instance for tick positions
         - 'formatter': A matplotlib Formatter instance for tick labels
         - Any attribute of matplotlib colorbar instance
+    layout_config : dict, optional
+        Configuration for controlling plot layout spacing. Keys include:
+        - 'gene_label_space': Space for gene labels (y-axis), default 3.5
+        - 'group_label_space': Space for group labels (x-axis), default 2.0
+        - 'title_space': Space for title, default 3.0
+        - 'base_legend_space': Base space for legend, default 4.0
+        - 'legend_name_factor': Factor to adjust legend space based on condition name length, default 0.15
+        - 'colorbar_space': Space for colorbar, default 3.0
+        - 'row_dendrogram_space': Space for row dendrogram, default 2.5
+        - 'col_dendrogram_space': Space for column dendrogram, default 2.5
+        - 'legend_fontsize': Base font size for legend, default 12
+        - 'legend_fontsize_factor': Factor to reduce font size for long condition names, default 0.25
+        - 'colorbar_height': Height proportion of sidebar for colorbar, default 0.5
+        - 'colorbar_width': Width proportion for colorbar, default 0.25
     title : str, optional
         Title for the heatmap
     sort_genes : bool, optional
@@ -186,8 +199,12 @@ def heatmap(
         If None, tries to infer from run_info.
     observed : bool, optional
         Whether to use only observed combinations in groupby operations.
+    condition1, condition2 : str, optional
+        Names of the two conditions to compare. If None, tries to infer from run_info.
+        These must match the values in the condition_column in adata.obs.
     condition1_name, condition2_name : str, optional
-        Display names for the two conditions. If None, tries to infer from run_info.
+        Display names for the two conditions in the plot legend and title.
+        If None, defaults to the values of condition1 and condition2.
     exclude_groups : str or list, optional
         Group name(s) to exclude from the heatmap.
     **kwargs : 
@@ -201,31 +218,42 @@ def heatmap(
     # Normalize run_id to use -1 (latest run) if None
     effective_run_id = -1 if run_id is None else run_id
     
+    # If genes parameter is provided, use it (with priority over var_names)
+    if genes is not None:
+        var_names = genes
+        
     # Prepare gene list and get run info
-    var_names, lfc_key, score_key, run_info = _prepare_gene_list(
+    var_names, score_key, run_info = _prepare_gene_list(
         adata=adata,
         var_names=var_names,
-        gene_list=gene_list,
         n_top_genes=n_top_genes,
-        lfc_key=lfc_key,
         score_key=score_key,
         sort_genes=sort_genes,
         run_id=effective_run_id,
     )
     
+    # Store the explicitly provided conditions first
+    explicit_condition1 = condition1
+    explicit_condition2 = condition2
+    
     # Extract key parameters from run_info
-    condition1 = None
-    condition2 = None
     condition_key = None
     actual_run_id = None
     inferred_layer = None
     
+    # ONLY set condition1 and condition2 from run_info if they weren't explicitly provided
+    if condition1 is None or condition2 is None:
+        if run_info is not None and "params" in run_info:
+            params = run_info["params"]
+            if "conditions" in params and len(params["conditions"]) == 2:
+                if condition1 is None:
+                    condition1 = params["conditions"][0]
+                if condition2 is None:
+                    condition2 = params["conditions"][1]
+                    
+    # In Kompot DE runs, the condition column is called "groupby"
     if run_info is not None and "params" in run_info:
         params = run_info["params"]
-        if "conditions" in params and len(params["conditions"]) == 2:
-            condition1 = params["conditions"][0]
-            condition2 = params["conditions"][1]
-        # In Kompot DE runs, the condition column is called "groupby"
         if "groupby" in params:
             condition_key = params["groupby"]
         # Try to infer layer from run_info
@@ -237,16 +265,13 @@ def heatmap(
         layer = inferred_layer
         logger.info(f"Using layer '{layer}' inferred from run information")
     
-    # Try to extract from key name if still not found
-    if (condition1 is None or condition2 is None) and lfc_key is not None:
-        conditions = _extract_conditions_from_key(lfc_key)
-        if conditions:
-            condition1, condition2 = conditions
-    
-    # Use condition names for display
-    if condition1_name is None:
+    # No longer trying to extract conditions from lfc_key since this parameter has been removed
+                
+    # Handle display names for conditions
+    # If display names weren't provided, use the actual condition values
+    if condition1_name is None and condition1 is not None:
         condition1_name = condition1
-    if condition2_name is None:
+    if condition2_name is None and condition2 is not None:
         condition2_name = condition2
     
     # If condition_column is None, use the one from run_info
@@ -275,7 +300,26 @@ def heatmap(
         logger.error(f"Condition column '{condition_column}' not found in adata.obs")
         return None
 
+    # Add more debugging info
+    logger.info(f"Using condition_column='{condition_column}', condition1='{condition1}', condition2='{condition2}'")
+    
+    # Log display names if they differ from the condition values
+    if condition1 != condition1_name or condition2 != condition2_name:
+        logger.info(f"Using display names: '{condition1_name}' for condition1, '{condition2_name}' for condition2")
+    
+    # Log available values in the condition column
+    if condition_column is not None and condition_column in adata.obs.columns:
+        unique_values = adata.obs[condition_column].unique()
+        logger.info(f"Available values in {condition_column}: {', '.join(map(str, unique_values))}")
+    
     # Check for presence of both conditions in data
+    if condition1 is None:
+        logger.error(f"No value for condition1 could be inferred. Please provide using condition1 parameter.")
+        return None
+    if condition2 is None:
+        logger.error(f"No value for condition2 could be inferred. Please provide using condition2 parameter.")
+        return None
+        
     if condition1 not in adata.obs[condition_column].unique():
         logger.error(f"Condition '{condition1}' not found in {condition_column}")
         return None
@@ -369,14 +413,46 @@ def heatmap(
 
         # Calculate a custom figure size with fixed aspect ratio tiles and consistent spacing
         if figsize is None:
+            # Set up default layout config
+            default_layout = {
+                'gene_label_space': 3.5,       # Space for gene labels (y-axis)
+                'group_label_space': 2.0,      # Space for group labels (x-axis)
+                'title_space': 3.0,            # Space for title
+                'base_legend_space': 4.0,      # Base space for legend
+                'legend_name_factor': 0.15,    # Factor for legend space adjustment per condition name length
+                'colorbar_space': 3.0,         # Space for colorbar
+                'row_dendrogram_space': 2.5,   # Space for row dendrogram
+                'col_dendrogram_space': 2.5,   # Space for column dendrogram
+                'colorbar_height': 0.5,        # Height proportion for colorbar
+                'colorbar_width': 0.25,        # Width proportion for colorbar
+                'legend_fontsize': 12,         # Base legend font size
+                'legend_fontsize_factor': 0.25 # Factor to reduce font size for long names
+            }
+            
+            # Update with user-provided config if any
+            if layout_config:
+                default_layout.update(layout_config)
+                
+            # Store the layout for later use
+            layout = default_layout
+            
             # Define constants for fixed spacing in multiples of the base unit
-            GENE_LABEL_SPACE = 3.5    # Space for gene labels (y-axis)
-            GROUP_LABEL_SPACE = 2.0   # Space for group labels (x-axis)
-            TITLE_SPACE = 3.0         # Space for title
-            LEGEND_SPACE = 5.0        # Space for legend
-            COLORBAR_SPACE = 3.0      # Space for colorbar
-            ROW_DENDROGRAM_SPACE = 2.5 # Space for row dendrogram
-            COL_DENDROGRAM_SPACE = 2.5 # Space for column dendrogram
+            GENE_LABEL_SPACE = layout['gene_label_space']      # Space for gene labels (y-axis)
+            GROUP_LABEL_SPACE = layout['group_label_space']    # Space for group labels (x-axis)
+            TITLE_SPACE = layout['title_space']                # Space for title
+            
+            # Dynamically determine legend space based on condition name lengths
+            max_condition_name_length = max(len(str(condition1_name or "")), len(str(condition2_name or "")))
+            # Calculate additional space needed for the legend based on name length
+            additional_space = (max_condition_name_length + 5) * layout['legend_name_factor']
+            LEGEND_SPACE = layout['base_legend_space'] + additional_space
+            
+            COLORBAR_SPACE = layout['colorbar_space']           # Space for colorbar
+            ROW_DENDROGRAM_SPACE = layout['row_dendrogram_space'] # Space for row dendrogram
+            COL_DENDROGRAM_SPACE = layout['col_dendrogram_space'] # Space for column dendrogram
+            
+            # Store these values in the layout for later use
+            layout['legend_space'] = LEGEND_SPACE
             
             # Calculate base tile dimensions - determine reference dimension
             if tile_aspect_ratio >= 1.0:
@@ -476,16 +552,40 @@ def heatmap(
             # Use default proportions when figsize is user-provided
             width_inches, height_inches = figsize
             
+            # Set up default layout config if not already defined
+            if not layout_config:
+                # Create a new layout config with default values
+                default_layout = {
+                    'gene_label_space': 3.5,       # Space for gene labels (y-axis)
+                    'group_label_space': 2.0,      # Space for group labels (x-axis)
+                    'title_space': 3.0,            # Space for title
+                    'base_legend_space': 4.0,      # Base space for legend
+                    'legend_name_factor': 0.15,    # Factor for legend space adjustment
+                    'colorbar_space': 3.0,         # Space for colorbar
+                    'row_dendrogram_space': 2.5,   # Space for row dendrogram
+                    'col_dendrogram_space': 2.5,   # Space for column dendrogram
+                    'colorbar_height': 0.5,        # Height proportion for colorbar
+                    'colorbar_width': 0.25,        # Width proportion for colorbar
+                    'legend_fontsize': 12,         # Base legend font size
+                    'legend_fontsize_factor': 0.25 # Factor to reduce font size for long names
+                }
+                # Store the layout for later use
+                layout = default_layout
+            
+            # Calculate dynamic legend space similar to non-fixed figsize case
+            max_condition_name_length = max(len(str(condition1_name or "")), len(str(condition2_name or "")))
+            legend_factor = 1.0 + max(0, (max_condition_name_length * layout['legend_name_factor']))
+            
             # Approximate reasonable areas based on base_unit
-            left_area_inches = min(3.0 * base_unit, width_inches * 0.2)
-            right_area_inches = min(5.0 * base_unit, width_inches * 0.3)
-            bottom_area_inches = min(2.0 * base_unit, height_inches * 0.15)
-            top_area_inches = min(2.0 * base_unit, height_inches * 0.15)
+            left_area_inches = min(layout['gene_label_space'] * base_unit, width_inches * 0.2)
+            right_area_inches = min(layout['base_legend_space'] * base_unit * legend_factor, width_inches * 0.3)
+            bottom_area_inches = min(layout['group_label_space'] * base_unit, height_inches * 0.15)
+            top_area_inches = min(layout['title_space'] * base_unit, height_inches * 0.15)
             if dendrogram:
                 if cluster_rows:
-                    top_area_inches += min(2.0 * base_unit, height_inches * 0.1)
+                    top_area_inches += min(layout['row_dendrogram_space'] * base_unit, height_inches * 0.1)
                 if cluster_cols:
-                    right_area_inches += min(2.0 * base_unit, width_inches * 0.1)
+                    right_area_inches += min(layout['col_dendrogram_space'] * base_unit, width_inches * 0.1)
             
             # Calculate data area from the remaining space
             data_width_inches = width_inches - left_area_inches - right_area_inches
@@ -898,8 +998,8 @@ def heatmap(
 
             legend_elements = [upper_triangle, lower_triangle]
             
-            # Calculate legend position within sidebar - use top portion
-            legend_height = 0.4  # Use top 40% of sidebar for legend
+            # Calculate legend position within sidebar using layout config
+            legend_height = 1.0 - layout['colorbar_height'] if layout else 0.4  # Use top portion for legend
             
             # Custom handler for the triangular patches
             class HandlerTriangle(HandlerPatch):
@@ -940,23 +1040,32 @@ def heatmap(
             ])
             legend_ax.set_axis_off()
             
-            # Add the legend
+            # Add the legend with adaptive font size
+            # Calculate an appropriate font size based on legend space and condition name length
+            max_condition_name_length = max(len(str(condition1_name or "")), len(str(condition2_name or "")))
+            # Base font size with reduction for very long condition names
+            base_fontsize = layout['legend_fontsize'] if layout else 12
+            fontsize_factor = layout['legend_fontsize_factor'] if layout else 0.25
+            adaptive_fontsize = max(8, base_fontsize - max(0, max_condition_name_length * fontsize_factor))
+            
             legend = legend_ax.legend(
                 handles=legend_elements,
                 loc="center",
                 title="Conditions",
                 frameon=False,
+                prop={'size': adaptive_fontsize},  # Use adaptive font size
+                title_fontsize=adaptive_fontsize + 1,  # Make title slightly larger
                 handler_map={mpatches.Polygon: HandlerTriangle()},
             )
             legend.get_title().set_fontweight('bold')
             
             # Add colorbar in the lower portion of the sidebar
-            colorbar_height = 0.5  # Use 50% of sidebar for colorbar
+            colorbar_height = layout['colorbar_height'] if layout else 0.5  # Use configured height for sidebar
             # Create colorbar axes in the bottom portion of sidebar with a gap
             gap = 0.1  # 10% gap in the middle
             
             # Make the colorbar narrower (reduce size)
-            colorbar_width = 0.25  # Reduce from 0.4 to 0.25 (smaller colorbar)
+            colorbar_width = layout['colorbar_width'] if layout else 0.25  # Width from layout config
             colorbar_ax = fig.add_axes([
                 bbox.x0 + bbox.width * (0.5 - colorbar_width/2),  # Center horizontally 
                 bbox.y0,  # Start from bottom of sidebar

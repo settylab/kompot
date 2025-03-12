@@ -50,39 +50,35 @@ class TestHeatmapUtilityFunctions:
     
     def test_prepare_gene_list(self):
         """Test the _prepare_gene_list function."""
-        # Test with explicit gene list
+        # Test with genes via var_names directly
         test_genes = ['gene_1', 'gene_2', 'gene_3']
-        var_names, lfc_key, score_key, run_info = _prepare_gene_list(
+        var_names, score_key, run_info = _prepare_gene_list(
             self.adata,
-            gene_list=test_genes,
+            var_names=test_genes,
         )
         assert var_names == test_genes
         
-        # Test with var_names
+        # Test with different var_names
         test_var_names = ['gene_4', 'gene_5', 'gene_6']
-        var_names, lfc_key, score_key, run_info = _prepare_gene_list(
+        var_names, score_key, run_info = _prepare_gene_list(
             self.adata,
             var_names=test_var_names,
         )
         assert var_names == test_var_names
         
         # Test inferring genes from score
-        de_keys = [k for k in self.adata.var.columns if 'de_run' in k and 'lfc' in k]
-        if de_keys:
-            var_names, lfc_key, score_key, run_info = _prepare_gene_list(
-                self.adata,
-                lfc_key=de_keys[0],
-                score_key='test_score',
-                n_top_genes=5
-            )
-            assert len(var_names) == 5
-            assert var_names is not None
-            assert lfc_key == de_keys[0]
-            assert score_key == 'test_score'
+        var_names, score_key, run_info = _prepare_gene_list(
+            self.adata,
+            score_key='test_score',
+            n_top_genes=5
+        )
+        assert len(var_names) == 5
+        assert var_names is not None
+        assert score_key == 'test_score'
         
         # Test with run_id=-1 (implicit latest run)
         if 'kompot_run_history' in self.adata.uns:
-            var_names, lfc_key, score_key, run_info = _prepare_gene_list(
+            var_names, score_key, run_info = _prepare_gene_list(
                 self.adata,
                 run_id=-1,
                 score_key='test_score',
@@ -90,7 +86,6 @@ class TestHeatmapUtilityFunctions:
             )
             assert len(var_names) == 5
             assert var_names is not None
-            assert lfc_key is not None
             assert score_key == 'test_score'
             assert run_info is not None
     
@@ -262,7 +257,6 @@ class TestHeatmapWithImplicitRunId:
             self.adata,
             score_key='test_score',
             n_top_genes=5,
-            diagonal_split=False,
             return_fig=True
         )
         assert len(result) >= 2
@@ -271,34 +265,31 @@ class TestHeatmapWithImplicitRunId:
         
     def test_heatmap_with_explicit_parameters(self):
         """Test the heatmap function with explicit parameters (no run_id dependency)."""
-        # Test with explicit gene_list and lfc_key
+        # Test with explicit genes parameter
         test_genes = [f'gene_{i}' for i in range(5)]
         result = heatmap(
             self.adata,
-            gene_list=test_genes,
-            lfc_key='test_lfc',
+            genes=test_genes,  # Use 'genes' instead of 'gene_list'
             score_key='test_score',
-            diagonal_split=False,
             return_fig=True
         )
         assert len(result) >= 2
         assert result[0] is not None  # fig
         assert result[1] is not None  # ax
     
-    def test_heatmap_with_diagonal_split_and_implicit_run_id(self):
-        """Test the heatmap function with diagonal_split=True works with implicit run_id=-1."""
+    def test_heatmap_with_groupby_and_implicit_run_id(self):
+        """Test the heatmap function with groupby and condition parameters works with implicit run_id=-1."""
         # Skip if kompot_run_history doesn't exist
         if 'kompot_run_history' not in self.adata.uns:
             pytest.skip("kompot_run_history not found in adata.uns")
         
-        # Set the groupby parameter for diagonal split heatmap
+        # Set the groupby parameter for split cell heatmap
         result = heatmap(
             self.adata,
             score_key='test_score',
             n_top_genes=5,
             groupby='group',
             condition_column='condition',
-            diagonal_split=True,
             return_fig=True
         )
         
@@ -306,18 +297,18 @@ class TestHeatmapWithImplicitRunId:
         # Failures would raise an exception rather than returning None
         assert result is None or (isinstance(result, tuple) and len(result) >= 2)
     
-    def test_heatmap_with_diagonal_split_and_explicit_parameters(self):
-        """Test the heatmap function with diagonal_split=True and explicit parameters."""
-        # Test with explicit genes and lfc_key
+    def test_heatmap_with_groupby_and_explicit_parameters(self):
+        """Test the heatmap function with groupby and explicit parameters."""
+        # Test with explicit genes parameter
         test_genes = [f'gene_{i}' for i in range(5)]
         result = heatmap(
             self.adata,
-            gene_list=test_genes,
-            lfc_key='test_lfc',
+            genes=test_genes,  # Use 'genes' instead of 'gene_list'
             score_key='test_score',
             groupby='group',
             condition_column='condition',
-            diagonal_split=True,
+            condition1='A',
+            condition2='B',
             return_fig=True
         )
         
