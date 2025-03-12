@@ -113,10 +113,13 @@ def compute_differential_expression(
         Key in adata.uns where results will be stored, by default "kompot_de".
     overwrite : bool, optional
         Controls behavior when results with the same result_key already exist:
+        
         - If None (default): Behaves contextually:
+          
           * For partial reruns with sample variance added where other parameters match,
             logs an informative message at INFO level and proceeds with overwriting
           * For other cases, warns about existing results but proceeds with overwriting
+        
         - If True: Silently overwrite existing results
         - If False: Raise an error if results would be overwritten
         

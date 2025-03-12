@@ -106,6 +106,7 @@ def run_differential_analysis(
         Whether to open the HTML report in a browser, by default True.
     overwrite : bool, optional
         Controls behavior when results with the same result_key already exist:
+        
         - If None (default): Warn about existing results but proceed with overwriting
         - If True: Silently overwrite existing results
         - If False: Raise an error if results would be overwritten
@@ -135,14 +136,14 @@ def run_differential_analysis(
     ('up', 'down', or 'neutral'), and matching colors are stored in adata.uns with
     the '_colors' postfix for easy visualization in scanpy and other tools:
     
-    ```python
-    # Color scheme used
-    direction_colors = {"up": "#d73027", "down": "#4575b4", "neutral": "#d3d3d3"}
+    .. code-block:: python
     
-    # This allows direct use with scanpy's plotting functions
-    import scanpy as sc
-    sc.pl.umap(adata, color=f"{abundance_key}_log_fold_change_direction")
-    ```
+        # Color scheme used
+        direction_colors = {"up": "#d73027", "down": "#4575b4", "neutral": "#d3d3d3"}
+        
+        # This allows direct use with scanpy's plotting functions
+        import scanpy as sc
+        sc.pl.umap(adata, color=f"{abundance_key}_log_fold_change_direction")
     """
     try:
         import anndata
