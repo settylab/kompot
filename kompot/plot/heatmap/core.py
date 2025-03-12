@@ -45,6 +45,8 @@ def heatmap(
     cluster_cols: bool = True,  # Whether to cluster columns
     dendrogram_color: str = "black",  # Default dendrogram color
     figsize: Optional[Tuple[float, float]] = None,
+    aspect_ratio: float = 0.3,  # Height/width ratio for automatic figsize (small aspect = wide plot)
+    cell_size: float = 0.5,     # Base size for each cell in inches
     show_gene_labels: bool = True,
     show_group_labels: bool = True,
     gene_labels_size: int = 10,
@@ -116,7 +118,16 @@ def heatmap(
     dendrogram_color : str, optional
         Color for dendrograms
     figsize : tuple, optional
-        Figure size as (width, height) in inches
+        Figure size as (width, height) in inches. If None, will be calculated based on
+        data dimensions, cell_size, and aspect_ratio.
+    aspect_ratio : float, optional
+        Overall height/width ratio constraint for the figure. Default is 0.3, which tends to
+        create wider plots. Higher values create taller plots. Set to 0 to disable this constraint
+        and use only cell_size for determining dimensions.
+    cell_size : float, optional
+        Base size in inches for each cell when automatically calculating figure size.
+        Default is 0.5 inches. Individual cells will always be drawn as squares regardless
+        of this setting.
     show_gene_labels : bool, optional
         Whether to show gene labels
     show_group_labels : bool, optional
@@ -300,54 +311,141 @@ def heatmap(
             # Single scaling to avoid duplicate log messages
             if standard_scale == "var" or standard_scale == 0:
                 logger.info("Applying gene-wise z-scoring (standard_scale='var')")
-                # Apply scaling to both matrices at once
-                combined = pd.concat([cond1_means, cond2_means], keys=["cond1", "cond2"])
-                scaled = _apply_scaling(combined, standard_scale, log_message=False)
+                
+                # Get shared columns to ensure proper alignment
+                shared_cols = list(set(cond1_means.columns).intersection(set(cond2_means.columns)))
+                
+                # Create a MultiIndex DataFrame with both conditions
+                # This ensures z-scoring happens across both conditions together
+                combined = pd.concat(
+                    [
+                        cond1_means[shared_cols], 
+                        cond2_means[shared_cols]
+                    ], 
+                    keys=["cond1", "cond2"],
+                    names=["condition", "group"]
+                )
+                
+                # Apply gene-wise scaling - set is_split=True to ensure proper handling of hierarchical structure
+                scaled = _apply_scaling(combined, standard_scale, is_split=True, has_hierarchical_index=True, log_message=False)
+                
                 # Extract the results
-                cond1_means = scaled.loc["cond1"]
-                cond2_means = scaled.loc["cond2"]
+                cond1_means_scaled = scaled.loc["cond1"].copy()
+                cond2_means_scaled = scaled.loc["cond2"].copy()
+                
+                # Copy scaled values back to original dataframes to preserve any columns
+                # that might not have been in both conditions
+                for col in shared_cols:
+                    cond1_means[col] = cond1_means_scaled[col]
+                    cond2_means[col] = cond2_means_scaled[col]
             else:
                 # Apply regular scaling
                 cond1_means = _apply_scaling(cond1_means, standard_scale, log_message=False)
                 cond2_means = _apply_scaling(cond2_means, standard_scale)
 
-        # With transposed data, n_genes and n_groups are swapped
-        # Setup for plotting with transposed data dimensions
+        # Calculate a custom figure size based on cell count and aspect ratio
         if figsize is None:
-            # For transposed view: groups are on x-axis (columns), genes on y-axis (rows)
-            figsize = _calculate_figsize(
-                n_genes, n_groups, dendrogram, cluster_rows, cluster_cols
-            )
-            # Add extra width for the sidebar
-            figsize = (figsize[0] + 2, figsize[1])
+            # After transposition, we'll have:
+            # - genes on y-axis (rows)
+            # - groups on x-axis (columns)
+            
+            # Base width on the number of groups (will be columns after transpose)
+            data_width = n_groups * cell_size
+            # Base height on the number of genes (will be rows after transpose)
+            data_height = n_genes * cell_size
+            
+            # Set relative sizes - keep cells square for proper visualization
+            cell_width_factor = 1.0  # Standard width
+            cell_height_factor = 1.0  # Standard height for square cells
+            
+            # Apply the adjustments
+            data_width = data_width * cell_width_factor
+            data_height = data_height * cell_height_factor
+            
+            
+            # Add space for labels, title, and other elements
+            width_inches = data_width + 4  # For labels and sidebar
+            # Make height more proportional to gene count - minimal padding for few genes
+            height_inches = data_height + min(2, max(0.5, data_height * 0.2))  # Adaptive padding based on gene count
+            
+            # Cap the size for very large gene/group counts
+            max_width = 20
+            max_height = 30
+            width_inches = min(width_inches, max_width)
+            height_inches = min(height_inches, max_height)
+            
+            # Apply overall aspect ratio constraint if specified, but only to reduce height, never increase it
+            if aspect_ratio > 0:
+                current_ratio = height_inches / width_inches
+                # Only apply if the current ratio is far from target and would make the plot smaller
+                if current_ratio > aspect_ratio and abs(current_ratio - aspect_ratio) > 0.1:
+                    # Too tall - increase width but don't exceed max
+                    width_inches = min(height_inches / aspect_ratio, max_width)
+            
+            # Add extra space for dendrograms if needed
+            if dendrogram:
+                if cluster_cols:
+                    width_inches += 1.5  # More space for column dendrogram on right
+                if cluster_rows:
+                    height_inches += 1.2  # More space for row dendrogram on top
+                # Extra space for title when dendrograms are present
+                height_inches += 0.8
+            
+            figsize = (width_inches, height_inches)
 
         # Create figure if no axes provided
         create_fig = ax is None
         if create_fig:
-            # Create figure with room for the sidebar
+            # Create figure with room for the sidebar and dendrograms
             fig = plt.figure(figsize=figsize)
             
-            # Main grid layout for the plot area - adjust for transposed view
-            main_grid_width = 0.75  # 75% for the main plot area
-            main_grid = GridSpec(1, 1, left=0.1, right=main_grid_width, top=0.9, bottom=0.1)
+            # Define layout regions - adjust for dendrograms
+            # Set reasonable margins
+            bottom_margin = 0.1  # Bottom margin for x-axis labels
+            left_margin = 0.15  # Standard left margin
+            
+            # Right margin depends on column dendrogram and sidebar
+            # Move column dendrogram to right side (before sidebar)
+            if dendrogram and cluster_cols:
+                right_margin = 0.65  # Less space on right to make room for column dendrogram
+            else:
+                right_margin = 0.75  # Standard right margin for just sidebar
+                
+            # Top margin depends on row dendrogram
+            # Create more space at the top to avoid title overlap
+            if dendrogram and cluster_rows:
+                top_margin = 0.75  # More space on top for row dendrogram + title
+            else:
+                top_margin = 0.85  # Standard top margin without dendrogram
+            
+            # Main grid layout for the plot area
+            main_grid = GridSpec(1, 1, 
+                                left=left_margin, 
+                                right=right_margin, 
+                                top=top_margin, 
+                                bottom=bottom_margin)
             
             # Add the main axes for the heatmap
             ax = fig.add_subplot(main_grid[0, 0])
             
-            # Add dendrogram axes if needed - adjusted for transposed view
+            # Add dendrogram axes if needed - corrected positioning with proper names
             dendrogram_axes = {}
             if dendrogram:
-                # For row dendrogram (now on the left for genes)
-                if cluster_rows:
-                    row_dendrogram_ax = fig.add_axes([0.01, 0.1, 0.08, 0.8])
-                    dendrogram_axes['row'] = row_dendrogram_ax
-                    row_dendrogram_ax.set_axis_off()
-                
-                # For column dendrogram (now on top for groups)
+                # For column dendrogram - ON THE RIGHT for groups (after transpose, groups are on y-axis)
                 if cluster_cols:
-                    col_dendrogram_ax = fig.add_axes([0.1, 0.91, 0.65, 0.08])
+                    # Position the column dendrogram on the right side
+                    col_dendrogram_width = 0.08
+                    col_dendrogram_left = right_margin + 0.01
+                    col_dendrogram_ax = fig.add_axes([col_dendrogram_left, bottom_margin, col_dendrogram_width, top_margin - bottom_margin])
                     dendrogram_axes['col'] = col_dendrogram_ax
                     col_dendrogram_ax.set_axis_off()
+                
+                # For row dendrogram - ON TOP for genes (after transpose, genes are on x-axis)
+                if cluster_rows:
+                    # Position dendrogram with proper spacing for title
+                    row_dendrogram_ax = fig.add_axes([left_margin, top_margin + 0.02, right_margin - left_margin, 0.1])
+                    dendrogram_axes['row'] = row_dendrogram_ax
+                    row_dendrogram_ax.set_axis_off()
         else:
             # Use existing axes
             fig = ax.figure
@@ -356,6 +454,7 @@ def heatmap(
         # Handle clustering
         if cluster_rows or cluster_cols:
             # Combined data for clustering - impute NaNs for distance calculation
+            # Keep original concatenation along columns for row clustering
             combined = pd.concat([cond1_means, cond2_means], axis=1)
             # Fill NaN with column means for clustering purposes only
             combined_for_clustering = combined.fillna(combined.mean())
@@ -367,10 +466,10 @@ def heatmap(
                 row_linkage_matrix = linkage(row_dist, method='average')
                 
                 if dendrogram and 'row' in dendrogram_axes:
-                    # Draw row dendrogram
+                    # Draw row dendrogram on the top
                     row_dendrogram = scipy_dendrogram(
                         row_linkage_matrix,
-                        orientation='left',
+                        orientation='top',  # Changed to top orientation for the top-positioned dendrogram
                         ax=dendrogram_axes['row'],
                         color_threshold=-1,  # No color threshold
                         above_threshold_color=dendrogram_color
@@ -399,17 +498,27 @@ def heatmap(
                     logger.error(f"IndexError during row ordering: {e}")
                     # Continue without reordering if there's an error
             
-            # Column clustering (groups - now on x-axis/columns after transpose)
+            # Column clustering (groups - will be on x-axis after transpose)
             if cluster_cols:
-                # Calculate column linkage for groups (columns of transposed data)
-                col_dist = ssd.pdist(combined_for_clustering.values.T)
+                # Before clustering, ensure the data structure is appropriate
+                n_columns = cond1_means.shape[1]
+                
+                # For column clustering, we need to concatenate along rows to ensure
+                # consistent column dimensions regardless of which columns appear in each condition
+                combined_cols = pd.concat([cond1_means, cond2_means], axis=0)
+                # Fill NaN values for clustering
+                combined_cols_for_clustering = combined_cols.fillna(combined_cols.mean())
+                
+                # Calculate column linkage properly on the transposed data
+                # (since we're clustering the columns)
+                col_dist = ssd.pdist(combined_cols_for_clustering.values.T)  # Transpose for column distance
                 col_linkage_matrix = linkage(col_dist, method='average')
                 
                 if dendrogram and 'col' in dendrogram_axes:
-                    # Draw column dendrogram
+                    # Draw column dendrogram on the right side
                     col_dendrogram = scipy_dendrogram(
                         col_linkage_matrix,
-                        orientation='top',
+                        orientation='right',  # Changed to right for right-side positioning
                         ax=dendrogram_axes['col'],
                         color_threshold=-1,  # No color threshold
                         above_threshold_color=dendrogram_color
@@ -424,19 +533,45 @@ def heatmap(
                     )
                     col_order = temp_tree['leaves']
                 
-                # Make sure we don't have empty cluster issue
-                if len(col_order) != cond1_means.shape[1]:
-                    logger.warning(f"Mismatch in col_order length ({len(col_order)}) vs. data columns ({cond1_means.shape[1]})")
-                    # Adjust col_order to match the number of columns in the dataframes
-                    col_order = col_order[:min(len(col_order), cond1_means.shape[1])]
+                # Map leaf indices to column names
+                # Get the common column names from the clustering
+                columns_ordered = combined_cols.columns[col_order].tolist()
                 
-                # Apply the column ordering - safely handle potential indexing errors
+                # Convert column names to indices in the original data frame
+                col_order_indices = []
+                for col_name in columns_ordered:
+                    if col_name in cond1_means.columns:
+                        col_order_indices.append(list(cond1_means.columns).index(col_name))
+                
+                # Check if we need to fix column mismatch
+                if len(col_order_indices) != n_columns:
+                    logger.warning(f"Column order mismatch detected: {len(col_order_indices)} vs {n_columns} - fixing")
+                    
+                    # Add any missing columns at the end
+                    all_cols_set = set(range(n_columns))
+                    missing_cols = all_cols_set.difference(set(col_order_indices))
+                    col_order_indices.extend(sorted(missing_cols))
+                
+                # Replace col_order with properly mapped indices
+                col_order = col_order_indices
+                
+                # Apply the column ordering - with robust error handling
                 try:
-                    cond1_means = cond1_means.iloc[:, col_order]
-                    cond2_means = cond2_means.iloc[:, col_order]
-                except IndexError as e:
-                    logger.error(f"IndexError during column ordering: {e}")
-                    # Continue without reordering if there's an error
+                    # Ensure all indices are within bounds
+                    valid_col_order = [i for i in col_order if 0 <= i < n_columns]
+                    
+                    # If we ended up with fewer indices than columns, add the missing ones
+                    if len(valid_col_order) < n_columns:
+                        existing = set(valid_col_order)
+                        missing = [i for i in range(n_columns) if i not in existing]
+                        valid_col_order.extend(missing)
+                    
+                    # Apply the ordering
+                    cond1_means = cond1_means.iloc[:, valid_col_order]
+                    cond2_means = cond2_means.iloc[:, valid_col_order]
+                except Exception as e:
+                    logger.error(f"Error during column ordering: {str(e)}")
+                    # Continue without reordering
 
         # Clear existing content from the axes
         ax.clear()
@@ -459,13 +594,21 @@ def heatmap(
             all_data, center, vmin, vmax, cmap
         )
 
-        # Draw split cells - use normal size cells (1x1)
+        # Use square cells for better visualization
+        # Each cell should be square to maintain proper proportions
+        cell_width = 1.0
+        cell_height = 1.0
+        
+        # Do not set the global aspect ratio - let matplotlib handle it based on the figure size
+        # This allows for proper alignment with labels and dendrograms
+        
         for i, gene in enumerate(cond1_means.index):
             for j, group in enumerate(cond1_means.columns):
                 val1 = cond1_means.iloc[i, j]
                 val2 = cond2_means.iloc[i, j]
                 _draw_diagonal_split_cell(
-                    ax, j, i, 1, 1, val1, val2, cmap_obj, vmin, vmax, 
+                    ax, j, i, cell_width, cell_height, 
+                    val1, val2, cmap_obj, vmin, vmax, 
                     edgecolor='none', linewidth=0, **kwargs
                 )
 
@@ -486,29 +629,51 @@ def heatmap(
         if show_group_labels:
             ax.set_xticks(np.arange(len(cond1_means.columns)) + 0.5)
             ax.set_xticklabels(cond1_means.columns, rotation=90, fontsize=group_labels_size, ha='center')
+            # Ensure tick labels are outside the data area
+            ax.tick_params(axis='x', which='major', pad=5)
 
         # Add gene labels (now on y-axis)
         if show_gene_labels:
             ax.set_yticks(np.arange(len(cond1_means.index)) + 0.5)
             ax.set_yticklabels(cond1_means.index, fontsize=gene_labels_size, va='center')
+            # Ensure tick labels align with the cells by adjusting padding
+            ax.tick_params(axis='y', which='major', pad=5)
 
         # Remove the grid
         ax.grid(False)
 
         # Set title if provided, or create an informative default title
+        # Adjust title position based on dendrogram presence
+        
+        # Set a consistent title position with appropriate spacing
+        y_pos = 0.98  # Default position
+        
+        # Adjust based on dendrogram presence
+        if dendrogram and cluster_rows:
+            # Lower the title position when row dendrogram is present
+            y_pos = 0.94  # More space above for dendrogram
+            
+        # Choose title content
         if title:
-            ax.set_title(title, fontsize=14, fontweight='bold')
+            # Use provided title
+            fig.suptitle(title, fontsize=18, fontweight='bold', y=y_pos)
         elif condition1_name and condition2_name:
-            ax.set_title(
+            # Generate default title
+            fig.suptitle(
                 f"{condition1_name} vs {condition2_name}\n"
                 f"Mean expression by {groupby}", 
-                fontsize=14, fontweight='bold'
+                fontsize=18, fontweight='bold', y=y_pos
             )
 
-        # Create sidebar for legend and colorbar (to the right of the main plot)
-        # Define position of sidebar elements
-        sidebar_left = main_grid_width + 0.02  # Start sidebar just after main plot
-        sidebar_width = 0.2
+        # Create sidebar for legend and colorbar - always position it on the right
+        # Start sidebar after the column dendrogram if present
+        if dendrogram and cluster_cols:
+            # Account for column dendrogram on the right
+            sidebar_left = right_margin + 0.11  # Add dendrogram width + small gap
+        else:
+            sidebar_left = right_margin + 0.02  # Standard position
+            
+        sidebar_width = 0.15  # Make sidebar narrower to save space
         legend_height = 0.25
         colorbar_height = 0.25
         

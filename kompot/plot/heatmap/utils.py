@@ -351,29 +351,31 @@ def _apply_scaling(
             if log_message:
                 logger.info("Applying gene-wise z-scoring (standard_scale='var')")
             if is_split and has_hierarchical_index:
-                # Handle hierarchical columns by scaling each group separately
-                for group_idx in data.index:
-                    group_data = data.loc[group_idx]
-                    # Handle NaN values and zeros
-                    group_mean = group_data.mean(skipna=True)
-                    group_std = group_data.std(skipna=True)
-                    if group_std > 0:
-                        data.loc[group_idx] = (group_data - group_mean) / group_std
+                # Handle hierarchical columns by scaling each gene separately across groups/conditions
+                # Get all genes
+                all_genes = data.columns
+                
+                # Process each gene separately
+                for gene in all_genes:
+                    # Extract this gene's values across all groups and conditions
+                    gene_data = data[gene]
+                    # Calculate gene-wise mean and std across all values
+                    gene_mean = gene_data.mean(skipna=True)
+                    gene_std = gene_data.std(skipna=True)
+                    # Avoid division by zero
+                    if gene_std > 0:
+                        # Apply z-scoring to this gene across all groups/conditions
+                        data[gene] = (gene_data - gene_mean) / gene_std
                     # NaN values remain NaN
             else:
-                # Transpose, z-score each column (which is a gene), then transpose back
-                data_T = data.T
-
+                # Z-score each gene (column) across all samples
                 # Properly handle NaN values
-                means = data_T.mean(axis=0, skipna=True)
-                stds = data_T.std(axis=0, skipna=True)
+                means = data.mean(axis=0, skipna=True)
+                stds = data.std(axis=0, skipna=True)
                 # Avoid division by zero
                 stds = stds.replace(0, 1)
-                # Apply z-scoring
-                data_T_zscore = (data_T - means) / stds
-
-                # Transpose back
-                data = data_T_zscore.T
+                # Apply z-scoring directly without transposition
+                data = (data - means) / stds
 
     # For numpy arrays (diagonal split data)
     elif isinstance(data, np.ndarray):
@@ -381,8 +383,9 @@ def _apply_scaling(
             # Perform gene-wise z-scoring
             if log_message:
                 logger.info("Applying gene-wise z-scoring (standard_scale='var')")
-            means = np.nanmean(data, axis=1, keepdims=True)
-            stds = np.nanstd(data, axis=1, keepdims=True)
+            # For gene-wise z-scoring, compute stats along axis=0 (across columns/samples)
+            means = np.nanmean(data, axis=0, keepdims=True)
+            stds = np.nanstd(data, axis=0, keepdims=True)
             # Avoid division by zero
             stds[stds == 0] = 1.0
             stds[np.isnan(stds)] = 1.0
@@ -393,15 +396,14 @@ def _apply_scaling(
             # Perform group-wise z-scoring
             if log_message:
                 logger.info("Applying group-wise z-scoring (standard_scale='group')")
-            # Transpose to get groups as rows 
-            data_T = data.T
-            means = np.nanmean(data_T, axis=1, keepdims=True)
-            stds = np.nanstd(data_T, axis=1, keepdims=True)
+            # For group-wise z-scoring, compute stats along axis=1 (across genes)
+            means = np.nanmean(data, axis=1, keepdims=True)
+            stds = np.nanstd(data, axis=1, keepdims=True)
             # Avoid division by zero
             stds[stds == 0] = 1.0
             stds[np.isnan(stds)] = 1.0
-            # Z-score and transpose back
-            data = ((data_T - means) / stds).T
+            # Z-score
+            data = (data - means) / stds
     
     return data
 
