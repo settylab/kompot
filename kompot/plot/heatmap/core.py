@@ -45,8 +45,9 @@ def heatmap(
     cluster_cols: bool = True,  # Whether to cluster columns
     dendrogram_color: str = "black",  # Default dendrogram color
     figsize: Optional[Tuple[float, float]] = None,
-    aspect_ratio: float = 0.3,  # Height/width ratio for automatic figsize (small aspect = wide plot)
-    cell_size: float = 0.5,     # Base size for each cell in inches
+    tile_aspect_ratio: float = 1.0,  # Default aspect ratio of individual tiles (width/height)
+    tile_size: float = 0.3,     # Size for each tile in inches (reference dimension, width for square tiles)
+    fixed_spacing: bool = True,  # Whether to use fixed spacing for labels, dendrograms, etc.
     show_gene_labels: bool = True,
     show_group_labels: bool = True,
     gene_labels_size: int = 10,
@@ -120,14 +121,18 @@ def heatmap(
     figsize : tuple, optional
         Figure size as (width, height) in inches. If None, will be calculated based on
         data dimensions, cell_size, and aspect_ratio.
-    aspect_ratio : float, optional
-        Overall height/width ratio constraint for the figure. Default is 0.3, which tends to
-        create wider plots. Higher values create taller plots. Set to 0 to disable this constraint
-        and use only cell_size for determining dimensions.
-    cell_size : float, optional
-        Base size in inches for each cell when automatically calculating figure size.
-        Default is 0.5 inches. Individual cells will always be drawn as squares regardless
-        of this setting.
+    tile_aspect_ratio : float, optional
+        Aspect ratio of individual tiles (width/height). Default is 1.0 (square tiles).
+        Values > 1 create wider tiles, values < 1 create taller tiles.
+    tile_size : float, optional
+        Base size in inches for each tile when automatically calculating figure size.
+        Default is 0.5 inches. For square tiles (tile_aspect_ratio=1), this is the width and height.
+        For non-square tiles, this is the width if tile_aspect_ratio > 1, or the height if 
+        tile_aspect_ratio < 1.
+    fixed_spacing : bool, optional
+        If True, uses fixed spacing for dendrograms, labels, and other elements proportional
+        to the tile size, creating a more consistent layout. If False, uses the legacy spacing
+        approach.
     show_gene_labels : bool, optional
         Whether to show gene labels
     show_group_labels : bool, optional
@@ -343,109 +348,217 @@ def heatmap(
                 cond1_means = _apply_scaling(cond1_means, standard_scale, log_message=False)
                 cond2_means = _apply_scaling(cond2_means, standard_scale)
 
-        # Calculate a custom figure size based on cell count and aspect ratio
+        # Calculate a custom figure size with fixed aspect ratio tiles and consistent spacing
         if figsize is None:
-            # After transposition, we'll have:
-            # - genes on y-axis (rows)
-            # - groups on x-axis (columns)
+            # Define constants for fixed spacing in multiples of the base unit
+            GENE_LABEL_SPACE = 3.5    # Space for gene labels (y-axis)
+            GROUP_LABEL_SPACE = 2.0   # Space for group labels (x-axis)
+            TITLE_SPACE = 3.0         # Space for title
+            LEGEND_SPACE = 5.0        # Space for legend
+            COLORBAR_SPACE = 3.0      # Space for colorbar
+            ROW_DENDROGRAM_SPACE = 2.5 # Space for row dendrogram
+            COL_DENDROGRAM_SPACE = 2.5 # Space for column dendrogram
             
-            # Base width on the number of groups (will be columns after transpose)
-            data_width = n_groups * cell_size
-            # Base height on the number of genes (will be rows after transpose)
-            data_height = n_genes * cell_size
+            # Calculate base tile dimensions - determine reference dimension
+            if tile_aspect_ratio >= 1.0:
+                # Wider or square tiles
+                tile_width = tile_size
+                tile_height = tile_size / tile_aspect_ratio
+            else:
+                # Taller tiles
+                tile_height = tile_size
+                tile_width = tile_size * tile_aspect_ratio
             
-            # Set relative sizes - keep cells square for proper visualization
-            cell_width_factor = 1.0  # Standard width
-            cell_height_factor = 1.0  # Standard height for square cells
+            # Space unit for fixed elements - use the larger dimension of the tile for consistent spacing
+            base_unit = max(tile_width, tile_height)
             
-            # Apply the adjustments
-            data_width = data_width * cell_width_factor
-            data_height = data_height * cell_height_factor
+            # Calculate data area dimensions in base units
+            data_width_units = n_groups
+            data_height_units = n_genes
             
+            # Convert to inches
+            data_width_inches = data_width_units * tile_width
+            data_height_inches = data_height_units * tile_height
             
-            # Add space for labels, title, and other elements
-            width_inches = data_width + 4  # For labels and sidebar
-            # Make height more proportional to gene count - minimal padding for few genes
-            height_inches = data_height + min(2, max(0.5, data_height * 0.2))  # Adaptive padding based on gene count
+            # Calculate space for each component in absolute inches
+            # Left area - for gene labels
+            left_area_inches = GENE_LABEL_SPACE * base_unit if show_gene_labels else base_unit
             
-            # Cap the size for very large gene/group counts
-            max_width = 20
+            # Bottom area - for group labels
+            bottom_area_inches = GROUP_LABEL_SPACE * base_unit if show_group_labels else base_unit
+            
+            # Right area - for column dendrogram and/or sidebar
+            right_area_inches = max(LEGEND_SPACE, COLORBAR_SPACE) * base_unit
+            if dendrogram and cluster_cols:
+                right_area_inches += COL_DENDROGRAM_SPACE * base_unit
+            
+            # Top area - for title and row dendrogram
+            top_area_inches = TITLE_SPACE * base_unit
+            if dendrogram and cluster_rows:
+                top_area_inches += ROW_DENDROGRAM_SPACE * base_unit
+            
+            # Calculate final figure dimensions
+            width_inches = left_area_inches + data_width_inches + right_area_inches
+            height_inches = bottom_area_inches + data_height_inches + top_area_inches
+            
+            # Cap figure size for very large data
+            max_width = 30
             max_height = 30
-            width_inches = min(width_inches, max_width)
-            height_inches = min(height_inches, max_height)
-            
-            # Apply overall aspect ratio constraint if specified, but only to reduce height, never increase it
-            if aspect_ratio > 0:
-                current_ratio = height_inches / width_inches
-                # Only apply if the current ratio is far from target and would make the plot smaller
-                if current_ratio > aspect_ratio and abs(current_ratio - aspect_ratio) > 0.1:
-                    # Too tall - increase width but don't exceed max
-                    width_inches = min(height_inches / aspect_ratio, max_width)
-            
-            # Add extra space for dendrograms if needed
-            if dendrogram:
-                if cluster_cols:
-                    width_inches += 1.5  # More space for column dendrogram on right
-                if cluster_rows:
-                    height_inches += 1.2  # More space for row dendrogram on top
-                # Extra space for title when dendrograms are present
-                height_inches += 0.8
+            if width_inches > max_width or height_inches > max_height:
+                # Scale down while preserving aspect ratio
+                scale_factor = min(max_width / width_inches, max_height / height_inches)
+                width_inches *= scale_factor
+                height_inches *= scale_factor
+                
+                # Scale all dimensions proportionally
+                left_area_inches *= scale_factor
+                bottom_area_inches *= scale_factor
+                right_area_inches *= scale_factor
+                top_area_inches *= scale_factor
+                data_width_inches *= scale_factor
+                data_height_inches *= scale_factor
+                base_unit *= scale_factor
             
             figsize = (width_inches, height_inches)
-
+            
+            # Store all the calculated dimensions for later use
+            fig_dims = {
+                # Store original units for reference
+                'base_unit': base_unit,
+                'tile_width': tile_width,
+                'tile_height': tile_height,
+                
+                # Store absolute dimensions in inches
+                'width_inches': width_inches,
+                'height_inches': height_inches,
+                'left_area_inches': left_area_inches,
+                'bottom_area_inches': bottom_area_inches,
+                'right_area_inches': right_area_inches,
+                'top_area_inches': top_area_inches,
+                'data_width_inches': data_width_inches,
+                'data_height_inches': data_height_inches,
+                
+                # Store flag for dendrogram presence
+                'has_row_dendrogram': dendrogram and cluster_rows,
+                'has_col_dendrogram': dendrogram and cluster_cols
+            }
+        else:
+            # When figsize is explicitly provided, we need to calculate reasonable dimensions
+            # Calculate tile dimensions
+            if tile_aspect_ratio >= 1.0:
+                tile_width = tile_size
+                tile_height = tile_size / tile_aspect_ratio
+            else:
+                tile_height = tile_size
+                tile_width = tile_size * tile_aspect_ratio
+                
+            base_unit = max(tile_width, tile_height)
+            
+            # Use default proportions when figsize is user-provided
+            width_inches, height_inches = figsize
+            
+            # Approximate reasonable areas based on base_unit
+            left_area_inches = min(3.0 * base_unit, width_inches * 0.2)
+            right_area_inches = min(5.0 * base_unit, width_inches * 0.3)
+            bottom_area_inches = min(2.0 * base_unit, height_inches * 0.15)
+            top_area_inches = min(2.0 * base_unit, height_inches * 0.15)
+            if dendrogram:
+                if cluster_rows:
+                    top_area_inches += min(2.0 * base_unit, height_inches * 0.1)
+                if cluster_cols:
+                    right_area_inches += min(2.0 * base_unit, width_inches * 0.1)
+            
+            # Calculate data area from the remaining space
+            data_width_inches = width_inches - left_area_inches - right_area_inches
+            data_height_inches = height_inches - bottom_area_inches - top_area_inches
+            
+            # Store all dimensions
+            fig_dims = {
+                'base_unit': base_unit,
+                'tile_width': tile_width,
+                'tile_height': tile_height,
+                
+                'width_inches': width_inches,
+                'height_inches': height_inches,
+                'left_area_inches': left_area_inches, 
+                'bottom_area_inches': bottom_area_inches,
+                'right_area_inches': right_area_inches,
+                'top_area_inches': top_area_inches,
+                'data_width_inches': data_width_inches,
+                'data_height_inches': data_height_inches,
+                
+                'has_row_dendrogram': dendrogram and cluster_rows,
+                'has_col_dendrogram': dendrogram and cluster_cols
+            }
+        
         # Create figure if no axes provided
         create_fig = ax is None
         if create_fig:
-            # Create figure with room for the sidebar and dendrograms
+            # Create figure with the calculated size
             fig = plt.figure(figsize=figsize)
             
-            # Define layout regions - adjust for dendrograms
-            # Set reasonable margins
-            bottom_margin = 0.1  # Bottom margin for x-axis labels
-            left_margin = 0.15  # Standard left margin
+            # Calculate plot areas using absolute inches - convert to figure coordinates
+            fig_width, fig_height = fig.get_size_inches()
             
-            # Right margin depends on column dendrogram and sidebar
-            # Move column dendrogram to right side (before sidebar)
-            if dendrogram and cluster_cols:
-                right_margin = 0.65  # Less space on right to make room for column dendrogram
-            else:
-                right_margin = 0.75  # Standard right margin for just sidebar
-                
-            # Top margin depends on row dendrogram
-            # Create more space at the top to avoid title overlap
-            if dendrogram and cluster_rows:
-                top_margin = 0.75  # More space on top for row dendrogram + title
-            else:
-                top_margin = 0.85  # Standard top margin without dendrogram
+            # Calculate main heatmap position
+            main_left = fig_dims['left_area_inches'] / fig_width
+            main_bottom = fig_dims['bottom_area_inches'] / fig_height
+            main_width = fig_dims['data_width_inches'] / fig_width
+            main_height = fig_dims['data_height_inches'] / fig_height
             
-            # Main grid layout for the plot area
-            main_grid = GridSpec(1, 1, 
-                                left=left_margin, 
-                                right=right_margin, 
-                                top=top_margin, 
-                                bottom=bottom_margin)
+            # Create main axes for the heatmap
+            ax = fig.add_axes([main_left, main_bottom, main_width, main_height])
             
-            # Add the main axes for the heatmap
-            ax = fig.add_subplot(main_grid[0, 0])
+            # Add title area as a separate axes
+            title_height = (TITLE_SPACE * fig_dims['base_unit']) / fig_height
+            title_bottom = 1.0 - title_height
+            title_ax = fig.add_axes([0, title_bottom, 1.0, title_height])
+            title_ax.set_axis_off()
             
-            # Add dendrogram axes if needed - corrected positioning with proper names
+            # Add dendrogram axes if needed
             dendrogram_axes = {}
+            
             if dendrogram:
-                # For column dendrogram - ON THE RIGHT for groups (after transpose, groups are on y-axis)
+                # For column dendrogram - next to main plot on right
                 if cluster_cols:
-                    # Position the column dendrogram on the right side
-                    col_dendrogram_width = 0.08
-                    col_dendrogram_left = right_margin + 0.01
-                    col_dendrogram_ax = fig.add_axes([col_dendrogram_left, bottom_margin, col_dendrogram_width, top_margin - bottom_margin])
+                    col_dend_width = (COL_DENDROGRAM_SPACE * fig_dims['base_unit']) / fig_width
+                    col_dend_left = main_left + main_width + (0.5 * fig_dims['base_unit'] / fig_width)
+                    col_dendrogram_ax = fig.add_axes([
+                        col_dend_left, 
+                        main_bottom, 
+                        col_dend_width, 
+                        main_height
+                    ])
                     dendrogram_axes['col'] = col_dendrogram_ax
                     col_dendrogram_ax.set_axis_off()
                 
-                # For row dendrogram - ON TOP for genes (after transpose, genes are on x-axis)
+                # For row dendrogram - above main plot
                 if cluster_rows:
-                    # Position dendrogram with proper spacing for title
-                    row_dendrogram_ax = fig.add_axes([left_margin, top_margin + 0.02, right_margin - left_margin, 0.1])
+                    row_dend_height = (ROW_DENDROGRAM_SPACE * fig_dims['base_unit']) / fig_height
+                    row_dend_bottom = main_bottom + main_height + (0.5 * fig_dims['base_unit'] / fig_height)
+                    row_dendrogram_ax = fig.add_axes([
+                        main_left, 
+                        row_dend_bottom, 
+                        main_width, 
+                        row_dend_height
+                    ])
                     dendrogram_axes['row'] = row_dendrogram_ax
                     row_dendrogram_ax.set_axis_off()
+            
+            # Add sidebar area for legend and colorbar
+            sidebar_left = main_left + main_width
+            if fig_dims['has_col_dendrogram']:
+                sidebar_left += (COL_DENDROGRAM_SPACE * fig_dims['base_unit'] + fig_dims['base_unit']) / fig_width
+            else:
+                sidebar_left += (0.5 * fig_dims['base_unit']) / fig_width
+                
+            sidebar_width = (LEGEND_SPACE * fig_dims['base_unit']) / fig_width
+            sidebar_ax = fig.add_axes([sidebar_left, main_bottom, sidebar_width, main_height])
+            sidebar_ax.set_axis_off()
+            
+            # Store all axes in the fig object for later reference
+            fig.title_ax = title_ax
+            fig.sidebar_ax = sidebar_ax
         else:
             # Use existing axes
             fig = ax.figure
@@ -594,14 +707,12 @@ def heatmap(
             all_data, center, vmin, vmax, cmap
         )
 
-        # Use square cells for better visualization
-        # Each cell should be square to maintain proper proportions
-        cell_width = 1.0
-        cell_height = 1.0
+        # Use the calculated tile dimensions for each cell based on the base unit
+        # Scale to appropriate relative sizes within the axes
+        cell_width = 1.0  # Standard width in axes units
+        cell_height = fig_dims['tile_height'] / fig_dims['tile_width']  # Preserve aspect ratio
         
-        # Do not set the global aspect ratio - let matplotlib handle it based on the figure size
-        # This allows for proper alignment with labels and dendrograms
-        
+        # Draw each cell
         for i, gene in enumerate(cond1_means.index):
             for j, group in enumerate(cond1_means.columns):
                 val1 = cond1_means.iloc[i, j]
@@ -642,125 +753,147 @@ def heatmap(
         # Remove the grid
         ax.grid(False)
 
-        # Set title if provided, or create an informative default title
-        # Adjust title position based on dendrogram presence
-        
-        # Set a consistent title position with appropriate spacing
-        y_pos = 0.98  # Default position
-        
-        # Adjust based on dendrogram presence
-        if dendrogram and cluster_rows:
-            # Lower the title position when row dendrogram is present
-            y_pos = 0.94  # More space above for dendrogram
-            
-        # Choose title content
-        if title:
-            # Use provided title
-            fig.suptitle(title, fontsize=18, fontweight='bold', y=y_pos)
-        elif condition1_name and condition2_name:
-            # Generate default title
-            fig.suptitle(
-                f"{condition1_name} vs {condition2_name}\n"
-                f"Mean expression by {groupby}", 
-                fontsize=18, fontweight='bold', y=y_pos
+        # Set title if provided, or create an informative default title using the dedicated title_ax
+        if create_fig:  # Only if we created the figure
+            # Choose title content
+            if title:
+                # Use provided title
+                title_text = title
+            elif condition1_name and condition2_name:
+                # Generate default title
+                title_text = f"{condition1_name} vs {condition2_name}\nMean expression by {groupby}"
+            else:
+                title_text = "Gene Expression Heatmap"
+                
+            # Add title to the dedicated title axes
+            fig.title_ax.text(
+                0.5, 0.5, title_text,
+                fontsize=18, fontweight='bold',
+                horizontalalignment='center',
+                verticalalignment='center'
             )
 
-        # Create sidebar for legend and colorbar - always position it on the right
-        # Start sidebar after the column dendrogram if present
-        if dendrogram and cluster_cols:
-            # Account for column dendrogram on the right
-            sidebar_left = right_margin + 0.11  # Add dendrogram width + small gap
-        else:
-            sidebar_left = right_margin + 0.02  # Standard position
+        # Create legend and colorbar in the sidebar area
+        if create_fig:  # Only if we created the figure
+            # Get the sidebar axes
+            sidebar_ax = fig.sidebar_ax
             
-        sidebar_width = 0.15  # Make sidebar narrower to save space
-        legend_height = 0.25
-        colorbar_height = 0.25
-        
-        # Add legend at top right
-        legend_ax = fig.add_axes([sidebar_left, 0.65, sidebar_width, legend_height])
-        legend_ax.axis('off')  # Hide the axes
+            # Create triangle patches for legend with position information
+            lower_triangle = mpatches.Polygon(
+                [[0, 0], [1, 0], [0, 1]],
+                facecolor=cmap_obj(0.7),  # Use a specific color for legend
+                label=f"{condition1_name} (lower left)"
+            )
+            upper_triangle = mpatches.Polygon(
+                [[1, 0], [1, 1], [0, 1]],
+                facecolor=cmap_obj(0.3),  # Use a different color for contrast
+                label=f"{condition2_name} (upper right)"
+            )
 
-        # Create triangle patches for legend with position information
-        lower_triangle = mpatches.Polygon(
-            [[0, 0], [1, 0], [0, 1]],
-            facecolor=cmap_obj(0.7),  # Use a specific color for legend
-            label=f"{condition1_name} (lower left)"
-        )
-        upper_triangle = mpatches.Polygon(
-            [[1, 0], [1, 1], [0, 1]],
-            facecolor=cmap_obj(0.3),  # Use a different color for contrast
-            label=f"{condition2_name} (upper right)"
-        )
+            legend_elements = [upper_triangle, lower_triangle]
+            
+            # Calculate legend position within sidebar - use top portion
+            legend_height = 0.4  # Use top 40% of sidebar for legend
+            
+            # Custom handler for the triangular patches
+            class HandlerTriangle(HandlerPatch):
+                def create_artists(
+                    self, legend, orig_handle, xdescent, ydescent, width, height, fontsize, trans
+                ):
+                    # With transposed plot, we need to update the triangles
+                    if "(lower left)" in orig_handle.get_label():
+                        # Lower triangle (first condition)
+                        verts = [
+                            [xdescent, ydescent],
+                            [xdescent + width, ydescent],
+                            [xdescent, ydescent + height],
+                        ]
+                    else:  # upper right
+                        verts = [
+                            [xdescent + width, ydescent],
+                            [xdescent + width, ydescent + height],
+                            [xdescent, ydescent + height],
+                        ]
+                    triangle = mpatches.Polygon(
+                        verts,
+                        closed=True,
+                        facecolor=orig_handle.get_facecolor(),
+                        edgecolor=orig_handle.get_edgecolor(),
+                    )
+                    triangle.set_transform(trans)
+                    return [triangle]
 
-        legend_elements = [upper_triangle, lower_triangle]
-
-        # Custom handler for the triangular patches - make sure they match the display in the plot
-        class HandlerTriangle(HandlerPatch):
-            def create_artists(
-                self, legend, orig_handle, xdescent, ydescent, width, height, fontsize, trans
-            ):
-                # With transposed plot, we need to update the triangles
-                # The condition1 is still lower left, condition2 is upper right
-                if "(lower left)" in orig_handle.get_label():
-                    # Lower triangle (first condition)
-                    verts = [
-                        [xdescent, ydescent],
-                        [xdescent + width, ydescent],
-                        [xdescent, ydescent + height],
-                    ]
-                else:  # upper right
-                    verts = [
-                        [xdescent + width, ydescent],
-                        [xdescent + width, ydescent + height],
-                        [xdescent, ydescent + height],
-                    ]
-                triangle = mpatches.Polygon(
-                    verts,
-                    closed=True,
-                    facecolor=orig_handle.get_facecolor(),
-                    edgecolor=orig_handle.get_edgecolor(),
-                )
-                triangle.set_transform(trans)
-                return [triangle]
-
-        # Add the legend using our custom handler
-        legend = legend_ax.legend(
-            handles=legend_elements,
-            loc="center",
-            title="Conditions",
-            frameon=False,
-            handler_map={mpatches.Polygon: HandlerTriangle()},
-        )
-        legend.get_title().set_fontweight('bold')
-        
-        # Add colorbar below the legend
-        colorbar_width = 0.03  # Narrower colorbar
-        colorbar_left = sidebar_left + (sidebar_width - colorbar_width) / 2  # Center in sidebar
-        cax = fig.add_axes([colorbar_left, 0.3, colorbar_width, colorbar_height])
+            # Add the legend at the top of the sidebar
+            # Create an axes for the legend in the top portion of the sidebar
+            bbox = sidebar_ax.get_position()
+            legend_ax = fig.add_axes([
+                bbox.x0, 
+                bbox.y0 + bbox.height * (1 - legend_height), 
+                bbox.width, 
+                bbox.height * legend_height
+            ])
+            legend_ax.set_axis_off()
+            
+            # Add the legend
+            legend = legend_ax.legend(
+                handles=legend_elements,
+                loc="center",
+                title="Conditions",
+                frameon=False,
+                handler_map={mpatches.Polygon: HandlerTriangle()},
+            )
+            legend.get_title().set_fontweight('bold')
+            
+            # Add colorbar in the lower portion of the sidebar
+            colorbar_height = 0.5  # Use 50% of sidebar for colorbar
+            # Create colorbar axes in the bottom portion of sidebar with a gap
+            gap = 0.1  # 10% gap in the middle
+            colorbar_ax = fig.add_axes([
+                bbox.x0 + bbox.width * 0.3,  # Center horizontally with 30% margin on each side
+                bbox.y0,  # Start from bottom of sidebar
+                bbox.width * 0.4,  # Make narrower than full sidebar
+                bbox.height * (1 - legend_height - gap) # Fill remaining space minus gap
+            ])
+            # Don't turn off axis for colorbar - we need to see the ticks and labels
+            
+            # Create the colorbar in the new axes
+            cax = colorbar_ax
 
         # Create the colorbar
         sm = plt.cm.ScalarMappable(cmap=cmap_obj, norm=norm)
         sm.set_array([])
         cbar = fig.colorbar(sm, cax=cax)
         
-        # Remove colorbar outline and grid
+        # Style the colorbar but keep the ticks and labels
         cbar.outline.set_visible(False)
-        cbar.ax.tick_params(axis='both', which='both', length=0)
+        cbar.ax.tick_params(axis='y', which='both', length=4, width=1, direction='out')
         cbar.ax.grid(False)
         
-        # Make sure there are no spines visible
-        for spine in cbar.ax.spines.values():
-            spine.set_visible(False)
+        # Make spines invisible except for the left one
+        for spine_name, spine in cbar.ax.spines.items():
+            if spine_name == 'left':
+                spine.set_visible(True)
+                spine.set_linewidth(0.5)
+            else:
+                spine.set_visible(False)
 
         # Set colorbar label based on whether data was z-scored
         if standard_scale == "var" or standard_scale == 0:
-            cbar.set_label(
-                "Z-score" if colorbar_title == "Expression" else colorbar_title, 
-                labelpad=10, fontweight='bold'
-            )
+            label_text = "Z-score" if colorbar_title == "Expression" else colorbar_title
         else:
-            cbar.set_label(colorbar_title, labelpad=10, fontweight='bold')
+            label_text = colorbar_title
+            
+        cbar.set_label(label_text, labelpad=10, fontweight='bold', fontsize=12)
+        
+        # Ensure ticks are visible with proper font size
+        cbar.ax.tick_params(labelsize=10)
+        
+        # Force a minimum of 3 ticks on the colorbar
+        if len(cbar.ax.get_yticks()) < 3:
+            cbar.ax.yaxis.set_major_locator(plt.MaxNLocator(3))
+            
+        # Ensure tick labels have proper formatting
+        cbar.ax.yaxis.set_major_formatter(plt.FormatStrFormatter('%.1f'))
 
         # Save figure if path provided
         if save:
