@@ -580,6 +580,10 @@ def compute_differential_expression(
         
     if 'weighted_mean_log_fold_change' in expression_results:
         result_dict["weighted_mean_log_fold_change"] = expression_results['weighted_mean_log_fold_change']
+        
+    # Add landmarks to result dictionary if they were computed
+    if hasattr(diff_expression, 'computed_landmarks') and diff_expression.computed_landmarks is not None:
+        result_dict["landmarks"] = diff_expression.computed_landmarks
     
     if inplace:
         # Sanitize condition names for use in column names first

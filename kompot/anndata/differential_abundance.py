@@ -534,7 +534,7 @@ def compute_differential_abundance(
     adata.uns[storage_key]["run_info"] = current_run_info
     
     # Return results as a dictionary
-    return {
+    result_dict = {
         "log_fold_change": abundance_results['log_fold_change'],
         "log_fold_change_zscore": abundance_results['log_fold_change_zscore'],
         "neg_log10_fold_change_pvalue": abundance_results['neg_log10_fold_change_pvalue'],  # Now using negative log10 p-values
@@ -543,3 +543,9 @@ def compute_differential_abundance(
         "log_density_condition2": abundance_results['log_density_condition2'],
         "model": diff_abundance,
     }
+    
+    # Add landmarks to result dictionary if they were computed
+    if hasattr(diff_abundance, 'computed_landmarks') and diff_abundance.computed_landmarks is not None:
+        result_dict["landmarks"] = diff_abundance.computed_landmarks
+        
+    return result_dict

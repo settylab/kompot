@@ -364,11 +364,19 @@ def run_differential_analysis(
     # The global history is maintained separately for combined runs.
     
     # Return the results along with the AnnData
-    return {
+    result_dict = {
         "adata": adata,
         "differential_abundance": abundance_result["model"] if abundance_result else None,
         "differential_expression": expression_result["model"] if expression_result else None,
     }
+    
+    # Add landmarks if they were computed and shared
+    if abundance_landmarks is not None:
+        result_dict["landmarks"] = abundance_landmarks
+    elif compute_expression and expression_result and "landmarks" in expression_result:
+        result_dict["landmarks"] = expression_result["landmarks"]
+    
+    return result_dict
 
 
 def generate_report(
