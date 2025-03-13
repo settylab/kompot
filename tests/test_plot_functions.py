@@ -6,7 +6,8 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from typing import Dict, Any, List
 
-from kompot.anndata.functions import compute_differential_abundance, compute_differential_expression
+from kompot.anndata.differential_abundance import compute_differential_abundance
+from kompot.anndata.differential_expression import compute_differential_expression
 from kompot.plot.volcano import volcano_de, volcano_da, _infer_de_keys, _infer_da_keys
 from kompot.plot.heatmap import heatmap
 
@@ -90,7 +91,7 @@ def create_test_data_with_multiple_runs():
     )
     
     # Create a global run history (which doesn't happen in the individual function calls)
-    from kompot.anndata.functions import run_differential_analysis
+    from kompot.anndata.workflows import run_differential_analysis
     _ = run_differential_analysis(
         adata,
         groupby='group',
