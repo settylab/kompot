@@ -10,6 +10,8 @@ from kompot.anndata.differential_abundance import compute_differential_abundance
 from kompot.anndata.differential_expression import compute_differential_expression
 from kompot.plot.volcano import volcano_de, volcano_da, _infer_de_keys, _infer_da_keys
 from kompot.plot.heatmap import heatmap
+from kompot.plot.expression import plot_gene_expression, _infer_expression_keys
+from kompot.plot.heatmap.direction_plot import direction_barplot, _infer_direction_key
 
 
 def create_test_anndata(n_cells=100, n_genes=20):
@@ -29,7 +31,8 @@ def create_test_anndata(n_cells=100, n_genes=20):
     
     # Create embedding
     obsm = {
-        'DM_EigenVectors': np.random.normal(0, 1, (n_cells, 10))
+        'DM_EigenVectors': np.random.normal(0, 1, (n_cells, 10)),
+        'X_pca': np.random.normal(0, 1, (n_cells, 2))
     }
     
     # Create observation dataframe
@@ -347,3 +350,174 @@ class TestPlotFunctions:
         # Skip this test for now - we've verified the code works but 
         # matplotlib is causing issues in the test environment
         pytest.skip("Skipping heatmap test due to matplotlib issues in test environment")
+    
+    def test_gene_expression_plot(self):
+        """Test plot_gene_expression function."""
+        try:
+            import scanpy as sc
+            _has_scanpy = True
+        except ImportError:
+            _has_scanpy = False
+            pytest.skip("scanpy not installed, skipping test")
+        
+        # Add necessary data for gene expression plot
+        self.adata.var['de_run3_mean_lfc_A_vs_B'] = np.random.randn(self.adata.n_vars)
+        self.adata.var['de_run3_mahalanobis_A_vs_B'] = np.abs(np.random.randn(self.adata.n_vars))
+        
+        # Create layers for imputed expression and fold changes
+        self.adata.layers['de_run3_A_imputed'] = self.adata.X.copy()
+        self.adata.layers['de_run3_B_imputed'] = self.adata.X.copy() + 0.5
+        self.adata.layers['de_run3_fold_change'] = self.adata.layers['de_run3_B_imputed'] - self.adata.layers['de_run3_A_imputed']
+        
+        # Add layer keys to run info
+        if 'kompot_de' in self.adata.uns and 'run_history' in self.adata.uns['kompot_de']:
+            # Update the run history with layer information
+            for run in self.adata.uns['kompot_de']['run_history']:
+                if run.get('expression_key') == 'de_run3':
+                    if 'field_names' in run:
+                        run['field_names']['imputed_key_1'] = 'de_run3_A_imputed'
+                        run['field_names']['imputed_key_2'] = 'de_run3_B_imputed'
+                        run['field_names']['fold_change_key'] = 'de_run3_fold_change'
+                    break
+        
+        # Test gene expression plot
+        gene = self.adata.var_names[0]
+        
+        # Test with explicit parameters
+        fig, ax = plot_gene_expression(
+            self.adata, 
+            gene=gene,
+            lfc_key='de_run3_mean_lfc_A_vs_B',
+            score_key='de_run3_mahalanobis_A_vs_B',
+            basis='X_pca',
+            return_fig=True
+        )
+        assert fig is not None
+        assert isinstance(ax, np.ndarray)  # Should return array of axes
+        
+        # Test with run_id parameter
+        fig, ax = plot_gene_expression(
+            self.adata,
+            gene=gene,
+            run_id=-1,
+            basis='X_pca',
+            return_fig=True
+        )
+        assert fig is not None
+        assert isinstance(ax, np.ndarray)
+    
+    def test_infer_expression_keys(self):
+        """Test _infer_expression_keys helper function."""
+        # Add test keys
+        self.adata.var['kompot_lfc_key'] = np.random.randn(self.adata.n_vars)
+        self.adata.var['some_other_fold_change'] = np.random.randn(self.adata.n_vars)
+        self.adata.var['kompot_score'] = np.random.randn(self.adata.n_vars)
+        
+        # Test with explicit keys
+        lfc_key, score_key = _infer_expression_keys(
+            self.adata, 
+            lfc_key='kompot_lfc_key', 
+            score_key='kompot_score'
+        )
+        assert lfc_key == 'kompot_lfc_key'
+        assert score_key == 'kompot_score'
+        
+        # Test inference from run_id
+        lfc_key, score_key = _infer_expression_keys(self.adata, run_id=-1)
+        assert lfc_key is not None
+        
+        # Test inference from column names
+        lfc_key, score_key = _infer_expression_keys(
+            self.adata,
+            lfc_key=None,
+            score_key=None
+        )
+        assert lfc_key is not None
+        assert 'lfc' in lfc_key.lower() or 'fold_change' in lfc_key.lower()
+    
+    def test_direction_barplot(self):
+        """Test direction_barplot function."""
+        # Create the direction column
+        directions = np.random.choice(['up', 'down', 'neutral'], size=self.adata.n_obs)
+        self.adata.obs['kompot_da_log_fold_change_direction_A_vs_B'] = directions
+        
+        # Add categories for grouping
+        categories = np.random.choice(['Type1', 'Type2', 'Type3'], size=self.adata.n_obs)
+        self.adata.obs['cell_type'] = categories
+        
+        # Add run info for DA
+        if 'kompot_da' not in self.adata.uns:
+            self.adata.uns['kompot_da'] = {}
+        if 'run_history' not in self.adata.uns['kompot_da']:
+            self.adata.uns['kompot_da']['run_history'] = []
+            
+        # Add DA run with direction key
+        self.adata.uns['kompot_da']['run_history'].append({
+            'run_id': 0,
+            'params': {
+                'conditions': ['A', 'B']
+            },
+            'field_names': {
+                'direction_key': 'kompot_da_log_fold_change_direction_A_vs_B'
+            }
+        })
+        
+        # Test with explicit parameters
+        fig, ax = direction_barplot(
+            self.adata,
+            category_column='cell_type',
+            direction_column='kompot_da_log_fold_change_direction_A_vs_B',
+            condition1='A',
+            condition2='B',
+            return_fig=True
+        )
+        assert fig is not None
+        assert ax is not None
+        
+        # Test with run_id parameter
+        fig, ax = direction_barplot(
+            self.adata,
+            category_column='cell_type',
+            run_id=-1,
+            return_fig=True
+        )
+        assert fig is not None
+        assert ax is not None
+    
+    def test_infer_direction_key(self):
+        """Test _infer_direction_key helper function."""
+        # Create the direction column
+        directions = np.random.choice(['up', 'down', 'neutral'], size=self.adata.n_obs)
+        self.adata.obs['kompot_da_log_fold_change_direction_A_vs_B'] = directions
+        
+        # Add run info for DA if not already present
+        if 'kompot_da' not in self.adata.uns:
+            self.adata.uns['kompot_da'] = {}
+        if 'run_history' not in self.adata.uns['kompot_da']:
+            self.adata.uns['kompot_da']['run_history'] = []
+            
+        # Add DA run with direction key
+        self.adata.uns['kompot_da']['run_history'].append({
+            'run_id': 0,
+            'params': {
+                'conditions': ['A', 'B']
+            },
+            'field_names': {
+                'direction_key': 'kompot_da_log_fold_change_direction_A_vs_B'
+            }
+        })
+        
+        # Test with explicit key
+        dir_key, cond1, cond2 = _infer_direction_key(
+            self.adata, 
+            direction_column='kompot_da_log_fold_change_direction_A_vs_B'
+        )
+        assert dir_key == 'kompot_da_log_fold_change_direction_A_vs_B'
+        assert cond1 == 'A'
+        assert cond2 == 'B'
+        
+        # Test inference from run_id
+        dir_key, cond1, cond2 = _infer_direction_key(self.adata, run_id=-1)
+        assert dir_key is not None
+        assert cond1 is not None
+        assert cond2 is not None
