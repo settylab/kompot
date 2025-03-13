@@ -108,12 +108,10 @@ def _prepare_gene_list(
     # Infer score_key using the helper function
     score_key = _infer_score_key(adata, effective_run_id, score_key)
 
-    # Log which run is being used
-    adjusted_run_id = run_info.get("adjusted_run_id", effective_run_id)
-    logger.info(f"Using DE run {adjusted_run_id} for heatmap.")
-
-    # Log the fields being used
-    logger.info(f"Inferred score_key='{score_key}' from run information")
+    if run_info is not None:
+        adjusted_run_id = run_info.get("adjusted_run_id", effective_run_id)
+        logger.info(f"Using DE run {adjusted_run_id} for heatmap.")
+        logger.info(f"Inferred score_key='{score_key}' from run information")
 
     # Get top genes based on score
     de_data = pd.DataFrame(
