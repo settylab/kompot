@@ -200,6 +200,8 @@ def volcano_de(
     title: Optional[str] = None,
     xlabel: Optional[str] = "Log Fold Change",
     ylabel: Optional[str] = "Mahalanobis Distance",
+    n_x_ticks: int = 3,
+    n_y_ticks: int = 3,
     color_up: str = KOMPOT_COLORS["direction"]["up"],
     color_down: str = KOMPOT_COLORS["direction"]["down"],
     color_background: str = "gray",
@@ -252,6 +254,10 @@ def volcano_de(
         Label for x-axis
     ylabel : str, optional
         Label for y-axis
+    n_x_ticks : int, optional
+        Number of ticks to display on the x-axis (default: 3)
+    n_y_ticks : int, optional
+        Number of ticks to display on the y-axis (default: 3)
     color_up : str, optional
         Color for up-regulated genes
     color_down : str, optional
@@ -425,6 +431,15 @@ def volcano_de(
     ax.set_xlabel(xlabel, fontsize=12)
     ax.set_ylabel(ylabel, fontsize=12)
     
+    # Set the number of ticks on each axis
+    if n_x_ticks > 0:
+        from matplotlib.ticker import MaxNLocator
+        ax.xaxis.set_major_locator(MaxNLocator(n_x_ticks))
+    
+    if n_y_ticks > 0:
+        from matplotlib.ticker import MaxNLocator
+        ax.yaxis.set_major_locator(MaxNLocator(n_y_ticks))
+    
     # Set title if provided or can be inferred
     if title is None and condition1 and condition2:
         title = f"Volcano Plot: {condition1} vs {condition2}"
@@ -479,13 +494,14 @@ def volcano_da(
     pval_threshold: Optional[float] = 0.05,
     color: Optional[Union[str, List[str]]] = None,
     alpha_background: float = 0.4,
-    point_size: float = 10,
     highlight_subset: Optional[Union[np.ndarray, List[bool]]] = None,
     highlight_color: str = KOMPOT_COLORS["direction"]["up"],
     figsize: Tuple[float, float] = (10, 8),
     title: Optional[str] = "Differential Abundance Volcano Plot",
     xlabel: Optional[str] = "Log Fold Change",
     ylabel: Optional[str] = "-log10(p-value)",
+    n_x_ticks: int = 3,
+    n_y_ticks: int = 3,
     legend_loc: str = "best",
     legend_fontsize: Optional[float] = None,
     legend_title_fontsize: Optional[float] = None,
@@ -530,8 +546,6 @@ def volcano_da(
         Keys in adata.obs for coloring cells. Requires scanpy.
     alpha_background : float, optional
         Alpha value for background cells (below threshold)
-    point_size : float, optional
-        Size of points
     highlight_subset : array or list, optional
         Boolean mask to highlight specific cells
     highlight_color : str, optional
@@ -544,6 +558,10 @@ def volcano_da(
         Label for x-axis
     ylabel : str, optional
         Label for y-axis
+    n_x_ticks : int, optional
+        Number of ticks to display on the x-axis (default: 3)
+    n_y_ticks : int, optional
+        Number of ticks to display on the y-axis (default: 3)
     legend_loc : str, optional
         Location for the legend ('best', 'upper right', 'lower left', etc., or 'none' to hide)
     legend_fontsize : float, optional
@@ -704,13 +722,15 @@ def volcano_da(
         significant = highlight_subset
     
     # First plot all cells as background
+    scatter_kwargs = {'s': 10}  # Default point size
+    scatter_kwargs.update(kwargs)
+    
     ax.scatter(
         x, y, 
         alpha=alpha_background, 
-        s=point_size, 
         c="lightgray", 
         label="Non-significant",
-        **kwargs
+        **scatter_kwargs
     )
     
     # Color significant cells
@@ -724,10 +744,9 @@ def volcano_da(
             ax.scatter(
                 x[significant], y[significant], 
                 alpha=1, 
-                s=point_size, 
                 c=highlight_color, 
                 label="Significant",
-                **kwargs
+                **scatter_kwargs
             )
         else:
             # We'll handle coloring manually instead of using scanpy's scatter
@@ -744,7 +763,15 @@ def volcano_da(
                 if c not in adata.obs:
                     warnings.warn(f"Color key '{c}' not found in adata.obs. Skipping.")
                     continue
-                    
+                
+                # Check if the color column is categorical or string
+                if not pd.api.types.is_categorical_dtype(adata.obs[c]):
+                    # If column contains string data, convert to categorical with warning
+                    if pd.api.types.is_string_dtype(adata.obs[c]) or pd.api.types.is_object_dtype(adata.obs[c]):
+                        warnings.warn(f"Color column '{c}' contains string data but is not categorical. "
+                                     f"Converting to categorical for proper coloring.")
+                        adata.obs[c] = adata.obs[c].astype('category')
+                
                 # Get the color values for the significant points
                 color_values = adata.obs[c].values[sig_indices]
                 
@@ -752,12 +779,22 @@ def volcano_da(
                 if pd.api.types.is_categorical_dtype(adata.obs[c]):
                     categories = adata.obs[c].cat.categories
                     
-                    # If palette is a string, convert it to a color map
-                    if isinstance(palette, str):
+                    # Check if colors are stored in adata.uns with f"{color}_colors" format
+                    colors_key = f"{c}_colors"
+                    if colors_key in adata.uns and len(adata.uns[colors_key]) == len(categories):
+                        # Use stored colors from adata.uns
+                        stored_colors = adata.uns[colors_key]
+                        color_dict = dict(zip(categories, stored_colors))
+                        logger.debug(f"Using colors from adata.uns['{colors_key}']")
+                    # Otherwise, use palette or generate colors
+                    elif isinstance(palette, str):
                         # Use matplotlib colormaps instead of seaborn
                         cmap = plt.cm.get_cmap(palette, len(categories))
                         colors = [cmap(i/len(categories)) for i in range(len(categories))]
                         color_dict = dict(zip(categories, colors))
+                        # Store colors in adata.uns for future use
+                        adata.uns[colors_key] = colors
+                        logger.debug(f"Created and stored colors in adata.uns['{colors_key}']")
                     elif isinstance(palette, dict):
                         color_dict = palette
                     else:
@@ -765,6 +802,9 @@ def volcano_da(
                         cmap = plt.cm.get_cmap('tab10', len(categories))
                         colors = [cmap(i/len(categories)) for i in range(len(categories))]
                         color_dict = dict(zip(categories, colors))
+                        # Store colors in adata.uns for future use
+                        adata.uns[colors_key] = colors
+                        logger.debug(f"Created and stored colors in adata.uns['{colors_key}']")
                     
                     # Plot each category separately
                     for cat in categories:
@@ -775,10 +815,9 @@ def volcano_da(
                                 x[sig_indices][cat_mask], 
                                 y[sig_indices][cat_mask],
                                 alpha=1,
-                                s=point_size,
                                 c=[cat_color],
                                 label=f"{cat}",
-                                **kwargs
+                                **scatter_kwargs
                             )
                     
                     # Add legend for categorical data
@@ -827,14 +866,15 @@ def volcano_da(
                             plt.tight_layout(rect=[0, 0, 0.85, 1])
                 else:
                     # For numeric columns, use a colormap
+                    # Default to Spectral_r if no palette specified
+                    colormap = palette if isinstance(palette, str) else "Spectral_r"
                     scatter = ax.scatter(
                         x[sig_indices],
                         y[sig_indices],
                         alpha=1,
-                        s=point_size,
                         c=color_values,
-                        cmap=palette if isinstance(palette, str) else "viridis",
-                        **kwargs
+                        cmap=colormap,
+                        **scatter_kwargs
                     )
                     plt.colorbar(scatter, ax=ax, label=c)
     else:
@@ -842,10 +882,9 @@ def volcano_da(
         ax.scatter(
             x[significant], y[significant], 
             alpha=1, 
-            s=point_size, 
             c=highlight_color, 
             label="Significant",
-            **kwargs
+            **scatter_kwargs
         )
     
     # Add threshold lines
@@ -871,6 +910,16 @@ def volcano_da(
     # Add labels and title
     ax.set_xlabel(xlabel, fontsize=12)
     ax.set_ylabel(ylabel, fontsize=12)
+    
+    # Set the number of ticks on each axis
+    if n_x_ticks > 0:
+        from matplotlib.ticker import MaxNLocator
+        ax.xaxis.set_major_locator(MaxNLocator(n_x_ticks))
+    
+    if n_y_ticks > 0:
+        from matplotlib.ticker import MaxNLocator
+        ax.yaxis.set_major_locator(MaxNLocator(n_y_ticks))
+        
     if title:
         ax.set_title(title, fontsize=14)
     
