@@ -46,13 +46,13 @@ def heatmap(
     figsize: Optional[Tuple[float, float]] = None,
     tile_aspect_ratio: float = 1.0,  # Default aspect ratio of individual tiles (width/height)
     tile_size: float = 0.3,     # Size for each tile in inches (reference dimension, width for square tiles)
-    fixed_spacing: bool = True,  # Whether to use fixed spacing for labels, dendrograms, etc.
     show_gene_labels: bool = True,
     show_group_labels: bool = True,
     gene_labels_size: int = 10,
     group_labels_size: int = 12,
     colorbar_title: Optional[str] = None,
     colorbar_kwargs: Optional[Dict[str, Any]] = None,
+    n_colorbar_ticks: Optional[int] = 3,  # Control number of ticks in the colorbar
     layout_config: Optional[Dict[str, float]] = None,  # Configuration for layout spacing
     title: Optional[str] = None,
     sort_genes: bool = True,
@@ -132,10 +132,6 @@ def heatmap(
         Default is 0.5 inches. For square tiles (tile_aspect_ratio=1), this is the width and height.
         For non-square tiles, this is the width if tile_aspect_ratio > 1, or the height if 
         tile_aspect_ratio < 1.
-    fixed_spacing : bool, optional
-        If True, uses fixed spacing for dendrograms, labels, and other elements proportional
-        to the tile size, creating a more consistent layout. If False, uses the legacy spacing
-        approach.
     show_gene_labels : bool, optional
         Whether to show gene labels
     show_group_labels : bool, optional
@@ -154,6 +150,10 @@ def heatmap(
         - 'locator': A matplotlib Locator instance for tick positions
         - 'formatter': A matplotlib Formatter instance for tick labels
         - Any attribute of matplotlib colorbar instance
+    n_colorbar_ticks : int, optional
+        Number of ticks to display in the colorbar. Default is 3. This parameter provides
+        a simple way to control tick density, while the colorbar_kwargs['locator'] option
+        provides more fine-grained control if needed.
     layout_config : dict, optional
         Configuration for controlling plot layout spacing. Keys include:
         - 'gene_label_space': Space for gene labels (y-axis), default 3.5
@@ -231,20 +231,13 @@ def heatmap(
         sort_genes=sort_genes,
         run_id=effective_run_id,
     )
-    
-    # Store the explicitly provided conditions first
-    explicit_condition1 = condition1
-    explicit_condition2 = condition2
-    
-    # Extract key parameters from run_info
-    condition_key = None
-    actual_run_id = None
-    inferred_layer = None
-    
-    # ONLY set condition1 and condition2 from run_info if they weren't explicitly provided
-    if condition1 is None or condition2 is None:
-        if run_info is not None and "params" in run_info:
-            params = run_info["params"]
+
+    if run_info is not None and "params" in run_info:
+        params = run_info["params"]
+        if condition_column is None:
+            condition_column = params["groupby"]
+            logger.info(f"Inferred condition_column='{condition_column}' from run information")
+        if condition1 is None or condition2 is None:
             # First check if condition1 and condition2 are directly in params
             if "condition1" in params and "condition2" in params:
                 if condition1 is None:
@@ -261,22 +254,9 @@ def heatmap(
                 if condition2 is None:
                     condition2 = params["conditions"][1]
                     logger.info(f"Inferred condition2='{condition2}' from run information")
-                    
-    # In Kompot DE runs, the condition column is called "groupby"
-    if run_info is not None and "params" in run_info:
-        params = run_info["params"]
-        if "groupby" in params:
-            condition_key = params["groupby"]
-        # Try to infer layer from run_info
-        if "layer" in params:
-            inferred_layer = params["layer"]
-            
-    # Use inferred layer if no explicit layer is provided
-    if layer is None and inferred_layer is not None:
-        layer = inferred_layer
-        logger.info(f"Using layer '{layer}' inferred from run information")
-    
-    # No longer trying to extract conditions from lfc_key since this parameter has been removed
+        if layer is None:
+            layer = params["layer"]
+            logger.info(f"Inferred layer='{layer}' from run information")
                 
     # Handle display names for conditions
     # If display names weren't provided, use the actual condition values
@@ -285,18 +265,6 @@ def heatmap(
     if condition2_name is None and condition2 is not None:
         condition2_name = condition2
     
-    # If condition_column is None, use the one from run_info
-    if condition_column is None and condition_key is not None:
-        condition_column = condition_key
-        logger.info(f"Using condition_column '{condition_column}' from run information")
-    
-    # Log which run is being used
-    conditions_str = (
-        f": comparing {condition1} vs {condition2}"
-        if condition1 and condition2
-        else ""
-    )
-    logger.info(f"Using DE run {effective_run_id} for heatmap{conditions_str}")
 
     # Log the plot type
     logger.info(f"Creating split heatmap with {len(var_names)} genes/features")
@@ -311,18 +279,8 @@ def heatmap(
         logger.error(f"Condition column '{condition_column}' not found in adata.obs")
         return None
 
-    # Add more debugging info
-    logger.info(f"Using condition_column='{condition_column}', condition1='{condition1}', condition2='{condition2}'")
-    
-    # Log display names if they differ from the condition values
-    if condition1 != condition1_name or condition2 != condition2_name:
-        logger.info(f"Using display names: '{condition1_name}' for condition1, '{condition2_name}' for condition2")
-    
-    # Log available values in the condition column
-    if condition_column is not None and condition_column in adata.obs.columns:
-        unique_values = adata.obs[condition_column].unique()
-        logger.info(f"Available values in {condition_column}: {', '.join(map(str, unique_values))}")
-    
+    unique_values = adata.obs[condition_column].unique()
+
     # Check for presence of both conditions in data
     if condition1 is None:
         logger.error(f"No value for condition1 could be inferred. Please provide using condition1 parameter.")
@@ -330,13 +288,27 @@ def heatmap(
     if condition2 is None:
         logger.error(f"No value for condition2 could be inferred. Please provide using condition2 parameter.")
         return None
-        
-    if condition1 not in adata.obs[condition_column].unique():
-        logger.error(f"Condition '{condition1}' not found in {condition_column}")
+
+    if condition1 not in unique_values:
+        logger.error(
+            f"Condition '{condition1}' not found in {condition_column}. "
+            f"Available values are: {', '.join(map(str, unique_values))}"
+        )
         return None
-    if condition2 not in adata.obs[condition_column].unique():
-        logger.error(f"Condition '{condition2}' not found in {condition_column}")
+    if condition2 not in unique_values:
+        logger.error(
+            f"Condition '{condition2}' not found in {condition_column}. "
+            f"Available values are: {', '.join(map(str, unique_values))}"
+        )
         return None
+    
+    # Log display names if they differ from the condition values
+    if condition1 != condition1_name or condition2 != condition2_name:
+        logger.info(
+            f"Using display names: '{condition1_name}' for condition1, "
+            f"'{condition2_name}' for condition2"
+        )
+    
 
     # Get expression data
     expr_matrix = _get_expression_matrix(adata, var_names, layer)
@@ -1128,15 +1100,16 @@ def heatmap(
         # Ensure ticks are visible with proper font size
         cbar.ax.tick_params(labelsize=10)
         
-        # Set exactly 3 ticks on the colorbar by default
-        cbar.ax.yaxis.set_major_locator(plt.MaxNLocator(3))
+        # Use custom number of ticks if provided, otherwise use default of 3
+        if 'locator' not in (colorbar_kwargs or {}):
+            cbar.ax.yaxis.set_major_locator(plt.MaxNLocator(n_colorbar_ticks))
             
         # Ensure tick labels have proper formatting
         cbar.ax.yaxis.set_major_formatter(plt.FormatStrFormatter('%.1f'))
         
         # Apply any additional colorbar formatting from colorbar_kwargs
         if colorbar_kwargs:
-            # Apply any tick locator if specified
+            # Apply any tick locator if specified (overrides n_colorbar_ticks)
             if 'locator' in colorbar_kwargs:
                 cbar.ax.yaxis.set_major_locator(colorbar_kwargs['locator'])
             

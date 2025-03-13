@@ -129,9 +129,11 @@ def get_run_from_history(
     
     # Find the requested run
     if 0 <= adjusted_run_id < len(history):
-        return history[adjusted_run_id]
+        run_info = history[adjusted_run_id]
+        run_info["adjusted_run_id"] = adjusted_run_id
+        return run_info
     else:
-        logger.warning(f"Run ID {run_id} not found in {history_key}. Using default or latest run.")
+        logger.warning(f"Run ID {run_id} not found in {history_key}.")
         return None
 
 
