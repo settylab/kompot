@@ -382,17 +382,18 @@ def run_differential_analysis(
 def generate_report(
     diff_expr,
     output_dir: str,
-    adata,
-    condition1_name: str,
-    condition2_name: str,
+    adata=None,
+    condition1_name: str = "Condition 1",
+    condition2_name: str = "Condition 2",
     title: Optional[str] = None,
     subtitle: Optional[str] = None,
     template_dir: Optional[str] = None,
     use_cdn: bool = True,
     open_browser: bool = True,
     top_n: int = 50,
-    embedding_key: Optional[str] = None,
+    embedding_key: Optional[str] = "X_umap",
     groupby: Optional[str] = None,
+    gene_names: Optional[List[str]] = None,
     **kwargs,
 ) -> str:
     """Generate interactive HTML report for differential expression results.
@@ -403,12 +404,12 @@ def generate_report(
         The fitted DifferentialExpression model.
     output_dir : str
         Directory to save the HTML report.
-    adata : AnnData
-        The AnnData object used for analysis.
-    condition1_name : str
-        Name of condition 1.
-    condition2_name : str
-        Name of condition 2.
+    adata : AnnData, optional
+        The AnnData object used for analysis. If provided, cell visualizations will be included.
+    condition1_name : str, optional
+        Name of condition 1. Default is "Condition 1".
+    condition2_name : str, optional
+        Name of condition 2. Default is "Condition 2".
     title : str, optional
         Report title.
     subtitle : str, optional
@@ -422,9 +423,11 @@ def generate_report(
     top_n : int, optional
         Number of top genes to include in the report, by default 50.
     embedding_key : str, optional
-        Key in adata.obsm for embedding coordinates, by default None.
+        Key in adata.obsm for embedding coordinates, by default "X_umap".
     groupby : str, optional
         Column in adata.obs to use for coloring, by default None.
+    gene_names : List[str], optional
+        List of gene names corresponding to the expression data.
     **kwargs
         Additional arguments for HTMLReporter.
 
@@ -443,20 +446,30 @@ def generate_report(
     
     # Create reporter
     reporter = HTMLReporter(
-        diff_expr=diff_expr,
         output_dir=output_dir,
-        adata=adata,
-        condition1_name=condition1_name,
-        condition2_name=condition2_name,
         title=title,
         subtitle=subtitle,
         template_dir=template_dir,
         use_cdn=use_cdn,
-        top_n=top_n,
-        embedding_key=embedding_key,
-        groupby=groupby,
         **kwargs
     )
     
+    # Add differential expression data
+    reporter.add_differential_expression(
+        diff_expr,
+        condition1_name=condition1_name,
+        condition2_name=condition2_name,
+        gene_names=gene_names,
+        top_n=top_n
+    )
+    
+    # Add AnnData if provided
+    if adata is not None:
+        reporter.add_anndata(
+            adata,
+            embedding_key=embedding_key,
+            groupby=groupby
+        )
+    
     # Generate report
-    return reporter.generate_report(open_browser=open_browser)
+    return reporter.generate(open_browser=open_browser)

@@ -26,9 +26,20 @@ from tests.test_plot_functions import create_test_anndata, create_test_data_with
 class TestHeatmapUtilityFunctions:
     """Tests for the heatmap utility functions."""
     
+    # Use fixture at class level to run create_test_data_with_multiple_runs() only once
+    test_data = None
+    
+    @classmethod
+    def setup_class(cls):
+        """Set up test data once for the entire class."""
+        # Only create test data once for all tests
+        if cls.test_data is None:
+            cls.test_data = create_test_anndata()  # Use simpler creation for utility tests
+    
     def setup_method(self):
         """Set up test data."""
-        self.adata = create_test_data_with_multiple_runs()
+        # Use the shared test data
+        self.adata = self.test_data.copy()
         
         # Add some test data
         self.adata.var['test_score'] = np.random.rand(self.adata.n_vars)
@@ -217,28 +228,39 @@ class TestHeatmapUtilityFunctions:
 class TestHeatmapWithImplicitRunId:
     """Tests for the heatmap functions with implicit run_id (-1)."""
     
+    # Use fixture at class level to run create_test_data_with_multiple_runs() only once
+    test_data = None
+    
+    @classmethod
+    def setup_class(cls):
+        """Set up test data once for the entire class."""
+        # Only create test data with run history once for all tests
+        if cls.test_data is None:
+            cls.test_data = create_test_data_with_multiple_runs()
+            
+            # Add the extra data needed by all tests here so it's only done once
+            cls.test_data.uns['kompot_latest_run'] = {
+                'run_id': 0,
+                'abundance_key': 'da_run3',
+                'expression_key': 'de_run3'
+            }
+            
+            # Make sure we have valid LFC keys
+            lfc_key_name = 'de_run3_mean_lfc_A_vs_B'
+            if lfc_key_name not in cls.test_data.var.columns:
+                cls.test_data.var[lfc_key_name] = np.random.randn(cls.test_data.n_vars)
+            
+            # Make sure we have condition data for diagonal split tests
+            cls.test_data.obs['condition'] = ['A'] * (cls.test_data.n_obs // 2) + ['B'] * (cls.test_data.n_obs // 2)
+    
     def setup_method(self):
         """Set up test data."""
-        self.adata = create_test_data_with_multiple_runs()
+        # Use the shared test data - make a shallow copy to avoid modifying the original
+        self.adata = self.test_data.copy()
         
-        # Add some test data
+        # Add test-specific data
         self.adata.var['test_score'] = np.random.rand(self.adata.n_vars)
         self.adata.var['test_lfc'] = np.random.randn(self.adata.n_vars)
-        
-        # Ensure there's data for testing
-        self.adata.uns['kompot_latest_run'] = {
-            'run_id': 0,
-            'abundance_key': 'da_run3',
-            'expression_key': 'de_run3'
-        }
-        
-        # Make sure we have valid LFC keys
-        lfc_key_name = 'de_run3_mean_lfc_A_vs_B'
-        if lfc_key_name not in self.adata.var.columns:
-            self.adata.var[lfc_key_name] = np.random.randn(self.adata.n_vars)
-        
-        # Make sure we have condition data for diagonal split tests
-        self.adata.obs['condition'] = ['A'] * (self.adata.n_obs // 2) + ['B'] * (self.adata.n_obs // 2)
         
         plt.clf()  # Clear any existing plots
     
