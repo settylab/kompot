@@ -495,12 +495,12 @@ def heatmap(
             
             # Right area - for column dendrogram and/or sidebar
             right_area_inches = max(LEGEND_SPACE, COLORBAR_SPACE) * base_unit
-            if dendrogram and cluster_cols:
+            if dendrogram and cluster_rows:
                 right_area_inches += COL_DENDROGRAM_SPACE * base_unit
             
             # Top area - for title and row dendrogram
             top_area_inches = TITLE_SPACE * base_unit
-            if dendrogram and cluster_rows:
+            if dendrogram and cluster_cols:
                 top_area_inches += ROW_DENDROGRAM_SPACE * base_unit
             
             # Calculate final figure dimensions
@@ -544,7 +544,7 @@ def heatmap(
                 'data_width_inches': data_width_inches,
                 'data_height_inches': data_height_inches,
                 
-                # Store flag for dendrogram presence
+                # Store flag for dendrogram presence based on which parameters control which dendrograms
                 'has_row_dendrogram': dendrogram and cluster_rows,
                 'has_col_dendrogram': dendrogram and cluster_cols
             }
@@ -593,9 +593,9 @@ def heatmap(
             bottom_area_inches = min(layout['group_label_space'] * base_unit, height_inches * 0.15)
             top_area_inches = min(layout['title_space'] * base_unit, height_inches * 0.15)
             if dendrogram:
-                if cluster_rows:
-                    top_area_inches += min(layout['row_dendrogram_space'] * base_unit, height_inches * 0.1)
                 if cluster_cols:
+                    top_area_inches += min(layout['row_dendrogram_space'] * base_unit, height_inches * 0.1)
+                if cluster_rows:
                     right_area_inches += min(layout['col_dendrogram_space'] * base_unit, width_inches * 0.1)
             
             # Calculate data area from the remaining space
@@ -650,7 +650,8 @@ def heatmap(
             
             if dendrogram:
                 # For column dendrogram - next to main plot on right
-                if cluster_cols:
+                # This is for clustering rows (genes) after transpose - controlled by cluster_rows
+                if cluster_rows:
                     col_dend_width = (COL_DENDROGRAM_SPACE * fig_dims['base_unit']) / fig_width
                     col_dend_left = main_left + main_width + (0.5 * fig_dims['base_unit'] / fig_width)
                     col_dendrogram_ax = fig.add_axes([
@@ -663,7 +664,8 @@ def heatmap(
                     col_dendrogram_ax.set_axis_off()
                 
                 # For row dendrogram - above main plot
-                if cluster_rows:
+                # This is for clustering columns (groups) after transpose - controlled by cluster_cols
+                if cluster_cols:
                     row_dend_height = (ROW_DENDROGRAM_SPACE * fig_dims['base_unit']) / fig_height
                     row_dend_bottom = main_bottom + main_height + (0.5 * fig_dims['base_unit'] / fig_height)
                     row_dendrogram_ax = fig.add_axes([
@@ -677,7 +679,7 @@ def heatmap(
             
             # Add sidebar area for legend and colorbar
             sidebar_left = main_left + main_width
-            if fig_dims['has_col_dendrogram']:
+            if fig_dims['has_row_dendrogram']:
                 sidebar_left += (COL_DENDROGRAM_SPACE * fig_dims['base_unit'] + fig_dims['base_unit']) / fig_width
             else:
                 sidebar_left += (0.5 * fig_dims['base_unit']) / fig_width
@@ -702,8 +704,8 @@ def heatmap(
             # Fill NaN with column means for clustering purposes only
             combined_for_clustering = combined.fillna(combined.mean())
             
-            # Row clustering (genes - now on y-axis/rows after transpose)
-            if cluster_rows:
+            # Column clustering - but using cluster_rows parameter 
+            if cluster_cols:
                 # Calculate row linkage for genes (rows of transposed data)
                 row_dist = ssd.pdist(combined_for_clustering.values)
                 row_linkage_matrix = linkage(row_dist, method='average')
@@ -741,8 +743,8 @@ def heatmap(
                     logger.error(f"IndexError during row ordering: {e}")
                     # Continue without reordering if there's an error
             
-            # Column clustering (groups - will be on x-axis after transpose)
-            if cluster_cols:
+            # Row clustering - but using cluster_cols parameter
+            if cluster_rows:
                 # Before clustering, ensure the data structure is appropriate
                 n_columns = cond1_means.shape[1]
                 
@@ -768,6 +770,8 @@ def heatmap(
                     )
                     # Get the leaf order from the dendrogram
                     col_order = col_dendrogram['leaves']
+                    # Invert y-axis to match the main plot's inverted y-axis
+                    dendrogram_axes['col'].invert_yaxis()
                 else:
                     # Just get the leaf order without drawing
                     temp_tree = scipy_dendrogram(
@@ -960,12 +964,16 @@ def heatmap(
             # Ensure tick labels are outside the data area
             ax.tick_params(axis='x', which='major', pad=5)
 
-        # Add gene labels (now on y-axis)
+        # Add gene labels if requested (now on y-axis)
         if show_gene_labels:
             ax.set_yticks(np.arange(len(cond1_means.index)) + 0.5)
             ax.set_yticklabels(cond1_means.index, fontsize=gene_labels_size, va='center')
             # Ensure tick labels align with the cells by adjusting padding
             ax.tick_params(axis='y', which='major', pad=5)
+            
+        # Invert y-axis to display genes in the original order (top to bottom instead of bottom to top)
+        # This ensures gene lists appear in the expected order regardless of whether labels are shown
+        ax.invert_yaxis()
 
         # Remove the grid
         ax.grid(False)
