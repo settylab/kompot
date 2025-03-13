@@ -25,8 +25,7 @@ from kompot.differential import DifferentialAbundance, DifferentialExpression
 from kompot.anndata import (
     compute_differential_abundance,
     compute_differential_expression,
-    run_differential_analysis,
-    generate_report
+    run_differential_analysis
 )
 
 # Import plot module
@@ -63,7 +62,6 @@ Key features:
 - Support for condition-specific result extraction using cell_condition_labels
 """
 from kompot.utils import compute_mahalanobis_distance, find_landmarks
-from kompot.reporter import HTMLReporter
 from kompot.batch_utils import batch_process, apply_batched
 
 # Configure logging
@@ -99,7 +97,7 @@ __all__ = [
     "DensityEstimator", "FunctionEstimator", "Predictor", 
     "DifferentialAbundance", "DifferentialExpression",
     "compute_mahalanobis_distance", "find_landmarks",
-    "HTMLReporter", "generate_report", "__version__",
+    "__version__",
     "compute_differential_abundance", "compute_differential_expression",
     "run_differential_analysis", 
     "batch_process", "apply_batched",

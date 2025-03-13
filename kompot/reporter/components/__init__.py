@@ -1,1 +1,0 @@
-"""Components for the Kompot HTML reporter."""

@@ -11,7 +11,6 @@ from typing import Optional, Union, Dict, Any, List, Tuple
 from .differential_abundance import compute_differential_abundance
 from .differential_expression import compute_differential_expression
 from .core import _sanitize_name
-from ..reporter import HTMLReporter
 from ..utils import get_environment_info
 
 logger = logging.getLogger("kompot")
@@ -36,9 +35,6 @@ def run_differential_analysis(
     jit_compile: bool = False,
     random_state: Optional[int] = None,
     copy: bool = False,
-    generate_html_report: bool = True,
-    report_dir: str = "kompot_report",
-    open_browser: bool = True,
     overwrite: Optional[bool] = None,
     store_landmarks: bool = False,
     **kwargs
@@ -166,10 +162,6 @@ def run_differential_analysis(
         'compute_mahalanobis'
     ]}
     
-    report_kwargs = {k: v for k, v in kwargs.items() if k in [
-        'title', 'subtitle', 'template_dir', 'use_cdn', 'top_n', 'groupby', 'embedding_key'
-    ]}
-    
     # Run differential abundance if requested
     abundance_result = None
     abundance_landmarks = None
@@ -254,21 +246,6 @@ def run_differential_analysis(
             **expression_kwargs
         )
     
-    # Generate HTML report if requested
-    if generate_html_report and compute_expression and expression_result is not None:
-        logger.info("Generating HTML report...")
-        # Get the model from the expression_result
-        diff_expr = expression_result["model"]
-        report_path = generate_report(
-            diff_expr,
-            output_dir=report_dir,
-            adata=adata,
-            condition1_name=condition1,
-            condition2_name=condition2,
-            open_browser=open_browser,
-            **report_kwargs
-        )
-        logger.info(f"HTML report generated at: {report_path}")
         
     # Store information about landmark sharing in adata.uns
     if compute_abundance and compute_expression and share_landmarks and abundance_landmarks is not None:
@@ -304,7 +281,6 @@ def run_differential_analysis(
         "obsm_key": obsm_key,
         "share_landmarks": share_landmarks,
         "ls_factor": ls_factor,
-        "generate_html_report": generate_html_report,
         "groupby": groupby,
         "condition1": condition1,
         "condition2": condition2,
@@ -378,98 +354,3 @@ def run_differential_analysis(
     
     return result_dict
 
-
-def generate_report(
-    diff_expr,
-    output_dir: str,
-    adata=None,
-    condition1_name: str = "Condition 1",
-    condition2_name: str = "Condition 2",
-    title: Optional[str] = None,
-    subtitle: Optional[str] = None,
-    template_dir: Optional[str] = None,
-    use_cdn: bool = True,
-    open_browser: bool = True,
-    top_n: int = 50,
-    embedding_key: Optional[str] = "X_umap",
-    groupby: Optional[str] = None,
-    gene_names: Optional[List[str]] = None,
-    **kwargs,
-) -> str:
-    """Generate interactive HTML report for differential expression results.
-
-    Parameters
-    ----------
-    diff_expr : DifferentialExpression
-        The fitted DifferentialExpression model.
-    output_dir : str
-        Directory to save the HTML report.
-    adata : AnnData, optional
-        The AnnData object used for analysis. If provided, cell visualizations will be included.
-    condition1_name : str, optional
-        Name of condition 1. Default is "Condition 1".
-    condition2_name : str, optional
-        Name of condition 2. Default is "Condition 2".
-    title : str, optional
-        Report title.
-    subtitle : str, optional
-        Report subtitle.
-    template_dir : str, optional
-        Directory containing custom templates.
-    use_cdn : bool, optional
-        Use CDN for JavaScript libraries instead of local files, by default True.
-    open_browser : bool, optional
-        Whether to open browser after generating the report, by default True.
-    top_n : int, optional
-        Number of top genes to include in the report, by default 50.
-    embedding_key : str, optional
-        Key in adata.obsm for embedding coordinates, by default "X_umap".
-    groupby : str, optional
-        Column in adata.obs to use for coloring, by default None.
-    gene_names : List[str], optional
-        List of gene names corresponding to the expression data.
-    **kwargs
-        Additional arguments for HTMLReporter.
-
-    Returns
-    -------
-    str
-        Path to the generated HTML report.
-    """
-    # Set default title if not provided
-    if title is None:
-        title = f"Differential Expression: {condition1_name} vs {condition2_name}"
-    
-    # Set default subtitle if not provided
-    if subtitle is None:
-        subtitle = f"Generated with Kompot on {datetime.datetime.now().strftime('%Y-%m-%d')}"
-    
-    # Create reporter
-    reporter = HTMLReporter(
-        output_dir=output_dir,
-        title=title,
-        subtitle=subtitle,
-        template_dir=template_dir,
-        use_cdn=use_cdn,
-        **kwargs
-    )
-    
-    # Add differential expression data
-    reporter.add_differential_expression(
-        diff_expr,
-        condition1_name=condition1_name,
-        condition2_name=condition2_name,
-        gene_names=gene_names,
-        top_n=top_n
-    )
-    
-    # Add AnnData if provided
-    if adata is not None:
-        reporter.add_anndata(
-            adata,
-            embedding_key=embedding_key,
-            groupby=groupby
-        )
-    
-    # Generate report
-    return reporter.generate(open_browser=open_browser)

@@ -9,7 +9,6 @@
    AnnData Integration <anndata>
    Plotting <plotting>
    Utilities <utils>
-   Reporter <reporter>
 
 .. toctree::
    :hidden:
