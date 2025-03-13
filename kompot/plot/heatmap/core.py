@@ -770,8 +770,6 @@ def heatmap(
                     )
                     # Get the leaf order from the dendrogram
                     col_order = col_dendrogram['leaves']
-                    # Invert y-axis to match the main plot's inverted y-axis
-                    dendrogram_axes['col'].invert_yaxis()
                 else:
                     # Just get the leaf order without drawing
                     temp_tree = scipy_dendrogram(
@@ -826,6 +824,11 @@ def heatmap(
         # Transpose the data to have genes on y-axis and groups on x-axis
         cond1_means = cond1_means.T
         cond2_means = cond2_means.T
+        
+        # Reverse the row order so genes appear in the correct order when plotted 
+        # (since matplotlib plots from bottom to top on the y-axis)
+        cond1_means = cond1_means.iloc[::-1]
+        cond2_means = cond2_means.iloc[::-1]
 
         # Calculate min/max for colormap
         all_data = np.concatenate(
@@ -970,10 +973,6 @@ def heatmap(
             ax.set_yticklabels(cond1_means.index, fontsize=gene_labels_size, va='center')
             # Ensure tick labels align with the cells by adjusting padding
             ax.tick_params(axis='y', which='major', pad=5)
-            
-        # Invert y-axis to display genes in the original order (top to bottom instead of bottom to top)
-        # This ensures gene lists appear in the expected order regardless of whether labels are shown
-        ax.invert_yaxis()
 
         # Remove the grid
         ax.grid(False)
