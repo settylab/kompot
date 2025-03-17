@@ -541,7 +541,7 @@ def prepare_mahalanobis_matrix(
 
 def compute_mahalanobis_distances(
     diff_values: np.ndarray,
-    covariance: Union[np.ndarray, jnp.ndarray],
+    covariance: Union[np.ndarray, jnp.ndarray, 'DiskBackedCovarianceMatrix'],
     batch_size: int = 500,
     jit_compile: bool = True,
     eps: float = 1e-10,
@@ -559,10 +559,11 @@ def compute_mahalanobis_distances(
     diff_values : np.ndarray
         The difference vectors for which to compute Mahalanobis distances.
         Shape should be (n_samples, n_features) or (n_features, n_samples).
-    covariance : np.ndarray or jnp.ndarray
+    covariance : np.ndarray, jnp.ndarray, or DiskBackedCovarianceMatrix
         Covariance matrix or tensor:
         - If 2D shape (n_points, n_points): shared covariance for all vectors
         - If 3D shape (n_points, n_points, n_genes): gene-specific covariance matrices
+        - If DiskBackedCovarianceMatrix: disk-backed 3D tensor for gene-specific covariance
     batch_size : int, optional
         Number of vectors to process at once, by default 500.
     jit_compile : bool, optional
@@ -582,7 +583,6 @@ def compute_mahalanobis_distances(
     
     # Convert inputs to JAX arrays
     diffs = jnp.array(diff_values)
-    cov = jnp.array(covariance)
     
     # Handle different input shapes - we want (n_genes, n_points) for gene-wise processing
     if len(diffs.shape) == 1:
@@ -590,32 +590,46 @@ def compute_mahalanobis_distances(
         diffs = diffs.reshape(1, -1)
     
     # Determine if we have gene-specific covariance matrices (3D tensor)
-    is_gene_specific = len(cov.shape) == 3
+    is_gene_specific = hasattr(covariance, 'shape') and len(covariance.shape) == 3
     
-    # Special case: gene-specific covariance matrices (3D tensor)
-    if is_gene_specific:
+    # Handle different types of gene-specific covariance matrices (3D tensor or disk-backed)
+    from .memory_utils import DiskBackedCovarianceMatrix
+    is_disk_backed = isinstance(covariance, DiskBackedCovarianceMatrix)
+    
+    if is_gene_specific or is_disk_backed:
         logger.info(f"Computing Mahalanobis distances using gene-specific covariance matrices")
         n_genes = diffs.shape[0]
-        n_points = cov.shape[1]  # Each gene has a covariance of shape (n_points, n_points)
-        
-        # Verify tensor dimensions
-        if cov.shape[2] != n_genes:
-            logger.warning(
-                f"Gene dimension mismatch: covariance has {cov.shape[2]} genes, "
-                f"but diff values has {n_genes} genes. Using genes from diff values."
-            )
-            # If there's a mismatch, truncate or pad the shorter dimension
-            min_genes = min(cov.shape[2], n_genes)
-            n_genes = min_genes
+        n_points = covariance.shape[1]  # Shape is (n_points, n_points, n_genes)
+
+        if not is_disk_backed:
+            # Verify tensor dimensions for in-memory arrays
+            if covariance.shape[2] != n_genes:
+                logger.warning(
+                    f"Gene dimension mismatch: covariance has {covariance.shape[2]} genes, "
+                    f"but diff values has {n_genes} genes. Using genes from diff values."
+                )
+                # If there's a mismatch, truncate to the shorter dimension
+                min_genes = min(covariance.shape[2], n_genes)
+                n_genes = min_genes
+            cov = jnp.array(covariance)
             
         mahalanobis_distances = np.zeros(n_genes)
         
         # Process each gene separately to save memory, with progress bar
         gene_iterator = tqdm(range(n_genes), desc="Computing gene-specific Mahalanobis distances") if progress else range(n_genes)
         for g in gene_iterator:
-            # Get the gene-specific difference vector and covariance
+            # Get the gene-specific difference vector
             gene_diff = diffs[g]
-            gene_cov = cov[:, :, g]
+            
+            # Get covariance matrix - either from memory or disk
+            if is_disk_backed:
+                # For disk-backed matrices, load the slice for this gene
+                gene_cov = covariance[g]  # DiskBackedCovarianceMatrix handles loading from disk
+                # Convert to JAX array for computation
+                gene_cov = jnp.array(gene_cov)
+            else:
+                # For in-memory tensors, just index into the array
+                gene_cov = cov[:, :, g]
             
             # Check for dimension mismatch and issue a warning
             if gene_cov.shape[0] != gene_diff.shape[0]:

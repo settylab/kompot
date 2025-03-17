@@ -22,6 +22,16 @@ from .utils import (
     KOMPOT_COLORS
 )
 from .batch_utils import batch_process, apply_batched, is_jax_memory_error
+from .memory_utils import (
+    array_size, 
+    get_available_memory, 
+    memory_requirement_ratio, 
+    human_readable_size,
+    DiskStorage,
+    analyze_memory_requirements,
+    analyze_covariance_memory_requirements,
+    DiskBackedCovarianceMatrix
+)
 
 logger = logging.getLogger("kompot")
 
@@ -547,13 +557,17 @@ class SampleVarianceEstimator:
         Dictionary of prediction functions for each group.
     estimator_type : str
         Type of estimator used ('function' for gene expression, 'density' for cell density).
+    disk_storage : DiskStorage, optional
+        Storage manager for offloading large arrays to disk, if enabled.
     """
     
     def __init__(
         self,
         eps: float = 1e-12,
         jit_compile: bool = True,
-        estimator_type: str = 'function'
+        estimator_type: str = 'function',
+        store_arrays_on_disk: bool = False,
+        disk_storage_dir: Optional[str] = None
     ):
         """
         Initialize the SampleVarianceEstimator.
@@ -567,10 +581,17 @@ class SampleVarianceEstimator:
         estimator_type : str, optional
             Type of estimator to use ('function' for gene expression, 'density' for cell density),
             by default 'function'.
+        store_arrays_on_disk : bool, optional
+            Whether to store large arrays on disk instead of in memory, by default False.
+            Useful for very large datasets where covariance matrices would exceed available memory.
+        disk_storage_dir : str, optional
+            Directory to store arrays on disk. If None and store_arrays_on_disk is True,
+            a temporary directory will be created and cleaned up when this object is deleted.
         """
         self.eps = eps
         self.jit_compile = jit_compile
         self.estimator_type = estimator_type
+        self.store_arrays_on_disk = store_arrays_on_disk
         
         if estimator_type not in ['function', 'density']:
             raise ValueError("estimator_type must be either 'function' or 'density'")
@@ -579,6 +600,35 @@ class SampleVarianceEstimator:
         self.group_predictors = {}
         self.group_centroids = {}
         self._predict_variance_jit = None
+        
+        # Define covariance computation function that will be JIT-compiled if needed
+        def compute_cov_slice(gene_centered, n_groups):
+            # Apply Bessel's correction (divide by n-1 instead of n)
+            # Only apply correction if we have more than 1 group
+            divisor = n_groups - 1 if n_groups > 1 else n_groups
+            # Calculate covariance as dot product divided by divisor for Bessel's correction
+            return (gene_centered @ gene_centered.T) / divisor
+            
+        # Store the function as instance attribute
+        self._compute_cov_slice = compute_cov_slice
+        
+        # JIT-compile if requested
+        if jit_compile:
+            self._compute_cov_slice_jit = jax.jit(compute_cov_slice)
+        else:
+            self._compute_cov_slice_jit = None
+        
+        # Initialize disk storage if requested
+        self._disk_storage = None
+        if store_arrays_on_disk:
+            self._disk_storage = DiskStorage(storage_dir=disk_storage_dir)
+            logger.info(f"Disk storage for large arrays enabled in SampleVarianceEstimator. "
+                       f"Arrays will be stored in {self._disk_storage.storage_dir}")
+            
+    def __del__(self):
+        """Clean up disk storage when the object is deleted."""
+        if hasattr(self, '_disk_storage') and self._disk_storage is not None:
+            self._disk_storage.cleanup()
     
     def fit(
         self, 
@@ -721,13 +771,28 @@ class SampleVarianceEstimator:
             test_pred = first_predictor([X_new[0]])
             n_genes = test_pred.shape[1] if len(test_pred.shape) > 1 else 1
             
-            # Check if we're processing too many genes at once (>100) in a specific case
-            if n_genes > 100 and len(self.group_predictors) > 1 and hasattr(self, '_called_from_differential') and self._called_from_differential:
-                logger.warning(
-                    f"Computing sample variance for {n_genes} genes may require significant memory. "
-                    f"If you encounter memory issues, consider running differential expression analysis "
-                    f"on smaller gene sets (max 100 genes) at a time."
+            # Check memory requirements when processing many genes
+            if n_genes > 10 and len(self.group_predictors) > 1 and hasattr(self, '_called_from_differential') and self._called_from_differential:
+                # Use the specialized covariance memory analysis function
+                
+                analysis = analyze_covariance_memory_requirements(
+                    n_points=n_cells,
+                    n_genes=n_genes,
+                    max_memory_ratio=0.8,  # Use standard 80% threshold
+                    analysis_name="Sample Variance Estimation"
                 )
+                
+                # Issue appropriate warning based on memory usage
+                if analysis['status'] == 'critical':
+                    if self.store_arrays_on_disk:
+                        logger.info(
+                            f"High memory usage detected ({analysis['memory_ratio']:.2f}x of available memory). "
+                            f"Will use disk storage for large covariance arrays."
+                        )
+                    # The warning is already logged by analyze_covariance_memory_requirements
+                elif analysis['status'] == 'warning':
+                    # The warning is already logged by analyze_covariance_memory_requirements
+                    pass
         else:  # density estimator
             test_pred = first_predictor([X_new[0]])
             # For density, we'll reshape to have a singleton dimension for consistency
@@ -795,8 +860,25 @@ class SampleVarianceEstimator:
         
         else:
             # Full covariance matrix computation (between all pairs of cells)
-            # Initialize the result matrix
-            cov_matrix = np.zeros((n_cells, n_cells, n_genes))
+            # Check if we should use disk storage for this operation using the specialized function
+            analysis = analyze_covariance_memory_requirements(
+                n_points=n_cells,
+                n_genes=n_genes,
+                max_memory_ratio=0.8,  # Standard 80% threshold
+                analysis_name="Full Covariance Matrix"
+            )
+            
+            # Determine if we should use disk storage based on the analysis
+            use_disk_storage = self.store_arrays_on_disk and analysis['should_use_disk']
+            if use_disk_storage and self._disk_storage is None:
+                self._disk_storage = DiskStorage()
+                logger.info(f"Automatically enabling disk storage at {self._disk_storage.storage_dir}")
+                
+            # Define the covariance shape for disk-backed matrix
+            covariance_shape = (n_cells, n_cells, n_genes)
+            
+            if use_disk_storage:
+                logger.info(f"Using gene-by-gene disk storage for covariance matrix (shape={covariance_shape})")
             
             # Get predictions from each group predictor
             group_predictions = []
@@ -825,19 +907,47 @@ class SampleVarianceEstimator:
             # Calculate covariance for each gene
             n_groups = centered.shape[0]
             
-            # Process each gene individually to avoid memory issues
-            for g in range(n_genes):
-                gene_centered = centered_reshaped[:, :, g]  # (n_cells, n_groups)
+            if use_disk_storage:
+                # Process gene-by-gene and store each slice to disk
+                gene_keys = {}
                 
-                # Apply Bessel's correction (divide by n-1 instead of n)
-                # Only apply correction if we have more than 1 group
-                divisor = n_groups - 1 if n_groups > 1 else n_groups
+                for g in range(n_genes):
+                    gene_centered = centered_reshaped[:, :, g]  # (n_cells, n_groups)
+                    
+                    # Compute covariance slice using JIT if available
+                    if self._compute_cov_slice_jit is not None:
+                        gene_cov = self._compute_cov_slice_jit(gene_centered, n_groups)
+                    else:
+                        gene_cov = self._compute_cov_slice(gene_centered, n_groups)
+                    
+                    # Convert to numpy and store to disk
+                    gene_cov_np = np.array(gene_cov)
+                    gene_key = f"gene_cov_{g}"
+                    self._disk_storage.store_array(gene_cov_np, gene_key)
+                    gene_keys[g] = gene_key
                 
-                # Calculate covariance as dot product divided by (n_groups-1) for Bessel's correction
-                gene_cov = (gene_centered @ gene_centered.T) / divisor
-                cov_matrix[:, :, g] = np.array(gene_cov)
-            
-            return cov_matrix
+                # Return a disk-backed matrix without loading everything into memory
+                return DiskBackedCovarianceMatrix(
+                    disk_storage=self._disk_storage,
+                    shape=covariance_shape,
+                    gene_keys=gene_keys
+                )
+            else:
+                # In-memory version
+                cov_matrix = np.zeros(covariance_shape)
+                
+                for g in range(n_genes):
+                    gene_centered = centered_reshaped[:, :, g]  # (n_cells, n_groups)
+                    
+                    # Compute covariance slice using JIT if available
+                    if self._compute_cov_slice_jit is not None:
+                        gene_cov = self._compute_cov_slice_jit(gene_centered, n_groups)
+                    else:
+                        gene_cov = self._compute_cov_slice(gene_centered, n_groups)
+                    
+                    cov_matrix[:, :, g] = np.array(gene_cov)
+                
+                return cov_matrix
 
 
 def compute_weighted_mean_fold_change(
@@ -933,6 +1043,9 @@ class DifferentialExpression:
         random_state: Optional[int] = None,
         batch_size: int = 500,
         mahalanobis_batch_size: Optional[int] = None,
+        store_arrays_on_disk: bool = False,
+        disk_storage_dir: Optional[str] = None,
+        max_memory_ratio: float = 0.8,
     ):
         """
         Initialize DifferentialExpression.
@@ -971,6 +1084,16 @@ class DifferentialExpression:
             Number of genes to process in each batch during Mahalanobis distance computation.
             Smaller values use less memory but are slower. If None, uses batch_size.
             Increase for faster computation if you have sufficient memory.
+        store_arrays_on_disk : bool, optional
+            Whether to store large arrays on disk instead of in memory, by default False.
+            This is useful for very large datasets with many genes, where covariance
+            matrices would otherwise exceed available memory.
+        disk_storage_dir : str, optional
+            Directory to store arrays on disk. If None and store_arrays_on_disk is True,
+            a temporary directory will be created and cleaned up afterwards.
+        max_memory_ratio : float, optional
+            Maximum fraction of available memory that arrays should occupy before
+            triggering warnings or enabling disk storage, by default 0.8 (80%).
         """
         self.n_landmarks = n_landmarks
         self.eps = eps
@@ -993,6 +1116,17 @@ class DifferentialExpression:
         # For Mahalanobis distance computation, use a separate batch size parameter if provided
         self.mahalanobis_batch_size = mahalanobis_batch_size if mahalanobis_batch_size is not None else batch_size
         
+        # Memory management options
+        self.store_arrays_on_disk = store_arrays_on_disk
+        self.disk_storage_dir = disk_storage_dir
+        self.max_memory_ratio = max_memory_ratio
+        self._disk_storage = None
+        
+        # Initialize disk storage if requested
+        if self.store_arrays_on_disk:
+            self._disk_storage = DiskStorage(storage_dir=disk_storage_dir)
+            logger.info(f"Disk storage for large arrays enabled. Arrays will be stored in {self._disk_storage.storage_dir}")
+        
         # Function estimators or predictors
         self.expression_estimator_condition1 = None
         self.expression_estimator_condition2 = None
@@ -1005,6 +1139,34 @@ class DifferentialExpression:
         
         # Mahalanobis distances
         self.mahalanobis_distances = None
+        
+    def __del__(self):
+        """Clean up disk storage when the object is deleted."""
+        if hasattr(self, '_disk_storage') and self._disk_storage is not None:
+            self._disk_storage.cleanup()
+            
+    def analyze_memory_requirements(self, shapes, analysis_name="Memory Analysis"):
+        """
+        Analyze memory requirements for arrays with specified shapes.
+        
+        Parameters
+        ----------
+        shapes : list
+            List of array shapes to analyze (tuples of dimensions)
+        analysis_name : str, optional
+            Name to identify this analysis in log messages, by default "Memory Analysis"
+            
+        Returns
+        -------
+        dict
+            Dictionary with memory analysis results
+        """
+        # Use the centralized memory analysis function from memory_utils.py
+        return analyze_memory_requirements(
+            shapes=shapes,
+            max_memory_ratio=self.max_memory_ratio,
+            analysis_name=analysis_name
+        )
         
     def fit(
         self, 
@@ -1162,22 +1324,107 @@ class DifferentialExpression:
                         "This could lead to inflated Mahalanobis distances."
                     )
             
+            # Before fitting variance estimators, perform a combined memory analysis for both conditions
+            array_shapes = []
+            condition_info = []
+            
+            # Analyze condition 1 memory requirements if needed
+            if condition1_sample_indices is not None:
+                n_groups1 = len(np.unique(condition1_sample_indices))
+                
+                # Determine points to use
+                if self.n_landmarks is None:
+                    points_used1 = len(X_condition1)
+                    approx_str1 = "exact computation"
+                else:
+                    points_used1 = self.n_landmarks
+                    approx_str1 = f"landmark approximation (n={self.n_landmarks})"
+                
+                gene_count1 = y_condition1.shape[1]
+                cov_array_shape1 = (points_used1, points_used1, gene_count1)
+                array_shapes.append(cov_array_shape1)
+                
+                condition_info.append({
+                    'name': 'condition1',
+                    'n_groups': n_groups1,
+                    'n_points': points_used1,
+                    'n_genes': gene_count1,
+                    'approx': approx_str1,
+                    'shape': cov_array_shape1
+                })
+            
+            # Analyze condition 2 memory requirements if needed
+            if condition2_sample_indices is not None:
+                n_groups2 = len(np.unique(condition2_sample_indices))
+                
+                # Determine points to use
+                if self.n_landmarks is None:
+                    points_used2 = len(X_condition2)
+                    approx_str2 = "exact computation"
+                else:
+                    points_used2 = self.n_landmarks
+                    approx_str2 = f"landmark approximation (n={self.n_landmarks})"
+                
+                gene_count2 = y_condition2.shape[1]
+                cov_array_shape2 = (points_used2, points_used2, gene_count2)
+                array_shapes.append(cov_array_shape2)
+                
+                condition_info.append({
+                    'name': 'condition2',
+                    'n_groups': n_groups2,
+                    'n_points': points_used2,
+                    'n_genes': gene_count2,
+                    'approx': approx_str2,
+                    'shape': cov_array_shape2
+                })
+            
+            # Perform memory analysis for all required arrays
+            if array_shapes:
+                memory_analysis = analyze_memory_requirements(
+                    shapes=array_shapes, 
+                    max_memory_ratio=self.max_memory_ratio,
+                    analysis_name="Sample Variance Estimation"
+                )
+                
+                # Detailed logging
+                logger.info("Sample variance estimation details:")
+                for cond in condition_info:
+                    logger.info(
+                        f"  - {cond['name']}: {cond['n_genes']} genes, {cond['n_groups']} groups, "
+                        f"{cond['n_points']} points ({cond['approx']})"
+                    )
+                
+                # Use disk storage if needed and enabled
+                should_use_disk = memory_analysis['status'] in ['warning', 'critical'] and self.store_arrays_on_disk
+                if should_use_disk:
+                    if self._disk_storage is None:
+                        self._disk_storage = DiskStorage(storage_dir=self.disk_storage_dir)
+                        logger.info(f"Automatically enabling disk storage at {self._disk_storage.storage_dir}")
+                    logger.info("Large covariance arrays will be stored on disk")
+            
+            # Now fit variance estimators with the memory analysis information
+            
             # Fit variance estimator for condition 1
             if condition1_sample_indices is not None:
                 logger.info("Fitting sample-specific variance estimator for condition 1 using provided indices...")
+                
+                # Determine if we should use disk storage
+                should_use_disk = False
+                if array_shapes:
+                    should_use_disk = memory_analysis['status'] in ['warning', 'critical'] and self.store_arrays_on_disk
+                
                 condition1_variance_estimator = SampleVarianceEstimator(
-                    eps=self.eps
+                    eps=self.eps,
+                    store_arrays_on_disk=should_use_disk,
+                    disk_storage_dir=self.disk_storage_dir
                 )
                 # Set a flag to indicate this estimator is called from DifferentialExpression
                 condition1_variance_estimator._called_from_differential = True
                 
-                # Check gene count and warn if too many
-                if y_condition1.shape[1] > 100:
-                    logger.warning(
-                        f"Fitting sample variance estimator with {y_condition1.shape[1]:,} genes. "
-                        f"This may require significant memory. Consider running with fewer genes "
-                        f"(max 100 genes) at a time for better memory efficiency."
-                    )
+                # Share the disk storage if already initialized
+                if should_use_disk and self._disk_storage is not None:
+                    condition1_variance_estimator._disk_storage = self._disk_storage
+                    logger.info(f"Sharing disk storage with condition 1 variance estimator")
                 
                 condition1_variance_estimator.fit(
                     X=X_condition1, 
@@ -1191,19 +1438,28 @@ class DifferentialExpression:
             # Fit variance estimator for condition 2
             if condition2_sample_indices is not None:
                 logger.info("Fitting sample-specific variance estimator for condition 2 using provided indices...")
+                
+                # Determine if we should use disk storage
+                should_use_disk = False
+                if array_shapes:
+                    should_use_disk = memory_analysis['status'] in ['warning', 'critical'] and self.store_arrays_on_disk
+                
                 condition2_variance_estimator = SampleVarianceEstimator(
-                    eps=self.eps
+                    eps=self.eps,
+                    store_arrays_on_disk=should_use_disk,
+                    disk_storage_dir=self.disk_storage_dir
                 )
                 # Set a flag to indicate this estimator is called from DifferentialExpression
                 condition2_variance_estimator._called_from_differential = True
                 
-                # Check gene count and warn if too many
-                if y_condition2.shape[1] > 100:
-                    logger.warning(
-                        f"Fitting sample variance estimator with {y_condition2.shape[1]:,} genes. "
-                        f"This may require significant memory. Consider running with fewer genes "
-                        f"(max 100 genes) at a time for better memory efficiency."
-                    )
+                # Share disk storage if possible
+                if should_use_disk:
+                    if self._disk_storage is not None:
+                        condition2_variance_estimator._disk_storage = self._disk_storage
+                        logger.info(f"Sharing disk storage with condition 2 variance estimator")
+                    elif hasattr(condition1_variance_estimator, '_disk_storage') and condition1_variance_estimator._disk_storage is not None:
+                        condition2_variance_estimator._disk_storage = condition1_variance_estimator._disk_storage
+                        logger.info(f"Sharing disk storage between condition variance estimators")
                 
                 condition2_variance_estimator.fit(
                     X=X_condition2, 
