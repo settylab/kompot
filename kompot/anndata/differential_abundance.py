@@ -522,6 +522,9 @@ def compute_differential_abundance(
     # Initialize run history if it doesn't exist
     if "run_history" not in adata.uns[storage_key]:
         adata.uns[storage_key]["run_history"] = []
+
+    new_run_id = len(adata.uns[storage_key]["run_history"])
+    logger.info(f"This run will have `run_id={new_run_id}`.")
     
     # Always append current run to the run history
     adata.uns[storage_key]["run_history"].append(current_run_info)
