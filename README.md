@@ -4,6 +4,8 @@
 [![codecov](https://codecov.io/gh/settylab/kompot/branch/main/graph/badge.svg)](https://codecov.io/gh/settylab/kompot)
 [![Documentation Status](https://readthedocs.org/projects/kompot/badge/?version=latest)](https://kompot.readthedocs.io/en/latest/?badge=latest)
 
+![two_mani_smaller](https://github.com/user-attachments/assets/d7911696-9e95-44e1-9e69-b3c5731d27c2)
+
 Kompot is a Python package for differential abundance and gene expression analysis using Gaussian Process models with JAX backend.
 
 ## Overview
