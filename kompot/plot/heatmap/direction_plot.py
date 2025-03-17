@@ -33,54 +33,63 @@ def _infer_direction_key(
     tuple
         (direction_column, condition1, condition2) with the inferred values
     """
+    inferred_direction_column = direction_column
+    condition1 = None
+    condition2 = None
+    
     # If direction column already provided, just check if it exists
-    if direction_column is not None:
-        if direction_column in adata.obs.columns:
+    if inferred_direction_column is not None:
+        if inferred_direction_column in adata.obs.columns:
             # Try to extract conditions from the column name
-            conditions = _extract_conditions_from_key(direction_column)
+            conditions = _extract_conditions_from_key(inferred_direction_column)
             if conditions:
                 condition1, condition2 = conditions
-                return direction_column, condition1, condition2
-            else:
-                return direction_column, None, None
+            return inferred_direction_column, condition1, condition2
         else:
             logger.warning(
-                f"Provided direction_column '{direction_column}' not found in adata.obs"
+                f"Provided direction_column '{inferred_direction_column}' not found in adata.obs"
             )
-            direction_column = None
+            inferred_direction_column = None
 
     # Get run info from specified run_id - specifically from kompot_da
     run_info = get_run_from_history(adata, run_id, analysis_type="da")
-    condition1 = None
-    condition2 = None
-
-    # Get condition information
-    if run_info is not None and "params" in run_info:
-        params = run_info["params"]
-        if "conditions" in params and len(params["conditions"]) == 2:
-            condition1 = params["conditions"][0]
-            condition2 = params["conditions"][1]
-
-    # First try to get direction column from run info field_names
-    if run_info is not None and "field_names" in run_info:
-        field_names = run_info["field_names"]
-        if "direction_key" in field_names:
-            direction_column = field_names["direction_key"]
-            # Check that column exists
-            if direction_column not in adata.obs.columns:
-                direction_column = None
-
-    # If not found in field_names, try the older method with abundance_key
-    if direction_column is None and run_info is not None:
-        if "abundance_key" in run_info:
+    
+    # If the run_info is None but a run_id was specified, log this
+    if run_info is None and run_id is not None:
+        logger.warning(f"Could not find run information for run_id={run_id}, analysis_type=da")
+    
+    if run_info is not None:
+        # Get condition information from the run parameters
+        if "params" in run_info:
+            params = run_info["params"]
+            if "conditions" in params and len(params["conditions"]) == 2:
+                condition1 = params["conditions"][0]
+                condition2 = params["conditions"][1]
+        
+        # First try to get direction column from run info field_names
+        if "field_names" in run_info:
+            field_names = run_info["field_names"]
+            if "direction_key" in field_names:
+                inferred_direction_column = field_names["direction_key"]
+                # Check that column exists
+                if inferred_direction_column not in adata.obs.columns:
+                    logger.warning(f"Found direction_key '{inferred_direction_column}' in run info, but column not in adata.obs")
+                    inferred_direction_column = None
+        
+        # If not found in field_names, try the older method with abundance_key
+        if inferred_direction_column is None and "abundance_key" in run_info:
             result_key = run_info["abundance_key"]
             if result_key in adata.uns and "run_info" in adata.uns[result_key]:
                 key_run_info = adata.uns[result_key]["run_info"]
                 if "direction_key" in key_run_info:
-                    direction_column = key_run_info["direction_key"]
+                    inferred_direction_column = key_run_info["direction_key"]
+                    # Check that column exists
+                    if inferred_direction_column not in adata.obs.columns:
+                        logger.warning(f"Found direction_key '{inferred_direction_column}' from abundance_key, but column not in adata.obs")
+                        inferred_direction_column = None
 
     # If still not found, look for columns matching pattern
-    if direction_column is None:
+    if inferred_direction_column is None:
         direction_cols = [
             col
             for col in adata.obs.columns
@@ -89,41 +98,41 @@ def _infer_direction_key(
         if not direction_cols:
             return None, condition1, condition2
         elif len(direction_cols) == 1:
-            direction_column = direction_cols[0]
+            inferred_direction_column = direction_cols[0]
         else:
             # If conditions provided, try to find matching column
             if condition1 and condition2:
                 for col in direction_cols:
                     if f"{condition1}_vs_{condition2}" in col:
-                        direction_column = col
+                        inferred_direction_column = col
                         break
                     elif f"{condition2}_vs_{condition1}" in col:
-                        direction_column = col
+                        inferred_direction_column = col
                         # Keep this warning as it's informative about reversed condition order
                         logger.warning(
                             f"Found direction column with reversed conditions: {col}"
                         )
                         break
-                if direction_column is None:
-                    direction_column = direction_cols[0]
+                if inferred_direction_column is None:
+                    inferred_direction_column = direction_cols[0]
                     # Keep this warning as it's important information about ambiguity
                     logger.warning(
-                        f"Multiple direction columns found, using the first one: {direction_column}"
+                        f"Multiple direction columns found, using the first one: {inferred_direction_column}"
                     )
             else:
-                direction_column = direction_cols[0]
+                inferred_direction_column = direction_cols[0]
                 # Keep this warning as it's important information about ambiguity
                 logger.warning(
-                    f"Multiple direction columns found, using the first one: {direction_column}"
+                    f"Multiple direction columns found, using the first one: {inferred_direction_column}"
                 )
 
     # If we found a direction column but not conditions, try to extract them from the column name
-    if direction_column is not None and (condition1 is None or condition2 is None):
-        conditions = _extract_conditions_from_key(direction_column)
+    if inferred_direction_column is not None and (condition1 is None or condition2 is None):
+        conditions = _extract_conditions_from_key(inferred_direction_column)
         if conditions:
             condition1, condition2 = conditions
 
-    return direction_column, condition1, condition2
+    return inferred_direction_column, condition1, condition2
 
 
 def direction_barplot(
@@ -227,19 +236,19 @@ def direction_barplot(
     if run_id < 0:
         if "kompot_da" in adata.uns and "run_history" in adata.uns["kompot_da"]:
             actual_run_id = len(adata.uns["kompot_da"]["run_history"]) + run_id
-        elif "kompot_run_history" in adata.uns:
-            actual_run_id = len(adata.uns["kompot_run_history"]) + run_id
         else:
             actual_run_id = run_id
     else:
         actual_run_id = run_id
 
     # Use the helper function to infer the direction column and conditions
-    direction_column, inferred_condition1, inferred_condition2 = _infer_direction_key(
+    inferred_direction_column, inferred_condition1, inferred_condition2 = _infer_direction_key(
         adata, run_id, direction_column
     )
-
-    # Use the inferred conditions if not explicitly provided
+    
+    # Use the inferred values if not explicitly provided
+    if direction_column is None:
+        direction_column = inferred_direction_column
     if condition1 is None:
         condition1 = inferred_condition1
     if condition2 is None:
@@ -257,13 +266,12 @@ def direction_barplot(
             "Could not find direction column. Please specify direction_column."
         )
 
-    # Log the plot type and conditions first, then fields
-    if condition1 and condition2:
-        logger.info(f"Creating direction barplot for {condition1} vs {condition2}")
-    else:
-        logger.info(f"Creating direction barplot")
+    # Update axis labels with condition information if not explicitly set
+    if condition1 and condition2 and title is None:
+        title = f"Direction of Change by {category_column}\n{condition1} vs {condition2}"
 
-    # Log the fields being used in the plot
+    # Log the plot type and fields being used
+    logger.info(f"Creating direction barplot{conditions_str}")
     logger.info(
         f"Using fields - category_column: '{category_column}', direction_column: '{direction_column}'"
     )
@@ -296,10 +304,15 @@ def direction_barplot(
     if sort_by is not None and sort_by in crosstab.columns:
         crosstab = crosstab.sort_values(by=sort_by, ascending=ascending)
 
-    # Create figure if no axes provided
-    create_fig = ax is None
-    if create_fig:
-        fig, ax = plt.subplots(figsize=figsize)
+    # Create figure if no axes provided - adjust figsize if legend is outside
+    if ax is None:
+        # If legend is outside and not explicitly placed elsewhere, adjust figsize
+        if legend_loc == 'best' or legend_loc == 'center left':
+            # Increase width to accommodate legend
+            adjusted_figsize = (figsize[0] * 1.3, figsize[1])
+            fig, ax = plt.subplots(figsize=adjusted_figsize)
+        else:
+            fig, ax = plt.subplots(figsize=figsize)
     else:
         fig = ax.figure
 
@@ -317,14 +330,12 @@ def direction_barplot(
     ax.grid(False)
 
     # Set title if provided or can be inferred
-    if title is None and condition1 and condition2:
-        title = f"Direction of Change by {category_column}\n{condition1} vs {condition2}"
     if title is not None:
-        ax.set_title(title)
+        ax.set_title(title, fontsize=14)
 
     # Set axis labels
-    ax.set_xlabel(xlabel or category_column)
-    ax.set_ylabel(ylabel)
+    ax.set_xlabel(xlabel or category_column, fontsize=12)
+    ax.set_ylabel(ylabel, fontsize=12)
 
     # Set legend with no box and outside the plot
     # Also reverse the order of elements (up first)
@@ -339,17 +350,27 @@ def direction_barplot(
     if not order:  # If none of the expected labels found, keep original order
         order = list(range(len(labels)))
     
-    ax.legend(
-        [handles[i] for i in order], 
-        [labels[i] for i in order], 
-        title=legend_title, 
-        loc='center left', 
-        bbox_to_anchor=(1.0, 0.5),
-        frameon=False
-    )
-
-    # Adjust layout
-    plt.tight_layout()
+    # Add legend with appropriate styling based on location
+    if legend_loc == 'best':
+        legend = ax.legend(
+            [handles[i] for i in order], 
+            [labels[i] for i in order], 
+            title=legend_title,
+            bbox_to_anchor=(1.05, 1), 
+            loc='upper left',
+            frameon=False
+        )
+        # Adjust figure layout to accommodate legend
+        plt.tight_layout(rect=[0, 0, 0.85, 1])
+    else:
+        legend = ax.legend(
+            [handles[i] for i in order], 
+            [labels[i] for i in order], 
+            title=legend_title,
+            loc=legend_loc,
+            frameon=False
+        )
+        plt.tight_layout()
 
     # Save figure if requested
     if save is not None:
@@ -358,9 +379,8 @@ def direction_barplot(
     # Return figure if requested
     if return_fig:
         return fig, ax
-
-    # Show plot if creating new figure and not returning
-    if create_fig and not return_fig:
+    elif save is None:
+        # Only show if not saving and not returning
         plt.show()
-
+    
     return None

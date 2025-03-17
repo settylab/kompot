@@ -852,9 +852,6 @@ def compute_differential_expression(
             "params": params_dict
         }
         
-        # Also maintain separate params for backward compatibility
-        current_params = params_dict.copy()
-        
         # Always use fixed key "kompot_de" regardless of result_key
         storage_key = "kompot_de"
         
@@ -875,8 +872,7 @@ def compute_differential_expression(
         adata.uns[storage_key]["run_history"].append(current_run_info)
         
         # Store current params and run info
-        adata.uns[storage_key]["params"] = current_params
-        adata.uns[storage_key]["run_info"] = current_run_info
+        adata.uns[storage_key]["last_run_info"] = current_run_info
         
     # Return the results dictionary
     return result_dict
