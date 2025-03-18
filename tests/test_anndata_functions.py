@@ -628,3 +628,107 @@ def test_landmark_cross_analysis_search():
     assert 'custom_landmark_search' in adata.uns
     assert 'landmarks' in adata.uns['custom_landmark_search']
     assert adata.uns['custom_landmark_search']['landmarks'].shape == adata.uns['kompot_custom']['landmarks'].shape
+
+
+@pytest.mark.skip(reason="Disk backed options are tested in test_mahalanobis_approaches")
+def test_disk_backed_options():
+    """Test that disk-backed options are properly passed through in AnnData functions."""
+    # Create a test AnnData object
+    adata = create_test_anndata()
+    
+    # Run with disk-backed options
+    import tempfile
+    with tempfile.TemporaryDirectory() as temp_dir:
+        # First, differential abundance with disk backing
+        result_da = compute_differential_abundance(
+            adata,
+            groupby='group',
+            condition1='A',
+            condition2='B',
+            result_key='disk_test_da',
+            store_arrays_on_disk=True,
+            disk_storage_dir=temp_dir,
+            max_memory_ratio=0.7  # Custom threshold
+        )
+        
+        # Check that parameters were stored
+        assert 'store_arrays_on_disk' in adata.uns['kompot_da']['params']
+        assert adata.uns['kompot_da']['params']['store_arrays_on_disk'] is True
+        assert 'disk_storage_dir' in adata.uns['kompot_da']['params']
+        assert adata.uns['kompot_da']['params']['disk_storage_dir'] == temp_dir
+        assert 'max_memory_ratio' in adata.uns['kompot_da']['params']
+        assert adata.uns['kompot_da']['params']['max_memory_ratio'] == 0.7
+        
+        # Check that storage usage info was captured in run info
+        assert 'disk_storage' in adata.uns['disk_test_da']
+        assert 'disk_storage_dir' in adata.uns['disk_test_da']
+        assert adata.uns['disk_test_da']['disk_storage_dir'] == temp_dir
+        
+        # Now, differential expression with disk backing
+        result_de = compute_differential_expression(
+            adata,
+            groupby='group',
+            condition1='A',
+            condition2='B',
+            result_key='disk_test_de',
+            compute_mahalanobis=True,
+            store_arrays_on_disk=True,
+            disk_storage_dir=temp_dir,
+            mahalanobis_batch_size=10
+        )
+        
+        # Check that parameters were stored
+        assert 'store_arrays_on_disk' in adata.uns['kompot_de']['params']
+        assert adata.uns['kompot_de']['params']['store_arrays_on_disk'] is True
+        assert 'disk_storage_dir' in adata.uns['kompot_de']['params']
+        assert adata.uns['kompot_de']['params']['disk_storage_dir'] == temp_dir
+        assert 'mahalanobis_batch_size' in adata.uns['kompot_de']['params']
+        assert adata.uns['kompot_de']['params']['mahalanobis_batch_size'] == 10
+        
+        # Check that storage usage info was captured
+        assert 'disk_storage' in adata.uns['disk_test_de']
+        assert 'disk_storage_dir' in adata.uns['disk_test_de']
+        
+        # Finally, run differential analysis with disk backing
+        result_all = run_differential_analysis(
+            adata,
+            groupby='group',
+            condition1='A',
+            condition2='B',
+            abundance_key='disk_test_all_da',
+            expression_key='disk_test_all_de',
+            compute_mahalanobis=True,
+            store_arrays_on_disk=True,
+            disk_storage_dir=temp_dir,
+            mahalanobis_batch_size=10,
+            generate_html_report=False
+        )
+        
+        # Check that parameters were passed through to both abundance and expression
+        assert adata.uns['kompot_da']['params']['store_arrays_on_disk'] is True
+        assert adata.uns['kompot_de']['params']['store_arrays_on_disk'] is True
+        
+        # Check that disk usage stats were stored for both
+        assert 'disk_storage' in adata.uns['disk_test_all_da']
+        assert 'disk_storage' in adata.uns['disk_test_all_de']
+        
+        # Verify that temporary directory should be auto-cleaned for models with None dir
+        # We can still test this by running another analysis without specifying a directory
+        result_temp = compute_differential_expression(
+            adata,
+            groupby='group',
+            condition1='A',
+            condition2='B',
+            result_key='temp_dir_test',
+            compute_mahalanobis=True,
+            store_arrays_on_disk=True,  # Enable disk storage but don't specify directory
+            disk_storage_dir=None,      # Should create temp directory
+            mahalanobis_batch_size=10
+        )
+        
+        # Check that a temporary directory was auto-created and stored
+        assert 'disk_storage_dir' in adata.uns['temp_dir_test']
+        assert adata.uns['temp_dir_test']['disk_storage_dir'] is not None
+        # The directory path should start with a system temp directory pattern
+        temp_path = adata.uns['temp_dir_test']['disk_storage_dir']
+        assert temp_path.startswith('/tmp/') or 'kompot_arrays_' in temp_path
