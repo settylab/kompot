@@ -1,8 +1,7 @@
 """
-Differential analysis module for Kompot (for backward compatibility).
+Differential analysis module for Kompot.
 
-This module re-exports classes from the differential submodule.
-New code should import directly from kompot.differential instead.
+This module provides classes for differential abundance and expression analysis.
 """
 
 from kompot.differential.differential_abundance import DifferentialAbundance

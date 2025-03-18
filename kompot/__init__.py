@@ -21,7 +21,7 @@ import logging
 mellon.logger.setLevel(logging.WARNING)
 
 # Export Kompot's additional functionality
-from kompot.differential import DifferentialAbundance, DifferentialExpression
+from kompot.differential import DifferentialAbundance, DifferentialExpression, SampleVarianceEstimator
 from kompot.anndata import (
     compute_differential_abundance,
     compute_differential_expression,
@@ -95,7 +95,7 @@ logger = logging.getLogger("kompot")
 
 __all__ = [
     "DensityEstimator", "FunctionEstimator", "Predictor", 
-    "DifferentialAbundance", "DifferentialExpression",
+    "DifferentialAbundance", "DifferentialExpression", "SampleVarianceEstimator",
     "compute_mahalanobis_distance", "find_landmarks",
     "__version__",
     "compute_differential_abundance", "compute_differential_expression",

@@ -680,6 +680,8 @@ def compute_mahalanobis_distances(
                 mahalanobis_distances[g] = np.nan
             
         return mahalanobis_distances
+
+    cov = jnp.array(covariance)
     
     # Case: shared covariance matrix (2D matrix)
     # First check for dimension mismatch
