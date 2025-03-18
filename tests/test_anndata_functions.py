@@ -84,12 +84,13 @@ def test_sample_col_parameter():
     assert result['model'].variance_predictor1 is not None
     assert result['model'].variance_predictor2 is not None
     
-    # Verify that the sample_col parameter was stored in parameters
+    # Verify that the sample_col parameter was stored in run info
     assert 'kompot_da' in adata.uns
-    assert 'params' in adata.uns['kompot_da']
-    assert 'sample_col' in adata.uns['kompot_da']['params']
-    assert adata.uns['kompot_da']['params']['sample_col'] == 'sample'
-    assert adata.uns['kompot_da']['params']['use_sample_variance'] is True
+    assert 'last_run_info' in adata.uns['kompot_da']
+    assert 'params' in adata.uns['kompot_da']['last_run_info']
+    assert 'sample_col' in adata.uns['kompot_da']['last_run_info']['params']
+    assert adata.uns['kompot_da']['last_run_info']['params']['sample_col'] == 'sample'
+    assert adata.uns['kompot_da']['last_run_info']['params']['use_sample_variance'] is True
     
     # Run a comparison analysis without sample_col
     result_no_samples = compute_differential_abundance(
@@ -107,11 +108,12 @@ def test_sample_col_parameter():
     assert result_no_samples['model'].variance_predictor1 is None
     assert result_no_samples['model'].variance_predictor2 is None
     
-    # Verify the parameters are stored in kompot_da
-    assert 'params' in adata.uns['kompot_da']
-    assert 'sample_col' in adata.uns['kompot_da']['params']
-    assert adata.uns['kompot_da']['params']['sample_col'] is None
-    assert adata.uns['kompot_da']['params']['use_sample_variance'] is False
+    # Verify the parameters are stored in kompot_da last_run_info
+    assert 'last_run_info' in adata.uns['kompot_da']
+    assert 'params' in adata.uns['kompot_da']['last_run_info']
+    assert 'sample_col' in adata.uns['kompot_da']['last_run_info']['params']
+    assert adata.uns['kompot_da']['last_run_info']['params']['sample_col'] is None
+    assert adata.uns['kompot_da']['last_run_info']['params']['use_sample_variance'] is False
     
     # Check that the two models produce different results
     # The log fold change values should be the same
@@ -174,14 +176,14 @@ class TestRunHistoryPreservation:
             result_key='run1'
         )
         
-        # Check that run_info was created in the fixed storage location
+        # Check that last_run_info was created in the fixed storage location
         assert 'kompot_da' in self.adata.uns
-        assert 'run_info' in self.adata.uns['kompot_da']
+        assert 'last_run_info' in self.adata.uns['kompot_da']
         assert 'run_history' in self.adata.uns['kompot_da']
         assert len(self.adata.uns['kompot_da']['run_history']) == 1
         
-        # Make sure the run_info has the required fields
-        run_info = self.adata.uns['kompot_da']['run_info']
+        # Make sure the last_run_info has the required fields
+        run_info = self.adata.uns['kompot_da']['last_run_info']
         assert 'timestamp' in run_info
         assert 'function' in run_info
         assert run_info['function'] == 'compute_differential_abundance'
@@ -224,7 +226,7 @@ class TestRunHistoryPreservation:
         
         # Check that the storage was updated with the new run
         assert 'kompot_da' in self.adata.uns
-        assert 'run_info' in self.adata.uns['kompot_da']
+        assert 'last_run_info' in self.adata.uns['kompot_da']
         assert len(self.adata.uns['kompot_da']['run_history']) == 3
         
         # The last run should have the new result_key
@@ -243,14 +245,14 @@ class TestRunHistoryPreservation:
             compute_mahalanobis=False
         )
         
-        # Check that run_info was created in the fixed storage location
+        # Check that last_run_info was created in the fixed storage location
         assert 'kompot_de' in self.adata.uns
-        assert 'run_info' in self.adata.uns['kompot_de']
+        assert 'last_run_info' in self.adata.uns['kompot_de']
         assert 'run_history' in self.adata.uns['kompot_de']
         assert len(self.adata.uns['kompot_de']['run_history']) == 1
         
-        # Make sure the run_info has the required fields
-        run_info = self.adata.uns['kompot_de']['run_info']
+        # Make sure the last_run_info has the required fields
+        run_info = self.adata.uns['kompot_de']['last_run_info']
         assert 'timestamp' in run_info
         assert 'function' in run_info
         assert run_info['function'] == 'compute_differential_expression'
@@ -424,20 +426,22 @@ def test_run_differential_analysis_with_sample_col():
     
     # Check that parameter was stored correctly for both analyses in fixed storage locations
     assert 'kompot_da' in adata.uns
-    assert 'params' in adata.uns['kompot_da']
-    assert 'sample_col' in adata.uns['kompot_da']['params']
-    assert adata.uns['kompot_da']['params']['sample_col'] == 'sample'
-    assert adata.uns['kompot_da']['params']['use_sample_variance'] is True
+    assert 'last_run_info' in adata.uns['kompot_da']
+    assert 'params' in adata.uns['kompot_da']['last_run_info']
+    assert 'sample_col' in adata.uns['kompot_da']['last_run_info']['params']
+    assert adata.uns['kompot_da']['last_run_info']['params']['sample_col'] == 'sample'
+    assert adata.uns['kompot_da']['last_run_info']['params']['use_sample_variance'] is True
     
     assert 'kompot_de' in adata.uns
-    assert 'params' in adata.uns['kompot_de']
-    assert 'sample_col' in adata.uns['kompot_de']['params']
-    assert adata.uns['kompot_de']['params']['sample_col'] == 'sample'
-    assert adata.uns['kompot_de']['params']['use_sample_variance'] is True
+    assert 'last_run_info' in adata.uns['kompot_de']
+    assert 'params' in adata.uns['kompot_de']['last_run_info']
+    assert 'sample_col' in adata.uns['kompot_de']['last_run_info']['params']
+    assert adata.uns['kompot_de']['last_run_info']['params']['sample_col'] == 'sample'
+    assert adata.uns['kompot_de']['last_run_info']['params']['use_sample_variance'] is True
     
-    # Verify the correct result_key was stored in the run_info
-    assert adata.uns['kompot_da']['run_info']['result_key'] == 'sample_run_da'
-    assert adata.uns['kompot_de']['run_info']['result_key'] == 'sample_run_de'
+    # Verify the correct result_key was stored in the last_run_info
+    assert adata.uns['kompot_da']['last_run_info']['result_key'] == 'sample_run_da'
+    assert adata.uns['kompot_de']['last_run_info']['result_key'] == 'sample_run_de'
 
 
 def test_landmark_reuse_and_storage():
@@ -651,13 +655,15 @@ def test_disk_backed_options():
             max_memory_ratio=0.7  # Custom threshold
         )
         
-        # Check that parameters were stored
-        assert 'store_arrays_on_disk' in adata.uns['kompot_da']['params']
-        assert adata.uns['kompot_da']['params']['store_arrays_on_disk'] is True
-        assert 'disk_storage_dir' in adata.uns['kompot_da']['params']
-        assert adata.uns['kompot_da']['params']['disk_storage_dir'] == temp_dir
-        assert 'max_memory_ratio' in adata.uns['kompot_da']['params']
-        assert adata.uns['kompot_da']['params']['max_memory_ratio'] == 0.7
+        # Check that parameters were stored in last_run_info
+        assert 'last_run_info' in adata.uns['kompot_da']
+        assert 'params' in adata.uns['kompot_da']['last_run_info']
+        assert 'store_arrays_on_disk' in adata.uns['kompot_da']['last_run_info']['params']
+        assert adata.uns['kompot_da']['last_run_info']['params']['store_arrays_on_disk'] is True
+        assert 'disk_storage_dir' in adata.uns['kompot_da']['last_run_info']['params']
+        assert adata.uns['kompot_da']['last_run_info']['params']['disk_storage_dir'] == temp_dir
+        assert 'max_memory_ratio' in adata.uns['kompot_da']['last_run_info']['params']
+        assert adata.uns['kompot_da']['last_run_info']['params']['max_memory_ratio'] == 0.7
         
         # Check that storage usage info was captured in run info
         assert 'disk_storage' in adata.uns['disk_test_da']
@@ -677,13 +683,15 @@ def test_disk_backed_options():
             mahalanobis_batch_size=10
         )
         
-        # Check that parameters were stored
-        assert 'store_arrays_on_disk' in adata.uns['kompot_de']['params']
-        assert adata.uns['kompot_de']['params']['store_arrays_on_disk'] is True
-        assert 'disk_storage_dir' in adata.uns['kompot_de']['params']
-        assert adata.uns['kompot_de']['params']['disk_storage_dir'] == temp_dir
-        assert 'mahalanobis_batch_size' in adata.uns['kompot_de']['params']
-        assert adata.uns['kompot_de']['params']['mahalanobis_batch_size'] == 10
+        # Check that parameters were stored in last_run_info
+        assert 'last_run_info' in adata.uns['kompot_de']
+        assert 'params' in adata.uns['kompot_de']['last_run_info']
+        assert 'store_arrays_on_disk' in adata.uns['kompot_de']['last_run_info']['params']
+        assert adata.uns['kompot_de']['last_run_info']['params']['store_arrays_on_disk'] is True
+        assert 'disk_storage_dir' in adata.uns['kompot_de']['last_run_info']['params']
+        assert adata.uns['kompot_de']['last_run_info']['params']['disk_storage_dir'] == temp_dir
+        assert 'mahalanobis_batch_size' in adata.uns['kompot_de']['last_run_info']['params']
+        assert adata.uns['kompot_de']['last_run_info']['params']['mahalanobis_batch_size'] == 10
         
         # Check that storage usage info was captured
         assert 'disk_storage' in adata.uns['disk_test_de']
@@ -705,8 +713,8 @@ def test_disk_backed_options():
         )
         
         # Check that parameters were passed through to both abundance and expression
-        assert adata.uns['kompot_da']['params']['store_arrays_on_disk'] is True
-        assert adata.uns['kompot_de']['params']['store_arrays_on_disk'] is True
+        assert adata.uns['kompot_da']['last_run_info']['params']['store_arrays_on_disk'] is True
+        assert adata.uns['kompot_de']['last_run_info']['params']['store_arrays_on_disk'] is True
         
         # Check that disk usage stats were stored for both
         assert 'disk_storage' in adata.uns['disk_test_all_da']
