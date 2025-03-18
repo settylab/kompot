@@ -16,6 +16,7 @@ from ..utils import (
     get_environment_info,
     KOMPOT_COLORS
 )
+from ..memory_utils import analyze_covariance_memory_requirements
 from .core import _sanitize_name
 
 logger = logging.getLogger("kompot")
@@ -40,6 +41,10 @@ def compute_differential_expression(
     jit_compile: bool = False,
     random_state: Optional[int] = None,
     batch_size: int = 100,
+    store_arrays_on_disk: bool = False,
+    disk_storage_dir: Optional[str] = None,
+    max_memory_ratio: float = 0.8,
+    mahalanobis_batch_size: Optional[int] = None,
     copy: bool = False,
     inplace: bool = True,
     result_key: str = "kompot_de",
@@ -100,10 +105,22 @@ def compute_differential_expression(
         Random seed for reproducible landmark selection when n_landmarks is specified.
         Controls the random selection of points when using approximation, by default None.
     batch_size : int, optional
+        Number of cells to process at once during prediction to manage memory usage.
+        If None or 0, all samples will be processed at once. Default is 100.
+    store_arrays_on_disk : bool, optional
+        Whether to store large arrays on disk instead of in memory, by default False.
+        This is useful for very large datasets with many genes, where covariance
+        matrices would otherwise exceed available memory.
+    disk_storage_dir : str, optional
+        Directory to store arrays on disk. If None and store_arrays_on_disk is True,
+        a temporary directory will be created and cleaned up afterwards.
+    max_memory_ratio : float, optional
+        Maximum fraction of available memory that arrays should occupy before
+        triggering warnings or enabling disk storage, by default 0.8 (80%).
+    mahalanobis_batch_size : int, optional
         Number of genes to process in each batch during Mahalanobis distance computation.
-        Smaller values use less memory but are slower, by default 100. For large datasets
-        with memory constraints, try a smaller value like 20-50. 
-        This parameter is also passed to the DifferentialAbundance class when compute_abundance=True.
+        Smaller values use less memory but are slower. If None, uses batch_size.
+        Increase for faster computation if you have sufficient memory.
     copy : bool, optional
         If True, return a copy of the AnnData object with results added,
         by default False.
@@ -448,6 +465,33 @@ def compute_differential_expression(
         else:
             logger.warning(f"DA landmarks have dimension {landmarks_dim} but data has dimension {data_dim}. Computing new landmarks.")
     
+    # Analyze memory requirements to provide guidance
+    
+    # Determine points count (actual points or landmarks if used)
+    points_count = n_landmarks if n_landmarks is not None else max(len(X_condition1), len(X_condition2))
+    genes_count = len(selected_genes)
+    
+    # Run memory analysis
+    memory_analysis = analyze_covariance_memory_requirements(
+        n_points=points_count,
+        n_genes=genes_count,
+        max_memory_ratio=max_memory_ratio,
+        analysis_name="Differential Expression Memory Analysis"
+    )
+    
+    # If memory usage is high but store_arrays_on_disk wasn't specified, provide guidance
+    if memory_analysis['should_use_disk'] and not store_arrays_on_disk:
+        logger.warning(
+            f"High memory requirements detected: would need {memory_analysis['total_size']} "
+            f"for covariance matrices with {points_count} points and {genes_count} genes. "
+            f"Consider using store_arrays_on_disk=True to enable disk-backed storage."
+        )
+    
+    # If user specifically enabled disk storage, log that
+    if store_arrays_on_disk:
+        storage_location = disk_storage_dir if disk_storage_dir else "a temporary directory"
+        logger.info(f"Disk-backed storage enabled. Covariance matrices will be stored in {storage_location}")
+    
     # Initialize and fit DifferentialExpression
     use_sample_variance = sample_col is not None
     
@@ -456,7 +500,11 @@ def compute_differential_expression(
         use_sample_variance=use_sample_variance,
         jit_compile=jit_compile,
         random_state=random_state,
-        batch_size=batch_size
+        batch_size=batch_size,
+        mahalanobis_batch_size=mahalanobis_batch_size,
+        store_arrays_on_disk=store_arrays_on_disk,
+        disk_storage_dir=disk_storage_dir,
+        max_memory_ratio=max_memory_ratio
     )
     
     # Extract sample indices from sample_col if provided
@@ -830,8 +878,24 @@ def compute_differential_expression(
             "differential_abundance_key": differential_abundance_key,
             "ls_factor": ls_factor,
             "used_landmarks": True if landmarks is not None else False,
+            "store_arrays_on_disk": store_arrays_on_disk,
+            "max_memory_ratio": max_memory_ratio,
+            "mahalanobis_batch_size": mahalanobis_batch_size
         }
         
+        # Get storage usage stats if disk storage was used
+        storage_stats = None
+        if store_arrays_on_disk and hasattr(diff_expression, '_disk_storage') and diff_expression._disk_storage is not None:
+            try:
+                storage_human, storage_bytes = diff_expression._disk_storage.total_storage_used
+                storage_stats = {
+                    "total_disk_usage": storage_human,
+                    "disk_usage_bytes": storage_bytes,
+                    "array_count": len(diff_expression._disk_storage.array_registry)
+                }
+            except Exception as e:
+                logger.warning(f"Failed to get disk storage statistics: {e}")
+                
         current_run_info = {
             "timestamp": current_timestamp,
             "function": "compute_differential_expression",
@@ -849,6 +913,8 @@ def compute_differential_expression(
             },
             "field_names": field_names,
             "uses_sample_variance": sample_col is not None,
+            "memory_analysis": memory_analysis if 'memory_analysis' in locals() else None,
+            "storage_stats": storage_stats,
             "params": params_dict
         }
         
