@@ -432,127 +432,13 @@ def build_graph(X: np.ndarray, n_neighbors: int = 15) -> Tuple[List[Tuple[int, i
     return edges, index
 
 
-def prepare_mahalanobis_matrix(
-    covariance_matrix: np.ndarray,
-    diag_adjustments: Optional[np.ndarray] = None,
-    eps: float = 1e-12,
-    jit_compile: bool = True,
-):
-    """
-    Prepare a covariance matrix for Mahalanobis distance computation.
-    
-    This function processes the covariance matrix, adds diagonal adjustments if needed,
-    and computes the Cholesky decomposition for efficient distance calculations.
-    
-    Parameters
-    ----------
-    covariance_matrix : np.ndarray
-        The covariance matrix.
-    diag_adjustments : np.ndarray, optional
-        Additional diagonal adjustments for the covariance matrix, by default None.
-    eps : float, optional
-        Small constant for numerical stability, by default 1e-12.
-    jit_compile : bool, optional
-        Whether to use JAX just-in-time compilation, by default True.
-        
-    Returns
-    -------
-    dict
-        A dictionary containing:
-        - 'chol': The Cholesky decomposition of the adjusted covariance matrix if successful
-        - 'matrix_inv': The inverse of the adjusted covariance matrix (fallback)
-        - 'is_diagonal': Whether using a diagonal approximation
-        - 'diag_values': Diagonal values for fast computation if is_diagonal is True
-    """
-    # Convert to JAX arrays
-    cov = jnp.array(covariance_matrix)
-    
-    # Check if matrix is diagonal or near-diagonal (which would allow much faster calculation)
-    is_diagonal = False
-    diag_values = None
-    
-    if covariance_matrix.shape[0] > 10:
-        diag_sum = np.sum(np.diag(covariance_matrix))
-        total_sum = np.sum(np.abs(covariance_matrix))
-        diag_ratio = diag_sum / total_sum if total_sum > 0 else 0
-        
-        # If matrix is nearly diagonal, use faster diagonal approximation
-        if diag_ratio > 0.95:
-            logger.info("Using fast diagonal matrix approximation")
-            is_diagonal = True
-            diag_values = jnp.diag(cov)
-            
-            # Add diagonal adjustments if provided
-            if diag_adjustments is not None:
-                diag_adj = jnp.array(diag_adjustments)
-                diag_values = diag_values + diag_adj
-                
-            # Ensure numerical stability
-            diag_values = jnp.clip(diag_values, eps, None)
-            
-            return {
-                'is_diagonal': is_diagonal,
-                'diag_values': diag_values,
-                'chol': None,
-                'matrix_inv': None
-            }
-    
-    # For non-diagonal matrices, prepare for Cholesky
-    # Adjust covariance matrix if needed
-    if diag_adjustments is not None:
-        diag_adj = jnp.array(diag_adjustments)
-        cov = cov + jnp.diag(diag_adj)
-    
-    # Ensure numerical stability by clipping diagonal elements and adding jitter
-    diag_clipped = jnp.clip(jnp.diag(cov), eps, None)
-    cov = cov.at[jnp.arange(cov.shape[0]), jnp.arange(cov.shape[0])].set(diag_clipped)
-    
-    # Additional numerical stability check - ensure covariance matrix is positive definite
-    # by checking eigenvalues before attempting Cholesky decomposition
-    try:
-        # Add a small regularization to the diagonal to improve conditioning
-        reg_cov = cov + jnp.eye(cov.shape[0]) * eps * 10
-        
-        # Compute Cholesky decomposition once
-        chol = jnp.linalg.cholesky(reg_cov)
-        
-        return {
-            'is_diagonal': False,
-            'diag_values': None,
-            'chol': chol,
-            'matrix_inv': None
-        }
-    except Exception as e:
-        # Fallback to matrix inverse if Cholesky fails
-        logger.warning(
-            f"Cholesky decomposition failed: {e}. Using pseudoinverse. "
-            f"This might be slow. Consider raising eps ({eps}) to enable Cholesky decomposition instead."
-        )
-        try:
-            matrix_inv = jnp.linalg.pinv(cov)
-            return {
-                'is_diagonal': False,
-                'diag_values': None,
-                'chol': None,
-                'matrix_inv': matrix_inv
-            }
-        except Exception as e2:
-            # Last resort - diagonal approximation
-            logger.error(f"Matrix inverse also failed: {e2}. Using diagonal approximation.")
-            diag_values = jnp.clip(jnp.diag(cov), eps, None)
-            return {
-                'is_diagonal': True,
-                'diag_values': diag_values,
-                'chol': None,
-                'matrix_inv': None
-            }
 
 def compute_mahalanobis_distances(
     diff_values: np.ndarray,
     covariance: Union[np.ndarray, jnp.ndarray, 'da.Array'],
     batch_size: int = 500,
     jit_compile: bool = True,
-    eps: float = 1e-10,
+    eps: float = 1e-8,  # Increased default epsilon for better numerical stability
     progress: bool = True,
 ) -> np.ndarray:
     """
@@ -577,7 +463,7 @@ def compute_mahalanobis_distances(
     jit_compile : bool, optional
         Whether to use JAX just-in-time compilation, by default True.
     eps : float, optional
-        Small constant for numerical stability, by default 1e-10.
+        Small constant for numerical stability, by default 1e-8.
     progress : bool, optional
         Whether to show a progress bar for calculations, by default True.
         
@@ -635,46 +521,43 @@ def compute_mahalanobis_distances(
                 gene_diff = diffs[g]
                 gene_cov = covariance[:, :, g]
                 
-                # For dask arrays we need a pure numpy/scipy approach
-                # We'll use different methods based on matrix structure
+                # Add a small diagonal term for numerical stability
+                gene_cov_reg = gene_cov + np.eye(gene_cov.shape[0]) * eps
                 
-                # Try diagonal approximation first for efficiency
-                diag_values = np.diag(gene_cov)
-                total_sum = np.sum(np.abs(gene_cov))
-                diag_sum = np.sum(diag_values)
-                diag_ratio = diag_sum / total_sum if total_sum > 0 else 0
-                
-                if diag_ratio > 0.95:
-                    # Use fast diagonal approximation 
-                    diag_values = np.clip(diag_values, eps, None)  # Ensure stability
-                    weighted_diff = gene_diff / np.sqrt(diag_values)
-                    return float(np.sqrt(np.sum(weighted_diff**2)))
-                else:
-                    # Use standard approach - add a small regularization term
-                    gene_cov_reg = gene_cov + np.eye(gene_cov.shape[0]) * eps
-                    
-                    try:
-                        # Try Cholesky factorization first (most efficient)
-                        L = np.linalg.cholesky(gene_cov_reg)
-                        # Solve triangular system
-                        solved = solve_triangular(L, gene_diff, lower=True)
-                        return float(np.sqrt(np.sum(solved**2)))
-                    except np.linalg.LinAlgError:
-                        # Fall back to pseudoinverse approach if Cholesky fails
-                        inv_cov = np.linalg.pinv(gene_cov_reg)
-                        return float(np.sqrt(np.dot(gene_diff, np.dot(inv_cov, gene_diff))))
+                try:
+                    # Try Cholesky decomposition (fast and accurate for positive definite matrices)
+                    L = np.linalg.cholesky(gene_cov_reg)
+                    solved = solve_triangular(L, gene_diff, lower=True)
+                    return float(np.sqrt(np.sum(solved**2)))
+                except np.linalg.LinAlgError:
+                    # If Cholesky fails, the matrix is not positive definite
+                    logger.warning(f"Gene {g}: Cholesky decomposition failed. Matrix is not positive definite. Using NaN.")
+                    return np.nan
             
             # Apply the function to each gene in parallel with dask
             # We map the function over the genes and then compute the result
             if progress:
-                logger.info(f"Computing Mahalanobis distances for {n_genes} genes using dask")
-                
+                logger.info(f"Computing Mahalanobis distances for {n_genes:,} genes using dask")
+            
             distances = []
             for g in range(n_genes):
                 distances.append(dask.delayed(compute_gene_mahalanobis)(g))
                 
             # Compute the delayed values to get actual distances
-            mahalanobis_distances = np.array(dask.compute(*distances))
+            # Use progress bar if requested
+            if progress:
+                try:
+                    from tqdm.dask import TqdmCallback
+                    # Use TqdmCallback for efficient progress tracking
+                    with TqdmCallback(desc="Computing Mahalanobis distances"):
+                        mahalanobis_distances = np.array(dask.compute(*distances))
+                except ImportError:
+                    # Fall back to standard compute if tqdm.dask is not available
+                    logger.info("tqdm.dask not available, computing without progress bar")
+                    mahalanobis_distances = np.array(dask.compute(*distances))
+            else:
+                # Compute all at once without progress bar
+                mahalanobis_distances = np.array(dask.compute(*distances))
             
             return mahalanobis_distances
             
@@ -702,32 +585,18 @@ def compute_mahalanobis_distances(
                 continue
             
             try:
-                # Try diagonal approximation first for efficiency
-                diag_values = jnp.diag(gene_cov)
-                diag_sum = jnp.sum(diag_values)
-                total_sum = jnp.sum(jnp.abs(gene_cov))
-                diag_ratio = diag_sum / total_sum if total_sum > 0 else 0
+                # Add a small diagonal term for numerical stability
+                gene_cov_stable = gene_cov + jnp.eye(gene_cov.shape[0]) * eps
                 
-                if diag_ratio > 0.95:
-                    # Use fast diagonal approximation 
-                    diag_values = jnp.clip(diag_values, eps, None)  # Ensure stability
-                    weighted_diff = gene_diff / jnp.sqrt(diag_values)
-                    mahalanobis_distances[g] = float(jnp.sqrt(jnp.sum(weighted_diff**2)))
-                else:
-                    # Use Cholesky decomposition for full covariance matrix
-                    # Add a small diagonal term for numerical stability
-                    gene_cov_stable = gene_cov + jnp.eye(gene_cov.shape[0]) * eps
-                    
-                    try:
-                        # Compute Cholesky once for this gene
-                        chol = jnp.linalg.cholesky(gene_cov_stable)
-                        solved = jax.scipy.linalg.solve_triangular(chol, gene_diff, lower=True)
-                        mahalanobis_distances[g] = float(jnp.sqrt(jnp.sum(solved**2)))
-                    except Exception as chol_error:
-                        # If Cholesky fails, try matrix inverse
-                        logger.warning(f"Gene {g}: Cholesky decomposition failed: {chol_error}. Using pseudoinverse.")
-                        matrix_inv = jnp.linalg.pinv(gene_cov_stable)
-                        mahalanobis_distances[g] = float(jnp.sqrt(jnp.dot(gene_diff, jnp.dot(matrix_inv, gene_diff))))
+                try:
+                    # Try Cholesky decomposition (fast and accurate for positive definite matrices)
+                    chol = jnp.linalg.cholesky(gene_cov_stable)
+                    solved = jax.scipy.linalg.solve_triangular(chol, gene_diff, lower=True)
+                    mahalanobis_distances[g] = float(jnp.sqrt(jnp.sum(solved**2)))
+                except Exception as e:
+                    # If Cholesky fails, the matrix is not positive definite
+                    logger.warning(f"Gene {g}: Cholesky decomposition failed: {e}. Matrix is not positive definite. Using NaN.")
+                    mahalanobis_distances[g] = np.nan
             
                 # Check for NaN or Inf values in the result
                 if np.isnan(mahalanobis_distances[g]) or np.isinf(mahalanobis_distances[g]):
@@ -797,28 +666,24 @@ def compute_mahalanobis_distances(
                 
             return distances
     
-    # For non-diagonal matrices, use Cholesky decomposition
-    # Ensure numerical stability by adding a small diagonal term
+    # Add a small diagonal term for numerical stability
     cov_stable = cov + jnp.eye(cov.shape[0]) * eps
     
+    # Try Cholesky decomposition (should work for positive definite matrices)
     try:
-        # Compute Cholesky decomposition once for all genes
-        logger.info("Computing Cholesky decomposition for covariance matrix")
+        logger.info("Computing Cholesky decomposition of covariance matrix")
         chol = jnp.linalg.cholesky(cov_stable)
         
-        # Define computation function using Cholesky
+        # Define computation function using Cholesky decomposition
         def compute_cholesky_batch(batch_diffs):
             try:
-                # Triangular solve for each diff vector
+                # Solve the triangular system for each vector
                 solved = jax.vmap(lambda d: jax.scipy.linalg.solve_triangular(chol, d, lower=True))(batch_diffs)
-                
-                # Compute squared distances
-                squared_distances = jnp.sum(solved**2, axis=1)
-                return jnp.sqrt(squared_distances)
+                # Compute the distance as the L2 norm of the solved vector
+                return jnp.sqrt(jnp.sum(solved**2, axis=1))
             except Exception as e:
-                # If triangular solve fails, log error and return zeros
-                logger.error(f"Error in triangular solve: {e}. Returning zeros.")
-                return jnp.zeros(batch_diffs.shape[0])
+                logger.error(f"Error in Cholesky solution: {e}. Returning NaN values.")
+                return jnp.full(batch_diffs.shape[0], np.nan)
         
         # JIT compile if enabled
         if jit_compile:
@@ -828,52 +693,8 @@ def compute_mahalanobis_distances(
         
         # Process in batches using apply_batched - respect progress parameter
         desc = "Computing Cholesky Mahalanobis distances" if progress else None
-        try:
-            distances = apply_batched(
-                chol_compute_fn,
-                diffs,
-                batch_size=batch_size,
-                desc=desc
-            )
-            
-            # Post-process to handle NaN and Inf values
-            invalid_mask = np.isnan(distances) | np.isinf(distances)
-            if np.any(invalid_mask):
-                n_invalid = np.sum(invalid_mask)
-                logger.warning(f"Found {n_invalid} NaN or Inf Mahalanobis distances in Cholesky computation. "
-                             f"These will be kept as NaN.")
-                
-            return distances
-        except Exception as e:
-            logger.error(f"Error applying batched computation: {e}. Falling back to matrix inverse.")
-    except Exception as chol_error:
-        logger.warning(f"Cholesky decomposition failed: {chol_error}. Using pseudoinverse.")
-    
-    # Fallback to matrix inverse if Cholesky fails
-    try:
-        logger.info("Computing pseudoinverse of covariance matrix")
-        matrix_inv = jnp.linalg.pinv(cov_stable)
-        
-        # Define computation function using inverse matrix
-        def compute_inverse_batch(batch_diffs):
-            try:
-                # Apply matrix multiplication for each vector: d' * inv(cov) * d
-                products = jax.vmap(lambda d: jnp.dot(d, jnp.dot(matrix_inv, d)))(batch_diffs)
-                return jnp.sqrt(products)
-            except Exception as e:
-                logger.error(f"Error in matrix multiplication: {e}. Returning NaN values.")
-                return jnp.full(batch_diffs.shape[0], np.nan)
-        
-        # JIT compile if enabled
-        if jit_compile:
-            inv_compute_fn = jax.jit(compute_inverse_batch)
-        else:
-            inv_compute_fn = compute_inverse_batch
-        
-        # Process in batches using apply_batched - respect progress parameter
-        desc = "Computing inverse Mahalanobis distances" if progress else None
         distances = apply_batched(
-            inv_compute_fn,
+            chol_compute_fn,
             diffs,
             batch_size=batch_size,
             desc=desc
@@ -883,19 +704,19 @@ def compute_mahalanobis_distances(
         invalid_mask = np.isnan(distances) | np.isinf(distances)
         if np.any(invalid_mask):
             n_invalid = np.sum(invalid_mask)
-            logger.warning(f"Found {n_invalid} NaN or Inf Mahalanobis distances in matrix inverse computation. "
+            logger.warning(f"Found {n_invalid} NaN or Inf Mahalanobis distances in Cholesky computation. "
                          f"These will be kept as NaN.")
             
         return distances
     except Exception as e:
-        logger.error(f"Both Cholesky and pseudoinverse methods failed: {e}. Returning NaN values.")
-        # If all else fails, return NaNs to indicate calculation failures
+        logger.warning(f"Cholesky decomposition failed: {e}. Matrix is not positive definite. Returning NaN values.")
+        # Return NaNs to indicate calculation failures
         return np.full(len(diffs), np.nan)
 
 def compute_mahalanobis_distance(
     diff_values: np.ndarray,
     covariance_matrix: np.ndarray,
-    eps: float = 1e-10,
+    eps: float = 1e-8,  # Increased default epsilon for better numerical stability
     jit_compile: bool = True,
 ) -> float:
     """

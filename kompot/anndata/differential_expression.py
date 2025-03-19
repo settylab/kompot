@@ -43,9 +43,10 @@ def compute_differential_expression(
     ls_factor: float = 10.0,
     compute_mahalanobis: bool = True,
     jit_compile: bool = False,
+    eps: float = 1e-8,  # Added epsilon parameter for numerical stability
     random_state: Optional[int] = None,
     batch_size: int = 100,
-    store_arrays_on_disk: bool = False,
+    store_arrays_on_disk: Optional[bool] = None,
     disk_storage_dir: Optional[str] = None,
     max_memory_ratio: float = 0.8,
     mahalanobis_batch_size: Optional[int] = None,
@@ -106,6 +107,9 @@ def compute_differential_expression(
         Whether to compute Mahalanobis distances for gene ranking, by default True.
     jit_compile : bool, optional
         Whether to use JAX just-in-time compilation, by default False.
+    eps : float, optional
+        Small constant for numerical stability in covariance matrices, by default 1e-8.
+        Increase this value if Cholesky decomposition fails during Mahalanobis distance computation.
     random_state : int, optional
         Random seed for reproducible landmark selection when n_landmarks is specified.
         Controls the random selection of points when using approximation, by default None.
@@ -113,12 +117,14 @@ def compute_differential_expression(
         Number of cells to process at once during prediction to manage memory usage.
         If None or 0, all samples will be processed at once. Default is 100.
     store_arrays_on_disk : bool, optional
-        Whether to store large arrays on disk instead of in memory, by default False.
+        Whether to store large arrays on disk instead of in memory, by default None.
+        If None, it will be determined based on disk_storage_dir (True if provided, False otherwise).
         This is useful for very large datasets with many genes, where covariance
         matrices would otherwise exceed available memory.
     disk_storage_dir : str, optional
-        Directory to store arrays on disk. If None and store_arrays_on_disk is True,
-        a temporary directory will be created and cleaned up afterwards.
+        Directory to store arrays on disk. If provided and store_arrays_on_disk is None,
+        store_arrays_on_disk will be set to True. If store_arrays_on_disk is False and
+        this is provided, a warning will be logged and disk storage will not be used.
     max_memory_ratio : float, optional
         Maximum fraction of available memory that arrays should occupy before
         triggering warnings or enabling disk storage, by default 0.8 (80%).
@@ -465,17 +471,13 @@ def compute_differential_expression(
         else:
             logger.warning(f"DA landmarks have dimension {landmarks_dim} but data has dimension {data_dim}. Computing new landmarks.")
     
-    # If user specifically enabled disk storage, log that
-    if store_arrays_on_disk:
-        storage_location = disk_storage_dir if disk_storage_dir else "a temporary directory"
-        logger.info(f"Disk-backed storage enabled. Covariance matrices will be stored in {storage_location}")
-    
     # Initialize and fit DifferentialExpression
     use_sample_variance = sample_col is not None
     
     diff_expression = DifferentialExpression(
         n_landmarks=n_landmarks,
         use_sample_variance=use_sample_variance,
+        eps=eps,  # Pass the eps parameter 
         jit_compile=jit_compile,
         random_state=random_state,
         batch_size=batch_size,
@@ -855,6 +857,7 @@ def compute_differential_expression(
             "use_sample_variance": use_sample_variance,  # This is now inferred from sample_col
             "differential_abundance_key": differential_abundance_key,
             "ls_factor": ls_factor,
+            "eps": eps,  # Include eps parameter for numerical stability
             "used_landmarks": True if landmarks is not None else False,
             "store_arrays_on_disk": store_arrays_on_disk,
             "max_memory_ratio": max_memory_ratio,

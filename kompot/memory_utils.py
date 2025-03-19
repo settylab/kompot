@@ -343,9 +343,14 @@ class DiskStorage:
         Registry of stored arrays with their metadata
     use_dask : bool
         Whether to use dask for lazy loading arrays
+    namespace : str
+        Namespace prefix for array keys to prevent collisions when sharing storage
     """
     
-    def __init__(self, storage_dir: Optional[str] = None, use_dask: bool = True):
+    # Class variable to track references to shared directories
+    _shared_dirs = {}
+    
+    def __init__(self, storage_dir: Optional[str] = None, use_dask: bool = True, namespace: Optional[str] = None):
         """
         Initialize disk storage manager.
         
@@ -355,23 +360,38 @@ class DiskStorage:
             Directory to store arrays. If None, a temporary directory is created.
         use_dask : bool, optional
             Whether to use dask for lazy loading when available, by default True.
+        namespace : str, optional
+            Namespace prefix for array keys. If None, a random UUID is generated.
+            Use this to prevent key collisions when sharing storage between objects.
         """
+        # Generate a unique ID for this instance
+        import uuid
+        self._instance_id = str(uuid.uuid4())[:8]
+        
         if storage_dir is None:
-            self.storage_dir = tempfile.mkdtemp(prefix="kompot_arrays_")
+            self.storage_dir = tempfile.mkdtemp(prefix=f"kompot_arrays_{self._instance_id}_")
             self._temp_dir = True
+            # Register this as the owner of the temporary directory
+            DiskStorage._shared_dirs[self.storage_dir] = self._instance_id
         else:
             self.storage_dir = storage_dir
             os.makedirs(storage_dir, exist_ok=True)
             self._temp_dir = False
+            # Register this instance as a user of the shared directory
+            if self.storage_dir not in DiskStorage._shared_dirs:
+                DiskStorage._shared_dirs[self.storage_dir] = self._instance_id
+            
+        # Set namespace for array keys to prevent collisions
+        self.namespace = namespace if namespace is not None else f"ns_{self._instance_id}"
             
         # Determine if we should use dask
         self.use_dask = use_dask and DASK_AVAILABLE
         
         self.array_registry = {}
         if self.use_dask:
-            logger.info(f"Initialized disk storage at {self.storage_dir} with dask support")
+            logger.info(f"Initialized disk storage at {self.storage_dir} with dask support (namespace: {self.namespace})")
         else:
-            logger.info(f"Initialized disk storage at {self.storage_dir}")
+            logger.info(f"Initialized disk storage at {self.storage_dir} (namespace: {self.namespace})")
         
     def __del__(self):
         """Clean up temporary directory if it was created by this instance."""
@@ -379,26 +399,39 @@ class DiskStorage:
         
     def cleanup(self):
         """Remove temporary storage directory if it was created by this instance."""
-        if hasattr(self, '_temp_dir') and self._temp_dir and os.path.exists(self.storage_dir):
-            try:
-                # Check if Python is shutting down
-                import sys
-                if sys.meta_path is None:
-                    # Python is shutting down, don't try to import or log
-                    return
+        try:
+            # Check if Python is shutting down
+            import sys
+            if sys.meta_path is None:
+                # Python is shutting down, don't try to import or log
+                return
+                
+            # Only perform cleanup if this instance owns the directory and it exists
+            if (hasattr(self, '_temp_dir') and self._temp_dir and 
+                os.path.exists(self.storage_dir) and 
+                self.storage_dir in DiskStorage._shared_dirs and 
+                DiskStorage._shared_dirs[self.storage_dir] == self._instance_id):
                 
                 import shutil
                 shutil.rmtree(self.storage_dir)
                 logger.info(f"Removed temporary storage directory {self.storage_dir}")
-            except ImportError:
-                # Python is shutting down or module not available
+                # Remove from shared directory tracking
+                DiskStorage._shared_dirs.pop(self.storage_dir, None)
+            elif self.storage_dir in DiskStorage._shared_dirs:
+                # Just unregister this instance from the shared directory
+                logger.debug(f"Unregistered from shared directory {self.storage_dir}")
+                # Only remove if this instance is the registered owner
+                if DiskStorage._shared_dirs[self.storage_dir] == self._instance_id:
+                    DiskStorage._shared_dirs.pop(self.storage_dir, None)
+        except ImportError:
+            # Python is shutting down or module not available
+            pass
+        except Exception as e:
+            try:
+                logger.warning(f"Failed to clean up disk storage: {str(e)}")
+            except:
+                # Even logging might fail during shutdown
                 pass
-            except Exception as e:
-                try:
-                    logger.warning(f"Failed to remove temporary directory {self.storage_dir}: {str(e)}")
-                except:
-                    # Even logging might fail during shutdown
-                    pass
                 
     def store_array(self, array: Union[np.ndarray, 'da.Array'], key: str) -> str:
         """
@@ -416,27 +449,48 @@ class DiskStorage:
         str
             Path to the stored array file
         """
-        file_path = os.path.join(self.storage_dir, f"{key}.npy")
+        # Add namespace to key to prevent collisions when sharing storage
+        namespaced_key = f"{self.namespace}_{key}"
+        file_path = os.path.join(self.storage_dir, f"{namespaced_key}.npy")
         
-        # Handle dask arrays by computing them first
-        if hasattr(array, 'compute') and callable(getattr(array, 'compute')):
-            # This is a dask array
-            logger.debug(f"Computing dask array before saving to disk: {key}")
-            array = array.compute()
+        # Use file locking to prevent concurrent writes
+        import filelock
+        lock_path = f"{file_path}.lock"
+        lock = filelock.FileLock(lock_path, timeout=60)
         
-        # Save the array
-        np.save(file_path, array)
+        try:
+            with lock:
+                # Handle dask arrays by computing them first
+                if hasattr(array, 'compute') and callable(getattr(array, 'compute')):
+                    # This is a dask array
+                    logger.debug(f"Computing dask array before saving to disk: {namespaced_key}")
+                    array = array.compute()
+                
+                # Save the array
+                np.save(file_path, array)
+                
+                # Save metadata
+                self.array_registry[key] = {
+                    'path': file_path,
+                    'shape': array.shape,
+                    'dtype': str(array.dtype),
+                    'size_bytes': array.nbytes,
+                    'size_human': human_readable_size(array.nbytes),
+                    'namespaced_key': namespaced_key
+                }
+                
+                logger.debug(f"Stored array '{key}' to disk: {self.array_registry[key]['size_human']}")
+        except filelock.Timeout:
+            logger.warning(f"Timeout while trying to acquire lock for {namespaced_key}")
+            raise
+        finally:
+            # Make sure to remove the lock file after use
+            if os.path.exists(lock_path):
+                try:
+                    os.remove(lock_path)
+                except:
+                    pass
         
-        # Save metadata
-        self.array_registry[key] = {
-            'path': file_path,
-            'shape': array.shape,
-            'dtype': str(array.dtype),
-            'size_bytes': array.nbytes,
-            'size_human': human_readable_size(array.nbytes)
-        }
-        
-        logger.debug(f"Stored array '{key}' to disk: {self.array_registry[key]['size_human']}")
         return file_path
         
     def load_array(self, key: str, lazy: bool = None) -> Union[np.ndarray, 'da.Array']:
@@ -487,9 +541,28 @@ class DiskStorage:
             return
             
         file_path = self.array_registry[key]['path']
-        if os.path.exists(file_path):
-            os.remove(file_path)
-            logger.debug(f"Removed array file {file_path}")
+        
+        # Use file locking to prevent concurrent access issues
+        import filelock
+        lock_path = f"{file_path}.lock"
+        lock = filelock.FileLock(lock_path, timeout=10)
+        
+        try:
+            with lock:
+                if os.path.exists(file_path):
+                    os.remove(file_path)
+                    logger.debug(f"Removed array file {file_path}")
+        except filelock.Timeout:
+            logger.warning(f"Timeout while trying to acquire lock for removal of {key}")
+        except Exception as e:
+            logger.warning(f"Error removing array file {file_path}: {str(e)}")
+        finally:
+            # Clean up the lock file
+            if os.path.exists(lock_path):
+                try:
+                    os.remove(lock_path)
+                except:
+                    pass
             
         del self.array_registry[key]
         

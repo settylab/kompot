@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 from kompot.differential import DifferentialAbundance, DifferentialExpression, compute_weighted_mean_fold_change
-from kompot.utils import prepare_mahalanobis_matrix, compute_mahalanobis_distances, compute_mahalanobis_distance
+from kompot.utils import compute_mahalanobis_distances, compute_mahalanobis_distance
 
 
 def test_differential_abundance_fit():

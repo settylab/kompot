@@ -313,7 +313,7 @@ class DifferentialAbundance:
             
             # Fit variance estimator for condition 1
             if condition1_sample_indices is not None:
-                logger.info("Fitting sample-specific variance estimator for condition 1 using provided indices...")
+                logger.debug("Fitting sample-specific variance estimator for condition 1 using provided indices...")
                 condition1_variance_estimator = SampleVarianceEstimator(
                     eps=self.eps,
                     estimator_type='density'
@@ -331,7 +331,7 @@ class DifferentialAbundance:
             
             # Fit variance estimator for condition 2
             if condition2_sample_indices is not None:
-                logger.info("Fitting sample-specific variance estimator for condition 2 using provided indices...")
+                logger.debug("Fitting sample-specific variance estimator for condition 2 using provided indices...")
                 condition2_variance_estimator = SampleVarianceEstimator(
                     eps=self.eps,
                     estimator_type='density'

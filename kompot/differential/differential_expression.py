@@ -13,24 +13,9 @@ from mellon.parameters import compute_landmarks
 from ..utils import (
     compute_mahalanobis_distance, 
     compute_mahalanobis_distances, 
-    prepare_mahalanobis_matrix, 
     find_landmarks
 )
 from ..batch_utils import apply_batched, is_jax_memory_error
-from ..memory_utils import (
-    DiskStorage,
-    analyze_memory_requirements,
-    analyze_covariance_memory_requirements,
-    DASK_AVAILABLE
-)
-
-# Try to import dask if available
-if DASK_AVAILABLE:
-    try:
-        import dask.array as da
-        import dask
-    except ImportError:
-        pass
 from .sample_variance_estimator import SampleVarianceEstimator
 
 logger = logging.getLogger("kompot")
@@ -62,7 +47,7 @@ class DifferentialExpression:
         self,
         n_landmarks: Optional[int] = None,
         use_sample_variance: Optional[bool] = None,
-        eps: float = 1e-12,
+        eps: float = 1e-8,  # Increased default epsilon for better numerical stability
         jit_compile: bool = False,
         function_predictor1: Optional[Any] = None,
         function_predictor2: Optional[Any] = None,
@@ -71,7 +56,7 @@ class DifferentialExpression:
         random_state: Optional[int] = None,
         batch_size: int = 500,
         mahalanobis_batch_size: Optional[int] = None,
-        store_arrays_on_disk: bool = False,
+        store_arrays_on_disk: Optional[bool] = None,
         disk_storage_dir: Optional[str] = None,
         max_memory_ratio: float = 0.8,
     ):
@@ -89,7 +74,7 @@ class DifferentialExpression:
             - If True: Force use of sample variance (even if no predictors/indices available).
             - If False: Disable sample variance (even if predictors/indices are available).
         eps : float, optional
-            Small constant for numerical stability, by default 1e-12.
+            Small constant for numerical stability, by default 1e-8.
         jit_compile : bool, optional
             Whether to use JAX just-in-time compilation, by default False.
         function_predictor1 : Any, optional
@@ -113,12 +98,14 @@ class DifferentialExpression:
             Smaller values use less memory but are slower. If None, uses batch_size.
             Increase for faster computation if you have sufficient memory.
         store_arrays_on_disk : bool, optional
-            Whether to store large arrays on disk instead of in memory, by default False.
+            Whether to store large arrays on disk instead of in memory, by default None.
+            If None, it will be determined based on disk_storage_dir (True if provided, False otherwise).
             This is useful for very large datasets with many genes, where covariance
             matrices would otherwise exceed available memory.
         disk_storage_dir : str, optional
-            Directory to store arrays on disk. If None and store_arrays_on_disk is True,
-            a temporary directory will be created and cleaned up afterwards.
+            Directory to store arrays on disk. If provided and store_arrays_on_disk is None,
+            store_arrays_on_disk will be set to True. If store_arrays_on_disk is False and
+            this is provided, a warning will be logged and disk storage will not be used.
         max_memory_ratio : float, optional
             Maximum fraction of available memory that arrays should occupy before
             triggering warnings or enabling disk storage, by default 0.8 (80%).
@@ -144,16 +131,21 @@ class DifferentialExpression:
         # For Mahalanobis distance computation, use a separate batch size parameter if provided
         self.mahalanobis_batch_size = mahalanobis_batch_size if mahalanobis_batch_size is not None else batch_size
         
-        # Memory management options
-        self.store_arrays_on_disk = store_arrays_on_disk
+        # Determine store_arrays_on_disk based on disk_storage_dir if not explicitly set
+        if store_arrays_on_disk is None:
+            self.store_arrays_on_disk = disk_storage_dir is not None
+        else:
+            self.store_arrays_on_disk = store_arrays_on_disk
+            
+        # Log warning if store_arrays_on_disk is False but disk_storage_dir is provided
+        if not self.store_arrays_on_disk and disk_storage_dir is not None:
+            logger.warning(
+                f"Disk storage directory provided ({disk_storage_dir}) but store_arrays_on_disk is False. "
+                f"Arrays will NOT be stored on disk."
+            )
+            
         self.disk_storage_dir = disk_storage_dir
         self.max_memory_ratio = max_memory_ratio
-        self._disk_storage = None
-        
-        # Initialize disk storage if requested
-        if self.store_arrays_on_disk:
-            self._disk_storage = DiskStorage(storage_dir=disk_storage_dir)
-            logger.info(f"Disk storage for large arrays enabled. Arrays will be stored in {self._disk_storage.storage_dir}")
         
         # Function estimators or predictors
         self.expression_estimator_condition1 = None
@@ -169,45 +161,9 @@ class DifferentialExpression:
         self.mahalanobis_distances = None
         
     def __del__(self):
-        """Clean up disk storage when the object is deleted."""
-        try:
-            # Check if Python is shutting down
-            import sys
-            if sys.meta_path is None:
-                # Python is shutting down, don't try to cleanup
-                return
-                
-            if hasattr(self, '_disk_storage') and self._disk_storage is not None:
-                self._disk_storage.cleanup()
-        except ImportError:
-            # Python is shutting down or module not available
-            pass
-        except Exception:
-            # Ignore any other errors during cleanup
-            pass
-            
-    def analyze_memory_requirements(self, shapes, analysis_name="Memory Analysis"):
-        """
-        Analyze memory requirements for arrays with specified shapes.
-        
-        Parameters
-        ----------
-        shapes : list
-            List of array shapes to analyze (tuples of dimensions)
-        analysis_name : str, optional
-            Name to identify this analysis in log messages, by default "Memory Analysis"
-            
-        Returns
-        -------
-        dict
-            Dictionary with memory analysis results
-        """
-        # Use the centralized memory analysis function from memory_utils.py
-        return analyze_memory_requirements(
-            shapes=shapes,
-            max_memory_ratio=self.max_memory_ratio,
-            analysis_name=analysis_name
-        )
+        """Cleanup method for object deletion."""
+        # No cleanup needed as we no longer manage disk storage directly
+        pass
         
     def fit(
         self, 
@@ -351,7 +307,7 @@ class DifferentialExpression:
         
         # Handle sample-specific variance if enabled and sample indices are provided
         if self.use_sample_variance and have_sample_indices:
-            logger.info("Setting up sample variance estimation...")
+            logger.debug("Setting up sample variance estimation...")
             
             # Set up function estimator parameters for sample-specific models
             sample_estimator_kwargs = estimator_defaults.copy() if 'estimator_defaults' in locals() else function_kwargs.copy()
@@ -368,114 +324,24 @@ class DifferentialExpression:
                         "This could lead to inflated Mahalanobis distances."
                     )
             
-            # Before fitting variance estimators, perform a combined memory analysis for both conditions
-            array_shapes = []
-            condition_info = []
-            
-            # Analyze condition 1 memory requirements if needed
-            if condition1_sample_indices is not None:
-                n_groups1 = len(np.unique(condition1_sample_indices))
-                
-                # Determine points to use
-                if self.n_landmarks is None:
-                    points_used1 = len(X_condition1)
-                    approx_str1 = "exact computation"
-                else:
-                    points_used1 = self.n_landmarks
-                    approx_str1 = f"landmark approximation (n={self.n_landmarks})"
-                
-                gene_count1 = y_condition1.shape[1]
-                cov_array_shape1 = (points_used1, points_used1, gene_count1)
-                array_shapes.append(cov_array_shape1)
-                
-                condition_info.append({
-                    'name': 'condition1',
-                    'n_groups': n_groups1,
-                    'n_points': points_used1,
-                    'n_genes': gene_count1,
-                    'approx': approx_str1,
-                    'shape': cov_array_shape1
-                })
-            
-            # Analyze condition 2 memory requirements if needed
-            if condition2_sample_indices is not None:
-                n_groups2 = len(np.unique(condition2_sample_indices))
-                
-                # Determine points to use
-                if self.n_landmarks is None:
-                    points_used2 = len(X_condition2)
-                    approx_str2 = "exact computation"
-                else:
-                    points_used2 = self.n_landmarks
-                    approx_str2 = f"landmark approximation (n={self.n_landmarks})"
-                
-                gene_count2 = y_condition2.shape[1]
-                cov_array_shape2 = (points_used2, points_used2, gene_count2)
-                array_shapes.append(cov_array_shape2)
-                
-                condition_info.append({
-                    'name': 'condition2',
-                    'n_groups': n_groups2,
-                    'n_points': points_used2,
-                    'n_genes': gene_count2,
-                    'approx': approx_str2,
-                    'shape': cov_array_shape2
-                })
-            
-            # Perform memory analysis for all required arrays
-            if array_shapes:
-                # Use debug level when disk storage is already enabled
-                log_level = "debug" if self.store_arrays_on_disk else "info"
-                
-                memory_analysis = analyze_memory_requirements(
-                    shapes=array_shapes, 
-                    max_memory_ratio=self.max_memory_ratio,
-                    analysis_name="Sample Variance Estimation",
-                    store_arrays_on_disk=self.store_arrays_on_disk,
-                    log_level=log_level
-                )
-                
-                # Detailed logging
-                # Use debug level if disk storage is enabled
-                log_func = logger.debug if self.store_arrays_on_disk else logger.info
-                log_func("Sample variance estimation details:")
-                for cond in condition_info:
-                    log_func(
-                        f"  - {cond['name']}: {cond['n_genes']} genes, {cond['n_groups']} groups, "
-                        f"{cond['n_points']} points ({cond['approx']})"
-                    )
-                
-                # Use disk storage if needed and enabled
-                should_use_disk = memory_analysis['status'] in ['warning', 'critical'] and self.store_arrays_on_disk
-                if should_use_disk:
-                    if self._disk_storage is None:
-                        self._disk_storage = DiskStorage(storage_dir=self.disk_storage_dir)
-                        logger.info(f"Automatically enabling disk storage at {self._disk_storage.storage_dir}")
-                    logger.info("Large covariance arrays will be stored on disk")
+            # No memory analysis needed during fit - SampleVarianceEstimator will analyze memory 
+            # during predict() only when actually needed (when diag=False)
             
             # Now fit variance estimators with the memory analysis information
             
             # Fit variance estimator for condition 1
             if condition1_sample_indices is not None:
-                logger.info("Fitting sample-specific variance estimator for condition 1 using provided indices...")
-                
-                # Determine if we should use disk storage
-                should_use_disk = False
-                if array_shapes:
-                    should_use_disk = memory_analysis['status'] in ['warning', 'critical'] and self.store_arrays_on_disk
+                logger.debug("Fitting sample-specific variance estimator for condition 1 using provided indices...")
                 
                 condition1_variance_estimator = SampleVarianceEstimator(
                     eps=self.eps,
-                    store_arrays_on_disk=should_use_disk,
+                    store_arrays_on_disk=self.store_arrays_on_disk,
                     disk_storage_dir=self.disk_storage_dir
                 )
                 # Set a flag to indicate this estimator is called from DifferentialExpression
                 condition1_variance_estimator._called_from_differential = True
                 
-                # Share the disk storage if already initialized
-                if should_use_disk and self._disk_storage is not None:
-                    condition1_variance_estimator._disk_storage = self._disk_storage
-                    logger.debug(f"Sharing disk storage with condition 1 variance estimator")
+                # Don't set up disk storage here - SampleVarianceEstimator will create it when needed in predict()
                 
                 condition1_variance_estimator.fit(
                     X=X_condition1, 
@@ -488,29 +354,17 @@ class DifferentialExpression:
             
             # Fit variance estimator for condition 2
             if condition2_sample_indices is not None:
-                logger.info("Fitting sample-specific variance estimator for condition 2 using provided indices...")
-                
-                # Determine if we should use disk storage
-                should_use_disk = False
-                if array_shapes:
-                    should_use_disk = memory_analysis['status'] in ['warning', 'critical'] and self.store_arrays_on_disk
+                logger.debug("Fitting sample-specific variance estimator for condition 2 using provided indices...")
                 
                 condition2_variance_estimator = SampleVarianceEstimator(
                     eps=self.eps,
-                    store_arrays_on_disk=should_use_disk,
+                    store_arrays_on_disk=self.store_arrays_on_disk,
                     disk_storage_dir=self.disk_storage_dir
                 )
                 # Set a flag to indicate this estimator is called from DifferentialExpression
                 condition2_variance_estimator._called_from_differential = True
                 
-                # Share disk storage if possible
-                if should_use_disk:
-                    if self._disk_storage is not None:
-                        condition2_variance_estimator._disk_storage = self._disk_storage
-                        logger.debug(f"Sharing disk storage with condition 2 variance estimator")
-                    elif hasattr(condition1_variance_estimator, '_disk_storage') and condition1_variance_estimator._disk_storage is not None:
-                        condition2_variance_estimator._disk_storage = condition1_variance_estimator._disk_storage
-                        logger.debug(f"Sharing disk storage between condition variance estimators")
+                # Don't set up disk storage here - SampleVarianceEstimator will create it when needed in predict()
                 
                 condition2_variance_estimator.fit(
                     X=X_condition2, 
@@ -569,33 +423,24 @@ class DifferentialExpression:
         if landmarks_override is not None:
             landmarks = landmarks_override
             has_landmarks = True
-            # Use debug level if disk storage is enabled
-            log_func = logger.debug if self.store_arrays_on_disk else logger.info
-            log_func(f"Using explicitly provided landmarks with shape {landmarks.shape}")
+            logger.debug(f"Using explicitly provided landmarks with shape {landmarks.shape}")
         # Otherwise check for landmarks from function predictors if enabled
         elif use_landmarks:
             # Check function predictor for landmarks
             if hasattr(self.function_predictor1, 'landmarks') and self.function_predictor1.landmarks is not None:
                 landmarks = self.function_predictor1.landmarks
                 has_landmarks = True
-                # Use debug level if disk storage is enabled
-                log_func = logger.debug if self.store_arrays_on_disk else logger.info
-                log_func(f"Using landmarks from function_predictor1 with shape {landmarks.shape}")
+                logger.debug(f"Using landmarks from function_predictor1 with shape {landmarks.shape}")
             # Check estimator for landmarks
             elif (hasattr(self.expression_estimator_condition1, 'landmarks') and 
                   self.expression_estimator_condition1.landmarks is not None):
                 landmarks = self.expression_estimator_condition1.landmarks
                 has_landmarks = True
-                # Use debug level if disk storage is enabled
-                log_func = logger.debug if self.store_arrays_on_disk else logger.info
-                log_func(f"Using landmarks from expression_estimator_condition1 with shape {landmarks.shape}")
+                logger.debug(f"Using landmarks from expression_estimator_condition1 with shape {landmarks.shape}")
         
         # Determine which points to use for computation
         if has_landmarks and landmarks is not None:
-            # For landmark-based approximation, use the actual landmarks
-            # Use debug level if disk storage is enabled
-            log_func = logger.debug if self.store_arrays_on_disk else logger.info
-            log_func(f"Using {len(landmarks):,} landmarks for Mahalanobis computation")
+            logger.info(f"Using {len(landmarks):,} landmarks for Mahalanobis computation")
             
             # Get covariance matrices
             cov1 = self.function_predictor1.covariance(landmarks, diag=False)
@@ -609,10 +454,7 @@ class DifferentialExpression:
             # Points for sample variance computation
             variance_points = landmarks
         else:
-            # Use all points
-            # Use debug level if disk storage is enabled
-            log_func = logger.debug if self.store_arrays_on_disk else logger.info
-            log_func(f"No landmarks used, computing with all {len(X)} points")
+            logger.info(f"No landmarks used, computing covariance between all {len(X):,} points.")
             
             # Get covariance matrices
             cov1 = self.function_predictor1.covariance(X, diag=False)
@@ -644,10 +486,9 @@ class DifferentialExpression:
             if self.variance_predictor1 is not None:
                 try:
                     # Important: use diag=False to get full covariance matrix
-                    # Pass the progress parameter to control progress bar display
-                    variance1 = self.variance_predictor1(variance_points, diag=False, progress=progress)
+                    variance1 = self.variance_predictor1(variance_points, diag=False)
                     if self.variance_predictor2 is not None:
-                        variance2 = self.variance_predictor2(variance_points, diag=False, progress=progress)
+                        variance2 = self.variance_predictor2(variance_points, diag=False)
                         # Add the covariance matrices for complete variance representation
                         combined_variance = variance1 + variance2
                         
@@ -658,15 +499,11 @@ class DifferentialExpression:
                             gene_specific_covariance = np.zeros_like(combined_variance)
                             for g in range(combined_variance.shape[2]):
                                 gene_specific_covariance[:, :, g] = combined_variance[:, :, g] + combined_cov
-                            # Use debug level if disk storage is enabled
-                            log_func = logger.debug if self.store_arrays_on_disk else logger.info
-                            log_func(f"Using gene-specific covariance matrices with shape {gene_specific_covariance.shape}")
+                            logger.debug(f"Using gene-specific covariance matrices with shape {gene_specific_covariance.shape}")
                         else:
                             # Add the sample variance to the combined covariance from function predictors
                             combined_cov += combined_variance
-                            # Use debug level if disk storage is enabled
-                            log_func = logger.debug if self.store_arrays_on_disk else logger.info
-                            log_func("Added sample variance covariance matrix to function predictor covariance")
+                            logger.debug("Added sample variance covariance matrix to function predictor covariance")
                     else:
                         # Only add variance1 if variance2 is not available
                         if len(variance1.shape) == 3:
@@ -675,14 +512,10 @@ class DifferentialExpression:
                             gene_specific_covariance = np.zeros_like(variance1)
                             for g in range(variance1.shape[2]):
                                 gene_specific_covariance[:, :, g] = variance1[:, :, g] + combined_cov
-                            # Use debug level if disk storage is enabled
-                            log_func = logger.debug if self.store_arrays_on_disk else logger.info
-                            log_func(f"Using gene-specific covariance matrices from variance1 with shape {gene_specific_covariance.shape}")
+                            logger.debug(f"Using gene-specific covariance matrices from variance1 with shape {gene_specific_covariance.shape}")
                         else:
                             combined_cov += variance1
-                            # Use debug level if disk storage is enabled
-                            log_func = logger.debug if self.store_arrays_on_disk else logger.info
-                            log_func("Added variance1 covariance matrix to function predictor covariance")
+                            logger.debug("Added variance1 covariance matrix to function predictor covariance")
                 except Exception as e:
                     error_msg = f"Error computing sample variance from variance_predictor1: {e}."
                     logger.error(error_msg)
@@ -690,8 +523,7 @@ class DifferentialExpression:
             elif self.variance_predictor2 is not None:
                 try:
                     # Important: use diag=False to get full covariance matrix
-                    # Pass the progress parameter to control progress bar display
-                    variance2 = self.variance_predictor2(variance_points, diag=False, progress=progress)
+                    variance2 = self.variance_predictor2(variance_points, diag=False)
                     # Check if we have gene-specific covariance matrices
                     if len(variance2.shape) == 3:
                         # We have per-gene covariance matrices
@@ -699,15 +531,11 @@ class DifferentialExpression:
                         gene_specific_covariance = np.zeros_like(variance2)
                         for g in range(variance2.shape[2]):
                             gene_specific_covariance[:, :, g] = variance2[:, :, g] + combined_cov
-                        # Use debug level if disk storage is enabled
-                        log_func = logger.debug if self.store_arrays_on_disk else logger.info
-                        log_func(f"Using gene-specific covariance matrices from variance2 with shape {gene_specific_covariance.shape}")
+                        logger.debug(f"Using gene-specific covariance matrices from variance2 with shape {gene_specific_covariance.shape}")
                     else:
                         # Add variance2 to the combined covariance
                         combined_cov += variance2
-                        # Use debug level if disk storage is enabled
-                        log_func = logger.debug if self.store_arrays_on_disk else logger.info
-                        log_func("Added variance2 covariance matrix to function predictor covariance")
+                        logger.debug("Added variance2 covariance matrix to function predictor covariance")
                 except Exception as e:
                     error_msg = f"Error computing sample variance from variance_predictor2: {e}."
                     logger.error(error_msg)
@@ -732,14 +560,9 @@ class DifferentialExpression:
                     progress=progress
                 )
                 
-                # Use debug level if disk storage is enabled
-                log_func = logger.debug if self.store_arrays_on_disk else logger.info
-                log_func(f"Successfully computed Mahalanobis distances for {len(mahalanobis_distances):,} genes using gene-specific covariance")
+                logger.info(f"Successfully computed Mahalanobis distances for {len(mahalanobis_distances):,} genes using gene-specific covariance")
             else:
-                # Use shared covariance matrix (2D matrix)
-                # Use debug level if disk storage is enabled
-                log_func = logger.debug if self.store_arrays_on_disk else logger.info
-                log_func(f"Computing Mahalanobis distances for {fold_change_transposed.shape[0]:,} genes with shared covariance...")
+                logger.debug(f"Computing Mahalanobis distances for {fold_change_transposed.shape[0]:,} genes with shared covariance...")
                 
                 # Compute all distances using the unified utility function with the combined covariance matrix
                 mahalanobis_distances = compute_mahalanobis_distances(
@@ -751,9 +574,7 @@ class DifferentialExpression:
                     progress=progress
                 )
                 
-                # Use debug level if disk storage is enabled
-                log_func = logger.debug if self.store_arrays_on_disk else logger.info
-                log_func(f"Successfully computed Mahalanobis distances for {len(mahalanobis_distances):,} genes")
+                logger.debug(f"Successfully computed Mahalanobis distances for {len(mahalanobis_distances):,} genes")
         except Exception as e:
             error_msg = (f"Failed to compute Mahalanobis distances: {str(e)}. "
                        f"Try manually reducing batch_size or disable Mahalanobis "

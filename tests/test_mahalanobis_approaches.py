@@ -10,8 +10,7 @@ from typing import Dict
 
 from kompot.utils import (
     compute_mahalanobis_distances,
-    compute_mahalanobis_distance,
-    prepare_mahalanobis_matrix
+    compute_mahalanobis_distance
 )
 from kompot.memory_utils import DiskStorage, DASK_AVAILABLE
 from kompot.differential import DifferentialExpression, SampleVarianceEstimator
@@ -191,8 +190,8 @@ def test_compare_mahalanobis_approaches():
     assert 0 < corr_shared_gene < 1, "Correlation between approaches should be between 0 and 1"
 
 
-def test_cholesky_vs_pinv_vs_diagonal():
-    """Test specifically compare Cholesky, pseudoinverse, and diagonal approximation approaches."""
+def test_different_mahalanobis_distance_approaches():
+    """Test different approaches for Mahalanobis distance computation."""
     # Create some test data - a specific vector and covariance matrix
     n_dim = 30
     vector = np.random.random(n_dim)
@@ -204,90 +203,45 @@ def test_cholesky_vs_pinv_vs_diagonal():
     # Also create a diagonal matrix for comparison
     diag_cov = np.diag(np.diag(cov))
     
-    # Use the lower level prepare_mahalanobis_matrix function to get all three methods
-    prepared_chol = prepare_mahalanobis_matrix(cov, eps=1e-10)
-    assert not prepared_chol['is_diagonal']
-    assert prepared_chol['chol'] is not None
-    assert prepared_chol['matrix_inv'] is None
+    # Prepare vector as batch of 1 for compute_mahalanobis_distances
+    vector_batch = vector.reshape(1, -1)
     
-    # Make an intentionally singular matrix that will definitely use matrix inverse
-    near_singular = np.zeros((n_dim, n_dim))
-    np.fill_diagonal(near_singular, 1.0)
-    # Make it exactly singular by making two rows identical
-    near_singular[0, :] = near_singular[1, :]
+    # Test 1: Compute distance using standard covariance
+    dist_standard = compute_mahalanobis_distances(
+        diff_values=vector_batch,
+        covariance=cov,
+        jit_compile=False
+    )[0]
     
-    # Use warnings.catch_warnings to avoid test failures from warnings
-    import warnings
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        prepared_pinv = prepare_mahalanobis_matrix(near_singular, eps=1e-5)
+    # Test 2: Compute distance using diagonal approximation
+    dist_diag = compute_mahalanobis_distances(
+        diff_values=vector_batch,
+        covariance=diag_cov,
+        jit_compile=False
+    )[0]
     
-    # For this singular matrix, it's falling back to diagonal approximation
-    # since that's more efficient than pseudoinverse in some cases
-    # Just verify we have a valid result structure that can be used
-    assert 'is_diagonal' in prepared_pinv
-    assert prepared_pinv['diag_values'] is not None or prepared_pinv['matrix_inv'] is not None
+    # Test 3: Compute using single vector interface
+    dist_single = compute_mahalanobis_distance(
+        diff_values=vector,
+        covariance_matrix=cov,
+        jit_compile=False
+    )
     
-    # Prepare diagonal matrix (which should use diagonal approach)
-    prepared_diag = prepare_mahalanobis_matrix(diag_cov, eps=1e-10)
-    assert prepared_diag['is_diagonal']
-    assert prepared_diag['diag_values'] is not None
-    
-    # Compute Mahalanobis distances using the JAX arrays directly
-    # The compute_mahalanobis_distance function expects vectors, not dicts
-    # Let's use the lower-level functionality directly based on preparation result
-    
-    # For Cholesky case
-    if prepared_chol["chol"] is not None:
-        chol = prepared_chol["chol"]
-        solved = jax.scipy.linalg.solve_triangular(chol, vector, lower=True)
-        dist_chol = float(np.sqrt(np.sum(solved**2)))
-    else:
-        dist_chol = None
-    
-    # For pseudoinverse case
-    if prepared_pinv["matrix_inv"] is not None:
-        matrix_inv = prepared_pinv["matrix_inv"]
-        dist_pinv = float(np.sqrt(np.dot(vector, np.dot(matrix_inv, vector))))
-    elif prepared_pinv["is_diagonal"]:
-        diag_values = prepared_pinv["diag_values"]
-        weighted_diff = vector / np.sqrt(diag_values)
-        dist_pinv = float(np.sqrt(np.sum(weighted_diff**2)))
-    else:
-        dist_pinv = None
-    
-    # For diagonal case
-    if prepared_diag["is_diagonal"]:
-        diag_values = prepared_diag["diag_values"]
-        weighted_diff = vector / np.sqrt(diag_values)
-        dist_diag = float(np.sqrt(np.sum(weighted_diff**2)))
-    else:
-        dist_diag = None
-    
-    # Manually compute the results for verification
-    # For positive definite matrix, these should be identical
-    # Diagonal just uses the diagonal elements only
+    # Manually compute the diagonal approximation for verification
+    # For diagonal cov, Mahalanobis is just weighted Euclidean distance
     manual_diag = np.sqrt(np.sum((vector**2) / np.diag(cov)))
     
     # Check that we have valid results
-    # For Cholesky case, we should definitely have a result
-    assert dist_chol is not None and np.isfinite(dist_chol)
+    assert np.isfinite(dist_standard)
+    assert np.isfinite(dist_diag)
+    assert np.isfinite(dist_single)
     
-    # For the other approaches, at least one should have produced a result
-    assert dist_pinv is not None or dist_diag is not None
+    # Check that single vector interface gives same result as the multi-vector interface
+    # for the same input
+    assert np.isclose(dist_standard, dist_single, rtol=1e-5)
     
-    # If pseudoinverse exists, note that it could be very different from Cholesky
-    # since our intentionally singular matrix results in a completely different computation
-    if dist_pinv is not None:
-        # We just verify it's finite and reasonable
-        assert np.isfinite(dist_pinv)
-    
-    # The diagonal approximation should be different but still reasonable
-    if dist_diag is not None:
-        assert np.isfinite(dist_diag)
-        
-        # Check diagonal approximation matches our manual calculation
-        assert np.isclose(dist_diag, manual_diag, rtol=1e-5)
+    # Check diagonal approximation matches our manual calculation
+    assert np.isclose(dist_diag, manual_diag, rtol=1e-5)
 
 
 def test_differential_expression_with_mahalanobis_approaches():

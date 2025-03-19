@@ -45,10 +45,10 @@ class SampleVarianceEstimator:
     
     def __init__(
         self,
-        eps: float = 1e-12,
+        eps: float = 1e-8,  # Increased default epsilon for better numerical stability
         jit_compile: bool = True,
         estimator_type: str = 'function',
-        store_arrays_on_disk: bool = False,
+        store_arrays_on_disk: Optional[bool] = None,
         disk_storage_dir: Optional[str] = None
     ):
         """
@@ -57,23 +57,39 @@ class SampleVarianceEstimator:
         Parameters
         ----------
         eps : float, optional
-            Small constant for numerical stability, by default 1e-12.
+            Small constant for numerical stability, by default 1e-8.
         jit_compile : bool, optional
             Whether to use JAX just-in-time compilation, by default True.
         estimator_type : str, optional
             Type of estimator to use ('function' for gene expression, 'density' for cell density),
             by default 'function'.
         store_arrays_on_disk : bool, optional
-            Whether to store large arrays on disk instead of in memory, by default False.
+            Whether to store large arrays on disk instead of in memory, by default None.
+            If None, it will be determined based on disk_storage_dir (True if provided, False otherwise).
             Useful for very large datasets where covariance matrices would exceed available memory.
         disk_storage_dir : str, optional
-            Directory to store arrays on disk. If None and store_arrays_on_disk is True,
-            a temporary directory will be created and cleaned up when this object is deleted.
+            Directory to store arrays on disk. If provided and store_arrays_on_disk is None,
+            store_arrays_on_disk will be set to True. If store_arrays_on_disk is False and
+            this is provided, a warning will be logged and disk storage will not be used.
         """
         self.eps = eps
         self.jit_compile = jit_compile
         self.estimator_type = estimator_type
-        self.store_arrays_on_disk = store_arrays_on_disk
+        
+        # Determine store_arrays_on_disk based on disk_storage_dir if not explicitly set
+        if store_arrays_on_disk is None:
+            self.store_arrays_on_disk = disk_storage_dir is not None
+        else:
+            self.store_arrays_on_disk = store_arrays_on_disk
+            
+        # Log warning if store_arrays_on_disk is False but disk_storage_dir is provided
+        if not self.store_arrays_on_disk and disk_storage_dir is not None:
+            logger.warning(
+                f"Disk storage directory provided ({disk_storage_dir}) but store_arrays_on_disk is False. "
+                f"Arrays will NOT be stored on disk."
+            )
+        
+        self.disk_storage_dir = disk_storage_dir
         
         if estimator_type not in ['function', 'density']:
             raise ValueError("estimator_type must be either 'function' or 'density'")
@@ -100,17 +116,14 @@ class SampleVarianceEstimator:
         else:
             self._compute_cov_slice_jit = None
         
-        # Initialize disk storage if requested
+        # Don't initialize disk storage until needed (lazy initialization in predict method)
         self._disk_storage = None
-        if store_arrays_on_disk:
-            self._disk_storage = DiskStorage(storage_dir=disk_storage_dir)
-            logger.info(f"Disk storage for large arrays enabled in SampleVarianceEstimator. "
-                       f"Arrays will be stored in {self._disk_storage.storage_dir}")
-            
+        self._memory_analyzed = False  # Track if we've done memory analysis already
     def __del__(self):
         """Clean up disk storage when the object is deleted."""
         if hasattr(self, '_disk_storage') and self._disk_storage is not None:
             self._disk_storage.cleanup()
+            self._disk_storage = None
     
     def fit(
         self, 
@@ -147,6 +160,10 @@ class SampleVarianceEstimator:
         self
             The fitted instance.
         """
+        # Check if Y is provided for function estimator
+        if self.estimator_type == 'function' and Y is None:
+            raise ValueError("Y must be provided for function estimator type")
+            
         if estimator_kwargs is None:
             estimator_kwargs = {}
         
@@ -166,7 +183,7 @@ class SampleVarianceEstimator:
         }
         
         # Train estimators for each group and store only their predictors
-        logger.info(f"Training group-specific {self.estimator_type} estimators...")
+        logger.debug(f"Training group-specific {self.estimator_type} estimators...")
         
         for group_id, indices in group_indices.items():
             if len(indices) >= min_cells:  # Only train if we have enough data points
@@ -174,8 +191,6 @@ class SampleVarianceEstimator:
                 X_subset = X[indices]
                 
                 if self.estimator_type == 'function':
-                    if Y is None:
-                        raise ValueError("Y must be provided for function estimator type")
                     Y_subset = Y[indices]
                     
                     # Create and train function estimator
@@ -205,7 +220,7 @@ class SampleVarianceEstimator:
         
         return self
     
-    def predict(self, X_new: np.ndarray, diag: bool = False, progress: bool = True) -> np.ndarray:
+    def predict(self, X_new: np.ndarray, diag: bool = False) -> np.ndarray:
         """
         Predict empirical variance for new points using JAX.
         
@@ -220,8 +235,6 @@ class SampleVarianceEstimator:
         diag : bool, optional
             If True (default is False), compute the variance for each cell state.
             If False, compute the full covariance matrix between all pairs of cells.
-        progress : bool, optional
-            Whether to show progress bars for gene-wise operations, by default True.
             
         Returns
         -------
@@ -255,32 +268,8 @@ class SampleVarianceEstimator:
             test_pred = first_predictor([X_new[0]])
             n_genes = test_pred.shape[1] if len(test_pred.shape) > 1 else 1
             
-            # Check memory requirements when processing many genes
-            if n_genes > 10 and len(self.group_predictors) > 1 and hasattr(self, '_called_from_differential') and self._called_from_differential:
-                # Use the specialized covariance memory analysis function with debug log level
-                # when disk storage is already enabled
-                log_level = "debug" if self.store_arrays_on_disk else "info"
-                
-                analysis = analyze_covariance_memory_requirements(
-                    n_points=n_cells,
-                    n_genes=n_genes,
-                    max_memory_ratio=0.8,  # Use standard 80% threshold
-                    analysis_name="Sample Variance Estimation",
-                    store_arrays_on_disk=self.store_arrays_on_disk,
-                    log_level=log_level
-                )
-                
-                # Issue appropriate warning based on memory usage
-                if analysis['status'] == 'critical':
-                    if self.store_arrays_on_disk:
-                        logger.debug(
-                            f"High memory usage detected ({analysis['memory_ratio']:.2f}x of available memory). "
-                            f"Will use disk storage for large covariance arrays."
-                        )
-                    # The warning is already logged by analyze_covariance_memory_requirements
-                elif analysis['status'] == 'warning':
-                    # The warning is already logged by analyze_covariance_memory_requirements
-                    pass
+            # We'll only analyze memory requirements when actually needed (in diag=False case)
+            # No need to check here
         else:  # density estimator
             test_pred = first_predictor([X_new[0]])
             # For density, we'll reshape to have a singleton dimension for consistency
@@ -348,19 +337,28 @@ class SampleVarianceEstimator:
         
         else:
             # Full covariance matrix computation (between all pairs of cells)
-            # Check if we should use disk storage for this operation using the specialized function
-            analysis = analyze_covariance_memory_requirements(
-                n_points=n_cells,
-                n_genes=n_genes,
-                max_memory_ratio=0.8,  # Standard 80% threshold
-                analysis_name="Full Covariance Matrix"
-            )
+            # Only analyze memory requirements if not already done
+            if not hasattr(self, '_memory_analyzed') or not self._memory_analyzed:
+                log_level = "debug" if self.store_arrays_on_disk else "info"
+                analysis = analyze_covariance_memory_requirements(
+                    n_points=n_cells,
+                    n_genes=n_genes,
+                    max_memory_ratio=0.8,  # Standard 80% threshold
+                    analysis_name="Full Covariance Matrix",
+                    store_arrays_on_disk=self.store_arrays_on_disk,
+                    log_level=log_level
+                )
+                # Mark that we've done the analysis so we don't do it again
+                self._memory_analyzed = True
+            else:
+                logger.debug("Skipping memory analysis - already performed")
             
-            # Determine if we should use disk storage based on the analysis
-            use_disk_storage = self.store_arrays_on_disk and analysis['should_use_disk']
+            # Use disk storage if enabled
+            use_disk_storage = self.store_arrays_on_disk
             if use_disk_storage and self._disk_storage is None:
-                self._disk_storage = DiskStorage()
-                logger.info(f"Automatically enabling disk storage at {self._disk_storage.storage_dir}")
+                # Lazy initialization of disk storage when actually needed
+                self._disk_storage = DiskStorage(storage_dir=self.disk_storage_dir)
+                logger.debug(f"Initializing disk storage for covariance matrix at {self._disk_storage.storage_dir}")
                 
             # Define the covariance shape for disk-backed matrix
             covariance_shape = (n_cells, n_cells, n_genes)
@@ -403,33 +401,27 @@ class SampleVarianceEstimator:
                     # Create dask delayed functions to compute each gene slice
                     gene_arrays = []
                     
-                    # Don't use progress bar for covariance computation as it's usually very fast
-                    # and creates unnecessary visual noise
-                    range_func = range(n_genes)
+                    # Choose the computation function once - we'll use the same exact function
+                    # for all gene slices to ensure consistency with in-memory version
+                    compute_func = self._compute_cov_slice_jit if self._compute_cov_slice_jit is not None else self._compute_cov_slice
                     
                     # Process each gene slice
-                    for g in range_func:
+                    for g in range(n_genes):
                         # Extract the data for this gene
                         gene_centered = centered_reshaped[:, :, g]  # (n_cells, n_groups)
                         
-                        # Create a delayed computation for this gene slice
+                        # Define a static function with captured index rather than passing gene_centered directly
+                        # This ensures each delayed task gets the correct gene slice even with dask's delayed execution
                         @dask.delayed
-                        def compute_gene_slice(gene_centered, g, n_groups):
-                            # Choose the right computation function
-                            if self._compute_cov_slice_jit is not None:
-                                gene_cov = self._compute_cov_slice_jit(gene_centered, n_groups)
-                            else:
-                                gene_cov = self._compute_cov_slice(gene_centered, n_groups)
-                            
-                            # Convert to numpy and store to disk for caching 
-                            gene_cov_np = np.array(gene_cov)
-                            gene_key = f"gene_cov_{g}"
-                            self._disk_storage.store_array(gene_cov_np, gene_key)
-                            
-                            return gene_cov_np
+                        def compute_gene_slice(g_index):
+                            # Retrieve the exact same slice each time through the index
+                            this_gene_centered = centered_reshaped[:, :, g_index]
+                            # Use the exact same function as the in-memory version
+                            gene_cov = compute_func(this_gene_centered, n_groups)
+                            return np.array(gene_cov)
                         
-                        # Create a delayed version of the computation
-                        delayed_result = compute_gene_slice(gene_centered, g, n_groups)
+                        # Create a delayed version of the computation with the gene index
+                        delayed_result = compute_gene_slice(g)
                         
                         # Convert the delayed computation to a dask array
                         gene_array = da.from_delayed(
@@ -467,12 +459,9 @@ class SampleVarianceEstimator:
                         shape=covariance_shape
                     )
                     
-                    # Don't use progress bar for covariance computation as it's usually very fast
-                    # and creates unnecessary visual noise
-                    range_func = range(n_genes)
                         
                     # Process gene-by-gene
-                    for g in range_func:
+                    for g in range(n_genes):
                         gene_centered = centered_reshaped[:, :, g]  # (n_cells, n_groups)
                         
                         # Compute covariance slice
@@ -490,11 +479,7 @@ class SampleVarianceEstimator:
                 # In-memory version
                 cov_matrix = np.zeros(covariance_shape)
                 
-                # Don't use progress bar for covariance computation as it's usually very fast
-                # and creates unnecessary visual noise
-                range_func = range(n_genes)
-                
-                for g in range_func:
+                for g in range(n_genes):
                     gene_centered = centered_reshaped[:, :, g]  # (n_cells, n_groups)
                     
                     # Compute covariance slice using JIT if available
