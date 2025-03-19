@@ -45,13 +45,13 @@ dependencies = [
     "jaxlib>=0.3.0",
     "mellon>=1.6.0",
     "matplotlib>=3.5.0",
-    "seaborn>=0.12.0",
     "tqdm>=4.60.0",
     "anndata>=0.8.0",
     "pynndescent>=0.5.0",
     "python-igraph>=0.10.0",
     "leidenalg>=0.9.0",
     "psutil>=5.9.0",
+    "filelock>=3.12.0",
     "importlib-resources>=5.0.0; python_version < '3.9'",
 ]
 
@@ -81,6 +81,10 @@ recommended = [
 ]
 dask = [
     "dask>=2024.4.0",
+]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
 ]
 all = [
     "scanpy>=1.9.0",

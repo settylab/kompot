@@ -15,6 +15,9 @@ from kompot.utils import (
 from kompot.memory_utils import DiskStorage, DASK_AVAILABLE
 from kompot.differential import DifferentialExpression, SampleVarianceEstimator
 
+# Set up a logger for this module
+logger = logging.getLogger(__name__)
+
 
 def create_test_data(n_points: int = 100, n_genes: int = 20, n_landmarks: int = 30, seed: int = 42):
     """Create test data for Mahalanobis distance computation."""
