@@ -207,7 +207,6 @@ def volcano_de(
     color_background: str = "gray",
     alpha_background: float = 0.4,
     point_size: float = 5,
-    label_top_genes: bool = True,
     font_size: float = 9,
     text_offset: Tuple[float, float] = (2, 2),
     text_kwargs: Optional[Dict[str, Any]] = None,
@@ -268,8 +267,6 @@ def volcano_de(
         Alpha value for background genes
     point_size : float, optional
         Size of points for background genes
-    label_top_genes : bool, optional
-        Whether to label top genes (default: True)
     font_size : float, optional
         Font size for gene labels
     text_offset : tuple, optional
