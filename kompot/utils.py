@@ -4,7 +4,7 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 from functools import partial
-from typing import Tuple, List, Optional, Union, Callable, Dict, Any
+from typing import Tuple, List, Optional, Union, Dict, Any
 from anndata import AnnData
 
 # Import _sanitize_name from anndata.functions
@@ -23,6 +23,15 @@ import igraph as ig
 import leidenalg as la
 import logging
 
+from .memory_utils import DASK_AVAILABLE
+if DASK_AVAILABLE:
+    try:
+        import dask.array as da
+        import dask
+    except ImportError:
+        pass
+
+
 logger = logging.getLogger("kompot")
 
 # Define standard colors for consistent use throughout the package
@@ -32,8 +41,7 @@ KOMPOT_COLORS = {
         "up": "#d73027",     # red
         "down": "#4575b4",   # blue
         "neutral": "#d3d3d3" # light gray
-    },
-    # Additional color palettes can be added here
+    }
 }
 
 
@@ -541,7 +549,7 @@ def prepare_mahalanobis_matrix(
 
 def compute_mahalanobis_distances(
     diff_values: np.ndarray,
-    covariance: Union[np.ndarray, jnp.ndarray, 'DiskBackedCovarianceMatrix'],
+    covariance: Union[np.ndarray, jnp.ndarray, 'da.Array'],
     batch_size: int = 500,
     jit_compile: bool = True,
     eps: float = 1e-10,
@@ -559,11 +567,11 @@ def compute_mahalanobis_distances(
     diff_values : np.ndarray
         The difference vectors for which to compute Mahalanobis distances.
         Shape should be (n_samples, n_features) or (n_features, n_samples).
-    covariance : np.ndarray, jnp.ndarray, or DiskBackedCovarianceMatrix
+    covariance : np.ndarray, jnp.ndarray, or dask.array.Array
         Covariance matrix or tensor:
         - If 2D shape (n_points, n_points): shared covariance for all vectors
         - If 3D shape (n_points, n_points, n_genes): gene-specific covariance matrices
-        - If DiskBackedCovarianceMatrix: disk-backed 3D tensor for gene-specific covariance
+        - Can be a dask array for lazy/distributed computation
     batch_size : int, optional
         Number of vectors to process at once, by default 500.
     jit_compile : bool, optional
@@ -580,9 +588,19 @@ def compute_mahalanobis_distances(
     """
     from .batch_utils import apply_batched
     from tqdm.auto import tqdm
+    from .memory_utils import DASK_AVAILABLE
     
-    # Convert inputs to JAX arrays
-    diffs = jnp.array(diff_values)
+    # Check if covariance is a Dask array
+    is_dask = False
+    if DASK_AVAILABLE:
+        import dask.array as da
+        is_dask = isinstance(covariance, da.Array)
+    
+    # Convert inputs to JAX arrays if not using Dask
+    if not is_dask:
+        diffs = jnp.array(diff_values)
+    else:
+        diffs = diff_values
     
     # Handle different input shapes - we want (n_genes, n_points) for gene-wise processing
     if len(diffs.shape) == 1:
@@ -592,27 +610,76 @@ def compute_mahalanobis_distances(
     # Determine if we have gene-specific covariance matrices (3D tensor)
     is_gene_specific = hasattr(covariance, 'shape') and len(covariance.shape) == 3
     
-    # Handle different types of gene-specific covariance matrices (3D tensor or disk-backed)
-    from .memory_utils import DiskBackedCovarianceMatrix
-    is_disk_backed = isinstance(covariance, DiskBackedCovarianceMatrix)
-    
-    if is_gene_specific or is_disk_backed:
+    if is_gene_specific:
         logger.info(f"Computing Mahalanobis distances using gene-specific covariance matrices")
         n_genes = diffs.shape[0]
         n_points = covariance.shape[1]  # Shape is (n_points, n_points, n_genes)
 
-        if not is_disk_backed:
-            # Verify tensor dimensions for in-memory arrays
-            if covariance.shape[2] != n_genes:
-                logger.warning(
-                    f"Gene dimension mismatch: covariance has {covariance.shape[2]} genes, "
-                    f"but diff values has {n_genes} genes. Using genes from diff values."
-                )
-                # If there's a mismatch, truncate to the shorter dimension
-                min_genes = min(covariance.shape[2], n_genes)
-                n_genes = min_genes
-            cov = jnp.array(covariance)
+        # Verify tensor dimensions
+        if covariance.shape[2] != n_genes:
+            logger.warning(
+                f"Gene dimension mismatch: covariance has {covariance.shape[2]} genes, "
+                f"but diff values has {n_genes} genes. Using genes from diff values."
+            )
+            # If there's a mismatch, truncate to the shorter dimension
+            min_genes = min(covariance.shape[2], n_genes)
+            n_genes = min_genes
+        
+        # Handle dask arrays specifically
+        if is_dask:
+            import dask.array as da
             
+            # Create a custom function that can be mapped over gene dimensions
+            def compute_gene_mahalanobis(g):
+                # Extract the difference vector and covariance matrix for this gene
+                gene_diff = diffs[g]
+                gene_cov = covariance[:, :, g]
+                
+                # For dask arrays we need a pure numpy/scipy approach
+                # We'll use different methods based on matrix structure
+                
+                # Try diagonal approximation first for efficiency
+                diag_values = np.diag(gene_cov)
+                total_sum = np.sum(np.abs(gene_cov))
+                diag_sum = np.sum(diag_values)
+                diag_ratio = diag_sum / total_sum if total_sum > 0 else 0
+                
+                if diag_ratio > 0.95:
+                    # Use fast diagonal approximation 
+                    diag_values = np.clip(diag_values, eps, None)  # Ensure stability
+                    weighted_diff = gene_diff / np.sqrt(diag_values)
+                    return float(np.sqrt(np.sum(weighted_diff**2)))
+                else:
+                    # Use standard approach - add a small regularization term
+                    gene_cov_reg = gene_cov + np.eye(gene_cov.shape[0]) * eps
+                    
+                    try:
+                        # Try Cholesky factorization first (most efficient)
+                        L = np.linalg.cholesky(gene_cov_reg)
+                        # Solve triangular system
+                        solved = solve_triangular(L, gene_diff, lower=True)
+                        return float(np.sqrt(np.sum(solved**2)))
+                    except np.linalg.LinAlgError:
+                        # Fall back to pseudoinverse approach if Cholesky fails
+                        inv_cov = np.linalg.pinv(gene_cov_reg)
+                        return float(np.sqrt(np.dot(gene_diff, np.dot(inv_cov, gene_diff))))
+            
+            # Apply the function to each gene in parallel with dask
+            # We map the function over the genes and then compute the result
+            if progress:
+                logger.info(f"Computing Mahalanobis distances for {n_genes} genes using dask")
+                
+            distances = []
+            for g in range(n_genes):
+                distances.append(dask.delayed(compute_gene_mahalanobis)(g))
+                
+            # Compute the delayed values to get actual distances
+            mahalanobis_distances = np.array(dask.compute(*distances))
+            
+            return mahalanobis_distances
+            
+        # For JAX arrays, proceed with the original approach
+        cov = jnp.array(covariance)
         mahalanobis_distances = np.zeros(n_genes)
         
         # Process each gene separately to save memory, with progress bar
@@ -621,15 +688,8 @@ def compute_mahalanobis_distances(
             # Get the gene-specific difference vector
             gene_diff = diffs[g]
             
-            # Get covariance matrix - either from memory or disk
-            if is_disk_backed:
-                # For disk-backed matrices, load the slice for this gene
-                gene_cov = covariance[g]  # DiskBackedCovarianceMatrix handles loading from disk
-                # Convert to JAX array for computation
-                gene_cov = jnp.array(gene_cov)
-            else:
-                # For in-memory tensors, just index into the array
-                gene_cov = cov[:, :, g]
+            # Get covariance matrix from the array
+            gene_cov = cov[:, :, g]
             
             # Check for dimension mismatch and issue a warning
             if gene_cov.shape[0] != gene_diff.shape[0]:

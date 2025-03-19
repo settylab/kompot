@@ -6,17 +6,21 @@ import logging
 import numpy as np
 import pandas as pd
 import datetime
-from typing import Optional, Union, Dict, Any, List, Tuple
+from typing import Optional, Union, Dict, Any, List
 from scipy import sparse
+try:
+    import anndata
+except ImportError:
+    raise ImportError(
+        "Please install anndata: pip install anndata"
+    )
 
 from ..differential import DifferentialExpression, compute_weighted_mean_fold_change
 from ..utils import (
     detect_output_field_overwrite, 
     generate_output_field_names,
-    get_environment_info,
-    KOMPOT_COLORS
+    get_environment_info
 )
-from ..memory_utils import analyze_covariance_memory_requirements
 from .core import _sanitize_name
 
 logger = logging.getLogger("kompot")
@@ -50,8 +54,9 @@ def compute_differential_expression(
     result_key: str = "kompot_de",
     overwrite: Optional[bool] = None,
     store_landmarks: bool = False,
+    return_full_results: bool = False,
     **function_kwargs
-) -> Union[Dict[str, np.ndarray], "AnnData"]:
+) -> Union[Dict[str, np.ndarray], Any]:
     """
     Compute differential expression between two conditions directly from an AnnData object.
     
@@ -148,14 +153,19 @@ def compute_differential_expression(
         Whether to store landmarks in adata.uns for future reuse, by default False.
         Setting to True will allow reusing landmarks with future analyses but may 
         significantly increase the AnnData file size.
+    return_full_results : bool, optional
+        If True, return the full results dictionary including the differential model,
+        by default False. If False, and if copy=True, only return the AnnData object.
     **function_kwargs : dict
         Additional arguments to pass to the FunctionEstimator.
         
     Returns
     -------
-    Union[Dict[str, np.ndarray], AnnData]
-        If copy is True, returns a copy of the AnnData object with results added.
-        If inplace is True, returns None (adata is modified in place).
+    Union[Dict[str, np.ndarray], AnnData, Tuple[Dict[str, np.ndarray], AnnData]]
+        If copy is True and return_full_results is False, returns the modified AnnData object.
+        If copy is True and return_full_results is True, returns a tuple (results_dict, adata).
+        If inplace is True and return_full_results is False, returns None (adata is modified in place).
+        If inplace is True and return_full_results is True, returns the results dictionary.
         Otherwise, returns a dictionary of results.
     
     Notes
@@ -173,16 +183,6 @@ def compute_differential_expression(
     - If landmarks are computed, they are stored in adata.uns[result_key]['landmarks']
       for potential reuse in other analyses.
     """
-    try:
-        import anndata
-        from scipy import sparse
-    except ImportError:
-        raise ImportError(
-            "Please install anndata and scipy: pip install anndata scipy"
-        )
-    
-    # Check for existing results using the utility functions
-    from ..utils import detect_output_field_overwrite, generate_output_field_names
     
     # Generate standardized field names
     field_names = generate_output_field_names(
@@ -464,28 +464,6 @@ def compute_differential_expression(
             landmarks = da_landmarks
         else:
             logger.warning(f"DA landmarks have dimension {landmarks_dim} but data has dimension {data_dim}. Computing new landmarks.")
-    
-    # Analyze memory requirements to provide guidance
-    
-    # Determine points count (actual points or landmarks if used)
-    points_count = n_landmarks if n_landmarks is not None else max(len(X_condition1), len(X_condition2))
-    genes_count = len(selected_genes)
-    
-    # Run memory analysis
-    memory_analysis = analyze_covariance_memory_requirements(
-        n_points=points_count,
-        n_genes=genes_count,
-        max_memory_ratio=max_memory_ratio,
-        analysis_name="Differential Expression Memory Analysis"
-    )
-    
-    # If memory usage is high but store_arrays_on_disk wasn't specified, provide guidance
-    if memory_analysis['should_use_disk'] and not store_arrays_on_disk:
-        logger.warning(
-            f"High memory requirements detected: would need {memory_analysis['total_size']} "
-            f"for covariance matrices with {points_count} points and {genes_count} genes. "
-            f"Consider using store_arrays_on_disk=True to enable disk-backed storage."
-        )
     
     # If user specifically enabled disk storage, log that
     if store_arrays_on_disk:
@@ -943,5 +921,11 @@ def compute_differential_expression(
         # Store current params and run info
         adata.uns[storage_key]["last_run_info"] = current_run_info
         
-    # Return the results dictionary
-    return result_dict
+    if copy:
+        if return_full_results:
+            return result_dict, adata
+        else:
+            return adata
+    if return_full_results:
+        return result_dict
+    return None

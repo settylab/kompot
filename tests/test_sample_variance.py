@@ -23,14 +23,14 @@ def test_sample_variance_estimator_diag():
     estimator = SampleVarianceEstimator()
     estimator.fit(X, Y, grouping_vector)
     
-    # Test with diag=True
-    variance_diag_true = estimator.predict(X, diag=True)
+    # Test with diag=True and progress=False to avoid progress bar in tests
+    variance_diag_true = estimator.predict(X, diag=True, progress=False)
     
     # Check the shape
     assert variance_diag_true.shape == (n_cells, n_genes)
     
-    # Test with diag=False
-    variance_diag_false = estimator.predict(X, diag=False)
+    # Test with diag=False and progress=False
+    variance_diag_false = estimator.predict(X, diag=False, progress=False)
     
     # Check the shape
     assert variance_diag_false.shape == (n_cells, n_cells, n_genes)
@@ -75,9 +75,9 @@ def test_sample_variance_estimator_batching():
     estimator2 = SampleVarianceEstimator()
     estimator2.fit(X, Y, grouping_vector)
     
-    # Get results with both estimators
-    result1 = estimator1.predict(X, diag=True)
-    result2 = estimator2.predict(X, diag=True)
+    # Get results with both estimators, disable progress bar for tests
+    result1 = estimator1.predict(X, diag=True, progress=False)
+    result2 = estimator2.predict(X, diag=True, progress=False)
     
     # Results should be the same
     np.testing.assert_allclose(
@@ -108,9 +108,9 @@ def test_sample_variance_estimator_jit():
     no_jit_estimator = SampleVarianceEstimator(jit_compile=False)
     no_jit_estimator.fit(X, Y, grouping_vector)
     
-    # Test with diag=True
-    jit_result = jit_estimator.predict(X, diag=True)
-    no_jit_result = no_jit_estimator.predict(X, diag=True)
+    # Test with diag=True, disable progress bar for tests
+    jit_result = jit_estimator.predict(X, diag=True, progress=False)
+    no_jit_result = no_jit_estimator.predict(X, diag=True, progress=False)
     
     # Results should be very close
     np.testing.assert_allclose(
@@ -141,14 +141,14 @@ def test_sample_variance_estimator_apply_batched_usage():
     with patch('kompot.batch_utils.apply_batched') as mock_apply_batched:
         # Both calls should now use direct computation
         
-        # diag=True now calls predictors directly
-        result_diag = estimator.predict(X, diag=True)
+        # diag=True now calls predictors directly, disable progress bar for tests
+        result_diag = estimator.predict(X, diag=True, progress=False)
         
         # Verify apply_batched was NOT called for diag=True
         assert mock_apply_batched.call_count == 0
         
-        # diag=False also uses direct computation
-        result_full = estimator.predict(X, diag=False)
+        # diag=False also uses direct computation, disable progress bar for tests
+        result_full = estimator.predict(X, diag=False, progress=False)
         
         # Verify apply_batched was still not called
         assert mock_apply_batched.call_count == 0
@@ -179,8 +179,8 @@ def test_memory_sensitive_batch_reduction():
     
     # Capture the logs to verify the memory requirements analysis
     with patch('kompot.memory_utils.logger.warning') as mock_warning:
-        # Test with a large number of genes
-        result = estimator.predict(X, diag=False)
+        # Test with a large number of genes, disable progress bar for tests
+        result = estimator.predict(X, diag=False, progress=False)
         
         # Verify that a memory analysis warning was logged
         # Note: With modern memory requirements, this might not actually trigger a warning
@@ -226,15 +226,15 @@ def test_error_handling_in_prediction():
     first_key = next(iter(estimator.group_predictors.keys()))
     estimator.group_predictors[first_key] = mock_predictor
     
-    # This should raise the ValueError from our mock
+    # This should raise the ValueError from our mock, disable progress bar for tests
     with pytest.raises(ValueError):
-        estimator.predict(X, diag=True)
+        estimator.predict(X, diag=True, progress=False)
     
     # Restore original predictors
     estimator.group_predictors = original_predictors
     
-    # For diag=False, we can just verify the correct shape
-    result = estimator.predict(X, diag=False)
+    # For diag=False, we can just verify the correct shape, disable progress bar for tests
+    result = estimator.predict(X, diag=False, progress=False)
     assert result.shape == (n_cells, n_cells, n_genes)
 
 
@@ -255,13 +255,13 @@ def test_no_predictors_error():
     estimator = SampleVarianceEstimator()
     estimator.fit(X, Y, grouping_vector, min_cells=n_cells+1)  # Set threshold higher than available cells
     
-    # Now test that predict raises RuntimeError
+    # Now test that predict raises RuntimeError, disable progress bar for tests
     with pytest.raises(RuntimeError, match="No group predictors available"):
-        estimator.predict(X, diag=True)
+        estimator.predict(X, diag=True, progress=False)
         
-    # Same for non-diagonal case
+    # Same for non-diagonal case, disable progress bar for tests
     with pytest.raises(RuntimeError, match="No group predictors available"):
-        estimator.predict(X, diag=False)
+        estimator.predict(X, diag=False, progress=False)
 
 
 def test_large_data_handling():
@@ -280,15 +280,15 @@ def test_large_data_handling():
     estimator = SampleVarianceEstimator()
     estimator.fit(X, Y, grouping_vector)
     
-    # Test with diag=True
-    variance_diag_true = estimator.predict(X, diag=True)
+    # Test with diag=True, disable progress bar for tests
+    variance_diag_true = estimator.predict(X, diag=True, progress=False)
     
     # Check the shape
     assert variance_diag_true.shape == (n_cells, n_genes)
     
-    # Test with diag=False, but only on a subset to keep the test fast
+    # Test with diag=False, but only on a subset to keep the test fast, disable progress bar for tests
     small_X = X[:30]
-    variance_diag_false = estimator.predict(small_X, diag=False)
+    variance_diag_false = estimator.predict(small_X, diag=False, progress=False)
     
     # Check the shape
     assert variance_diag_false.shape == (30, 30, n_genes)
@@ -301,6 +301,192 @@ def test_large_data_handling():
             gene_cov.T,
             rtol=1e-5,
             atol=1e-8
+        )
+
+
+def test_disk_backed_sample_variance():
+    """Test that disk-backed storage gives identical results to in-memory."""
+    # Generate a moderate-sized dataset
+    n_cells = 50
+    n_features = 10
+    n_genes = 8
+    n_groups = 3
+    
+    # Set a fixed random seed for reproducibility
+    np.random.seed(42)
+    
+    X = np.random.randn(n_cells, n_features)
+    Y = np.random.randn(n_cells, n_genes)
+    grouping_vector = np.random.randint(0, n_groups, size=n_cells)
+    
+    # Initialize in-memory estimator
+    memory_estimator = SampleVarianceEstimator(store_arrays_on_disk=False)
+    memory_estimator.fit(X, Y, grouping_vector)
+    
+    # Initialize disk-backed estimator with temporary directory
+    import tempfile
+    with tempfile.TemporaryDirectory() as temp_dir:
+        disk_estimator = SampleVarianceEstimator(
+            store_arrays_on_disk=True,
+            disk_storage_dir=temp_dir
+        )
+        disk_estimator.fit(X, Y, grouping_vector)
+        
+        # Compare results with diag=True
+        memory_diag = memory_estimator.predict(X, diag=True, progress=False)
+        disk_diag = disk_estimator.predict(X, diag=True, progress=False)
+        
+        # Check shape and values
+        assert memory_diag.shape == disk_diag.shape
+        np.testing.assert_allclose(
+            memory_diag,
+            disk_diag,
+            rtol=1e-5,
+            atol=1e-8,
+            err_msg="Diagonal variance with disk-backed storage should match in-memory results"
+        )
+        
+        # Compare results with diag=False (full covariance matrix)
+        # Use smaller subset to keep test fast
+        small_X = X[:20]
+        
+        memory_cov = memory_estimator.predict(small_X, diag=False, progress=False)
+        disk_cov = disk_estimator.predict(small_X, diag=False, progress=False)
+        
+        # Check shape and values
+        assert memory_cov.shape == disk_cov.shape
+        np.testing.assert_allclose(
+            memory_cov,
+            disk_cov,
+            rtol=1e-5,
+            atol=1e-8,
+            err_msg="Full covariance with disk-backed storage should match in-memory results"
+        )
+
+
+def test_differential_expression_with_sample_variance_disk_backed():
+    """Test that DifferentialExpression with sample variance gives identical results with disk-backing."""
+    # Import DifferentialExpression
+    from kompot.differential import DifferentialExpression
+    import tempfile
+    
+    # Generate test data for two conditions
+    n_cells_1 = 30
+    n_cells_2 = 25
+    n_features = 10
+    n_genes = 5  # Keep small for faster tests
+    n_groups = 2  # Number of sample groups per condition
+    
+    # Set a fixed random seed for reproducibility
+    np.random.seed(42)
+    
+    # Create condition 1 data
+    X1 = np.random.randn(n_cells_1, n_features)
+    y1 = np.random.randn(n_cells_1, n_genes)
+    
+    # Create condition 2 data (slightly different distribution)
+    X2 = np.random.randn(n_cells_2, n_features) + 0.5
+    y2 = np.random.randn(n_cells_2, n_genes) + 0.2
+    
+    # Create sample indices for each condition
+    # For condition 1: split into n_groups groups
+    sample1_size = n_cells_1 // n_groups
+    condition1_samples = np.concatenate([
+        np.full(sample1_size, i) for i in range(n_groups)
+    ] + [np.full(n_cells_1 % n_groups, n_groups - 1)])  # Remainder goes to last group
+    
+    # For condition 2: split into n_groups groups
+    sample2_size = n_cells_2 // n_groups
+    condition2_samples = np.concatenate([
+        np.full(sample2_size, i) for i in range(n_groups)
+    ] + [np.full(n_cells_2 % n_groups, n_groups - 1)])  # Remainder goes to last group
+    
+    # Create some new points for prediction
+    n_predict = 20
+    X_pred = np.random.randn(n_predict, n_features)
+    
+    # First run: In-memory without disk-backing
+    de_memory = DifferentialExpression(
+        use_sample_variance=True,
+        jit_compile=False,
+        store_arrays_on_disk=False
+    )
+    
+    # Fit with sample indices
+    de_memory.fit(
+        X1, y1, X2, y2,
+        condition1_sample_indices=condition1_samples,
+        condition2_sample_indices=condition2_samples
+    )
+    
+    # Get results
+    memory_results = de_memory.predict(
+        X_pred,
+        compute_mahalanobis=True,
+        progress=False
+    )
+    
+    # Second run: With disk-backing in a temporary directory
+    with tempfile.TemporaryDirectory() as temp_dir:
+        de_disk = DifferentialExpression(
+            use_sample_variance=True,
+            jit_compile=False,
+            store_arrays_on_disk=True,
+            disk_storage_dir=temp_dir
+        )
+        
+        # Fit with same data and sample indices
+        de_disk.fit(
+            X1, y1, X2, y2,
+            condition1_sample_indices=condition1_samples,
+            condition2_sample_indices=condition2_samples
+        )
+        
+        # Get results
+        disk_results = de_disk.predict(
+            X_pred,
+            compute_mahalanobis=True,
+            progress=False
+        )
+        
+        # Compare results - they should be exactly the same
+        
+        # Check if shapes match
+        assert memory_results['condition1_imputed'].shape == disk_results['condition1_imputed'].shape
+        assert memory_results['condition2_imputed'].shape == disk_results['condition2_imputed'].shape
+        assert memory_results['fold_change'].shape == disk_results['fold_change'].shape
+        assert memory_results['mahalanobis_distances'].shape == disk_results['mahalanobis_distances'].shape
+        
+        # Imputed values should be identical
+        np.testing.assert_allclose(
+            memory_results['condition1_imputed'],
+            disk_results['condition1_imputed'],
+            rtol=1e-5, atol=1e-8,
+            err_msg="Imputed condition1 values should be identical with and without disk storage"
+        )
+        
+        np.testing.assert_allclose(
+            memory_results['condition2_imputed'],
+            disk_results['condition2_imputed'],
+            rtol=1e-5, atol=1e-8,
+            err_msg="Imputed condition2 values should be identical with and without disk storage"
+        )
+        
+        # Fold changes should be identical
+        np.testing.assert_allclose(
+            memory_results['fold_change'],
+            disk_results['fold_change'],
+            rtol=1e-5, atol=1e-8,
+            err_msg="Fold changes should be identical with and without disk storage"
+        )
+        
+        # Mahalanobis distances should be identical - this is the key test
+        # since it uses the sample variance estimator with covariance matrices
+        np.testing.assert_allclose(
+            memory_results['mahalanobis_distances'],
+            disk_results['mahalanobis_distances'],
+            rtol=1e-5, atol=1e-8,
+            err_msg="Mahalanobis distances with sample variance should be identical with and without disk storage"
         )
 
 
@@ -318,14 +504,14 @@ def test_sample_variance_estimator_density_mode():
     estimator = SampleVarianceEstimator(estimator_type='density')
     estimator.fit(X=X, grouping_vector=grouping_vector)
     
-    # Test with diag=True
-    variance_diag_true = estimator.predict(X, diag=True)
+    # Test with diag=True, disable progress bar for tests
+    variance_diag_true = estimator.predict(X, diag=True, progress=False)
     
     # Check the shape - for density, it should be (n_cells, 1)
     assert variance_diag_true.shape == (n_cells, 1)
     
-    # Test with diag=False
-    variance_diag_false = estimator.predict(X, diag=False)
+    # Test with diag=False, disable progress bar for tests
+    variance_diag_false = estimator.predict(X, diag=False, progress=False)
     
     # Check the shape - for density, it should be (n_cells, n_cells, 1)
     assert variance_diag_false.shape == (n_cells, n_cells, 1)

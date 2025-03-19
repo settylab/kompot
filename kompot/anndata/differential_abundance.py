@@ -40,8 +40,9 @@ def compute_differential_abundance(
     batch_size: Optional[int] = None,
     overwrite: Optional[bool] = None,
     store_landmarks: bool = False,
+    return_full_results: bool = False,
     **density_kwargs
-) -> Union[Dict[str, np.ndarray], "AnnData"]:
+) -> Union[Dict[str, np.ndarray], "AnnData", Tuple[Dict[str, np.ndarray], "AnnData"]]:
     """
     Compute differential abundance between two conditions directly from an AnnData object.
     
@@ -115,14 +116,19 @@ def compute_differential_abundance(
         Whether to store landmarks in adata.uns for future reuse, by default False.
         Setting to True will allow reusing landmarks with future analyses but may 
         significantly increase the AnnData file size.
+    return_full_results : bool, optional
+        If True, return the full results dictionary including the differential model,
+        by default False. If False, and if copy=True, only return the AnnData object.
     **density_kwargs : dict
         Additional arguments to pass to the DensityEstimator.
         
     Returns
     -------
-    Union[Dict[str, np.ndarray], AnnData]
-        If copy is True, returns a copy of the AnnData object with results added.
-        If inplace is True, returns None (adata is modified in place).
+    Union[Dict[str, np.ndarray], AnnData, Tuple[Dict[str, np.ndarray], AnnData]]
+        If copy is True and return_full_results is False, returns the modified AnnData object.
+        If copy is True and return_full_results is True, returns a tuple (results_dict, adata).
+        If inplace is True and return_full_results is False, returns None (adata is modified in place).
+        If inplace is True and return_full_results is True, returns the results dictionary.
         Otherwise, returns a dictionary of results.
     
     Notes
@@ -546,5 +552,12 @@ def compute_differential_abundance(
     # Add landmarks to result dictionary if they were computed
     if hasattr(diff_abundance, 'computed_landmarks') and diff_abundance.computed_landmarks is not None:
         result_dict["landmarks"] = diff_abundance.computed_landmarks
-        
-    return result_dict
+    
+    if copy:
+        if return_full_results:
+            return result_dict, adata
+        else:
+            return adata
+    if return_full_results:
+        return result_dict
+    return None

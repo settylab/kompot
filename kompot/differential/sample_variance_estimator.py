@@ -4,14 +4,22 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 import logging
-from typing import Dict, Optional, Any
+from typing import Dict, Optional
 from mellon import FunctionEstimator, DensityEstimator
 
 from ..memory_utils import (
     DiskStorage,
     analyze_covariance_memory_requirements,
-    DiskBackedCovarianceMatrix
+    DASK_AVAILABLE
 )
+
+# Try to import dask if available
+if DASK_AVAILABLE:
+    try:
+        import dask.array as da
+        import dask
+    except ImportError:
+        pass
 
 logger = logging.getLogger("kompot")
 
@@ -79,7 +87,7 @@ class SampleVarianceEstimator:
         def compute_cov_slice(gene_centered, n_groups):
             # Apply Bessel's correction (divide by n-1 instead of n)
             # Only apply correction if we have more than 1 group
-            divisor = n_groups - 1 if n_groups > 1 else n_groups
+            divisor = jnp.maximum(1, n_groups - 1)
             # Calculate covariance as dot product divided by divisor for Bessel's correction
             return (gene_centered @ gene_centered.T) / divisor
             
@@ -197,7 +205,7 @@ class SampleVarianceEstimator:
         
         return self
     
-    def predict(self, X_new: np.ndarray, diag: bool = False) -> np.ndarray:
+    def predict(self, X_new: np.ndarray, diag: bool = False, progress: bool = True) -> np.ndarray:
         """
         Predict empirical variance for new points using JAX.
         
@@ -212,6 +220,8 @@ class SampleVarianceEstimator:
         diag : bool, optional
             If True (default is False), compute the variance for each cell state.
             If False, compute the full covariance matrix between all pairs of cells.
+        progress : bool, optional
+            Whether to show progress bars for gene-wise operations, by default True.
             
         Returns
         -------
@@ -247,19 +257,23 @@ class SampleVarianceEstimator:
             
             # Check memory requirements when processing many genes
             if n_genes > 10 and len(self.group_predictors) > 1 and hasattr(self, '_called_from_differential') and self._called_from_differential:
-                # Use the specialized covariance memory analysis function
+                # Use the specialized covariance memory analysis function with debug log level
+                # when disk storage is already enabled
+                log_level = "debug" if self.store_arrays_on_disk else "info"
                 
                 analysis = analyze_covariance_memory_requirements(
                     n_points=n_cells,
                     n_genes=n_genes,
                     max_memory_ratio=0.8,  # Use standard 80% threshold
-                    analysis_name="Sample Variance Estimation"
+                    analysis_name="Sample Variance Estimation",
+                    store_arrays_on_disk=self.store_arrays_on_disk,
+                    log_level=log_level
                 )
                 
                 # Issue appropriate warning based on memory usage
                 if analysis['status'] == 'critical':
                     if self.store_arrays_on_disk:
-                        logger.info(
+                        logger.debug(
                             f"High memory usage detected ({analysis['memory_ratio']:.2f}x of available memory). "
                             f"Will use disk storage for large covariance arrays."
                         )
@@ -382,35 +396,105 @@ class SampleVarianceEstimator:
             n_groups = centered.shape[0]
             
             if use_disk_storage:
-                # Process gene-by-gene and store each slice to disk
-                gene_keys = {}
-                
-                for g in range(n_genes):
-                    gene_centered = centered_reshaped[:, :, g]  # (n_cells, n_groups)
+                # Check if dask is available for better performance
+                if DASK_AVAILABLE:
+                    logger.debug(f"Using dask for disk-backed covariance matrix (shape={covariance_shape})")
                     
-                    # Compute covariance slice using JIT if available
-                    if self._compute_cov_slice_jit is not None:
-                        gene_cov = self._compute_cov_slice_jit(gene_centered, n_groups)
-                    else:
-                        gene_cov = self._compute_cov_slice(gene_centered, n_groups)
+                    # Create dask delayed functions to compute each gene slice
+                    gene_arrays = []
                     
-                    # Convert to numpy and store to disk
-                    gene_cov_np = np.array(gene_cov)
-                    gene_key = f"gene_cov_{g}"
-                    self._disk_storage.store_array(gene_cov_np, gene_key)
-                    gene_keys[g] = gene_key
+                    # Don't use progress bar for covariance computation as it's usually very fast
+                    # and creates unnecessary visual noise
+                    range_func = range(n_genes)
+                    
+                    # Process each gene slice
+                    for g in range_func:
+                        # Extract the data for this gene
+                        gene_centered = centered_reshaped[:, :, g]  # (n_cells, n_groups)
+                        
+                        # Create a delayed computation for this gene slice
+                        @dask.delayed
+                        def compute_gene_slice(gene_centered, g, n_groups):
+                            # Choose the right computation function
+                            if self._compute_cov_slice_jit is not None:
+                                gene_cov = self._compute_cov_slice_jit(gene_centered, n_groups)
+                            else:
+                                gene_cov = self._compute_cov_slice(gene_centered, n_groups)
+                            
+                            # Convert to numpy and store to disk for caching 
+                            gene_cov_np = np.array(gene_cov)
+                            gene_key = f"gene_cov_{g}"
+                            self._disk_storage.store_array(gene_cov_np, gene_key)
+                            
+                            return gene_cov_np
+                        
+                        # Create a delayed version of the computation
+                        delayed_result = compute_gene_slice(gene_centered, g, n_groups)
+                        
+                        # Convert the delayed computation to a dask array
+                        gene_array = da.from_delayed(
+                            delayed_result,
+                            shape=(n_cells, n_cells),
+                            dtype=np.float64
+                        )
+                        
+                        # Add to our list of arrays
+                        gene_arrays.append(gene_array)
+                    
+                    # Stack the gene arrays along the last axis
+                    dask_covariance = da.stack(gene_arrays, axis=2)
+                    
+                    logger.debug(f"Created dask array for covariance with shape {dask_covariance.shape}")
+                    return dask_covariance
                 
-                # Return a disk-backed matrix without loading everything into memory
-                return DiskBackedCovarianceMatrix(
-                    disk_storage=self._disk_storage,
-                    shape=covariance_shape,
-                    gene_keys=gene_keys
-                )
+                else:
+                    # Without dask, warn the user and use numpy memory mapping
+                    logger.warning(
+                        "Dask is not available for disk-backed arrays. "
+                        "Install dask for better performance: pip install dask"
+                    )
+                    
+                    # Use numpy memory mapping as a fallback
+                    import tempfile
+                    import os
+                    
+                    # Create a memory-mapped array
+                    filename = os.path.join(self._disk_storage.storage_dir, 'covariance_matrix.npy')
+                    mmap_array = np.lib.format.open_memmap(
+                        filename, 
+                        mode='w+',
+                        dtype=np.float64,
+                        shape=covariance_shape
+                    )
+                    
+                    # Don't use progress bar for covariance computation as it's usually very fast
+                    # and creates unnecessary visual noise
+                    range_func = range(n_genes)
+                        
+                    # Process gene-by-gene
+                    for g in range_func:
+                        gene_centered = centered_reshaped[:, :, g]  # (n_cells, n_groups)
+                        
+                        # Compute covariance slice
+                        if self._compute_cov_slice_jit is not None:
+                            gene_cov = self._compute_cov_slice_jit(gene_centered, n_groups)
+                        else:
+                            gene_cov = self._compute_cov_slice(gene_centered, n_groups)
+                        
+                        # Store in the memory-mapped array
+                        mmap_array[:, :, g] = np.array(gene_cov)
+                    
+                    # Return the memory-mapped array
+                    return mmap_array
             else:
                 # In-memory version
                 cov_matrix = np.zeros(covariance_shape)
                 
-                for g in range(n_genes):
+                # Don't use progress bar for covariance computation as it's usually very fast
+                # and creates unnecessary visual noise
+                range_func = range(n_genes)
+                
+                for g in range_func:
                     gene_centered = centered_reshaped[:, :, g]  # (n_cells, n_groups)
                     
                     # Compute covariance slice using JIT if available
