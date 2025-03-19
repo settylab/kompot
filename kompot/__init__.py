@@ -10,7 +10,7 @@ from typing import Optional, Union, Dict, Any, List, Tuple
 import numpy as np
 import pandas as pd
 
-from kompot.version import __version__
+from .version import __version__
 
 # Re-export Mellon tools directly
 from mellon import DensityEstimator, FunctionEstimator, Predictor
@@ -20,16 +20,18 @@ import mellon
 import logging
 mellon.logger.setLevel(logging.WARNING)
 
+# Import submodules so they can be accessed via kompot.submodule
+from . import anndata
+from . import plot
+from . import differential
+
 # Export Kompot's additional functionality
-from kompot.differential import DifferentialAbundance, DifferentialExpression, SampleVarianceEstimator
-from kompot.anndata import (
+from .differential import DifferentialAbundance, DifferentialExpression, SampleVarianceEstimator
+from .anndata import (
     compute_differential_abundance,
     compute_differential_expression,
     run_differential_analysis
 )
-
-# Import plot module
-from kompot import plot
 
 # Add docstring for clarity in import statements
 DifferentialAbundance.__doc__ = """
@@ -61,8 +63,8 @@ Key features:
 - Improved cell ordering handling to prevent mixing conditions
 - Support for condition-specific result extraction using cell_condition_labels
 """
-from kompot.utils import compute_mahalanobis_distance, find_landmarks
-from kompot.batch_utils import batch_process, apply_batched
+from .utils import compute_mahalanobis_distance, find_landmarks
+from .batch_utils import batch_process, apply_batched
 
 # Configure logging
 LOGGING_CONFIG = {
@@ -101,6 +103,6 @@ __all__ = [
     "compute_differential_abundance", "compute_differential_expression",
     "run_differential_analysis", 
     "batch_process", "apply_batched",
-    "plot"
+    "plot", "anndata", "differential"
 ]
 
