@@ -22,3 +22,8 @@ Direction Plots
 ---------------
 
 .. autofunction:: kompot.plot.direction_barplot
+
+Embedding Plots
+--------------
+
+.. autofunction:: kompot.plot.embedding

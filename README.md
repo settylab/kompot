@@ -23,7 +23,7 @@ Key features:
 - Empirical variance estimation
 - **Disk-backed storage for large datasets** with Dask support
 - **Full scverse compatibility with direct AnnData integration**
-- **Visualization tools** for differential expression and abundance results
+- **Visualization tools** for differential expression, abundance results, and customizable embedding plots
 
 ## Installation
 

@@ -76,3 +76,23 @@ except (ImportError, TypeError) as e:
     def plot_gene_expression(*args, **kwargs):
         raise ImportError("Gene expression plotting functions unavailable due to scanpy compatibility issues. "
                          "Please update scanpy or use Python 3.9-3.11 instead of 3.12.")
+
+try:
+    from .embedding import embedding
+    __all__.append("embedding")
+except (ImportError, TypeError) as e:
+    # Provide more specific error message for Python 3.12 metaclass issues
+    if sys.version_info >= (3, 12) and isinstance(e, TypeError) and "metaclass conflict" in str(e):
+        error_msg = (
+            "Embedding plotting function unavailable due to metaclass conflict in scanpy with Python 3.12. "
+            "You have two options to fix this:\n"
+            "1. Update scanpy to the latest version: pip install --upgrade scanpy\n"
+            "2. Use Python 3.9-3.11 instead of 3.12"
+        )
+        logger.warning(f"Python 3.12 compatibility issue: {error_msg}")
+    else:
+        logger.warning(f"Could not import embedding plotting function due to: {e}")
+    
+    def embedding(*args, **kwargs):
+        raise ImportError("Embedding plotting function unavailable due to scanpy compatibility issues. "
+                         "Please update scanpy or use Python 3.9-3.11 instead of 3.12.")
