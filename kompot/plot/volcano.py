@@ -14,7 +14,9 @@ from ..utils import get_run_from_history, KOMPOT_COLORS
 try:
     import scanpy as sc
     _has_scanpy = True
-except ImportError:
+except (ImportError, TypeError):
+    # Catch both ImportError (if scanpy isn't installed) 
+    # and TypeError for metaclass conflicts
     _has_scanpy = False
     
 # Get the pre-configured logger

@@ -20,12 +20,18 @@ import mellon
 import logging
 mellon.logger.setLevel(logging.WARNING)
 
-# Export Kompot's additional functionality
-from .differential import DifferentialAbundance, DifferentialExpression, SampleVarianceEstimator
+# Import core functionality directly - using relative imports
+from .differential.differential_abundance import DifferentialAbundance
+from .differential.differential_expression import DifferentialExpression
+from .differential.sample_variance_estimator import SampleVarianceEstimator
 
-# Import submodules so they can be accessed via kompot.submodule
-from . import plot
+# Import utility functions
+from .utils import compute_mahalanobis_distance, find_landmarks
+from .batch_utils import batch_process, apply_batched
+
+# Now import submodules - after the classes are imported
 from . import differential
+from . import plot
 from . import anndata
 
 # Export anndata functions
@@ -34,39 +40,6 @@ from .anndata import (
     compute_differential_expression,
     run_differential_analysis
 )
-
-# Add docstring for clarity in import statements
-DifferentialAbundance.__doc__ = """
-Compute differential abundance between two conditions.
-
-This class analyzes differences in cell density between two conditions
-using density estimation and fold change analysis. The class now tracks
-which cells belong to which condition to facilitate proper interpretation
-of results.
-
-Key features:
-- Density estimation using Gaussian processes (via Mellon)
-- Log fold change computation with uncertainty
-- Cell ordering tracking for accurate result interpretation
-- Methods to access condition-specific results (get_condition1_results(), get_condition2_results())
-"""
-
-DifferentialExpression.__doc__ = """
-Compute differential expression between two conditions.
-
-This class analyzes differences in gene expression between two conditions
-using imputation, Mahalanobis distance, and log fold change analysis.
-
-Key features:
-- Expression imputation using Gaussian processes (via Mellon)
-- Log fold change computation with uncertainty
-- Mahalanobis distance for gene ranking
-- Support for weighted fold change using density information
-- Improved cell ordering handling to prevent mixing conditions
-- Support for condition-specific result extraction using cell_condition_labels
-"""
-from .utils import compute_mahalanobis_distance, find_landmarks
-from .batch_utils import batch_process, apply_batched
 
 # Configure logging
 LOGGING_CONFIG = {
@@ -98,13 +71,23 @@ logging.config.dictConfig(LOGGING_CONFIG)
 logger = logging.getLogger("kompot")
 
 __all__ = [
-    "DensityEstimator", "FunctionEstimator", "Predictor", 
-    "DifferentialAbundance", "DifferentialExpression", "SampleVarianceEstimator",
-    "compute_mahalanobis_distance", "find_landmarks",
+    # Version
     "__version__",
-    "compute_differential_abundance", "compute_differential_expression",
-    "run_differential_analysis", 
+    
+    # Mellon re-exports
+    "DensityEstimator", "FunctionEstimator", "Predictor", 
+    
+    # Core differential analysis classes
+    "DifferentialAbundance", "DifferentialExpression", "SampleVarianceEstimator",
+    
+    # Utility functions
+    "compute_mahalanobis_distance", "find_landmarks",
     "batch_process", "apply_batched",
+    
+    # AnnData functionality
+    "compute_differential_abundance", "compute_differential_expression", "run_differential_analysis", 
+    
+    # Submodules
     "plot", "anndata", "differential"
 ]
 
