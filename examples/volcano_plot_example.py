@@ -31,7 +31,11 @@ adata.var["kompot_de_mahalanobis"] = np.abs(mahalanobis)
 
 # Create a basic volcano plot using default parameters
 plt.figure(figsize=(12, 8))
-kp.plot.volcano_de(adata)
+kp.plot.volcano_de(
+    adata,
+    lfc_key="kompot_de_mean_lfc_groupA_vs_groupB",
+    score_key="kompot_de_mahalanobis"
+)
 plt.savefig("basic_volcano.png")
 
 # Create a more customized volcano plot
@@ -59,6 +63,8 @@ fig, axes = plt.subplots(1, 2, figsize=(18, 8))
 # First volcano plot - custom style
 kp.plot.volcano_de(
     adata,
+    lfc_key="kompot_de_mean_lfc_groupA_vs_groupB",
+    score_key="kompot_de_mahalanobis",
     ax=axes[0],
     color_up=KOMPOT_COLORS["direction"]["up"],
     color_down=KOMPOT_COLORS["direction"]["down"],
@@ -69,6 +75,8 @@ kp.plot.volcano_de(
 # Second volcano plot - different style
 kp.plot.volcano_de(
     adata,
+    lfc_key="kompot_de_mean_lfc_groupA_vs_groupB",
+    score_key="kompot_de_mahalanobis",
     ax=axes[1],
     color_up="#fc8d59",
     color_down="#91bfdb",
@@ -84,5 +92,10 @@ print("Volcano plot examples created successfully!")
 
 # Using the old function name (volcano_plot) for backward compatibility
 plt.figure(figsize=(12, 8))
-kp.plot.volcano_plot(adata, title="Using backward compatibility")
+kp.plot.volcano_plot(
+    adata, 
+    lfc_key="kompot_de_mean_lfc_groupA_vs_groupB",
+    score_key="kompot_de_mahalanobis",
+    title="Using backward compatibility"
+)
 plt.savefig("backward_compat_volcano.png")

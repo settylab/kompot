@@ -242,7 +242,7 @@ def volcano_de(
     condition2 : str, optional
         Name of condition 2 (positive log fold change)
     n_top_genes : int, optional
-        Number of top genes to highlight and label (default: 10)
+        Total number of top genes to highlight and label, selected by highest Mahalanobis distance (default: 10)
     show_names : bool, optional
         Whether to display gene names (default: True)
     figsize : tuple, optional
@@ -379,13 +379,12 @@ def volcano_de(
         'sort_val': adata.var[sort_key]
     })
     
-    # Split into up and down regulated and sort by score
-    up_genes = de_data[de_data['lfc'] > 0].sort_values('sort_val', ascending=False)
-    down_genes = de_data[de_data['lfc'] < 0].sort_values('sort_val', ascending=False)
+    # Sort all genes by score (mahalanobis distance) and select top genes
+    top_genes = de_data.sort_values('sort_val', ascending=False).head(n_top_genes)
     
-    # Select top genes
-    top_up = up_genes.head(n_top_genes)
-    top_down = down_genes.head(n_top_genes)
+    # Split into up and down regulated for display purposes
+    top_up = top_genes[top_genes['lfc'] > 0]
+    top_down = top_genes[top_genes['lfc'] < 0]
     
     # Plot up-regulated genes
     if len(top_up) > 0:
