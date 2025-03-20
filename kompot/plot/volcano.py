@@ -195,6 +195,7 @@ def volcano_de(
     condition1: Optional[str] = None,
     condition2: Optional[str] = None,
     n_top_genes: int = 10,
+    highlight_genes: Optional[List[str]] = None,
     show_names: bool = True,
     figsize: Tuple[float, float] = (10, 8),
     title: Optional[str] = None,
@@ -242,7 +243,10 @@ def volcano_de(
     condition2 : str, optional
         Name of condition 2 (positive log fold change)
     n_top_genes : int, optional
-        Total number of top genes to highlight and label, selected by highest Mahalanobis distance (default: 10)
+        Total number of top genes to highlight and label, selected by highest Mahalanobis distance (default: 10).
+        Ignored if `highlight_genes` is provided.
+    highlight_genes : list of str, optional
+        A list of specific gene names to highlight on the plot. If provided, this will override the `n_top_genes` parameter.
     show_names : bool, optional
         Whether to display gene names (default: True)
     figsize : tuple, optional
@@ -379,8 +383,21 @@ def volcano_de(
         'sort_val': adata.var[sort_key]
     })
     
-    # Sort all genes by score (mahalanobis distance) and select top genes
-    top_genes = de_data.sort_values('sort_val', ascending=False).head(n_top_genes)
+    # Determine which genes to highlight
+    if highlight_genes is not None:
+        # Filter for user-specified genes to highlight
+        valid_genes = [g for g in highlight_genes if g in adata.var_names]
+        if len(valid_genes) < len(highlight_genes):
+            missing_genes = set(highlight_genes) - set(valid_genes)
+            logger.warning(f"{len(missing_genes)} genes not found in the dataset: {', '.join(missing_genes)}")
+        
+        # Filter dataframe to only include requested genes
+        top_genes = de_data[de_data['gene'].isin(valid_genes)]
+        logger.info(f"Highlighting {len(top_genes)} user-specified genes")
+    else:
+        # Sort all genes by score (mahalanobis distance) and select top genes
+        top_genes = de_data.sort_values('sort_val', ascending=False).head(n_top_genes)
+        logger.info(f"Highlighting top {len(top_genes)} genes by {sort_key or score_key}")
     
     # Split into up and down regulated for display purposes
     top_up = top_genes[top_genes['lfc'] > 0]

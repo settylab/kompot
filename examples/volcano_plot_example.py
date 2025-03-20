@@ -99,3 +99,21 @@ kp.plot.volcano_plot(
     title="Using backward compatibility"
 )
 plt.savefig("backward_compat_volcano.png")
+
+# Example using highlight_genes parameter to specify genes to highlight
+plt.figure(figsize=(12, 8))
+# Get 5 random gene names for the example
+import random
+random_genes = random.sample(list(adata.var_names), 5)
+print(f"Highlighting specific genes: {', '.join(random_genes)}")
+
+kp.plot.volcano_de(
+    adata,
+    lfc_key="kompot_de_mean_lfc_groupA_vs_groupB",
+    score_key="kompot_de_mahalanobis",
+    highlight_genes=random_genes,
+    title="Volcano Plot with Specific Genes Highlighted",
+    color_up="#8856a7",
+    color_down="#43a2ca",
+    save="specific_genes_volcano.png"
+)
