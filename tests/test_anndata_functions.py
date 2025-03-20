@@ -74,7 +74,8 @@ def test_sample_col_parameter():
         condition1='A',
         condition2='B',
         sample_col='sample',
-        result_key='test_sample_col'
+        result_key='test_sample_col',
+        return_full_results=True  # Make sure to get the full results dictionary including model
     )
     
     # Check that the model has sample variance enabled
@@ -98,7 +99,8 @@ def test_sample_col_parameter():
         groupby='group',
         condition1='A',
         condition2='B',
-        result_key='test_no_sample_col'
+        result_key='test_no_sample_col',
+        return_full_results=True  # Make sure to get the full results dictionary including model
     )
     
     # Verify model doesn't use sample variance

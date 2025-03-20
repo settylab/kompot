@@ -164,6 +164,7 @@ def run_differential_analysis(
     
     # Run differential abundance if requested
     abundance_result = None
+    abundance_model = None
     abundance_landmarks = None
     if compute_abundance:
         logger.info("Computing differential abundance...")
@@ -182,8 +183,13 @@ def run_differential_analysis(
             result_key=abundance_key,
             overwrite=overwrite,
             store_landmarks=store_landmarks,
+            return_full_results=True,  # Make sure to get the full results including the model
             **abundance_kwargs
         )
+        
+        # Extract the model from the result
+        if abundance_result is not None and 'model' in abundance_result:
+            abundance_model = abundance_result['model']
         
         # Check if landmarks are stored in abundance_key
         if store_landmarks and abundance_key in adata.uns and 'landmarks' in adata.uns[abundance_key]:
@@ -200,6 +206,7 @@ def run_differential_analysis(
     
     # Run differential expression if requested
     expression_result = None
+    expression_model = None
     if compute_expression:
         logger.info("Computing differential expression...")
         # Check if the abundance_key log density fields exist
@@ -243,8 +250,13 @@ def run_differential_analysis(
             result_key=expression_key,
             overwrite=overwrite,
             store_landmarks=store_landmarks,
+            return_full_results=True,  # Make sure to get the full results including the model
             **expression_kwargs
         )
+        
+        # Extract the model from the result
+        if expression_result is not None and 'model' in expression_result:
+            expression_model = expression_result['model']
     
         
     # Store information about landmark sharing in adata.uns
@@ -342,8 +354,8 @@ def run_differential_analysis(
     # Return the results along with the AnnData
     result_dict = {
         "adata": adata,
-        "differential_abundance": abundance_result["model"] if abundance_result else None,
-        "differential_expression": expression_result["model"] if expression_result else None,
+        "differential_abundance": abundance_model,
+        "differential_expression": expression_model,
     }
     
     # Add landmarks if they were computed and shared
