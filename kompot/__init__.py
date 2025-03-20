@@ -20,13 +20,15 @@ import mellon
 import logging
 mellon.logger.setLevel(logging.WARNING)
 
-# Import submodules so they can be accessed via kompot.submodule
-from . import anndata
-from . import plot
-from . import differential
-
 # Export Kompot's additional functionality
 from .differential import DifferentialAbundance, DifferentialExpression, SampleVarianceEstimator
+
+# Import submodules so they can be accessed via kompot.submodule
+from . import plot
+from . import differential
+from . import anndata
+
+# Export anndata functions
 from .anndata import (
     compute_differential_abundance,
     compute_differential_expression,
