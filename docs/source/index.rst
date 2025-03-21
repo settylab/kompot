@@ -18,6 +18,11 @@
    Tutorial Notebook <notebooks/tutorial_notebook.ipynb>
    Sample Variance Analysis <notebooks/sample_variance.ipynb>
 
+.. image:: _static/images/kompot_logo.png
+   :alt: Kompot Logo
+   :align: center
+   :width: 400px
+
 Kompot
 ======
 
@@ -37,8 +42,54 @@ Key features:
 - Support for covariance matrices and optional landmarks
 - JAX-accelerated computations
 - Empirical variance estimation
+- **Disk-backed storage for large datasets** with Dask support
 - Visualization tools (volcano plots, heatmaps, expression plots)
 - **Full scverse compatibility with direct AnnData integration**
+
+Use Cases
+---------
+
+Kompot is particularly useful for:
+
+- Comparing cell type abundances across different samples
+- Identifying differentially expressed genes between conditions
+- Integrating multi-sample or multi-batch variability
+- Analyzing large-scale single-cell datasets that don't fit in memory using disk-backed storage
+- Creating visualizations of differential analysis results
+
+Installation
+-----------
+
+To install the base package:
+
+.. code-block:: bash
+
+   pip install kompot
+
+For additional plotting functionality with scanpy integration:
+
+.. code-block:: bash
+
+   pip install kompot[plot]
+
+For disk-backed storage with Dask support (recommended for large datasets):
+
+.. code-block:: bash
+
+   pip install kompot[dask]
+
+To install all optional dependencies:
+
+.. code-block:: bash
+
+   pip install kompot[all]
+
+Quick Start
+-----------
+
+Check out our :doc:`Tutorial Notebook <notebooks/tutorial_notebook>` for a step-by-step introduction to Kompot's key functionality.
+
+For more advanced applications involving sample-specific variance estimation, see the :doc:`Sample Variance Analysis <notebooks/sample_variance>` tutorial.
 
 .. toctree::
    :hidden:
