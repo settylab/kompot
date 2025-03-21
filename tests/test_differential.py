@@ -493,8 +493,8 @@ def test_use_sample_variance_validation():
     assert "explicitly enabled" in str(exc_info.value)
     
     # Test 4: No error when use_sample_variance=True and sample indices are provided
-    sample_indices1 = np.zeros(100, dtype=int)
-    sample_indices2 = np.zeros(100, dtype=int)
+    sample_indices1 = np.repeat([1, 2], 50)
+    sample_indices2 = np.repeat([1, 2], 50)
     diff_expression = DifferentialExpression(use_sample_variance=True)
     diff_expression.fit(
         X_condition1, y_condition1, 

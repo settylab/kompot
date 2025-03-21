@@ -118,7 +118,7 @@ class DifferentialExpression:
         if use_sample_variance is None:
             self.use_sample_variance = (variance_predictor1 is not None or variance_predictor2 is not None)
             if self.use_sample_variance:
-                logger.info("Sample variance estimation automatically enabled due to presence of variance predictors")
+                logger.debug("Sample variance estimation automatically enabled due to presence of variance predictors")
         else:
             self.use_sample_variance = use_sample_variance
         self.batch_size = batch_size
@@ -215,6 +215,31 @@ class DifferentialExpression:
         self
             The fitted instance.
         """
+
+        # Check if sample indices are provided
+        have_sample_indices = (condition1_sample_indices is not None or condition2_sample_indices is not None)
+        
+        # Auto-enable sample variance if sample indices are provided
+        if have_sample_indices:
+            if self.use_sample_variance is None or self.use_sample_variance_explicit is False:
+                self.use_sample_variance = True
+                logger.debug("Sample variance estimation automatically enabled due to provided sample indices")
+        
+        # Check for contradictory inputs - user explicitly requested sample variance but didn't provide indices
+        if (
+            self.use_sample_variance_explicit
+            and self.use_sample_variance is True
+            and not have_sample_indices
+            and self.variance_predictor1 is None
+            and self.variance_predictor2 is None
+        ):
+            raise ValueError(
+                "Sample variance estimation was explicitly enabled (use_sample_variance=True), "
+                "but no sample indices or variance predictors were provided. "
+                "Please provide at least one of: condition1_sample_indices, condition2_sample_indices, "
+                "variance_predictor1, or variance_predictor2."
+            )
+
         # Create or use function predictors
         if self.function_predictor1 is None or self.function_predictor2 is None:
             # Configure function estimator defaults
@@ -279,23 +304,6 @@ class DifferentialExpression:
             self.expression_estimator_condition2.fit(X_condition2, y_condition2)
             self.function_predictor2 = self.expression_estimator_condition2.predict
         
-        # Check if sample indices are provided
-        have_sample_indices = (condition1_sample_indices is not None or condition2_sample_indices is not None)
-        
-        # Auto-enable sample variance if sample indices are provided
-        if have_sample_indices:
-            if self.use_sample_variance is None or self.use_sample_variance_explicit is False:
-                self.use_sample_variance = True
-                logger.info("Sample variance estimation automatically enabled due to provided sample indices")
-        
-        # Check for contradictory inputs - user explicitly requested sample variance but didn't provide indices
-        if self.use_sample_variance_explicit and self.use_sample_variance is True and not have_sample_indices and self.variance_predictor1 is None and self.variance_predictor2 is None:
-            raise ValueError(
-                "Sample variance estimation was explicitly enabled (use_sample_variance=True), "
-                "but no sample indices or variance predictors were provided. "
-                "Please provide at least one of: condition1_sample_indices, condition2_sample_indices, "
-                "variance_predictor1, or variance_predictor2."
-            )
         
         # Handle sample-specific variance if enabled and sample indices are provided
         if self.use_sample_variance and have_sample_indices:

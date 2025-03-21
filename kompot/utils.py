@@ -521,29 +521,29 @@ def compute_mahalanobis_distances(
                 gene_diff = diffs[g]
                 gene_cov = covariance[:, :, g]
                 
-                # Add a small diagonal term for numerical stability
-                gene_cov_reg = gene_cov + np.eye(gene_cov.shape[0]) * eps
+                # Convert to numpy arrays to ensure consistent handling with JAX version
+                gene_diff_np = np.array(gene_diff)
+                gene_cov_np = np.array(gene_cov)
+                
+                # Add a small diagonal term for numerical stability (same as JAX version)
+                gene_cov_reg = gene_cov_np + np.eye(gene_cov_np.shape[0]) * eps
                 
                 # Log details for the first gene to debug differences
                 if g == 0:
-                    logger.info(f"Dask gene {g} - diff: shape={gene_diff.shape}, min={np.min(gene_diff)}, max={np.max(gene_diff)}, mean={np.mean(gene_diff)}")
-                    logger.info(f"Dask gene {g} - cov: shape={gene_cov.shape}, min={np.min(gene_cov)}, max={np.max(gene_cov)}, mean={np.mean(gene_cov)}")
+                    logger.info(f"Dask gene {g} - diff: shape={gene_diff_np.shape}, min={np.min(gene_diff_np)}, max={np.max(gene_diff_np)}, mean={np.mean(gene_diff_np)}")
+                    logger.info(f"Dask gene {g} - cov: shape={gene_cov_np.shape}, min={np.min(gene_cov_np)}, max={np.max(gene_cov_np)}, mean={np.mean(gene_cov_np)}")
                     logger.info(f"Dask gene {g} - cov_reg: shape={gene_cov_reg.shape}, min={np.min(gene_cov_reg)}, max={np.max(gene_cov_reg)}, mean={np.mean(gene_cov_reg)}")
                 
                 try:
                     # Try Cholesky decomposition (fast and accurate for positive definite matrices)
+                    # Use numpy.linalg.cholesky for consistency with JAX version
                     L = np.linalg.cholesky(gene_cov_reg)
                     
-                    # NOTE: The key issue is in the solve_triangular step - let's use numpy to ensure consistency
-                    # First convert to native numpy arrays to ensure compatibility
-                    L_np = np.array(L)
-                    gene_diff_np = np.array(gene_diff)
-                    
-                    # Solve with numpy's solve_triangular for consistency
+                    # Use scipy.linalg.solve_triangular with lower=True, just like JAX version
                     from scipy.linalg import solve_triangular
-                    solved = solve_triangular(L_np, gene_diff_np, lower=True)
+                    solved = solve_triangular(L, gene_diff_np, lower=True)
                     
-                    # Compute the Mahalanobis distance
+                    # Compute the Mahalanobis distance exactly as in JAX version
                     mahal_dist = float(np.sqrt(np.sum(solved**2)))
                     
                     # Log details for first gene

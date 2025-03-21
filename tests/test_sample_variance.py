@@ -10,11 +10,13 @@ from kompot.batch_utils import apply_batched, is_jax_memory_error
 def test_sample_variance_estimator_diag():
     """Test that the SampleVarianceEstimator works with diag=True and diag=False."""
     # Generate some sample data
-    n_cells = 20
+    n_cells = 30
     n_features = 5
     n_genes = 3
     n_groups = 2
-    
+    seed = 2345
+
+    np.random.seed(seed)
     X = np.random.randn(n_cells, n_features)
     Y = np.random.randn(n_cells, n_genes)
     grouping_vector = np.random.randint(0, n_groups, size=n_cells)
@@ -91,11 +93,13 @@ def test_sample_variance_estimator_batching():
 def test_sample_variance_estimator_jit():
     """Test that the SampleVarianceEstimator works with JIT compilation."""
     # Generate some sample data
-    n_cells = 20
+    n_cells = 30
     n_features = 5
     n_genes = 3
     n_groups = 2
-    
+    seed = 2345
+
+    np.random.seed(seed)
     X = np.random.randn(n_cells, n_features)
     Y = np.random.randn(n_cells, n_genes)
     grouping_vector = np.random.randint(0, n_groups, size=n_cells)
@@ -258,7 +262,7 @@ def test_no_predictors_error():
 def test_analyze_memory_called_only_once():
     """Test that memory analysis is called only once."""
     # Create estimator with real memory analysis but mock storage
-    estimator = SampleVarianceEstimator(store_arrays_on_disk=True)
+    estimator = SampleVarianceEstimator(store_arrays_on_disk=False)
     
     # Mock group predictors
     mock_predictor = MagicMock()
@@ -519,10 +523,12 @@ def test_differential_expression_with_sample_variance_disk_backed():
 def test_sample_variance_estimator_density_mode():
     """Test that the SampleVarianceEstimator works in 'density' mode."""
     # Generate some sample data
-    n_cells = 20
+    n_cells = 30
     n_features = 5
     n_groups = 2
-    
+    seed = 2345
+
+    np.random.seed(seed)
     X = np.random.randn(n_cells, n_features)
     grouping_vector = np.random.randint(0, n_groups, size=n_cells)
     

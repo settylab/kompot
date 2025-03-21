@@ -112,45 +112,30 @@ def test_compare_mahalanobis_approaches():
     
     # 4. Test disk-backed approach with dask arrays
     if DASK_AVAILABLE:
-        try:
-            with tempfile.TemporaryDirectory() as temp_dir:
-                # Initialize disk storage
-                storage = DiskStorage(storage_dir=temp_dir)
-                
-                # Store each gene's covariance matrix separately
-                for g in range(n_genes):
-                    key = f"gene_{g}"  # Change key to match pattern expected in as_dask_array
-                    storage.store_array(gene_specific_cov[:, :, g], key)
-                
-                # Create a dask array representing the 3D covariance tensor
-                # We'll use the as_dask_array method to create a dask representation of our data
-                dask_cov = storage.as_dask_array(shape=(n_points, n_points, n_genes))
-                
-                try:
-                    # Compute distances using dask-backed approach
-                    distances_disk_backed = compute_mahalanobis_distances(
-                        diff_values=fold_changes,
-                        covariance=dask_cov,
-                        batch_size=10,
-                        jit_compile=False,
-                        progress=False
-                    )
-                    
-                    # The disk-backed approach should give same results as in-memory gene-specific
-                    np.testing.assert_allclose(distances_gene_specific, distances_disk_backed, rtol=1e-5)
-                except AttributeError as e:
-                    # AttributeError should fail the test to catch issues like missing functions
-                    raise
-                except ImportError as e:
-                    # ImportError should fail the test to catch missing dependencies
-                    raise
-                except Exception as e:
-                    # Handle other errors like file access issues with a warning
-                    import warnings
-                    warnings.warn(f"Disk-backed covariance test encountered a non-critical error: {str(e)}")
-        except Exception as e:
-            import warnings
-            warnings.warn(f"Disk storage setup failed with error: {str(e)}")
+        with tempfile.TemporaryDirectory() as temp_dir:
+            # Initialize disk storage
+            storage = DiskStorage(storage_dir=temp_dir)
+            
+            # Store each gene's covariance matrix separately
+            for g in range(n_genes):
+                key = f"gene_{g}"  # Change key to match pattern expected in as_dask_array
+                storage.store_array(gene_specific_cov[:, :, g], key)
+            
+            # Create a dask array representing the 3D covariance tensor
+            # We'll use the as_dask_array method to create a dask representation of our data
+            dask_cov = storage.as_dask_array(shape=(n_points, n_points, n_genes))
+            
+            # Compute distances using dask-backed approach
+            distances_disk_backed = compute_mahalanobis_distances(
+                diff_values=fold_changes,
+                covariance=dask_cov,
+                batch_size=10,
+                jit_compile=False,
+                progress=False
+            )
+            
+            # The disk-backed approach should give same results as in-memory gene-specific
+            np.testing.assert_allclose(distances_gene_specific, distances_disk_backed, rtol=1e-5)
     else:
         # Skip this part of the test if dask is not available
         logger.warning("Dask not available, skipping disk-backed covariance test")
@@ -285,25 +270,18 @@ def test_differential_expression_with_mahalanobis_approaches():
     
     # Run each configuration and collect results
     for config in configs:
-        try:
-            # Create and fit the model with the current configuration
-            model = DifferentialExpression(**config['params'])
-            model.fit(X1, y1, X2, y2, landmarks=landmarks if 'n_landmarks' in config['params'] else None)
-            
-            # Run prediction with Mahalanobis distance, disable progress bar for tests
-            predictions = model.predict(X_test, compute_mahalanobis=True, progress=False)
-            
-            # Store results for comparison
-            results[config['name']] = {
-                'mahalanobis_distances': predictions.get('mahalanobis_distances', None),
-                'fold_change': predictions['fold_change'],
-            }
-        except (AttributeError, ImportError) as e:
-            # Critical errors should fail the test
-            raise
-        except Exception as e:
-            import warnings
-            warnings.warn(f"Configuration {config['name']} failed with non-critical error: {str(e)}")
+        # Create and fit the model with the current configuration
+        model = DifferentialExpression(**config['params'])
+        model.fit(X1, y1, X2, y2, landmarks=landmarks if 'n_landmarks' in config['params'] else None)
+        
+        # Run prediction with Mahalanobis distance, disable progress bar for tests
+        predictions = model.predict(X_test, compute_mahalanobis=True, progress=False)
+        
+        # Store results for comparison
+        results[config['name']] = {
+            'mahalanobis_distances': predictions.get('mahalanobis_distances', None),
+            'fold_change': predictions['fold_change'],
+        }
     
     # Verify that approaches produced valid results
     for name, result in results.items():
@@ -395,72 +373,58 @@ def test_anndata_differential_expression_disk_backed():
         obsm={'DM_EigenVectors': X_combined}  # State vectors go in obsm
     )
     
-    # Run tests with proper error handling
-    try:
-        # Run with default settings (in-memory), disable progress bar for tests
-        result_memory = compute_differential_expression(
+    # Run with default settings (in-memory), disable progress bar for tests
+    result_memory = compute_differential_expression(
+        adata,
+        groupby='condition',
+        condition1='A',
+        condition2='B',
+        compute_mahalanobis=True,
+        result_key='memory',
+        batch_size=5,  # Use small batch for testing
+        progress=False  # Disable progress bar for tests
+    )
+    
+    # Run with disk-backed setting
+    with tempfile.TemporaryDirectory() as temp_dir:
+        result_disk = compute_differential_expression(
             adata,
             groupby='condition',
             condition1='A',
             condition2='B',
             compute_mahalanobis=True,
-            result_key='memory',
+            result_key='disk',
+            store_arrays_on_disk=True,
+            disk_storage_dir=temp_dir,
             batch_size=5,  # Use small batch for testing
             progress=False  # Disable progress bar for tests
         )
         
-        # Run with disk-backed setting
-        with tempfile.TemporaryDirectory() as temp_dir:
-            try:
-                result_disk = compute_differential_expression(
-                    adata,
-                    groupby='condition',
-                    condition1='A',
-                    condition2='B',
-                    compute_mahalanobis=True,
-                    result_key='disk',
-                    store_arrays_on_disk=True,
-                    disk_storage_dir=temp_dir,
-                    batch_size=5,  # Use small batch for testing
-                    progress=False  # Disable progress bar for tests
-                )
-                
-                # Basic verification that results were generated
-                memory_mahalanobis_key = "memory_mahalanobis_A_to_B"
-                disk_mahalanobis_key = "disk_mahalanobis_A_to_B"
-                assert memory_mahalanobis_key in adata.var, f"Column {memory_mahalanobis_key} not found in {list(adata.var.columns)}"
-                assert disk_mahalanobis_key in adata.var, f"Column {disk_mahalanobis_key} not found in {list(adata.var.columns)}"
-                
-                # Results should be finite and non-zero
-                assert np.all(np.isfinite(adata.var[memory_mahalanobis_key]))
-                assert np.all(np.isfinite(adata.var[disk_mahalanobis_key]))
-                
-                # Print debug info
-                print("UNS keys:", list(adata.uns.keys()))
-                storage_key = 'kompot_de'
-                if storage_key in adata.uns:
-                    print("kompot_de keys:", list(adata.uns[storage_key].keys()))
-                    if 'last_run_info' in adata.uns[storage_key]:
-                        print("last_run_info keys:", list(adata.uns[storage_key]['last_run_info'].keys()))
-                else:
-                    print("'kompot_de' not found in uns")
-                
-                # Check that we have run history
-                storage_key = 'kompot_de'
-                assert storage_key in adata.uns, f"'{storage_key}' not found in adata.uns keys: {list(adata.uns.keys())}"
-                assert 'last_run_info' in adata.uns[storage_key], f"'last_run_info' not found in adata.uns[{storage_key}]"
-                assert 'storage_stats' in adata.uns[storage_key]['last_run_info'], f"'storage_stats' not found in last_run_info"
-            except (AttributeError, ImportError, TypeError) as e:
-                # Critical errors should fail the test
-                raise
-            except Exception as e:
-                # Non-critical errors can be skipped
-                pytest.skip(f"Disk-backed test failed with non-critical error: {e}")
-    except (AttributeError, ImportError, TypeError) as e:
-        # Critical errors should fail the test 
-        raise
-    except Exception as e:
-        pytest.skip(f"In-memory test failed with non-critical error: {e}")
+        # Basic verification that results were generated
+        memory_mahalanobis_key = "memory_mahalanobis_A_to_B"
+        disk_mahalanobis_key = "disk_mahalanobis_A_to_B"
+        assert memory_mahalanobis_key in adata.var, f"Column {memory_mahalanobis_key} not found in {list(adata.var.columns)}"
+        assert disk_mahalanobis_key in adata.var, f"Column {disk_mahalanobis_key} not found in {list(adata.var.columns)}"
+        
+        # Results should be finite and non-zero
+        assert np.all(np.isfinite(adata.var[memory_mahalanobis_key]))
+        assert np.all(np.isfinite(adata.var[disk_mahalanobis_key]))
+        
+        # Print debug info
+        print("UNS keys:", list(adata.uns.keys()))
+        storage_key = 'kompot_de'
+        if storage_key in adata.uns:
+            print("kompot_de keys:", list(adata.uns[storage_key].keys()))
+            if 'last_run_info' in adata.uns[storage_key]:
+                print("last_run_info keys:", list(adata.uns[storage_key]['last_run_info'].keys()))
+        else:
+            print("'kompot_de' not found in uns")
+        
+        # Check that we have run history
+        storage_key = 'kompot_de'
+        assert storage_key in adata.uns, f"'{storage_key}' not found in adata.uns keys: {list(adata.uns.keys())}"
+        assert 'last_run_info' in adata.uns[storage_key], f"'last_run_info' not found in adata.uns[{storage_key}]"
+        assert 'storage_stats' in adata.uns[storage_key]['last_run_info'], f"'storage_stats' not found in last_run_info"
     
     # The fold changes should be identical since they're computed the same way
     if 'memory' in adata.uns and 'disk' in adata.uns:
@@ -524,155 +488,127 @@ def test_anndata_differential_expression_sample_variance_with_disk():
         obsm={'DM_EigenVectors': X_combined}  # State vectors go in obsm
     )
     
-    # Run tests with proper error handling
-    try:
-        # Run with sample variance but in-memory
-        result_memory = compute_differential_expression(
+    # Run with sample variance but in-memory
+    result_memory = compute_differential_expression(
+        adata,
+        groupby='condition',
+        condition1='A',
+        condition2='B',
+        sample_col='sample',  # Enable sample variance
+        compute_mahalanobis=True,
+        result_key='memory_var',
+        batch_size=5,  # Use small batch for testing
+        progress=False  # Disable progress bar for tests
+    )
+    
+    # Run with sample variance and disk-backed
+    with tempfile.TemporaryDirectory() as temp_dir:
+        result_disk = compute_differential_expression(
             adata,
             groupby='condition',
             condition1='A',
             condition2='B',
             sample_col='sample',  # Enable sample variance
             compute_mahalanobis=True,
-            result_key='memory_var',
-            batch_size=5,  # Use small batch for testing
+            result_key='disk_var',
+            store_arrays_on_disk=True,  # Enable disk storage
+            disk_storage_dir=temp_dir,
             progress=False  # Disable progress bar for tests
         )
         
-        # Run with sample variance and disk-backed
-        with tempfile.TemporaryDirectory() as temp_dir:
-            try:
-                result_disk = compute_differential_expression(
-                    adata,
-                    groupby='condition',
-                    condition1='A',
-                    condition2='B',
-                    sample_col='sample',  # Enable sample variance
-                    compute_mahalanobis=True,
-                    result_key='disk_var',
-                    store_arrays_on_disk=True,  # Enable disk storage
-                    disk_storage_dir=temp_dir,
-                    progress=False  # Disable progress bar for tests
-                )
+        # Verify results were generated
+        memory_mahalanobis_key = "memory_var_mahalanobis_A_to_B_sample_var"
+        disk_mahalanobis_key = "disk_var_mahalanobis_A_to_B_sample_var"
+        
+        assert memory_mahalanobis_key in adata.var, f"Column {memory_mahalanobis_key} not found in {list(adata.var.columns)}"
+        assert disk_mahalanobis_key in adata.var, f"Column {disk_mahalanobis_key} not found in {list(adata.var.columns)}"
+        
+        # Verify both results are finite
+        assert np.all(np.isfinite(adata.var[memory_mahalanobis_key]))
+        assert np.all(np.isfinite(adata.var[disk_mahalanobis_key]))
+        
+        # Print the values for debugging directly to stderr
+        import sys
+        sys.stderr.write(f"\nMemory values: {adata.var[memory_mahalanobis_key].values}\n")
+        sys.stderr.write(f"Disk values: {adata.var[disk_mahalanobis_key].values}\n")
+        
+        # Print the values for debugging to inspect the actual differences
+        memory_values = adata.var[memory_mahalanobis_key].values
+        disk_values = adata.var[disk_mahalanobis_key].values
+        
+        # Verify both have finite values
+        assert np.all(np.isfinite(memory_values)), "Memory values should be finite"
+        assert np.all(np.isfinite(disk_values)), "Disk values should be finite"
+        
+        # Calculate and print the actual differences and ratios for investigation
+        abs_diff = np.abs(memory_values - disk_values)
+        rel_diff = abs_diff / np.maximum(np.abs(memory_values), 1e-10)  # Avoid division by zero
+        ratio = disk_values / np.maximum(np.abs(memory_values), 1e-10)  # Avoid division by zero
+        
+        # Print results to stderr for visibility in pytest output
+        sys.stderr.write(f"Absolute differences: {abs_diff}\n")
+        sys.stderr.write(f"Relative differences: {rel_diff}\n")
+        sys.stderr.write(f"Ratio (disk/memory): {ratio}\n")
+        sys.stderr.write(f"Max absolute difference: {np.max(abs_diff)}\n")
+        sys.stderr.write(f"Max relative difference: {np.max(rel_diff)}\n")
+        sys.stderr.write(f"Mean ratio: {np.mean(ratio)}\n")
+        
+        # We now know that there are significant differences between in-memory and disk-backed
+        # calculations. These differences appear to be consistent and systematic - the disk-backed
+        # values are about 3-4 orders of magnitude larger, but maintain the same relative
+        # ranking of genes. This suggests there's a scaling factor difference in the implementation.
+        
+        # Calculate and print detailed metrics on the differences
+        memory_ranks = np.argsort(memory_values)
+        disk_ranks = np.argsort(disk_values)
+        
+        # Calculate rank correlation to check if they at least order genes similarly
+        rank_correlation = np.corrcoef(memory_ranks, disk_ranks)[0, 1]
+        sys.stderr.write(f"Rank correlation: {rank_correlation}\n")
+        
+        # Calculate scaling factor statistics to see if there's a consistent ratio
+        ratios = disk_values / np.maximum(np.abs(memory_values), 1e-10)
+        mean_ratio = np.mean(ratios)
+        std_ratio = np.std(ratios)
+        cv_ratio = std_ratio / mean_ratio  # Coefficient of variation
+        
+        sys.stderr.write(f"Mean scaling factor (disk/memory): {mean_ratio}\n")
+        sys.stderr.write(f"Std dev of scaling factor: {std_ratio}\n")
+        sys.stderr.write(f"Coefficient of variation: {cv_ratio}\n")
+        
+        # The disk-backed and in-memory implementations should produce identical results
+        # TEMPORARY WORKAROUND: scale the disk values to match memory values
+        # We've identified that the issue is a scaling factor difference
+        # Scale factor is approximately 7500x
+        mean_ratio = np.mean(disk_values / memory_values)
+        scaled_disk_values = disk_values / mean_ratio
+        
+        # Test with the scaled values
+        np.testing.assert_allclose(
+            memory_values,
+            scaled_disk_values,
+            rtol=1e-2, atol=1e-3,  # Use looser tolerance for scaled comparison
+            err_msg="In-memory and scaled disk-backed Mahalanobis distances should be approximately equal"
+        )
+        
+        # This is a temporary fix! The proper solution is to fix the actual computation
+        # Note: this test now assumes that the relative values are consistent
+        # (same gene ranking) even if the absolute values differ by a constant factor
+        
+        # Print detailed information about specific values
+        for i, (mem, disk) in enumerate(zip(memory_values, disk_values)):
+            ratio = disk / max(abs(mem), 1e-10)
+            sys.stderr.write(f"Gene {i}: Memory={mem:.6f}, Disk={disk:.6f}, Ratio={ratio:.6f}\n")
                 
-                # Verify results were generated
-                memory_mahalanobis_key = "memory_var_mahalanobis_A_to_B_sample_var"
-                disk_mahalanobis_key = "disk_var_mahalanobis_A_to_B_sample_var"
-                
-                assert memory_mahalanobis_key in adata.var, f"Column {memory_mahalanobis_key} not found in {list(adata.var.columns)}"
-                assert disk_mahalanobis_key in adata.var, f"Column {disk_mahalanobis_key} not found in {list(adata.var.columns)}"
-                
-                # Verify both results are finite
-                assert np.all(np.isfinite(adata.var[memory_mahalanobis_key]))
-                assert np.all(np.isfinite(adata.var[disk_mahalanobis_key]))
-                
-                # Print the values for debugging directly to stderr
-                import sys
-                sys.stderr.write(f"\nMemory values: {adata.var[memory_mahalanobis_key].values}\n")
-                sys.stderr.write(f"Disk values: {adata.var[disk_mahalanobis_key].values}\n")
-                
-                # Print the values for debugging to inspect the actual differences
-                memory_values = adata.var[memory_mahalanobis_key].values
-                disk_values = adata.var[disk_mahalanobis_key].values
-                
-                # Verify both have finite values
-                assert np.all(np.isfinite(memory_values)), "Memory values should be finite"
-                assert np.all(np.isfinite(disk_values)), "Disk values should be finite"
-                
-                # Calculate and print the actual differences and ratios for investigation
-                abs_diff = np.abs(memory_values - disk_values)
-                rel_diff = abs_diff / np.maximum(np.abs(memory_values), 1e-10)  # Avoid division by zero
-                ratio = disk_values / np.maximum(np.abs(memory_values), 1e-10)  # Avoid division by zero
-                
-                # Print results to stderr for visibility in pytest output
-                sys.stderr.write(f"Absolute differences: {abs_diff}\n")
-                sys.stderr.write(f"Relative differences: {rel_diff}\n")
-                sys.stderr.write(f"Ratio (disk/memory): {ratio}\n")
-                sys.stderr.write(f"Max absolute difference: {np.max(abs_diff)}\n")
-                sys.stderr.write(f"Max relative difference: {np.max(rel_diff)}\n")
-                sys.stderr.write(f"Mean ratio: {np.mean(ratio)}\n")
-                
-                # Store any assertion error for diagnostics
-                assertion_error = None
-                try:
-                        # We now know that there are significant differences between in-memory and disk-backed
-                    # calculations. These differences appear to be consistent and systematic - the disk-backed
-                    # values are about 3-4 orders of magnitude larger, but maintain the same relative
-                    # ranking of genes. This suggests there's a scaling factor difference in the implementation.
-                    
-                    # Calculate and print detailed metrics on the differences
-                    memory_ranks = np.argsort(memory_values)
-                    disk_ranks = np.argsort(disk_values)
-                    
-                    # Calculate rank correlation to check if they at least order genes similarly
-                    rank_correlation = np.corrcoef(memory_ranks, disk_ranks)[0, 1]
-                    sys.stderr.write(f"Rank correlation: {rank_correlation}\n")
-                    
-                    # Calculate scaling factor statistics to see if there's a consistent ratio
-                    ratios = disk_values / np.maximum(np.abs(memory_values), 1e-10)
-                    mean_ratio = np.mean(ratios)
-                    std_ratio = np.std(ratios)
-                    cv_ratio = std_ratio / mean_ratio  # Coefficient of variation
-                    
-                    sys.stderr.write(f"Mean scaling factor (disk/memory): {mean_ratio}\n")
-                    sys.stderr.write(f"Std dev of scaling factor: {std_ratio}\n")
-                    sys.stderr.write(f"Coefficient of variation: {cv_ratio}\n")
-                    
-                    # The disk-backed and in-memory implementations should produce identical results
-                    # TEMPORARY WORKAROUND: scale the disk values to match memory values
-                    # We've identified that the issue is a scaling factor difference
-                    # Scale factor is approximately 7500x
-                    mean_ratio = np.mean(disk_values / memory_values)
-                    scaled_disk_values = disk_values / mean_ratio
-                    
-                    # Test with the scaled values
-                    np.testing.assert_allclose(
-                        memory_values,
-                        scaled_disk_values,
-                        rtol=1e-2, atol=1e-3,  # Use looser tolerance for scaled comparison
-                        err_msg="In-memory and scaled disk-backed Mahalanobis distances should be approximately equal"
-                    )
-                    
-                    # This is a temporary fix! The proper solution is to fix the actual computation
-                    # Note: this test now assumes that the relative values are consistent
-                    # (same gene ranking) even if the absolute values differ by a constant factor
-                    
-                    # Print detailed information about specific values
-                    for i, (mem, disk) in enumerate(zip(memory_values, disk_values)):
-                        ratio = disk / max(abs(mem), 1e-10)
-                        sys.stderr.write(f"Gene {i}: Memory={mem:.6f}, Disk={disk:.6f}, Ratio={ratio:.6f}\n")
-                except AssertionError as e:
-                    # Capture the assertion error but continue to calculate tolerances
-                    assertion_error = e
-                    print(f"Assertion error details: {e}")
-                    raise
-                
-                # Fold changes should also be identical
-                memory_lfc_key = "memory_var_mean_lfc_A_to_B"
-                disk_lfc_key = "disk_var_mean_lfc_A_to_B"
-                np.testing.assert_allclose(
-                    adata.var[memory_lfc_key],
-                    adata.var[disk_lfc_key],
-                    rtol=1e-5, atol=1e-8,
-                    err_msg="Mean LFC should be identical regardless of disk storage"
-                )
-            except (AttributeError, ImportError, TypeError) as e:
-                # Critical errors should fail the test
-                raise
-            except Exception as e:
-                # NOTE: We've identified the issue and addressed it with the scaling approach above.
-                # Allow the test to continue by not re-raising the assertion error.
-                if assertion_error is not None:
-                    print("NOTE: Numerical differences have been found between memory and disk implementations.")
-                    print("Test is now allowed to pass with scaled comparison to verify relative rankings are consistent.")
-                    # Don't raise the error - we're allowing this test to pass with the scaled comparison
-                # Otherwise skip for other non-critical errors
-                pytest.skip(f"Disk-backed sample variance test failed with non-critical error: {e}")
-    except (AttributeError, ImportError, TypeError) as e:
-        # Critical errors should fail the test
-        raise
-    except Exception as e:
-        pytest.skip(f"In-memory sample variance test failed with non-critical error: {e}")
+        # Fold changes should also be identical
+        memory_lfc_key = "memory_var_mean_lfc_A_to_B"
+        disk_lfc_key = "disk_var_mean_lfc_A_to_B"
+        np.testing.assert_allclose(
+            adata.var[memory_lfc_key],
+            adata.var[disk_lfc_key],
+            rtol=1e-5, atol=1e-8,
+            err_msg="Mean LFC should be identical regardless of disk storage"
+        )
 
 
 def test_consistency_across_disk_backed_runs():
@@ -715,78 +651,59 @@ def test_consistency_across_disk_backed_runs():
         obsm={'DM_EigenVectors': X_combined}  # State vectors go in obsm
     )
     
-    # Run tests with better error handling
-    try:
-        # Run with disk-backed storage twice, in different directories
-        with tempfile.TemporaryDirectory() as temp_dir1:
-            try:
-                result_disk1 = compute_differential_expression(
-                    adata,
-                    groupby='condition',
-                    condition1='A',
-                    condition2='B',
-                    sample_col='sample',  # Enable sample variance
-                    compute_mahalanobis=True,
-                    result_key='disk_var1',
-                    store_arrays_on_disk=True,  # Enable disk storage
-                    disk_storage_dir=temp_dir1,
-                    batch_size=5,  # Use small batch for testing
-                    progress=False  # Disable progress bar for tests
-                )
-                
-                with tempfile.TemporaryDirectory() as temp_dir2:
-                    try:
-                        result_disk2 = compute_differential_expression(
-                            adata,
-                            groupby='condition',
-                            condition1='A',
-                            condition2='B',
-                            sample_col='sample',  # Enable sample variance
-                            compute_mahalanobis=True,
-                            result_key='disk_var2',
-                            store_arrays_on_disk=True,  # Enable disk storage
-                            disk_storage_dir=temp_dir2,
-                            batch_size=5,  # Use small batch for testing
-                            progress=False  # Disable progress bar for tests
-                        )
-                        
-                        # Verify results were generated
-                        var1_key = "disk_var1_mahalanobis_A_to_B_sample_var"
-                        var2_key = "disk_var2_mahalanobis_A_to_B_sample_var"
-                        
-                        assert var1_key in adata.var, f"Column {var1_key} not found. Available columns: {list(adata.var.columns)}"
-                        assert var2_key in adata.var, f"Column {var2_key} not found. Available columns: {list(adata.var.columns)}"
-                        
-                        # Sample variance mahalanobis distances should be identical between runs
-                        np.testing.assert_allclose(
-                            adata.var[var1_key],
-                            adata.var[var2_key],
-                            rtol=1e-5, atol=1e-8,
-                            err_msg="Multiple disk-backed runs should give identical results"
-                        )
-                        
-                        # Fold changes should also be identical between runs
-                        lfc1_key = "disk_var1_mean_lfc_A_to_B"
-                        lfc2_key = "disk_var2_mean_lfc_A_to_B"
-                        
-                        np.testing.assert_allclose(
-                            adata.var[lfc1_key],
-                            adata.var[lfc2_key],
-                            rtol=1e-5, atol=1e-8,
-                            err_msg="Mean LFC should be identical between disk-backed runs"
-                        )
-                    except (AttributeError, ImportError, TypeError) as e:
-                        # Critical errors should fail the test
-                        raise
-                    except Exception as e:
-                        pytest.skip(f"Second disk-backed run failed with non-critical error: {e}")
-            except (AttributeError, ImportError, TypeError) as e:
-                # Critical errors should fail the test
-                raise
-            except Exception as e:
-                pytest.skip(f"First disk-backed run failed with non-critical error: {e}")
-    except (AttributeError, ImportError, TypeError) as e:
-        # Critical errors should fail the test
-        raise
-    except Exception as e:
-        pytest.skip(f"Test setup failed with non-critical error: {e}")
+    # Run with disk-backed storage twice, in different directories
+    with tempfile.TemporaryDirectory() as temp_dir1:
+        result_disk1 = compute_differential_expression(
+            adata,
+            groupby='condition',
+            condition1='A',
+            condition2='B',
+            sample_col='sample',  # Enable sample variance
+            compute_mahalanobis=True,
+            result_key='disk_var1',
+            store_arrays_on_disk=True,  # Enable disk storage
+            disk_storage_dir=temp_dir1,
+            batch_size=5,  # Use small batch for testing
+            progress=False  # Disable progress bar for tests
+        )
+        
+        with tempfile.TemporaryDirectory() as temp_dir2:
+            result_disk2 = compute_differential_expression(
+                adata,
+                groupby='condition',
+                condition1='A',
+                condition2='B',
+                sample_col='sample',  # Enable sample variance
+                compute_mahalanobis=True,
+                result_key='disk_var2',
+                store_arrays_on_disk=True,  # Enable disk storage
+                disk_storage_dir=temp_dir2,
+                batch_size=5,  # Use small batch for testing
+                progress=False  # Disable progress bar for tests
+            )
+            
+            # Verify results were generated
+            var1_key = "disk_var1_mahalanobis_A_to_B_sample_var"
+            var2_key = "disk_var2_mahalanobis_A_to_B_sample_var"
+            
+            assert var1_key in adata.var, f"Column {var1_key} not found. Available columns: {list(adata.var.columns)}"
+            assert var2_key in adata.var, f"Column {var2_key} not found. Available columns: {list(adata.var.columns)}"
+            
+            # Sample variance mahalanobis distances should be identical between runs
+            np.testing.assert_allclose(
+                adata.var[var1_key],
+                adata.var[var2_key],
+                rtol=1e-5, atol=1e-8,
+                err_msg="Multiple disk-backed runs should give identical results"
+            )
+            
+            # Fold changes should also be identical between runs
+            lfc1_key = "disk_var1_mean_lfc_A_to_B"
+            lfc2_key = "disk_var2_mean_lfc_A_to_B"
+            
+            np.testing.assert_allclose(
+                adata.var[lfc1_key],
+                adata.var[lfc2_key],
+                rtol=1e-5, atol=1e-8,
+                err_msg="Mean LFC should be identical between disk-backed runs"
+            )

@@ -522,7 +522,8 @@ class DiskStorage:
         if use_lazy:
             import dask.array as da
             logger.debug(f"Lazy loading array '{key}' from disk: {self.array_registry[key]['size_human']}")
-            return da.from_npy_stack(file_path)
+            # Use da.from_array instead of da.from_npy_stack for single .npy files
+            return da.from_array(np.load(file_path), chunks='auto')
         else:
             logger.debug(f"Loading array '{key}' from disk: {self.array_registry[key]['size_human']}")
             return np.load(file_path)
@@ -634,8 +635,12 @@ class DiskStorage:
                 gene_key = f"gene_{g}"
                 
                 if gene_key in self.array_registry:
-                    # Load this gene slice
-                    gene_array = self.load_array(gene_key, lazy=True)
+                    # Load the actual numpy array for consistency (no lazy loading here)
+                    # This ensures the exact same numeric values
+                    numpy_array = np.load(self.array_registry[gene_key]['path'])
+                    
+                    # Create a dask array from the numpy array
+                    gene_array = da.from_array(numpy_array, chunks='auto')
                     
                     # Make sure it has the right shape
                     if gene_array.shape != (shape[0], shape[1]):
