@@ -30,8 +30,8 @@ jobs:
         pip install pytest pytest-cov
         # Install JAX CPU version to avoid GPU dependencies in CI
         pip install --upgrade "jax[cpu]"
-        # Install package in development mode with all dependencies
-        pip install -e .
+        # Install package in development mode with all dependencies including dask
+        pip install -e ".[dask]"
     
     - name: Test with pytest and generate coverage report
       run: |
