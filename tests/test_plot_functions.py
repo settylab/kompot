@@ -107,8 +107,8 @@ def create_test_data_with_multiple_runs():
     )
     
     # Add test DE metric fields if they don't exist
-    lfc_key_name = 'de_run3_mean_lfc_A_vs_B'
-    mahalanobis_key = 'de_run3_mahalanobis_A_vs_B'
+    lfc_key_name = 'de_run3_mean_lfc_A_to_B'
+    mahalanobis_key = 'de_run3_mahalanobis_A_to_B'
     
     if lfc_key_name not in adata.var.columns:
         adata.var[lfc_key_name] = np.random.randn(adata.n_vars)
@@ -142,8 +142,8 @@ def create_test_data_with_multiple_runs():
     })
     
     # Add test DA metric fields if they don't exist
-    lfc_key_da = 'da_run3_log_fold_change_A_vs_B'
-    pval_key_da = 'da_run3_neg_log10_fold_change_pvalue_A_vs_B'
+    lfc_key_da = 'da_run3_log_fold_change_A_to_B'
+    pval_key_da = 'da_run3_neg_log10_fold_change_pvalue_A_to_B'
     
     if lfc_key_da not in adata.obs.columns:
         adata.obs[lfc_key_da] = np.random.randn(adata.n_obs)
@@ -361,8 +361,8 @@ class TestPlotFunctions:
             pytest.skip("scanpy not installed, skipping test")
         
         # Add necessary data for gene expression plot
-        self.adata.var['de_run3_mean_lfc_A_vs_B'] = np.random.randn(self.adata.n_vars)
-        self.adata.var['de_run3_mahalanobis_A_vs_B'] = np.abs(np.random.randn(self.adata.n_vars))
+        self.adata.var['de_run3_mean_lfc_A_to_B'] = np.random.randn(self.adata.n_vars)
+        self.adata.var['de_run3_mahalanobis_A_to_B'] = np.abs(np.random.randn(self.adata.n_vars))
         
         # Create layers for imputed expression and fold changes
         self.adata.layers['de_run3_A_imputed'] = self.adata.X.copy()
@@ -387,8 +387,8 @@ class TestPlotFunctions:
         fig, ax = plot_gene_expression(
             self.adata, 
             gene=gene,
-            lfc_key='de_run3_mean_lfc_A_vs_B',
-            score_key='de_run3_mahalanobis_A_vs_B',
+            lfc_key='de_run3_mean_lfc_A_to_B',
+            score_key='de_run3_mahalanobis_A_to_B',
             basis='X_pca',
             return_fig=True
         )
@@ -437,9 +437,9 @@ class TestPlotFunctions:
     
     def test_direction_barplot(self):
         """Test direction_barplot function."""
-        # Create the direction column
+        # Create the direction column with updated "_to_" format
         directions = np.random.choice(['up', 'down', 'neutral'], size=self.adata.n_obs)
-        self.adata.obs['kompot_da_log_fold_change_direction_A_vs_B'] = directions
+        self.adata.obs['kompot_da_log_fold_change_direction_A_to_B'] = directions
         
         # Add categories for grouping
         categories = np.random.choice(['Type1', 'Type2', 'Type3'], size=self.adata.n_obs)
@@ -458,7 +458,7 @@ class TestPlotFunctions:
                 'conditions': ['A', 'B']
             },
             'field_names': {
-                'direction_key': 'kompot_da_log_fold_change_direction_A_vs_B'
+                'direction_key': 'kompot_da_log_fold_change_direction_A_to_B'
             }
         })
         
@@ -466,7 +466,7 @@ class TestPlotFunctions:
         fig, ax = direction_barplot(
             self.adata,
             category_column='cell_type',
-            direction_column='kompot_da_log_fold_change_direction_A_vs_B',
+            direction_column='kompot_da_log_fold_change_direction_A_to_B',
             condition1='A',
             condition2='B',
             return_fig=True
@@ -486,9 +486,9 @@ class TestPlotFunctions:
     
     def test_infer_direction_key(self):
         """Test _infer_direction_key helper function."""
-        # Create the direction column
+        # Create the direction column with updated "_to_" format
         directions = np.random.choice(['up', 'down', 'neutral'], size=self.adata.n_obs)
-        self.adata.obs['kompot_da_log_fold_change_direction_A_vs_B'] = directions
+        self.adata.obs['kompot_da_log_fold_change_direction_A_to_B'] = directions
         
         # Add run info for DA if not already present
         if 'kompot_da' not in self.adata.uns:
@@ -503,16 +503,16 @@ class TestPlotFunctions:
                 'conditions': ['A', 'B']
             },
             'field_names': {
-                'direction_key': 'kompot_da_log_fold_change_direction_A_vs_B'
+                'direction_key': 'kompot_da_log_fold_change_direction_A_to_B'
             }
         })
         
         # Test with explicit key
         dir_key, cond1, cond2 = _infer_direction_key(
             self.adata, 
-            direction_column='kompot_da_log_fold_change_direction_A_vs_B'
+            direction_column='kompot_da_log_fold_change_direction_A_to_B'
         )
-        assert dir_key == 'kompot_da_log_fold_change_direction_A_vs_B'
+        assert dir_key == 'kompot_da_log_fold_change_direction_A_to_B'
         assert cond1 == 'A'
         assert cond2 == 'B'
         

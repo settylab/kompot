@@ -957,7 +957,7 @@ def heatmap(
                 title_text = title
             elif condition1_name and condition2_name:
                 # Generate default title
-                title_text = f"{condition1_name} vs {condition2_name}\nMean expression by {groupby}"
+                title_text = f"{condition1_name} to {condition2_name}\nMean expression by {groupby}"
             else:
                 title_text = "Gene Expression Heatmap"
                 

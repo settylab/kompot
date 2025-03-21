@@ -26,7 +26,7 @@ class DifferentialExpression:
     Compute differential expression between two conditions.
     
     This class analyzes the differences in gene expression between two conditions
-    (e.g., control vs. treatment) using imputation, Mahalanobis distance, and 
+    (e.g., control to treatment) using imputation, Mahalanobis distance, and 
     log fold change analysis.
     
     Attributes

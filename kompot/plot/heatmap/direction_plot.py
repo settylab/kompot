@@ -103,10 +103,10 @@ def _infer_direction_key(
             # If conditions provided, try to find matching column
             if condition1 and condition2:
                 for col in direction_cols:
-                    if f"{condition1}_vs_{condition2}" in col:
+                    if f"{condition1}_to_{condition2}" in col:
                         inferred_direction_column = col
                         break
-                    elif f"{condition2}_vs_{condition1}" in col:
+                    elif f"{condition2}_to_{condition1}" in col:
                         inferred_direction_column = col
                         # Keep this warning as it's informative about reversed condition order
                         logger.warning(
@@ -185,7 +185,7 @@ def direction_barplot(
     figsize : tuple, optional
         Figure size as (width, height) in inches
     title : str, optional
-        Plot title. If None and conditions provided, uses "Direction of Change by {category_column}\\n{condition1} vs {condition2}"
+        Plot title. If None and conditions provided, uses "Direction of Change by {category_column}\\n{condition1} to {condition2}"
     xlabel : str, optional
         Label for x-axis. If None, uses the category_column
     ylabel : str, optional
@@ -256,7 +256,7 @@ def direction_barplot(
 
     # Log which run is being used and the conditions
     conditions_str = (
-        f": comparing {condition1} vs {condition2}" if condition1 and condition2 else ""
+        f": comparing {condition1} to {condition2}" if condition1 and condition2 else ""
     )
     logger.info(f"Using DA run {actual_run_id} for direction_barplot{conditions_str}")
 
@@ -268,7 +268,7 @@ def direction_barplot(
 
     # Update axis labels with condition information if not explicitly set
     if condition1 and condition2 and title is None:
-        title = f"Direction of Change by {category_column}\n{condition1} vs {condition2}"
+        title = f"Direction of Change by {category_column}\n{condition1} to {condition2}"
 
     # Log the plot type and fields being used
     logger.info(f"Creating direction barplot{conditions_str}")
@@ -282,7 +282,7 @@ def direction_barplot(
     if direction_column not in adata.obs.columns:
         raise ValueError(f"Direction column '{direction_column}' not found in adata.obs")
 
-    # Create a crosstab of category vs direction
+    # Create a crosstab of category to direction
     crosstab = pd.crosstab(
         adata.obs[category_column], adata.obs[direction_column], normalize=normalize
     )

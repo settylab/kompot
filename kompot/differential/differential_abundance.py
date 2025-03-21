@@ -24,7 +24,7 @@ class DifferentialAbundance:
     Compute differential abundance between two conditions.
     
     This class analyzes the differences in cell density between two conditions
-    (e.g., control vs. treatment) using density estimation and fold change analysis.
+    (e.g., control to treatment) using density estimation and fold change analysis.
     
     The analysis can be performed with synchronized parameters between conditions
     by setting sync_parameters=True in the fit method, which ensures consistent

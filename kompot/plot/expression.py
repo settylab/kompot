@@ -244,7 +244,7 @@ def plot_gene_expression(
             logger.info(f"No condition2 found, using default: '{condition2}'")
     
     # Log which run and fields are being used - same pattern as volcano_da
-    conditions_str = f": comparing {condition1} vs {condition2}" if condition1 and condition2 else ""
+    conditions_str = f": comparing {condition1} to {condition2}" if condition1 and condition2 else ""
     logger.info(f"Using DE run {actual_run_id}{conditions_str}")
     
     lfc_str = f"'{lfc_key}'" if lfc_key is not None else "None"
@@ -592,7 +592,7 @@ def plot_gene_expression(
                 adata,
                 basis=basis.replace("X_", ""),
                 color=gene,
-                title=f"Log Fold Change\n{condition2 or 'Condition 2'} vs {condition1 or 'Condition 1'}",
+                title=f"Log Fold Change\n{condition2 or 'Condition 2'} to {condition1 or 'Condition 1'}",
                 layer=fold_change_layer,
                 color_map=cmap_fold_change,
                 show=False,
@@ -620,7 +620,7 @@ def plot_gene_expression(
                 **scatter_kwargs
             )
             plt.colorbar(scatter3, ax=axs[1, 1])
-            axs[1, 1].set_title(f"Log Fold Change\n{condition2 or 'Condition 2'} vs {condition1 or 'Condition 1'}")
+            axs[1, 1].set_title(f"Log Fold Change\n{condition2 or 'Condition 2'} to {condition1 or 'Condition 1'}")
             axs[1, 1].set_xlabel("UMAP 1")
             axs[1, 1].set_ylabel("UMAP 2")
             axs[1, 1].grid(False)
@@ -652,7 +652,7 @@ def plot_gene_expression(
             )
             plt.colorbar(scatter3, ax=axs[1, 1])
             
-            axs[1, 1].set_title(f"Log Fold Change\n{condition2 or 'Condition 2'} vs {condition1 or 'Condition 1'}")
+            axs[1, 1].set_title(f"Log Fold Change\n{condition2 or 'Condition 2'} to {condition1 or 'Condition 1'}")
             axs[1, 1].set_xlabel("Cell index")
             axs[1, 1].set_ylabel("Fold Change")
             axs[1, 1].grid(False)

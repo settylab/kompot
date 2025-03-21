@@ -26,12 +26,12 @@ logger = logging.getLogger("kompot")
 
 def _extract_conditions_from_key(key: str) -> Optional[Tuple[str, str]]:
     """
-    Extract condition names from a key name containing 'vs'.
+    Extract condition names from a key name containing 'to'.
     
     Parameters
     ----------
     key : str
-        Key name, possibly containing 'vs' between condition names
+        Key name, containing 'to' between condition names
         
     Returns
     -------
@@ -41,14 +41,17 @@ def _extract_conditions_from_key(key: str) -> Optional[Tuple[str, str]]:
     if key is None:
         return None
         
-    # Try to extract from key name, assuming format like "kompot_de_mean_lfc_Old_vs_Young"
+    # Try to extract from key name, assuming format like "kompot_de_mean_lfc_Old_to_Young"
     key_parts = key.split('_')
-    if len(key_parts) >= 2 and 'vs' in key_parts:
-        vs_index = key_parts.index('vs')
-        if vs_index > 0 and vs_index < len(key_parts) - 1:
-            condition1 = key_parts[vs_index-1]
-            condition2 = key_parts[vs_index+1]
+    
+    # Extract using the 'to' format
+    if len(key_parts) >= 2 and 'to' in key_parts:
+        to_index = key_parts.index('to')
+        if to_index > 0 and to_index < len(key_parts) - 1:
+            condition1 = key_parts[to_index-1]
+            condition2 = key_parts[to_index+1]
             return condition1, condition2
+    
     return None
 
 
@@ -346,7 +349,7 @@ def volcano_de(
                     condition2 = params['conditions'][1]
     
     # Log which run and fields are being used
-    conditions_str = f": comparing {condition1} vs {condition2}" if condition1 and condition2 else ""
+    conditions_str = f": comparing {condition1} to {condition2}" if condition1 and condition2 else ""
     logger.info(f"Using DE run {actual_run_id}{conditions_str}")
     logger.info(f"Using fields for DE plot - lfc_key: '{lfc_key}', score_key: '{score_key}'")
     
@@ -703,7 +706,7 @@ def volcano_da(
     
     # Log appropriate information based on what needed to be inferred
     if needed_column_inference:
-        conditions_str = f": comparing {condition1} vs {condition2}" if condition1 and condition2 else ""
+        conditions_str = f": comparing {condition1} to {condition2}" if condition1 and condition2 else ""
         logger.info(f"Inferred DA columns from run {actual_run_id}{conditions_str}")
         logger.info(f"Using fields for DA plot - lfc_key: '{lfc_key}', pval_key: '{pval_key}'")
     
@@ -1686,7 +1689,7 @@ def multi_volcano_da(
         if i == n_groups - 1:
             # Customize x-axis label based on condition names if available
             if xlabel is None and condition1 and condition2:
-                actual_xlabel = f"Log Fold Change: {condition1} vs {condition2}"
+                actual_xlabel = f"Log Fold Change: {condition1} to {condition2}"
             else:
                 actual_xlabel = xlabel or "Log Fold Change"
                 

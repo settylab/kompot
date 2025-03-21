@@ -247,7 +247,7 @@ def compute_differential_expression(
         if prev_run:
             prev_timestamp = prev_run.get('timestamp', 'unknown time')
             prev_params = prev_run.get('params', {})
-            prev_conditions = f"{prev_params.get('condition1', 'unknown')} vs {prev_params.get('condition2', 'unknown')}"
+            prev_conditions = f"{prev_params.get('condition1', 'unknown')} to {prev_params.get('condition2', 'unknown')}"
             message += f" Previous run was at {prev_timestamp} comparing {prev_conditions}."
             
             # List fields that will be overwritten

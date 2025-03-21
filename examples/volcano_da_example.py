@@ -82,7 +82,7 @@ kp.plot.volcano_da(
     point_size=20,  # Larger points
     highlight_color="#ff7f00",  # Custom highlight color if not using group coloring
     grid_kwargs={"alpha": 0.2, "linestyle": "--"},  # Custom grid styling
-    title="Custom DA Volcano Plot",
+    title="Custom DA Volcano Plot (A to B)",
     save="custom_da_volcano.png"
 )
 

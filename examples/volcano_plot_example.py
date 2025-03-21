@@ -22,7 +22,7 @@ n_genes = adata.n_vars
 
 # Generate simulated log fold changes
 lfc = np.random.normal(0, 1, n_genes)
-adata.var["kompot_de_mean_lfc_groupA_vs_groupB"] = lfc
+adata.var["kompot_de_mean_lfc_groupA_to_groupB"] = lfc
 
 # Generate simulated Mahalanobis distances
 # Make some genes strongly significant (correlated with fold change)
@@ -33,7 +33,7 @@ adata.var["kompot_de_mahalanobis"] = np.abs(mahalanobis)
 plt.figure(figsize=(12, 8))
 kp.plot.volcano_de(
     adata,
-    lfc_key="kompot_de_mean_lfc_groupA_vs_groupB",
+    lfc_key="kompot_de_mean_lfc_groupA_to_groupB",
     score_key="kompot_de_mahalanobis"
 )
 plt.savefig("basic_volcano.png")
@@ -42,7 +42,7 @@ plt.savefig("basic_volcano.png")
 plt.figure(figsize=(12, 8))
 kp.plot.volcano_de(
     adata,
-    lfc_key="kompot_de_mean_lfc_groupA_vs_groupB",  # Explicitly specify the LFC key
+    lfc_key="kompot_de_mean_lfc_groupA_to_groupB",  # Explicitly specify the LFC key
     score_key="kompot_de_mahalanobis",              # Explicitly specify the score key
     condition1="groupB",                            # Explicitly specify condition names
     condition2="groupA",
@@ -50,7 +50,7 @@ kp.plot.volcano_de(
     color_up="#FF5733",                             # Custom colors
     color_down="#3369FF",
     color_background="#CCCCCC",
-    title="Custom Volcano Plot: GroupA vs GroupB",
+    title="Custom Volcano Plot: GroupA to GroupB",
     point_size=8,                                   # Larger point size
     font_size=10,                                   # Larger font size
     grid_kwargs={"alpha": 0.2, "linestyle": "--"},  # Custom grid style
@@ -63,7 +63,7 @@ fig, axes = plt.subplots(1, 2, figsize=(18, 8))
 # First volcano plot - custom style
 kp.plot.volcano_de(
     adata,
-    lfc_key="kompot_de_mean_lfc_groupA_vs_groupB",
+    lfc_key="kompot_de_mean_lfc_groupA_to_groupB",
     score_key="kompot_de_mahalanobis",
     ax=axes[0],
     color_up=KOMPOT_COLORS["direction"]["up"],
@@ -75,7 +75,7 @@ kp.plot.volcano_de(
 # Second volcano plot - different style
 kp.plot.volcano_de(
     adata,
-    lfc_key="kompot_de_mean_lfc_groupA_vs_groupB",
+    lfc_key="kompot_de_mean_lfc_groupA_to_groupB",
     score_key="kompot_de_mahalanobis",
     ax=axes[1],
     color_up="#fc8d59",
@@ -94,7 +94,7 @@ print("Volcano plot examples created successfully!")
 plt.figure(figsize=(12, 8))
 kp.plot.volcano_plot(
     adata, 
-    lfc_key="kompot_de_mean_lfc_groupA_vs_groupB",
+    lfc_key="kompot_de_mean_lfc_groupA_to_groupB",
     score_key="kompot_de_mahalanobis",
     title="Using backward compatibility"
 )
@@ -109,7 +109,7 @@ print(f"Highlighting specific genes: {', '.join(random_genes)}")
 
 kp.plot.volcano_de(
     adata,
-    lfc_key="kompot_de_mean_lfc_groupA_vs_groupB",
+    lfc_key="kompot_de_mean_lfc_groupA_to_groupB",
     score_key="kompot_de_mahalanobis",
     highlight_genes=random_genes,
     title="Volcano Plot with Specific Genes Highlighted",

@@ -243,10 +243,10 @@ def generate_output_field_names(
         
         # Differential abundance field names
         field_names.update({
-            "lfc_key": f"{result_key}_log_fold_change_{cond1_safe}_vs_{cond2_safe}",
-            "zscore_key": f"{result_key}_log_fold_change_zscore_{cond1_safe}_vs_{cond2_safe}{suffix}",
-            "pval_key": f"{result_key}_neg_log10_fold_change_pvalue_{cond1_safe}_vs_{cond2_safe}{suffix}",
-            "direction_key": f"{result_key}_log_fold_change_direction_{cond1_safe}_vs_{cond2_safe}{suffix}",
+            "lfc_key": f"{result_key}_log_fold_change_{cond1_safe}_to_{cond2_safe}",
+            "zscore_key": f"{result_key}_log_fold_change_zscore_{cond1_safe}_to_{cond2_safe}{suffix}",
+            "pval_key": f"{result_key}_neg_log10_fold_change_pvalue_{cond1_safe}_to_{cond2_safe}{suffix}",
+            "direction_key": f"{result_key}_log_fold_change_direction_{cond1_safe}_to_{cond2_safe}{suffix}",
             "density_key_1": f"{result_key}_log_density_{cond1_safe}",
             "density_key_2": f"{result_key}_log_density_{cond2_safe}"
         })
@@ -259,14 +259,14 @@ def generate_output_field_names(
         
         # Differential expression field names
         field_names.update({
-            "mahalanobis_key": f"{result_key}_mahalanobis_{cond1_safe}_vs_{cond2_safe}{suffix}",
-            "mean_lfc_key": f"{result_key}_mean_lfc_{cond1_safe}_vs_{cond2_safe}",
-            "weighted_lfc_key": f"{result_key}_weighted_lfc_{cond1_safe}_vs_{cond2_safe}",
-            "lfc_std_key": f"{result_key}_lfc_std_{cond1_safe}_vs_{cond2_safe}{suffix}",
-            "bidirectionality_key": f"{result_key}_bidirectionality_{cond1_safe}_vs_{cond2_safe}",
+            "mahalanobis_key": f"{result_key}_mahalanobis_{cond1_safe}_to_{cond2_safe}{suffix}",
+            "mean_lfc_key": f"{result_key}_mean_lfc_{cond1_safe}_to_{cond2_safe}",
+            "weighted_lfc_key": f"{result_key}_weighted_lfc_{cond1_safe}_to_{cond2_safe}",
+            "lfc_std_key": f"{result_key}_lfc_std_{cond1_safe}_to_{cond2_safe}{suffix}",
+            "bidirectionality_key": f"{result_key}_bidirectionality_{cond1_safe}_to_{cond2_safe}",
             "imputed_key_1": f"{result_key}_imputed_{cond1_safe}",
             "imputed_key_2": f"{result_key}_imputed_{cond2_safe}",
-            "fold_change_key": f"{result_key}_fold_change_{cond1_safe}_vs_{cond2_safe}"
+            "fold_change_key": f"{result_key}_fold_change_{cond1_safe}_to_{cond2_safe}"
         })
         field_names["sample_variance_impacted_fields"] = sample_variance_impacted
         
