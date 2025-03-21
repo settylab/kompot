@@ -244,7 +244,7 @@ plt.ylabel('Log Fold Change')
 plt.title('Mean vs Weighted Mean Log Fold Change')
 plt.legend()
 plt.tight_layout()
-plt.savefig('mean_vs_weighted_mean_log_fold_change.png')
+plt.savefig('mean_to_weighted_mean_log_fold_change.png')
 
 print("\n==========================================")
 print("PART 2: Using the scverse-compatible AnnData API")

@@ -24,7 +24,7 @@ n_genes = adata.n_vars
 
 # Generate simulated log fold changes
 lfc = np.random.normal(0, 1, n_genes)
-adata.var["kompot_de_mean_lfc_Young_vs_Old"] = lfc
+adata.var["kompot_de_mean_lfc_Young_to_Old"] = lfc
 
 # Generate simulated Mahalanobis distances
 # Make some genes strongly significant (correlated with fold change)
@@ -52,13 +52,13 @@ top_gene = top_de_genes.index[0]
 
 print(f"Visualizing expression patterns for top DE gene: {top_gene}")
 print(f"Mahalanobis distance: {top_de_genes.iloc[0]['kompot_de_mahalanobis']:.2f}")
-print(f"Log fold change: {top_de_genes.iloc[0]['kompot_de_mean_lfc_Young_vs_Old']:.2f}")
+print(f"Log fold change: {top_de_genes.iloc[0]['kompot_de_mean_lfc_Young_to_Old']:.2f}")
 
 # Use the new function for gene expression visualization
 kp.plot.plot_gene_expression(
     adata,
     gene=top_gene,
-    lfc_key="kompot_de_mean_lfc_Young_vs_Old",
+    lfc_key="kompot_de_mean_lfc_Young_to_Old",
     score_key="kompot_de_mahalanobis",
     condition1="Old",
     condition2="Young",

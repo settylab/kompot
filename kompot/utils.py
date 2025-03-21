@@ -528,7 +528,10 @@ def compute_mahalanobis_distances(
                     # Try Cholesky decomposition (fast and accurate for positive definite matrices)
                     L = np.linalg.cholesky(gene_cov_reg)
                     solved = solve_triangular(L, gene_diff, lower=True)
-                    return float(np.sqrt(np.sum(solved**2)))
+                    
+                    # Compute the Mahalanobis distance
+                    mahal_dist = float(np.sqrt(np.sum(solved**2)))
+                    return mahal_dist
                 except np.linalg.LinAlgError:
                     # If Cholesky fails, the matrix is not positive definite
                     logger.warning(f"Gene {g}: Cholesky decomposition failed. Matrix is not positive definite. Using NaN.")

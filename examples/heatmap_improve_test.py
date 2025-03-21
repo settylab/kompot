@@ -24,7 +24,7 @@ n_genes = adata.n_vars
 
 # Generate simulated log fold changes
 lfc = np.random.normal(0, 1, n_genes)
-adata.var["kompot_de_mean_lfc_groupA_vs_groupB"] = lfc
+adata.var["kompot_de_mean_lfc_groupA_to_groupB"] = lfc
 
 # Generate simulated Mahalanobis distances
 mahalanobis = np.abs(lfc) * 2 + np.random.normal(0, 1, n_genes)

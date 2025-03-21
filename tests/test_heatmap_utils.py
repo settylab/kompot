@@ -246,7 +246,7 @@ class TestHeatmapWithImplicitRunId:
             }
             
             # Make sure we have valid LFC keys
-            lfc_key_name = 'de_run3_mean_lfc_A_vs_B'
+            lfc_key_name = 'de_run3_mean_lfc_A_to_B'
             if lfc_key_name not in cls.test_data.var.columns:
                 cls.test_data.var[lfc_key_name] = np.random.randn(cls.test_data.n_vars)
             

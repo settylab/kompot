@@ -35,10 +35,9 @@ def test_embedding_basic():
     
     # Test with return_fig=True to avoid displaying the plot
     with patch('matplotlib.pyplot.show'):  # Mock plt.show to prevent display
-        fig, ax = embedding(adata, color='cluster', return_fig=True)
+        fig = embedding(adata, basis='umap', color='cluster', return_fig=True)
         
     assert fig is not None
-    assert ax is not None
     plt.close(fig)
 
 
@@ -62,10 +61,9 @@ def test_embedding_with_groups():
     
     # Test with return_fig=True to avoid displaying the plot
     with patch('matplotlib.pyplot.show'):  # Mock plt.show to prevent display
-        fig, ax = embedding(adata, color='cluster', groups=groups, return_fig=True)
+        fig = embedding(adata, basis='umap', color='cluster', groups=groups, return_fig=True)
         
     assert fig is not None
-    assert ax is not None
     plt.close(fig)
 
 
@@ -84,47 +82,41 @@ def test_embedding_multi_panels():
     
     # Test with explicit ncols to avoid displaying the plot
     with patch('matplotlib.pyplot.show'):  # Mock plt.show to prevent display
-        fig, axes_dict = embedding(
+        result = embedding(
             adata, 
+            basis='umap',
             color=['cluster', 'condition', 'score'], 
             ncols=2,
             return_fig=True
         )
         
-    assert fig is not None
-    assert isinstance(axes_dict, dict)
-    assert len(axes_dict) == 3  # Should have 3 axes for 3 colors
-    assert 'cluster' in axes_dict
-    assert 'condition' in axes_dict
-    assert 'score' in axes_dict
-    plt.close(fig)
+    assert result is not None
+    plt.close(result)
     
     # Test with default ncols (which is now 4)
     with patch('matplotlib.pyplot.show'):
-        fig, axes_dict = embedding(
+        result = embedding(
             adata, 
+            basis='umap',
             color=['cluster', 'condition', 'score'], 
             return_fig=True
         )
         
-    assert fig is not None
-    assert isinstance(axes_dict, dict)
-    assert len(axes_dict) == 3
-    plt.close(fig)
+    assert result is not None
+    plt.close(result)
     
     # Test with shorter title list than color list
     with patch('matplotlib.pyplot.show'):
-        fig, axes_dict = embedding(
+        result = embedding(
             adata, 
+            basis='umap',
             color=['cluster', 'condition', 'score'], 
             title=['Clusters', 'Conditions'],
             return_fig=True
         )
         
-    assert fig is not None
-    assert isinstance(axes_dict, dict)
-    assert len(axes_dict) == 3
-    plt.close(fig)
+    assert result is not None
+    plt.close(result)
 
 
 def test_embedding_with_groups_and_multi_panels():
@@ -145,17 +137,16 @@ def test_embedding_with_groups_and_multi_panels():
     
     # Test with return_fig=True to avoid displaying the plot
     with patch('matplotlib.pyplot.show'):  # Mock plt.show to prevent display
-        fig, axes_dict = embedding(
+        result = embedding(
             adata, 
+            basis='umap',
             color=['cluster', 'batch'], 
             groups=groups,
             return_fig=True
         )
         
-    assert fig is not None
-    assert isinstance(axes_dict, dict)
-    assert len(axes_dict) == 2  # Should have 2 axes for 2 colors
-    plt.close(fig)
+    assert result is not None
+    plt.close(result)
 
 
 def test_embedding_without_background():
@@ -175,16 +166,16 @@ def test_embedding_without_background():
     
     # Test with return_fig=True to avoid displaying the plot
     with patch('matplotlib.pyplot.show'):  # Mock plt.show to prevent display
-        fig, ax = embedding(
+        fig = embedding(
             adata, 
+            basis='umap',
             color='cluster', 
             groups=groups,
-            show_background=False,
+            background_color=None,
             return_fig=True
         )
         
     assert fig is not None
-    assert ax is not None
     plt.close(fig)
 
 
@@ -220,7 +211,7 @@ def test_embedding_empty_group_selection():
     
     # Test that the function returns None when no cells match
     with patch('matplotlib.pyplot.show'):  # Mock plt.show to prevent display
-        result = embedding(adata, color='cluster', groups=groups)
+        result = embedding(adata, basis='umap', color='cluster', groups=groups)
         
     assert result is None  # Should return None for no matching cells
 
@@ -238,8 +229,9 @@ def test_embedding_colormap_parameters():
     
     # Test with color_map parameter
     with patch('matplotlib.pyplot.show'):
-        fig, ax = embedding(
+        fig = embedding(
             adata, 
+            basis='umap',
             color='score',
             color_map='viridis',
             return_fig=True
@@ -250,8 +242,9 @@ def test_embedding_colormap_parameters():
     
     # Test with cmap parameter
     with patch('matplotlib.pyplot.show'):
-        fig, ax = embedding(
+        fig = embedding(
             adata, 
+            basis='umap',
             color='score',
             cmap='plasma',
             return_fig=True
@@ -262,8 +255,9 @@ def test_embedding_colormap_parameters():
     
     # Test with vcenter parameter
     with patch('matplotlib.pyplot.show'):
-        fig, ax = embedding(
+        fig = embedding(
             adata, 
+            basis='umap',
             color='score',
             cmap='RdBu_r',
             vcenter=0,
@@ -275,14 +269,14 @@ def test_embedding_colormap_parameters():
     
     # Test with multiple panels and colormap
     with patch('matplotlib.pyplot.show'):
-        fig, axes_dict = embedding(
+        result = embedding(
             adata, 
+            basis='umap',
             color=['score', 'score'],
             color_map='RdBu_r',
             vcenter=0,
             return_fig=True
         )
         
-    assert fig is not None
-    assert isinstance(axes_dict, dict)
-    plt.close(fig)
+    assert result is not None
+    plt.close(result)

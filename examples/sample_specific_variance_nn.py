@@ -140,7 +140,7 @@ def main():
         plt.legend()
         plt.grid(axis='y', linestyle='--', alpha=0.7)
         plt.tight_layout()
-        plt.savefig('nn_vs_estimator_comparison.png')
+        plt.savefig('nn_to_estimator_comparison.png')
         
         # 2. Effect of neighbor count
         plt.figure(figsize=(10, 6))
@@ -154,7 +154,7 @@ def main():
         plt.tight_layout()
         plt.savefig('neighbor_count_effect.png')
         
-        print("\nVisualizations saved as 'nn_vs_estimator_comparison.png' and 'neighbor_count_effect.png'")
+        print("\nVisualizations saved as 'nn_to_estimator_comparison.png' and 'neighbor_count_effect.png'")
     
     except ImportError:
         print("\nMatplotlib not available, skipping visualization.")

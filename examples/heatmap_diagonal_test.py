@@ -16,7 +16,7 @@ n_genes = adata.n_vars
 
 # Generate simulated log fold changes
 lfc = np.random.normal(0, 1, n_genes)
-adata.var["kompot_de_mean_lfc_conditionA_vs_conditionB"] = lfc
+adata.var["kompot_de_mean_lfc_conditionA_to_conditionB"] = lfc
 
 # Generate simulated Mahalanobis distances
 # Make some genes strongly significant (correlated with fold change)
@@ -41,7 +41,7 @@ adata.uns['kompot_de'] = {
             'condition2': 'conditionB'
         },
         'field_names': {
-            'mean_lfc_key': 'kompot_de_mean_lfc_conditionA_vs_conditionB',
+            'mean_lfc_key': 'kompot_de_mean_lfc_conditionA_to_conditionB',
             'mahalanobis_key': 'kompot_de_mahalanobis'
         }
     }]
@@ -53,7 +53,7 @@ kp.plot.heatmap(
     adata,
     n_top_genes=15,
     groupby='cell_type',
-    lfc_key="kompot_de_mean_lfc_conditionA_vs_conditionB",
+    lfc_key="kompot_de_mean_lfc_conditionA_to_conditionB",
     score_key="kompot_de_mahalanobis",
     standard_scale='var',
     cmap='viridis',
@@ -71,7 +71,7 @@ kp.plot.heatmap(
     condition_column='condition',
     condition1_name='conditionA',
     condition2_name='conditionB',
-    lfc_key="kompot_de_mean_lfc_conditionA_vs_conditionB",
+    lfc_key="kompot_de_mean_lfc_conditionA_to_conditionB",
     score_key="kompot_de_mahalanobis",
     cmap='viridis',
     diagonal_split=True,  # This is now the default, but being explicit
