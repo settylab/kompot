@@ -55,7 +55,6 @@ class DifferentialExpression:
         variance_predictor2: Optional[Any] = None,
         random_state: Optional[int] = None,
         batch_size: int = 500,
-        mahalanobis_batch_size: Optional[int] = None,
         store_arrays_on_disk: Optional[bool] = None,
         disk_storage_dir: Optional[str] = None,
         max_memory_ratio: float = 0.8,
@@ -91,12 +90,8 @@ class DifferentialExpression:
             Random seed for reproducible landmark selection when n_landmarks is specified.
             Controls the random selection of points when using approximation, by default None.
         batch_size : int, optional
-            Number of cells to process at once during prediction to manage memory usage.
-            If None or 0, all samples will be processed at once. Default is 500.
-        mahalanobis_batch_size : int, optional
-            Number of genes to process in each batch during Mahalanobis distance computation.
-            Smaller values use less memory but are slower. If None, uses batch_size.
-            Increase for faster computation if you have sufficient memory.
+            Number of cells to process at once during prediction and Mahalanobis distance computation
+            to manage memory usage. If None or 0, all samples will be processed at once. Default is 500.
         store_arrays_on_disk : bool, optional
             Whether to store large arrays on disk instead of in memory, by default None.
             If None, it will be determined based on disk_storage_dir (True if provided, False otherwise).
@@ -127,9 +122,6 @@ class DifferentialExpression:
         else:
             self.use_sample_variance = use_sample_variance
         self.batch_size = batch_size
-        
-        # For Mahalanobis distance computation, use a separate batch size parameter if provided
-        self.mahalanobis_batch_size = mahalanobis_batch_size if mahalanobis_batch_size is not None else batch_size
         
         # Determine store_arrays_on_disk based on disk_storage_dir if not explicitly set
         if store_arrays_on_disk is None:
@@ -551,10 +543,11 @@ class DifferentialExpression:
                 logger.debug(f"Computing Mahalanobis distances for {fold_change_transposed.shape[0]:,} genes with gene-specific covariance matrices...")
                 
                 # Compute all distances using the unified utility function with gene-specific covariance
+                logger.info(f"Using batch_size={self.batch_size} for Mahalanobis distance computation")
                 mahalanobis_distances = compute_mahalanobis_distances(
                     diff_values=fold_change_transposed,
                     covariance=gene_specific_covariance,
-                    batch_size=self.mahalanobis_batch_size,  
+                    batch_size=self.batch_size,  
                     jit_compile=self.jit_compile,
                     eps=self.eps,
                     progress=progress
@@ -565,10 +558,11 @@ class DifferentialExpression:
                 logger.debug(f"Computing Mahalanobis distances for {fold_change_transposed.shape[0]:,} genes with shared covariance...")
                 
                 # Compute all distances using the unified utility function with the combined covariance matrix
+                logger.info(f"Using batch_size={self.batch_size} for Mahalanobis distance computation")
                 mahalanobis_distances = compute_mahalanobis_distances(
                     diff_values=fold_change_transposed,
                     covariance=combined_cov,
-                    batch_size=self.mahalanobis_batch_size,
+                    batch_size=self.batch_size,
                     jit_compile=self.jit_compile,
                     eps=self.eps,
                     progress=progress

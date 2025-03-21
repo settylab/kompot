@@ -524,13 +524,34 @@ def compute_mahalanobis_distances(
                 # Add a small diagonal term for numerical stability
                 gene_cov_reg = gene_cov + np.eye(gene_cov.shape[0]) * eps
                 
+                # Log details for the first gene to debug differences
+                if g == 0:
+                    logger.info(f"Dask gene {g} - diff: shape={gene_diff.shape}, min={np.min(gene_diff)}, max={np.max(gene_diff)}, mean={np.mean(gene_diff)}")
+                    logger.info(f"Dask gene {g} - cov: shape={gene_cov.shape}, min={np.min(gene_cov)}, max={np.max(gene_cov)}, mean={np.mean(gene_cov)}")
+                    logger.info(f"Dask gene {g} - cov_reg: shape={gene_cov_reg.shape}, min={np.min(gene_cov_reg)}, max={np.max(gene_cov_reg)}, mean={np.mean(gene_cov_reg)}")
+                
                 try:
                     # Try Cholesky decomposition (fast and accurate for positive definite matrices)
                     L = np.linalg.cholesky(gene_cov_reg)
-                    solved = solve_triangular(L, gene_diff, lower=True)
+                    
+                    # NOTE: The key issue is in the solve_triangular step - let's use numpy to ensure consistency
+                    # First convert to native numpy arrays to ensure compatibility
+                    L_np = np.array(L)
+                    gene_diff_np = np.array(gene_diff)
+                    
+                    # Solve with numpy's solve_triangular for consistency
+                    from scipy.linalg import solve_triangular
+                    solved = solve_triangular(L_np, gene_diff_np, lower=True)
                     
                     # Compute the Mahalanobis distance
                     mahal_dist = float(np.sqrt(np.sum(solved**2)))
+                    
+                    # Log details for first gene
+                    if g == 0:
+                        logger.info(f"Dask gene {g} - L: shape={L.shape}, min={np.min(L)}, max={np.max(L)}")
+                        logger.info(f"Dask gene {g} - solved: shape={solved.shape}, min={np.min(solved)}, max={np.max(solved)}")
+                        logger.info(f"Dask gene {g} - mahal_dist: {mahal_dist}")
+                    
                     return mahal_dist
                 except np.linalg.LinAlgError:
                     # If Cholesky fails, the matrix is not positive definite
@@ -591,11 +612,25 @@ def compute_mahalanobis_distances(
                 # Add a small diagonal term for numerical stability
                 gene_cov_stable = gene_cov + jnp.eye(gene_cov.shape[0]) * eps
                 
+                # Log details for first gene to debug differences with dask
+                if g == 0:
+                    logger.info(f"JAX gene {g} - diff: shape={gene_diff.shape}, min={float(jnp.min(gene_diff))}, max={float(jnp.max(gene_diff))}, mean={float(jnp.mean(gene_diff))}")
+                    logger.info(f"JAX gene {g} - cov: shape={gene_cov.shape}, min={float(jnp.min(gene_cov))}, max={float(jnp.max(gene_cov))}, mean={float(jnp.mean(gene_cov))}")
+                    logger.info(f"JAX gene {g} - cov_stable: shape={gene_cov_stable.shape}, min={float(jnp.min(gene_cov_stable))}, max={float(jnp.max(gene_cov_stable))}, mean={float(jnp.mean(gene_cov_stable))}")
+                
                 try:
                     # Try Cholesky decomposition (fast and accurate for positive definite matrices)
                     chol = jnp.linalg.cholesky(gene_cov_stable)
                     solved = jax.scipy.linalg.solve_triangular(chol, gene_diff, lower=True)
-                    mahalanobis_distances[g] = float(jnp.sqrt(jnp.sum(solved**2)))
+                    dist = float(jnp.sqrt(jnp.sum(solved**2)))
+                    
+                    # Log details for first gene
+                    if g == 0:
+                        logger.info(f"JAX gene {g} - chol: shape={chol.shape}, min={float(jnp.min(chol))}, max={float(jnp.max(chol))}")
+                        logger.info(f"JAX gene {g} - solved: shape={solved.shape}, min={float(jnp.min(solved))}, max={float(jnp.max(solved))}")
+                        logger.info(f"JAX gene {g} - dist: {dist}")
+                    
+                    mahalanobis_distances[g] = dist
                 except Exception as e:
                     # If Cholesky fails, the matrix is not positive definite
                     logger.warning(f"Gene {g}: Cholesky decomposition failed: {e}. Matrix is not positive definite. Using NaN.")

@@ -682,7 +682,7 @@ def test_disk_backed_options():
             compute_mahalanobis=True,
             store_arrays_on_disk=True,
             disk_storage_dir=temp_dir,
-            mahalanobis_batch_size=10
+            batch_size=10
         )
         
         # Check that parameters were stored in last_run_info
@@ -692,8 +692,8 @@ def test_disk_backed_options():
         assert adata.uns['kompot_de']['last_run_info']['params']['store_arrays_on_disk'] is True
         assert 'disk_storage_dir' in adata.uns['kompot_de']['last_run_info']['params']
         assert adata.uns['kompot_de']['last_run_info']['params']['disk_storage_dir'] == temp_dir
-        assert 'mahalanobis_batch_size' in adata.uns['kompot_de']['last_run_info']['params']
-        assert adata.uns['kompot_de']['last_run_info']['params']['mahalanobis_batch_size'] == 10
+        assert 'batch_size' in adata.uns['kompot_de']['last_run_info']['params']
+        assert adata.uns['kompot_de']['last_run_info']['params']['batch_size'] == 10
         
         # Check that storage usage info was captured
         assert 'disk_storage' in adata.uns['disk_test_de']
@@ -710,7 +710,7 @@ def test_disk_backed_options():
             compute_mahalanobis=True,
             store_arrays_on_disk=True,
             disk_storage_dir=temp_dir,
-            mahalanobis_batch_size=10,
+            batch_size=10,
             generate_html_report=False
         )
         
@@ -733,7 +733,7 @@ def test_disk_backed_options():
             compute_mahalanobis=True,
             store_arrays_on_disk=True,  # Enable disk storage but don't specify directory
             disk_storage_dir=None,      # Should create temp directory
-            mahalanobis_batch_size=10
+            batch_size=10
         )
         
         # Check that a temporary directory was auto-created and stored

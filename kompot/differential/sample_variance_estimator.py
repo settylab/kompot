@@ -41,6 +41,8 @@ class SampleVarianceEstimator:
         Type of estimator used ('function' for gene expression, 'density' for cell density).
     disk_storage : DiskStorage, optional
         Storage manager for offloading large arrays to disk, if enabled.
+    n_groups : int
+        Number of unique groups found during fit. Must be at least 2 for variance calculation.
     """
     
     def __init__(
@@ -98,14 +100,16 @@ class SampleVarianceEstimator:
         self.group_predictors = {}
         self.group_centroids = {}
         self._predict_variance_jit = None
+        self.n_groups = 0  # Will be set during fit
         
         # Define covariance computation function that will be JIT-compiled if needed
         def compute_cov_slice(gene_centered, n_groups):
             # Apply Bessel's correction (divide by n-1 instead of n)
             # Only apply correction if we have more than 1 group
-            divisor = jnp.maximum(1, n_groups - 1)
+            divisor = n_groups - 1
             # Calculate covariance as dot product divided by divisor for Bessel's correction
             return (gene_centered @ gene_centered.T) / divisor
+
             
         # Store the function as instance attribute
         self._compute_cov_slice = compute_cov_slice
@@ -137,6 +141,10 @@ class SampleVarianceEstimator:
         """
         Fit estimators for each group in the data and store only their predictors.
         
+        At least 2 groups with sufficient cells (>= min_cells) are required for
+        variance calculation. If fewer than 2 valid groups are found, a ValueError
+        will be raised.
+        
         Parameters
         ----------
         X : np.ndarray
@@ -148,6 +156,7 @@ class SampleVarianceEstimator:
             Vector specifying which group each cell belongs to. Shape (n_cells,).
         min_cells : int
             Minimum number of cells for group to train an estimator. Default is 10.
+            Groups with fewer cells will be skipped.
         ls_factor : float, optional
             Multiplication factor to apply to length scale when it's automatically inferred, 
             by default 10.0. Only used when ls is not explicitly provided in estimator_kwargs.
@@ -159,6 +168,11 @@ class SampleVarianceEstimator:
         -------
         self
             The fitted instance.
+            
+        Raises
+        ------
+        ValueError
+            If fewer than 2 groups have sufficient cells to compute variance.
         """
         # Check if Y is provided for function estimator
         if self.estimator_type == 'function' and Y is None:
@@ -173,8 +187,9 @@ class SampleVarianceEstimator:
         
         # Get unique groups
         unique_groups = np.unique(grouping_vector)
+        potential_n_groups = len(unique_groups)
         
-        logger.info(f"Found {len(unique_groups):,} unique groups for variance estimation")
+        logger.info(f"Found {potential_n_groups:,} unique groups for variance estimation")
         
         # Organize data by groups
         group_indices = {
@@ -182,41 +197,59 @@ class SampleVarianceEstimator:
             for group_id in unique_groups
         }
         
-        # Train estimators for each group and store only their predictors
-        logger.debug(f"Training group-specific {self.estimator_type} estimators...")
+        # Keep track of how many groups actually have enough cells
+        valid_groups = 0
         
+        # Filter out groups with too few cells before training
+        valid_group_indices = {}
         for group_id, indices in group_indices.items():
-            if len(indices) >= min_cells:  # Only train if we have enough data points
-                logger.info(f"Training estimator for group {group_id} with {len(indices):,} cells")
-                X_subset = X[indices]
-                
-                if self.estimator_type == 'function':
-                    Y_subset = Y[indices]
-                    
-                    # Create and train function estimator
-                    estimator = FunctionEstimator(**estimator_kwargs)
-                    estimator.fit(X_subset, Y_subset)
-                
-                else:  # density estimator
-                    # Configure density estimator defaults
-                    density_defaults = {
-                        'd_method': 'fractal',
-                        'predictor_with_uncertainty': True,
-                        'optimizer': 'advi',
-                    }
-                    density_defaults.update(estimator_kwargs)
-                    
-                    # Create and train density estimator
-                    estimator = DensityEstimator(**density_defaults)
-                    estimator.fit(X_subset)
-                
-                # Store only the predictor function, not the full estimator
-                self.group_predictors[group_id] = estimator.predict
-                
-                # Immediately delete the estimator to free memory
-                del estimator
+            if len(indices) >= min_cells:
+                valid_groups += 1
+                valid_group_indices[group_id] = indices
             else:
                 logger.warning(f"Skipping group {group_id} (only {len(indices):,} cells < min_cells={min_cells:,})")
+        
+        # Set and validate that we have at least 2 valid groups
+        self.n_groups = valid_groups
+        if self.n_groups < 2:
+            error_msg = f"At least 2 groups with sufficient cells (>= {min_cells}) are required, but only {self.n_groups} valid group(s) found"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+            
+        logger.info(f"{self.n_groups} groups have sufficient cells (>= {min_cells}) for variance estimation")
+        
+        # Train estimators for each valid group and store only their predictors
+        logger.debug(f"Training group-specific {self.estimator_type} estimators...")
+        
+        for group_id, indices in valid_group_indices.items():
+            logger.info(f"Training estimator for group {group_id} with {len(indices):,} cells")
+            X_subset = X[indices]
+            
+            if self.estimator_type == 'function':
+                Y_subset = Y[indices]
+                
+                # Create and train function estimator
+                estimator = FunctionEstimator(**estimator_kwargs)
+                estimator.fit(X_subset, Y_subset)
+            
+            else:  # density estimator
+                # Configure density estimator defaults
+                density_defaults = {
+                    'd_method': 'fractal',
+                    'predictor_with_uncertainty': True,
+                    'optimizer': 'advi',
+                }
+                density_defaults.update(estimator_kwargs)
+                
+                # Create and train density estimator
+                estimator = DensityEstimator(**density_defaults)
+                estimator.fit(X_subset)
+            
+            # Store only the predictor function, not the full estimator
+            self.group_predictors[group_id] = estimator.predict
+            
+            # Immediately delete the estimator to free memory
+            del estimator
         
         return self
     
@@ -292,12 +325,10 @@ class SampleVarianceEstimator:
                 def compute_variance_from_predictions(X, predictions_list):
                     # Stack the predictions
                     stacked = jnp.stack(predictions_list, axis=0)
-                    # Get number of groups
-                    n_groups = stacked.shape[0]
                     # Apply Bessel's correction for unbiased variance estimate
                     # Use ddof=1 for Bessel's correction (divide by n-1 instead of n)
-                    # Only apply correction if we have more than 1 group
-                    return jnp.var(stacked, axis=0, ddof=1) if n_groups > 1 else jnp.var(stacked, axis=0)
+                    # We already validated that n_groups >= 2 in the fit method
+                    return jnp.var(stacked, axis=0, ddof=1)
                 
                 # JIT compile the function
                 self._predict_variance_jit = jax.jit(compute_variance_from_predictions)
@@ -325,33 +356,13 @@ class SampleVarianceEstimator:
                 # Stack predictions and compute variance using JAX
                 stacked_predictions = jnp.stack(all_group_predictions_jax, axis=0)
                 # Apply Bessel's correction for unbiased variance estimate
-                n_groups = stacked_predictions.shape[0]
-                # Only apply correction if we have more than 1 group
-                if n_groups > 1:
-                    # Use ddof=1 for Bessel's correction (divide by n-1 instead of n)
-                    batch_variance = jnp.var(stacked_predictions, axis=0, ddof=1)
-                else:
-                    batch_variance = jnp.var(stacked_predictions, axis=0)
+                # Use ddof=1 for Bessel's correction (divide by n-1 instead of n)
+                # We already validated that n_groups >= 2 in the fit method
+                batch_variance = jnp.var(stacked_predictions, axis=0, ddof=1)
                 # Convert back to numpy for compatibility
                 return np.array(batch_variance)
         
         else:
-            # Full covariance matrix computation (between all pairs of cells)
-            # Only analyze memory requirements if not already done
-            if not hasattr(self, '_memory_analyzed') or not self._memory_analyzed:
-                log_level = "debug" if self.store_arrays_on_disk else "info"
-                analysis = analyze_covariance_memory_requirements(
-                    n_points=n_cells,
-                    n_genes=n_genes,
-                    max_memory_ratio=0.8,  # Standard 80% threshold
-                    analysis_name="Full Covariance Matrix",
-                    store_arrays_on_disk=self.store_arrays_on_disk,
-                    log_level=log_level
-                )
-                # Mark that we've done the analysis so we don't do it again
-                self._memory_analyzed = True
-            else:
-                logger.debug("Skipping memory analysis - already performed")
             
             # Use disk storage if enabled
             use_disk_storage = self.store_arrays_on_disk
@@ -365,6 +376,23 @@ class SampleVarianceEstimator:
             
             if use_disk_storage:
                 logger.info(f"Using gene-by-gene disk storage for covariance matrix (shape={covariance_shape})")
+            else:
+                # Full covariance matrix computation (between all pairs of cells)
+                # Only analyze memory requirements if not already done
+                if not hasattr(self, '_memory_analyzed') or not self._memory_analyzed:
+                    log_level = "debug" if self.store_arrays_on_disk else "info"
+                    analysis = analyze_covariance_memory_requirements(
+                        n_points=n_cells,
+                        n_genes=n_genes,
+                        max_memory_ratio=0.8,  # Standard 80% threshold
+                        analysis_name="Full Covariance Matrix",
+                        store_arrays_on_disk=self.store_arrays_on_disk,
+                        log_level=log_level
+                    )
+                    # Mark that we've done the analysis so we don't do it again
+                    self._memory_analyzed = True
+                else:
+                    logger.debug("Skipping memory analysis - already performed")
             
             # Get predictions from each group predictor
             group_predictions = []
@@ -390,8 +418,7 @@ class SampleVarianceEstimator:
             # Reshape for matrix multiplication
             centered_reshaped = jnp.moveaxis(centered, 1, 0)  # (n_cells, n_groups, n_genes)
             
-            # Calculate covariance for each gene
-            n_groups = centered.shape[0]
+            # Use the n_groups property set in fit method
             
             if use_disk_storage:
                 # Check if dask is available for better performance
@@ -414,11 +441,9 @@ class SampleVarianceEstimator:
                         # This ensures each delayed task gets the correct gene slice even with dask's delayed execution
                         @dask.delayed
                         def compute_gene_slice(g_index):
-                            # Retrieve the exact same slice each time through the index
-                            this_gene_centered = centered_reshaped[:, :, g_index]
-                            # Use the exact same function as the in-memory version
-                            gene_cov = compute_func(this_gene_centered, n_groups)
-                            return np.array(gene_cov)
+                            gene_centered = centered_reshaped[:, :, g_index]
+                            cov_matrix = self._compute_cov_slice(gene_centered, self.n_groups)
+                            return np.asarray(cov_matrix)
                         
                         # Create a delayed version of the computation with the gene index
                         delayed_result = compute_gene_slice(g)
@@ -466,9 +491,9 @@ class SampleVarianceEstimator:
                         
                         # Compute covariance slice
                         if self._compute_cov_slice_jit is not None:
-                            gene_cov = self._compute_cov_slice_jit(gene_centered, n_groups)
+                            gene_cov = self._compute_cov_slice_jit(gene_centered, self.n_groups)
                         else:
-                            gene_cov = self._compute_cov_slice(gene_centered, n_groups)
+                            gene_cov = self._compute_cov_slice(gene_centered, self.n_groups)
                         
                         # Store in the memory-mapped array
                         mmap_array[:, :, g] = np.array(gene_cov)
@@ -484,9 +509,9 @@ class SampleVarianceEstimator:
                     
                     # Compute covariance slice using JIT if available
                     if self._compute_cov_slice_jit is not None:
-                        gene_cov = self._compute_cov_slice_jit(gene_centered, n_groups)
+                        gene_cov = self._compute_cov_slice_jit(gene_centered, self.n_groups)
                     else:
-                        gene_cov = self._compute_cov_slice(gene_centered, n_groups)
+                        gene_cov = self._compute_cov_slice(gene_centered, self.n_groups)
                     
                     cov_matrix[:, :, g] = np.array(gene_cov)
                 

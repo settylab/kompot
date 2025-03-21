@@ -49,7 +49,6 @@ def compute_differential_expression(
     store_arrays_on_disk: Optional[bool] = None,
     disk_storage_dir: Optional[str] = None,
     max_memory_ratio: float = 0.8,
-    mahalanobis_batch_size: Optional[int] = None,
     copy: bool = False,
     inplace: bool = True,
     result_key: str = "kompot_de",
@@ -114,8 +113,8 @@ def compute_differential_expression(
         Random seed for reproducible landmark selection when n_landmarks is specified.
         Controls the random selection of points when using approximation, by default None.
     batch_size : int, optional
-        Number of cells to process at once during prediction to manage memory usage.
-        If None or 0, all samples will be processed at once. Default is 100.
+        Number of cells to process at once during prediction and Mahalanobis distance computation
+        to manage memory usage. If None or 0, all samples will be processed at once. Default is 100.
     store_arrays_on_disk : bool, optional
         Whether to store large arrays on disk instead of in memory, by default None.
         If None, it will be determined based on disk_storage_dir (True if provided, False otherwise).
@@ -128,10 +127,6 @@ def compute_differential_expression(
     max_memory_ratio : float, optional
         Maximum fraction of available memory that arrays should occupy before
         triggering warnings or enabling disk storage, by default 0.8 (80%).
-    mahalanobis_batch_size : int, optional
-        Number of genes to process in each batch during Mahalanobis distance computation.
-        Smaller values use less memory but are slower. If None, uses batch_size.
-        Increase for faster computation if you have sufficient memory.
     copy : bool, optional
         If True, return a copy of the AnnData object with results added,
         by default False.
@@ -481,7 +476,6 @@ def compute_differential_expression(
         jit_compile=jit_compile,
         random_state=random_state,
         batch_size=batch_size,
-        mahalanobis_batch_size=mahalanobis_batch_size,
         store_arrays_on_disk=store_arrays_on_disk,
         disk_storage_dir=disk_storage_dir,
         max_memory_ratio=max_memory_ratio
@@ -861,7 +855,7 @@ def compute_differential_expression(
             "used_landmarks": True if landmarks is not None else False,
             "store_arrays_on_disk": store_arrays_on_disk,
             "max_memory_ratio": max_memory_ratio,
-            "mahalanobis_batch_size": mahalanobis_batch_size
+            "batch_size": batch_size
         }
         
         # Get storage usage stats if disk storage was used
