@@ -8,10 +8,10 @@ logger = logging.getLogger("kompot")
 __all__ = []
 
 try:
-    from .volcano import volcano_de, volcano_da
+    from .volcano import volcano_de, volcano_da, multi_volcano_da
     # For backward compatibility
     volcano_plot = volcano_de
-    __all__.extend(["volcano_de", "volcano_da", "volcano_plot"])
+    __all__.extend(["volcano_de", "volcano_da", "multi_volcano_da", "volcano_plot"])
 except (ImportError, TypeError) as e:
     # Provide more specific error message for Python 3.12 metaclass issues
     if sys.version_info >= (3, 12) and isinstance(e, TypeError) and "metaclass conflict" in str(e):
@@ -31,6 +31,9 @@ except (ImportError, TypeError) as e:
                          "Please update scanpy or use Python 3.9-3.11 instead of 3.12.")
     def volcano_da(*args, **kwargs):
         raise ImportError("Volcano plot functions unavailable due to scanpy compatibility issues. "
+                         "Please update scanpy or use Python 3.9-3.11 instead of 3.12.")
+    def multi_volcano_da(*args, **kwargs):
+        raise ImportError("Multi volcano plot functions unavailable due to scanpy compatibility issues. "
                          "Please update scanpy or use Python 3.9-3.11 instead of 3.12.")
     volcano_plot = volcano_de
 
