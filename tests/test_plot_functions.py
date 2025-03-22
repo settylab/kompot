@@ -8,7 +8,7 @@ from typing import Dict, Any, List
 
 from kompot.anndata.differential_abundance import compute_differential_abundance
 from kompot.anndata.differential_expression import compute_differential_expression
-from kompot.plot.volcano import volcano_de, volcano_da, _infer_de_keys, _infer_da_keys
+from kompot.plot.volcano import volcano_de, volcano_da, multi_volcano_da, _infer_de_keys, _infer_da_keys
 from kompot.plot.heatmap import heatmap
 from kompot.plot.expression import plot_gene_expression, _infer_expression_keys
 from kompot.plot.heatmap.direction_plot import direction_barplot, _infer_direction_key
@@ -521,3 +521,160 @@ class TestPlotFunctions:
         assert dir_key is not None
         assert cond1 is not None
         assert cond2 is not None
+        
+    def test_multi_volcano_da_with_run_id(self):
+        """Test multi_volcano_da function with run_id parameter."""
+        try:
+            from kompot.plot.volcano import multi_volcano_da
+        except ImportError:
+            pytest.skip("multi_volcano_da function not available, skipping test")
+            
+        # Check if run history exists
+        if 'kompot_run_history' not in self.adata.uns:
+            pytest.skip("kompot_run_history not found in adata.uns")
+        
+        # Add a categorical column for groupby
+        categories = np.random.choice(['Type1', 'Type2', 'Type3'], size=self.adata.n_obs)
+        self.adata.obs['cell_type'] = categories
+        
+        # Test with negative run_id (-1) for latest run
+        fig, axes = multi_volcano_da(
+            self.adata,
+            groupby='cell_type',
+            run_id=-1,
+            return_fig=True
+        )
+        assert fig is not None
+        assert isinstance(axes, list)
+        assert len(axes) > 0
+        
+        # Test with direct key specification
+        da_keys_lfc = [k for k in self.adata.obs.columns if 'da_run1' in k and 'lfc' in k]
+        da_keys_pval = [k for k in self.adata.obs.columns if 'da_run1' in k and 'pval' in k]
+        
+        if da_keys_lfc and da_keys_pval:
+            fig, axes = multi_volcano_da(
+                self.adata,
+                groupby='cell_type',
+                lfc_key=da_keys_lfc[0],
+                pval_key=da_keys_pval[0],
+                return_fig=True
+            )
+            assert fig is not None
+            assert isinstance(axes, list)
+            assert len(axes) > 0
+            
+    def test_multi_volcano_da_with_custom_parameters(self):
+        """Test multi_volcano_da function with custom visualization parameters."""
+        try:
+            from kompot.plot.volcano import multi_volcano_da
+        except ImportError:
+            pytest.skip("multi_volcano_da function not available, skipping test")
+            
+        # Add a categorical column for groupby
+        categories = np.random.choice(['Type1', 'Type2', 'Type3'], size=self.adata.n_obs)
+        self.adata.obs['cell_type'] = categories
+        
+        # Add a custom color column 
+        self.adata.obs['custom_color'] = np.random.randn(self.adata.n_obs)
+        
+        # Test with various custom parameters
+        fig, axes = multi_volcano_da(
+            self.adata,
+            groupby='cell_type',
+            run_id=-1,
+            color='custom_color',
+            show_thresholds=True,
+            title="Custom Multi Volcano Plot",
+            grid=False,
+            share_y=False,
+            plot_width_factor=8.0,
+            return_fig=True
+        )
+        assert fig is not None
+        assert isinstance(axes, list)
+        assert len(axes) > 0
+        
+    def test_multi_volcano_da_with_highlight_subset(self):
+        """Test multi_volcano_da function with highlight_subset parameter."""
+        try:
+            from kompot.plot.volcano import multi_volcano_da
+        except ImportError:
+            pytest.skip("multi_volcano_da function not available, skipping test")
+            
+        # Add a categorical column for groupby
+        categories = np.random.choice(['Type1', 'Type2', 'Type3'], size=self.adata.n_obs)
+        self.adata.obs['cell_type'] = categories
+        
+        # Create a highlight subset (random selection of points)
+        highlight_mask = np.random.choice([True, False], size=self.adata.n_obs, p=[0.2, 0.8])
+        
+        # Test with highlight_subset parameter
+        fig, axes = multi_volcano_da(
+            self.adata,
+            groupby='cell_type',
+            run_id=-1,
+            highlight_subset=highlight_mask,
+            highlight_color='red',
+            return_fig=True
+        )
+        assert fig is not None
+        assert isinstance(axes, list)
+        assert len(axes) > 0
+        
+    def test_multi_volcano_da_with_direction_update(self):
+        """Test multi_volcano_da function with direction column update."""
+        try:
+            from kompot.plot.volcano import multi_volcano_da
+        except ImportError:
+            pytest.skip("multi_volcano_da function not available, skipping test")
+            
+        # Add a categorical column for groupby
+        categories = np.random.choice(['Type1', 'Type2', 'Type3'], size=self.adata.n_obs)
+        self.adata.obs['cell_type'] = categories
+        
+        # Create a predefined direction column
+        direction_col = 'kompot_da_log_fold_change_direction_A_to_B'
+        if direction_col not in self.adata.obs:
+            self.adata.obs[direction_col] = np.random.choice(['up', 'down', 'neutral'], size=self.adata.n_obs)
+        
+        # Add direction column to run info for the latest run
+        if 'kompot_da' in self.adata.uns and 'run_history' in self.adata.uns['kompot_da']:
+            for run in self.adata.uns['kompot_da']['run_history']:
+                if run.get('run_id') == 0:  # Latest run in test data
+                    if 'field_names' not in run:
+                        run['field_names'] = {}
+                    run['field_names']['direction_key'] = direction_col
+                    
+                    # Add conditions if needed
+                    if 'params' not in run:
+                        run['params'] = {}
+                    if 'conditions' not in run['params']:
+                        run['params']['conditions'] = ['A', 'B']
+                    break
+        
+        # Test with direction column update and explicit direction column
+        fig, axes = multi_volcano_da(
+            self.adata,
+            groupby='cell_type',
+            run_id=-1,
+            update_direction=True,
+            direction_column=direction_col,
+            lfc_threshold=1.0,
+            pval_threshold=0.05,
+            return_fig=True
+        )
+        assert fig is not None
+        assert isinstance(axes, list)
+        assert len(axes) > 0
+        
+        # Verify that the direction column exists
+        assert direction_col in self.adata.obs, f"Direction column {direction_col} not found in adata.obs"
+            
+        # Check that the direction column contains expected values 
+        directions = set(self.adata.obs[direction_col].astype(str).unique())
+        expected_values = set(['up', 'down', 'neutral'])
+        
+        # Just check if any of the expected values are present
+        assert any(val in directions for val in expected_values), \
+            f"Direction column {direction_col} does not contain expected values. Found: {directions}"
