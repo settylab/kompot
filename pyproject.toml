@@ -8,16 +8,13 @@ package-dir = {"" = "."}
 package-data = {"kompot" = ["**/*.png", "**/*.csv"]}
 include-package-data = true
 
-[tool.setuptools.dynamic]
-version = {attr = "kompot.version.__version__"}
-
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "--cov=kompot --cov-report=xml --cov-report=term-missing"
 
 [project]
 name = "kompot"
-dynamic = ["version"]
+version = "0.3.0"
 description = "Differential abundance and gene expression analysis using Mahalanobis distance with JAX backend"
 readme = "README.md"
 authors = [

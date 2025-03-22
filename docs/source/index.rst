@@ -23,6 +23,24 @@
    :align: center
    :width: 400px
 
+.. |pypi| image:: https://img.shields.io/pypi/v/kompot.svg
+   :target: https://pypi.org/project/kompot/
+   :alt: PyPI
+
+.. |tests| image:: https://github.com/settylab/kompot/actions/workflows/tests.yml/badge.svg
+   :target: https://github.com/settylab/kompot/actions/workflows/tests.yml
+   :alt: Tests
+
+.. |codecov| image:: https://codecov.io/gh/settylab/kompot/branch/main/graph/badge.svg
+   :target: https://codecov.io/gh/settylab/kompot
+   :alt: Coverage
+
+.. |docs| image:: https://readthedocs.org/projects/kompot/badge/?version=latest
+   :target: https://kompot.readthedocs.io/en/latest/?badge=latest
+   :alt: Documentation Status
+
+|pypi| |tests| |codecov| |docs|
+
 Kompot
 ======
 
