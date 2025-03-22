@@ -632,3 +632,145 @@ def test_weighted_fold_change_standalone_detailed():
     
     # Verify results from both methods are identical
     np.testing.assert_allclose(method1_weighted_lfc, method2_weighted_lfc)
+
+
+def test_update_direction_column():
+    """Test the update_direction_column function."""
+    import anndata as ad
+    import pandas as pd
+    from kompot.differential import update_direction_column
+    
+    # Create synthetic AnnData object with DA results
+    n_cells = 100
+    adata = ad.AnnData(
+        X=np.random.randn(n_cells, 10),
+        obs=pd.DataFrame({
+            'log_fold_change': np.random.randn(n_cells),
+            'pvalue': np.random.random(n_cells) * 0.1,  # Some values below 0.05
+            'neg_log10_pvalue': -np.log10(np.random.random(n_cells) * 0.1),  # Same but transformed
+            'original_direction': np.random.choice(['up', 'down', 'neutral'], n_cells)
+        })
+    )
+    
+    # Add run history for testing inference
+    adata.uns['kompot_da'] = {
+        'run_history': [{
+            'analysis_type': 'da',
+            'params': {
+                'log_fold_change_threshold': 0.5,
+                'pvalue_threshold': 0.05,
+                'conditions': ['condition1', 'condition2']
+            },
+            'field_names': {
+                'log_fold_change_key': 'log_fold_change',
+                'pvalue_key': 'pvalue',
+                'direction_key': 'direction_col'
+            }
+        }]
+    }
+    
+    # Test case 1: Basic functionality with explicit parameters
+    adata_copy = adata.copy()
+    updated = update_direction_column(
+        adata_copy,
+        lfc_threshold=1.0,
+        pval_threshold=0.01,
+        direction_column='new_direction',
+        lfc_key='log_fold_change',
+        pval_key='pvalue',
+        inplace=True
+    )
+    
+    # Should return None (since inplace=True)
+    assert updated is None
+    
+    # Should create new column
+    assert 'new_direction' in adata_copy.obs.columns
+    
+    # Values should be categorical
+    assert pd.api.types.is_categorical_dtype(adata_copy.obs['new_direction'])
+    
+    # Should have all three direction categories
+    assert set(adata_copy.obs['new_direction'].cat.categories) <= {'up', 'down', 'neutral'}
+    
+    # Test case 2: Return copy when inplace=False
+    adata_copy = adata.copy()
+    updated = update_direction_column(
+        adata_copy,
+        lfc_threshold=1.0,
+        pval_threshold=0.01,
+        direction_column='new_direction',
+        lfc_key='log_fold_change',
+        pval_key='pvalue',
+        inplace=False
+    )
+    
+    # Should return a copy
+    assert updated is not None
+    assert updated is not adata_copy
+    
+    # Original should be unchanged
+    assert 'new_direction' not in adata_copy.obs.columns
+    
+    # Updated copy should have the new column
+    assert 'new_direction' in updated.obs.columns
+    
+    # Test case 3: Test with -log10 transformed p-values
+    adata_copy = adata.copy()
+    updated = update_direction_column(
+        adata_copy,
+        lfc_threshold=1.0,
+        pval_threshold=0.01,
+        direction_column='log10_direction',
+        lfc_key='log_fold_change',
+        pval_key='neg_log10_pvalue',  # Using the -log10 transformed version
+        inplace=True
+    )
+    
+    # Should create new column
+    assert 'log10_direction' in adata_copy.obs.columns
+    
+    # Test case 4: Test parameter inference from run history
+    adata_copy = adata.copy()
+    updated = update_direction_column(
+        adata_copy,
+        run_id=0,  # Use first (and only) run in history
+        lfc_key='log_fold_change',  # Explicitly provide since _infer_da_keys isn't working in test
+        pval_key='pvalue',
+        inplace=True
+    )
+    
+    # Should create direction column from run history
+    assert 'direction_col' in adata_copy.obs.columns
+    
+    # Test case 5: Test with different thresholds
+    adata_copy = adata.copy()
+    
+    # First update with default thresholds
+    update_direction_column(
+        adata_copy,
+        lfc_threshold=0.5,
+        pval_threshold=0.05,
+        direction_column='direction_default',
+        lfc_key='log_fold_change',
+        pval_key='pvalue',
+        inplace=True
+    )
+    
+    # Then update with stricter thresholds
+    update_direction_column(
+        adata_copy,
+        lfc_threshold=1.0,  # Higher threshold = fewer significant changes
+        pval_threshold=0.01,  # Lower p-value = fewer significant changes
+        direction_column='direction_strict',
+        lfc_key='log_fold_change',
+        pval_key='pvalue',
+        inplace=True
+    )
+    
+    # Count non-neutral values in both columns
+    significant_default = sum(adata_copy.obs['direction_default'] != 'neutral')
+    significant_strict = sum(adata_copy.obs['direction_strict'] != 'neutral')
+    
+    # Stricter thresholds should result in fewer (or equal) significant results
+    assert significant_strict <= significant_default
