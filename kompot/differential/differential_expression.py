@@ -496,9 +496,14 @@ class DifferentialExpression:
                         if len(combined_variance.shape) == 3:
                             # We have per-gene covariance matrices with shape (points, points, genes)
                             # Need to add combined_cov to each gene's covariance slice
-                            gene_specific_covariance = np.zeros_like(combined_variance)
+                            gene_specific_covariance = combined_variance
+                            # Check if combined_variance is a JAX array, if not, ensure combined_cov is numpy array
+                            if not isinstance(combined_variance, jax.Array):
+                                combined_cov_to_add = np.asarray(combined_cov)
+                            else:
+                                combined_cov_to_add = combined_cov
                             for g in range(combined_variance.shape[2]):
-                                gene_specific_covariance[:, :, g] = combined_variance[:, :, g] + combined_cov
+                                gene_specific_covariance[:, :, g] = combined_variance[:, :, g] + combined_cov_to_add
                             logger.debug(f"Using gene-specific covariance matrices with shape {gene_specific_covariance.shape}")
                         else:
                             # Add the sample variance to the combined covariance from function predictors
@@ -509,9 +514,14 @@ class DifferentialExpression:
                         if len(variance1.shape) == 3:
                             # We have per-gene covariance matrices
                             # Need to add combined_cov to each gene's covariance slice
-                            gene_specific_covariance = np.zeros_like(variance1)
+                            gene_specific_covariance = variance1
+                            # Check if variance1 is a JAX array, if not, ensure combined_cov is numpy array
+                            if not isinstance(variance1, jax.Array):
+                                combined_cov_to_add = np.asarray(combined_cov)
+                            else:
+                                combined_cov_to_add = combined_cov
                             for g in range(variance1.shape[2]):
-                                gene_specific_covariance[:, :, g] = variance1[:, :, g] + combined_cov
+                                gene_specific_covariance[:, :, g] = variance1[:, :, g] + combined_cov_to_add
                             logger.debug(f"Using gene-specific covariance matrices from variance1 with shape {gene_specific_covariance.shape}")
                         else:
                             combined_cov += variance1
@@ -528,9 +538,14 @@ class DifferentialExpression:
                     if len(variance2.shape) == 3:
                         # We have per-gene covariance matrices
                         # Need to add combined_cov to each gene's covariance slice
-                        gene_specific_covariance = np.zeros_like(variance2)
+                        gene_specific_covariance = variance2
+                        # Check if variance2 is a JAX array, if not, ensure combined_cov is numpy array
+                        if not isinstance(variance2, jax.Array):
+                            combined_cov_to_add = np.asarray(combined_cov)
+                        else:
+                            combined_cov_to_add = combined_cov
                         for g in range(variance2.shape[2]):
-                            gene_specific_covariance[:, :, g] = variance2[:, :, g] + combined_cov
+                            gene_specific_covariance[:, :, g] = variance2[:, :, g] + combined_cov_to_add
                         logger.debug(f"Using gene-specific covariance matrices from variance2 with shape {gene_specific_covariance.shape}")
                     else:
                         # Add variance2 to the combined covariance
