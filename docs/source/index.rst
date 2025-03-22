@@ -18,11 +18,6 @@
    Tutorial Notebook <notebooks/tutorial_notebook.ipynb>
    Sample Variance Analysis <notebooks/sample_variance.ipynb>
 
-.. image:: _static/images/kompot_logo.png
-   :alt: Kompot Logo
-   :align: center
-   :width: 400px
-
 .. |pypi| image:: https://img.shields.io/pypi/v/kompot.svg
    :target: https://pypi.org/project/kompot/
    :alt: PyPI
@@ -40,6 +35,12 @@
    :alt: Documentation Status
 
 |pypi| |tests| |codecov| |docs|
+
+.. image:: _static/images/kompot_logo.png
+   :alt: Kompot Logo
+   :align: center
+   :width: 400px
+
 
 Kompot
 ======
