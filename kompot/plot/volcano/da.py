@@ -9,7 +9,7 @@ import pandas as pd
 import warnings
 import logging
 
-from ...utils import KOMPOT_COLORS
+from ...utils import KOMPOT_COLORS, get_run_from_history
 from .utils import _extract_conditions_from_key, _infer_da_keys
 
 try:
@@ -194,7 +194,7 @@ def volcano_da(
         
     # Update direction column if requested
     if update_direction:
-        from ..differential.utils import update_direction_column as update_dir
+        from ...differential.utils import update_direction_column as update_dir
         logger.info(f"Updating direction column with new thresholds before plotting")
         update_dir(
             adata=adata,

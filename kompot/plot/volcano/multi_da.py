@@ -278,7 +278,7 @@ def multi_volcano_da(
     
     # Update direction for the entire dataset if requested (do this only once!)
     if update_direction:
-        from ..differential.utils import update_direction_column as update_dir
+        from ...differential.utils import update_direction_column as update_dir
         logger.info(f"Updating direction column with new thresholds before plotting")
         update_dir(
             adata=adata,
