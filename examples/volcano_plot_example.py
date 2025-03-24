@@ -90,16 +90,6 @@ plt.tight_layout()
 plt.savefig("multiple_volcano_plots.png")
 print("Volcano plot examples created successfully!")
 
-# Using the old function name (volcano_plot) for backward compatibility
-plt.figure(figsize=(12, 8))
-kp.plot.volcano_plot(
-    adata, 
-    lfc_key="kompot_de_mean_lfc_groupA_to_groupB",
-    score_key="kompot_de_mahalanobis",
-    title="Using backward compatibility"
-)
-plt.savefig("backward_compat_volcano.png")
-
 # Example using highlight_genes parameter to specify genes to highlight
 plt.figure(figsize=(12, 8))
 # Get 5 random gene names for the example
