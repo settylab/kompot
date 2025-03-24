@@ -20,7 +20,6 @@ from scipy.linalg import solve_triangular
 
 import pynndescent
 import igraph as ig
-import leidenalg as la
 import logging
 
 from .memory_utils import DASK_AVAILABLE
@@ -777,11 +776,12 @@ def find_optimal_resolution(
     best_partition = None
     
     for iteration in range(max_iter):
-        partition = la.find_partition(
-            G_igraph,
-            la.RBConfigurationVertexPartition,
-            n_iterations=-1,
-            resolution_parameter=resolution,
+        partition = G_igraph.community_leiden(
+            objective_function="modularity",
+            weights=None,
+            resolution=resolution,
+            beta=0.01,
+            n_iterations=2
         )
         current_clusters = len(set(partition.membership))
         percent_diff = (current_clusters - n_clusters) / n_clusters
