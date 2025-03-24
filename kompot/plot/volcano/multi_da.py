@@ -8,8 +8,9 @@ from anndata import AnnData
 import pandas as pd
 import warnings
 import logging
+from scipy import stats
 
-from ...utils import KOMPOT_COLORS
+from ...utils import KOMPOT_COLORS, get_run_from_history
 from .utils import _extract_conditions_from_key, _infer_da_keys
 from .da import volcano_da
 
@@ -53,6 +54,12 @@ def multi_volcano_da(
     plot_width_factor: float = 10.0,  # Default width factor - plots are 10x wider than tall
     share_y: bool = True,  # Share y-axis by default
     layout_config: Optional[Dict[str, float]] = None,  # Configuration for layout spacing
+    background_plot: Optional[Literal["kde", "violin"]] = None,  # Background plot type
+    background_alpha: float = 0.5,  # Alpha value for the background plot
+    background_color: str = "#E6E6E6",  # Light gray color for the background plot
+    background_edgecolor: str = "#808080",  # Medium gray for the outline
+    background_height_factor: float = 0.6,  # Height of background plot as fraction of y-axis range
+    background_kwargs: Optional[Dict[str, Any]] = None,  # Additional kwargs for the background plot
     save: Optional[str] = None,
     show: bool = None,
     return_fig: bool = False,
@@ -158,6 +165,23 @@ def multi_volcano_da(
         - 'plot_spacing': Spacing between plots in units (default: 0.2)
         - 'y_label_width': Width for y-axis label in units (default: 2)
         - 'y_label_offset': Offset of y-axis label from plots in units (default: 0.5)
+    background_plot : str, optional
+        Type of background density plot to display. Options are "kde" or "violin".
+        If None (default), no background density plot is shown.
+    background_alpha : float, optional
+        Alpha (transparency) value for the background density plot (default: 0.5)
+    background_color : str, optional
+        Color for the background density plot (default: "#E6E6E6", light gray)
+    background_edgecolor : str, optional
+        Color for the outline of the background density plot (default: "#808080", medium gray)
+    background_height_factor : float, optional
+        Controls the height of the background plot as a fraction of the y-axis range (default: 0.6).
+        Higher values make the KDE/violin taller, lower values make it shorter.
+    background_kwargs : dict, optional
+        Additional parameters for the background density plot. Options include:
+        - For KDE: "bw_method" (bandwidth method), "show_2d_kde" (bool), "contour_levels" (int),
+          "contour_cmap" (colormap name), "contour_alpha" (float)
+        - For violin: "showmeans" (bool), "showmedians" (bool), "showextrema" (bool)
     save : str, optional
         Path to save figure. If None, figure is not saved
     show : bool, optional
@@ -205,9 +229,23 @@ def multi_volcano_da(
     # Sort groups if they're strings or numbers
     if all(isinstance(g, (str, int, float)) for g in groups):
         groups = sorted(groups)
-    
+        
     # Infer keys using helper function
     lfc_key, pval_key, thresholds = _infer_da_keys(adata, run_id, lfc_key, pval_key)
+    
+    # Get global y-values for consistent KDE/violin sizing directly from the full dataset
+    if 'neg_log10' in pval_key.lower() or pval_key.lower().startswith('neg_log10') or '-log10' in pval_key.lower():
+        # Already negative log10 transformed - use as is
+        global_y_values = adata.obs[pval_key].values
+    elif log_transform_pval:
+        global_y_values = -np.log10(adata.obs[pval_key].values)
+    else:
+        global_y_values = adata.obs[pval_key].values
+    
+    # Calculate global min/max and range
+    global_y_min = np.nanmin(global_y_values)
+    global_y_max = np.nanmax(global_y_values)
+    global_y_range = global_y_max - global_y_min
     
     # Extract the threshold values
     auto_lfc_threshold, auto_pval_threshold = thresholds
@@ -500,6 +538,108 @@ def multi_volcano_da(
         # Filter out cmap from kwargs if it exists to prevent conflicts
         filtered_kwargs = {k: v for k, v in kwargs.items() if k != 'cmap'}
         scatter_kwargs.update(filtered_kwargs)
+        
+        # Initialize background plot kwargs
+        bg_kwargs = background_kwargs or {}
+        
+        # Add background density plot if requested
+        if background_plot is not None:
+            # Set default KDE/violin parameters if not provided
+            if 'bw_method' not in bg_kwargs:
+                bg_kwargs['bw_method'] = 'scott'  # Default bandwidth method
+                
+            # Get axis limits
+            x_min, x_max = np.min(x), np.max(x)
+            x_range = x_max - x_min
+            y_min, y_max = np.min(y), np.max(y)
+            y_range = y_max - y_min
+            
+            # Calculate plot height based on the height factor and global y range for consistency
+            plot_height = background_height_factor * global_y_range  # Height for KDE/violin
+            
+            # Create the density plot based on the requested type
+            if background_plot == "kde":
+                # Position KDE at the bottom of the plot, using global range for consistent spacing
+                bottom_pos = global_y_min
+                
+                # Create X-axis KDE (at bottom of plot)
+                x_grid = np.linspace(x_min - 0.2*x_range, x_max + 0.2*x_range, 1000)
+                
+                # Compute KDE for x values
+                kde_x = stats.gaussian_kde(x, bw_method=bg_kwargs.get('bw_method'))
+                x_density = kde_x(x_grid)
+                
+                # Scale the density to fit in the plot
+                x_density_scaled = x_density / np.max(x_density) * plot_height
+                
+                # Plot X-axis KDE at the bottom of the plot
+                plot_ax.fill_between(
+                    x_grid, 
+                    bottom_pos,  # Below the data points
+                    bottom_pos + x_density_scaled, 
+                    color=background_color, 
+                    alpha=background_alpha,
+                    edgecolor=background_edgecolor,
+                    linewidth=1.0,
+                    zorder=0  # Ensure it's behind the points
+                )
+                
+                # Only add 2D KDE if explicitly requested
+                if bg_kwargs.get('show_2d_kde', False):
+                    try:
+                        # Create grid for 2D KDE
+                        y_grid = np.linspace(y_min - 0.2*y_range, y_max + 0.2*y_range, 100)
+                        xx, yy = np.meshgrid(x_grid, y_grid)
+                        positions = np.vstack([xx.ravel(), yy.ravel()])
+                        
+                        # Calculate 2D KDE
+                        values = np.vstack([x, y])
+                        kernel = stats.gaussian_kde(values, bw_method=bg_kwargs.get('bw_method'))
+                        density = np.reshape(kernel(positions).T, xx.shape)
+                        
+                        # Plot 2D KDE as contour with low alpha
+                        contour_levels = bg_kwargs.get('contour_levels', 5)
+                        contour_alpha = bg_kwargs.get('contour_alpha', background_alpha * 0.5)
+                        plot_ax.contourf(
+                            xx, 
+                            yy, 
+                            density, 
+                            levels=contour_levels, 
+                            cmap=bg_kwargs.get('contour_cmap', 'Blues'),
+                            alpha=contour_alpha,
+                            zorder=0  # Ensure it's behind the points
+                        )
+                    except Exception as e:
+                        logger.warning(f"Failed to create 2D KDE contour plot: {e}. Skipping.")
+                
+            elif background_plot == "violin":
+                # Calculate the center position for the violin plot
+                y_center = (global_y_max + global_y_min) / 2  # Center of y-axis
+                
+                # Create the violin plot centered on the y-axis
+                violin_parts = plot_ax.violinplot(
+                    dataset=[x],  # Just the x values
+                    positions=[y_center],  # Position at the center of y-axis
+                    vert=False,  # Horizontal orientation
+                    showmeans=bg_kwargs.get('showmeans', False),
+                    showextrema=bg_kwargs.get('showextrema', False),
+                    showmedians=bg_kwargs.get('showmedians', False),
+                    widths=plot_height  # Height of violin
+                )
+                
+                # Set violin colors and alpha
+                for pc in violin_parts['bodies']:
+                    pc.set_color(background_color)
+                    pc.set_alpha(background_alpha)
+                    pc.set_edgecolor(background_edgecolor)
+                    pc.set_linewidth(1.0)
+                
+                # Remove the stat markers if we're not showing them
+                if not bg_kwargs.get('showmeans', False) and not bg_kwargs.get('showmedians', False):
+                    # Hide the lines that mark mean, median, etc.
+                    for line_type in ['cmeans', 'cmins', 'cmaxes', 'cbars']:
+                        if line_type in violin_parts:
+                            violin_parts[line_type].set_visible(False)
         
         # First plot all cells as background
         plot_ax.scatter(
