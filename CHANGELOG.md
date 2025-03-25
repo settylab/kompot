@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.3]
+
+ - correct titles in expression plot
+ - square patches in heatmap legend
+
 ## [0.3.2]
 
  - Remove default `pval_threshold=0.05` from volcano plots
