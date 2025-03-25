@@ -30,7 +30,7 @@ def compute_differential_abundance(
     landmarks: Optional[np.ndarray] = None,
     sample_col: Optional[str] = None,
     log_fold_change_threshold: float = 1.0,
-    pvalue_threshold: float = 1e-3,
+    pvalue_threshold: float = 0.05,
     ls_factor: float = 10.0,
     jit_compile: bool = False,
     random_state: Optional[int] = None,

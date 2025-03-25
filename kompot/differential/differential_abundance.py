@@ -58,7 +58,7 @@ class DifferentialAbundance:
     def __init__(
         self,
         log_fold_change_threshold: float = 1.0,
-        pvalue_threshold: float = 1e-2,
+        pvalue_threshold: float = 0.05,
         n_landmarks: Optional[int] = None,
         use_sample_variance: Optional[bool] = None,
         eps: float = 1e-12,

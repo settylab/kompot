@@ -30,7 +30,7 @@ def volcano_da(
     group_key: Optional[str] = None,
     log_transform_pval: bool = True,
     lfc_threshold: Optional[float] = None,
-    pval_threshold: Optional[float] = 0.05,
+    pval_threshold: Optional[float] = None,
     color: Optional[Union[str, List[str]]] = None,
     alpha_background: float = 1.0,  # No alpha by default
     highlight_subset: Optional[Union[np.ndarray, List[bool]]] = None,
