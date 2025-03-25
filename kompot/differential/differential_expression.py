@@ -566,7 +566,7 @@ class DifferentialExpression:
                 logger.debug(f"Computing Mahalanobis distances for {fold_change_transposed.shape[0]:,} genes with gene-specific covariance matrices...")
                 
                 # Compute all distances using the unified utility function with gene-specific covariance
-                logger.info(f"Using batch_size={self.batch_size} for Mahalanobis distance computation")
+                logger.debug(f"Using batch_size={self.batch_size} for Mahalanobis distance computation")
                 mahalanobis_distances = compute_mahalanobis_distances(
                     diff_values=fold_change_transposed,
                     covariance=gene_specific_covariance,
@@ -581,7 +581,7 @@ class DifferentialExpression:
                 logger.debug(f"Computing Mahalanobis distances for {fold_change_transposed.shape[0]:,} genes with shared covariance...")
                 
                 # Compute all distances using the unified utility function with the combined covariance matrix
-                logger.info(f"Using batch_size={self.batch_size} for Mahalanobis distance computation")
+                logger.debug(f"Using batch_size={self.batch_size} for Mahalanobis distance computation")
                 mahalanobis_distances = compute_mahalanobis_distances(
                     diff_values=fold_change_transposed,
                     covariance=combined_cov,
