@@ -138,7 +138,7 @@ def compute_differential_abundance(
     - adata.obs[f"{result_key}_log_fold_change"]: Log fold change values for each cell
     - adata.obs[f"{result_key}_log_fold_change_zscore"]: Z-scores for each cell
     - adata.obs[f"{result_key}_neg_log10_fold_change_pvalue"]: Negative log10 p-values for each cell
-    - adata.obs[f"{result_key}_log_fold_change_direction"]: Direction of change ('up', 'down', 'neutral')
+    - adata.obs[f"{result_key}_log_fold_change_direction"]: Direction of change ('up', 'neutral', 'down')
     - adata.uns[f"{result_key}_log_fold_change_direction_colors"]: Color mapping for direction categories
     - adata.uns[result_key]: Dictionary with additional information and parameters
     - If landmarks are computed, they are stored in adata.uns[result_key]['landmarks']
@@ -456,18 +456,18 @@ def compute_differential_abundance(
     direction_col = field_names["direction_key"]
     adata.obs[direction_col] = abundance_results['log_fold_change_direction']
     
+    # Make sure the column is categorical with all three categories
+    adata.obs[direction_col] = pd.Categorical(
+        adata.obs[direction_col],
+        categories=['up', 'neutral', 'down']
+    )
+    
     # Add standard color mapping for direction categories in adata.uns
     # Use colors from the central color definition
     direction_colors = KOMPOT_COLORS["direction"]
     
-    # Get the unique categories in the order they appear in the categorical column
-    if hasattr(adata.obs[direction_col], 'cat'):
-        # If it's already a categorical type
-        categories = adata.obs[direction_col].cat.categories
-    else:
-        # Convert to categorical to get ordered categories
-        adata.obs[direction_col] = adata.obs[direction_col].astype('category')
-        categories = adata.obs[direction_col].cat.categories
+    # Get the categories in the order they appear in the categorical column
+    categories = adata.obs[direction_col].cat.categories
     
     # Create the list of colors in the same order as the categories
     color_list = [direction_colors.get(cat, "#d3d3d3") for cat in categories]

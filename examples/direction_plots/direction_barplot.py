@@ -27,7 +27,7 @@ if __name__ == "__main__":
     # Add dummy differential abundance results
     print("Creating example differential abundance data...")
     np.random.seed(42)
-    directions = np.random.choice(['up', 'down', 'neutral'], size=adata.n_obs, p=[0.3, 0.3, 0.4])
+    directions = np.random.choice(['up', 'neutral', 'down'], size=adata.n_obs, p=[0.3, 0.4, 0.3])
     adata.obs['kompot_da_log_fold_change_direction'] = directions
     
     # Add a dummy run in the run history

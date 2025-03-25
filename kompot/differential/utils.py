@@ -192,9 +192,11 @@ def update_direction_column(
     # Update AnnData
     adata.obs[direction_column] = direction
     
-    # Make sure the column is categorical
-    if not pd.api.types.is_categorical_dtype(adata.obs[direction_column]):
-        adata.obs[direction_column] = adata.obs[direction_column].astype('category')
+    # Make sure the column is categorical with all three categories
+    adata.obs[direction_column] = pd.Categorical(
+        adata.obs[direction_column], 
+        categories=['up', 'neutral', 'down']
+    )
     
     # Log counts of each direction
     up_count = np.sum(direction == 'up')

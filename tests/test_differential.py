@@ -691,7 +691,7 @@ def test_update_direction_column():
     assert pd.api.types.is_categorical_dtype(adata_copy.obs['new_direction'])
     
     # Should have all three direction categories
-    assert set(adata_copy.obs['new_direction'].cat.categories) <= {'up', 'down', 'neutral'}
+    assert set(adata_copy.obs['new_direction'].cat.categories) <= {'up', 'neutral', 'down'}
     
     # Test case 2: Return copy when inplace=False
     adata_copy = adata.copy()
