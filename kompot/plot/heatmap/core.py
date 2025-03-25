@@ -990,26 +990,30 @@ def heatmap(
             
             # Calculate legend position within sidebar using layout config
             legend_height = 1.0 - layout['colorbar_height'] if layout else 0.4  # Use top portion for legend
-            
+            print("joajoadoaihdoaid")
             # Custom handler for the triangular patches
             class HandlerTriangle(HandlerPatch):
                 def create_artists(
                     self, legend, orig_handle, xdescent, ydescent, width, height, fontsize, trans
                 ):
-                    # With transposed plot, we need to update the triangles
+                    # Enforce square shape
+                    size = min(width, height)
+                    x0 = xdescent + (width - size) / 2
+                    y0 = ydescent + (height - size) / 2
+            
                     if "(lower left)" in orig_handle.get_label():
-                        # Lower triangle (first condition)
                         verts = [
-                            [xdescent, ydescent],
-                            [xdescent + width, ydescent],
-                            [xdescent, ydescent + height],
+                            [x0, y0],
+                            [x0 + size, y0],
+                            [x0, y0 + size],
                         ]
                     else:  # upper right
                         verts = [
-                            [xdescent + width, ydescent],
-                            [xdescent + width, ydescent + height],
-                            [xdescent, ydescent + height],
+                            [x0 + size, y0],
+                            [x0 + size, y0 + size],
+                            [x0, y0 + size],
                         ]
+            
                     triangle = mpatches.Polygon(
                         verts,
                         closed=True,
