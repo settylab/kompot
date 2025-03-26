@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [0.3.4]
 
  - make sure da directions categories are always retained and ordered correctly
+ - more flexible `volcano_de` plot
 
 ## [0.3.3]
 
