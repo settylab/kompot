@@ -185,7 +185,7 @@ def volcano_de(
     # Update axis labels
     if condition1 and condition2 and xlabel == "Log Fold Change":
         # Adjust for new key format where condition1 is the baseline/denominator
-        xlabel = f"Log Fold Change: {condition2} / {condition1}"
+        xlabel = f"Log Fold Change: {condition1} to {condition2}"
                 
     # Create figure if ax not provided - adjust figsize if legend is outside
     if ax is None:
