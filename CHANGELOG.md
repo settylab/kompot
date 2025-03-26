@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file.
 
  - make sure da directions categories are always retained and ordered correctly
  - more flexible `volcano_de` plot
+ - `fold_change_mode` parameter for heatmap to only show fold-change instead of split tiles
 
 ## [0.3.3]
 

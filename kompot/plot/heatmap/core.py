@@ -19,7 +19,7 @@ from ...utils import get_run_from_history, KOMPOT_COLORS
 from .utils import (_prepare_gene_list, _get_expression_matrix, 
                    _filter_excluded_groups, _apply_scaling, _calculate_figsize, 
                    _setup_colormap_normalization)
-from .visualization import _draw_diagonal_split_cell
+from .visualization import _draw_diagonal_split_cell, _draw_fold_change_cell
 
 try:
     import scanpy as sc
@@ -70,17 +70,22 @@ def heatmap(
     condition1_name: Optional[str] = None,
     condition2_name: Optional[str] = None,
     exclude_groups: Optional[Union[str, List[str]]] = None,
+    fold_change_mode: bool = False,  # Whether to use fold change coloring instead of split tiles
     **kwargs,
 ) -> Union[
     None, Tuple[plt.Figure, plt.Axes], Tuple[plt.Figure, plt.Axes, Dict[str, plt.Axes]]
 ]:
     """
-    Create a split-cell heatmap visualizing gene expression data for two conditions.
+    Create a heatmap visualizing gene expression data for two conditions.
     
-    The heatmap displays expression values with diagonally split cells, where the lower-left
+    By default, the heatmap displays expression values with diagonally split cells, where the lower-left
     triangle shows values for the first condition and the upper-right triangle shows values
     for the second condition. This creates a compact visualization that highlights
     differences between conditions.
+    
+    When fold_change_mode=True, each cell is a single square colored by the fold change
+    (difference between means) between the two conditions, providing a simpler visualization
+    focused on the differential expression.
     
     Genes are shown on the y-axis and groups (cell types, clusters, etc.) are shown
     on the x-axis, with a legend and colorbar positioned to the right of the plot.
@@ -254,7 +259,7 @@ def heatmap(
                 if condition2 is None:
                     condition2 = params["conditions"][1]
                     logger.info(f"Inferred condition2='{condition2}' from run information")
-        if layer is None:
+        if layer is None and "layer" in params:
             layer = params["layer"]
             logger.info(f"Inferred layer='{layer}' from run information")
                 
@@ -267,7 +272,10 @@ def heatmap(
     
 
     # Log the plot type
-    logger.info(f"Creating split heatmap with {len(var_names)} genes/features")
+    if fold_change_mode:
+        logger.info(f"Creating fold change heatmap with {len(var_names)} genes/features")
+    else:
+        logger.info(f"Creating split heatmap with {len(var_names)} genes/features")
 
     # Validate condition column
     if condition_column is None:
@@ -913,11 +921,18 @@ def heatmap(
             for j, group in enumerate(cond1_means.columns):
                 val1 = cond1_means.iloc[i, j]
                 val2 = cond2_means.iloc[i, j]
-                _draw_diagonal_split_cell(
-                    ax, j, i, cell_width, cell_height, 
-                    val1, val2, cmap_obj, vmin, vmax, 
-                    edgecolor='none', linewidth=0, **kwargs
-                )
+                if fold_change_mode:
+                    _draw_fold_change_cell(
+                        ax, j, i, cell_width, cell_height, 
+                        val1, val2, cmap_obj, vmin, vmax, 
+                        edgecolor='none', linewidth=0, **kwargs
+                    )
+                else:
+                    _draw_diagonal_split_cell(
+                        ax, j, i, cell_width, cell_height, 
+                        val1, val2, cmap_obj, vmin, vmax, 
+                        edgecolor='none', linewidth=0, **kwargs
+                    )
 
         # Configure axis limits to show all cells
         ax.set_xlim(0, len(cond1_means.columns))
@@ -974,23 +989,37 @@ def heatmap(
             # Get the sidebar axes
             sidebar_ax = fig.sidebar_ax
             
-            # Create triangle patches for legend with position information
-            lower_triangle = mpatches.Polygon(
-                [[0, 0], [1, 0], [0, 1]],
-                facecolor=cmap_obj(0.7),  # Use a specific color for legend
-                label=f"{condition1_name} (lower left)"
-            )
-            upper_triangle = mpatches.Polygon(
-                [[1, 0], [1, 1], [0, 1]],
-                facecolor=cmap_obj(0.3),  # Use a different color for contrast
-                label=f"{condition2_name} (upper right)"
-            )
-
-            legend_elements = [upper_triangle, lower_triangle]
+            # Create legend elements based on mode
+            if fold_change_mode:
+                # For fold change mode, use rectangles to show the fold change direction
+                positive_change = mpatches.Rectangle(
+                    (0, 0), 1, 1, 
+                    facecolor=cmap_obj(0.7),  # Use a specific color for legend (higher values)
+                    label=f"Higher in {condition2_name}"
+                )
+                negative_change = mpatches.Rectangle(
+                    (0, 0), 1, 1, 
+                    facecolor=cmap_obj(0.3),  # Use a different color for contrast (lower values)
+                    label=f"Higher in {condition1_name}"
+                )
+                legend_elements = [positive_change, negative_change]
+            else:
+                # For split mode, use triangles as before
+                lower_triangle = mpatches.Polygon(
+                    [[0, 0], [1, 0], [0, 1]],
+                    facecolor=cmap_obj(0.7),  # Use a specific color for legend
+                    label=f"{condition1_name} (lower left)"
+                )
+                upper_triangle = mpatches.Polygon(
+                    [[1, 0], [1, 1], [0, 1]],
+                    facecolor=cmap_obj(0.3),  # Use a different color for contrast
+                    label=f"{condition2_name} (upper right)"
+                )
+                legend_elements = [upper_triangle, lower_triangle]
             
             # Calculate legend position within sidebar using layout config
             legend_height = 1.0 - layout['colorbar_height'] if layout else 0.4  # Use top portion for legend
-            print("joajoadoaihdoaid")
+
             # Custom handler for the triangular patches
             class HandlerTriangle(HandlerPatch):
                 def create_artists(
@@ -1042,15 +1071,26 @@ def heatmap(
             fontsize_factor = layout['legend_fontsize_factor'] if layout else 0.25
             adaptive_fontsize = max(8, base_fontsize - max(0, max_condition_name_length * fontsize_factor))
             
-            legend = legend_ax.legend(
-                handles=legend_elements,
-                loc="center",
-                title="Conditions",
-                frameon=False,
-                prop={'size': adaptive_fontsize},  # Use adaptive font size
-                title_fontsize=adaptive_fontsize + 1,  # Make title slightly larger
-                handler_map={mpatches.Polygon: HandlerTriangle()},
-            )
+            # Create the legend with appropriate handler map based on mode
+            if fold_change_mode:
+                legend = legend_ax.legend(
+                    handles=legend_elements,
+                    loc="center",
+                    title="Fold Change",
+                    frameon=False,
+                    prop={'size': adaptive_fontsize},  # Use adaptive font size
+                    title_fontsize=adaptive_fontsize + 1,  # Make title slightly larger
+                )
+            else:
+                legend = legend_ax.legend(
+                    handles=legend_elements,
+                    loc="center",
+                    title="Conditions",
+                    frameon=False,
+                    prop={'size': adaptive_fontsize},  # Use adaptive font size
+                    title_fontsize=adaptive_fontsize + 1,  # Make title slightly larger
+                    handler_map={mpatches.Polygon: HandlerTriangle()},
+                )
             legend.get_title().set_fontweight('bold')
             
             # Add colorbar in the lower portion of the sidebar
@@ -1085,9 +1125,11 @@ def heatmap(
         for spine_name, spine in cbar.ax.spines.items():
             spine.set_visible(False)
 
-        # Set colorbar label based on whether data was z-scored
+        # Set colorbar label based on mode and whether data was z-scored
         if colorbar_title is None:
-            if is_zscored:
+            if fold_change_mode:
+                label_text = "Fold change"
+            elif is_zscored:
                 label_text = "Z-score"
             else:
                 label_text = "Expression"

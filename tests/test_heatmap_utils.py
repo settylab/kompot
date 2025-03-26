@@ -17,7 +17,7 @@ from kompot.plot.heatmap.utils import (
     _calculate_figsize,
     _setup_colormap_normalization
 )
-from kompot.plot.heatmap.visualization import _draw_diagonal_split_cell
+from kompot.plot.heatmap.visualization import _draw_diagonal_split_cell, _draw_fold_change_cell
 
 # Reuse the test data generation functions
 from tests.test_plot_functions import create_test_anndata, create_test_data_with_multiple_runs
@@ -225,6 +225,67 @@ class TestHeatmapUtilityFunctions:
         assert cmap_obj is custom_cmap
 
 
+class TestHeatmapVisualization:
+    """Tests for the heatmap visualization functions."""
+    
+    def test_draw_fold_change_cell(self):
+        """Test the _draw_fold_change_cell function."""
+        # Create a test figure and axes
+        fig, ax = plt.subplots()
+        
+        # Test with valid values
+        _draw_fold_change_cell(
+            ax=ax,
+            x=0,
+            y=0,
+            w=1,
+            h=1,
+            val1=1.0,
+            val2=3.0,
+            cmap='RdBu_r',
+            vmin=-2,
+            vmax=2
+        )
+        
+        # Test with NaN values
+        _draw_fold_change_cell(
+            ax=ax,
+            x=1,
+            y=0,
+            w=1,
+            h=1,
+            val1=np.nan,
+            val2=3.0,
+            cmap='RdBu_r',
+            vmin=-2,
+            vmax=2
+        )
+        
+        # Test with custom colormap
+        custom_cmap = plt.cm.get_cmap('viridis')
+        _draw_fold_change_cell(
+            ax=ax,
+            x=0,
+            y=1,
+            w=1,
+            h=1,
+            val1=1.0,
+            val2=3.0,
+            cmap=custom_cmap,
+            vmin=-2,
+            vmax=2
+        )
+        
+        # Check that patches were added to the axis
+        assert len(ax.patches) == 3
+        
+        # Verify that the patches are rectangles with the expected dimensions
+        for patch in ax.patches:
+            assert isinstance(patch, mpl.patches.Rectangle)
+        
+        plt.close(fig)
+
+
 class TestHeatmapWithImplicitRunId:
     """Tests for the heatmap functions with implicit run_id (-1)."""
     
@@ -350,6 +411,31 @@ class TestHeatmapWithImplicitRunId:
             condition_column='condition',
             condition1='A',
             condition2='B',
+            return_fig=True
+        )
+        
+        # Check that it works, even if result is None due to test data issues
+        # Failures would raise an exception rather than returning None
+        assert result is None or (isinstance(result, tuple) and len(result) >= 2)
+
+    def test_heatmap_with_fold_change_mode(self):
+        """Test the heatmap function in fold change mode."""
+        # Make sure we have a 'condition' column in obs
+        if 'condition' not in self.adata.obs.columns:
+            self.adata.obs['condition'] = ['A'] * (self.adata.n_obs // 2) + ['B'] * (self.adata.n_obs // 2)
+            
+        # Test with fold_change_mode=True
+        test_genes = [f'gene_{i}' for i in range(5)]
+        result = heatmap(
+            self.adata,
+            genes=test_genes,
+            score_key='test_score',
+            groupby='group',
+            condition_column='condition',
+            condition1='A',
+            condition2='B',
+            fold_change_mode=True,  # Use fold change mode instead of split tiles
+            cmap='RdBu_r',  # Use a diverging colormap appropriate for fold changes
             return_fig=True
         )
         

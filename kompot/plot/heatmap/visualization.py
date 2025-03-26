@@ -157,3 +157,67 @@ def _draw_diagonal_split_cell(
     # Add to axes
     ax.add_patch(lower_triangle)
     ax.add_patch(upper_triangle)
+
+
+def _draw_fold_change_cell(ax, x, y, w, h, val1, val2, cmap, vmin, vmax, alpha=1.0, edgecolor="none", linewidth=0):
+    """
+    Draw a cell colored by the fold change between two values.
+
+    Parameters
+    ----------
+    ax : matplotlib.axes.Axes
+        The axes to draw on
+    x, y : float
+        The bottom-left coordinates of the cell
+    w, h : float
+        The width and height of the cell
+    val1 : float
+        The value for the first condition
+    val2 : float
+        The value for the second condition
+    cmap : str or colormap
+        The colormap to use
+    vmin, vmax : float
+        The minimum and maximum values for the colormap
+    alpha : float, optional
+        The opacity of the cell
+    edgecolor : str, optional
+        The color of the cell border
+    linewidth : float, optional
+        The width of the cell border
+    """
+    # Calculate fold change as val2 - val1
+    if np.isnan(val1) or np.isnan(val2):
+        # Use a very light gray for NaN
+        facecolor = (0.9, 0.9, 0.9, 0.5)  # Light gray with transparency
+    else:
+        # Use provided colormap and normalize with the provided vmin/vmax
+        norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
+        
+        # Get colormap object if it's a string
+        if isinstance(cmap, str):
+            try:
+                # Use the newer API if available
+                cmap_obj = plt.colormaps[cmap]
+            except (AttributeError, KeyError):
+                # Fall back to older API for compatibility
+                cmap_obj = plt.cm.get_cmap(cmap)
+        else:
+            cmap_obj = cmap  # Already a colormap object
+        
+        # Calculate the fold change
+        fold_change = val2 - val1
+        facecolor = cmap_obj(norm(fold_change))
+
+    # Create a rectangle for the cell
+    rectangle = mpatches.Rectangle(
+        (x, y),
+        w, h,
+        facecolor=facecolor,
+        alpha=alpha,
+        edgecolor=edgecolor,
+        linewidth=linewidth,
+    )
+
+    # Add to axes
+    ax.add_patch(rectangle)
