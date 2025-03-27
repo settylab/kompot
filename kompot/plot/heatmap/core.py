@@ -19,7 +19,7 @@ from ...utils import get_run_from_history, KOMPOT_COLORS
 from .utils import (_prepare_gene_list, _get_expression_matrix, 
                    _filter_excluded_groups, _apply_scaling, _calculate_figsize, 
                    _setup_colormap_normalization)
-from .visualization import _draw_diagonal_split_cell, _draw_fold_change_cell
+from .visualization import _draw_diagonal_split_cell, _draw_fold_change_cell, _draw_split_dot_cell
 
 try:
     import scanpy as sc
@@ -48,7 +48,7 @@ def heatmap(
     tile_size: float = 0.3,     # Size for each tile in inches (reference dimension, width for square tiles)
     show_gene_labels: bool = True,
     show_group_labels: bool = True,
-    gene_labels_size: int = 10,
+    gene_labels_size: int = 12,
     group_labels_size: int = 12,
     colorbar_title: Optional[str] = None,
     colorbar_kwargs: Optional[Dict[str, Any]] = None,
@@ -71,6 +71,8 @@ def heatmap(
     condition2_name: Optional[str] = None,
     exclude_groups: Optional[Union[str, List[str]]] = None,
     fold_change_mode: bool = False,  # Whether to use fold change coloring instead of split tiles
+    split_dot_mode: bool = False,  # Whether to use split dots instead of split tiles
+    max_cell_count: Optional[int] = None,  # Upper limit for cell count used for dot sizing (None = use actual max)
     **kwargs,
 ) -> Union[
     None, Tuple[plt.Figure, plt.Axes], Tuple[plt.Figure, plt.Axes, Dict[str, plt.Axes]]
@@ -86,6 +88,12 @@ def heatmap(
     When fold_change_mode=True, each cell is a single square colored by the fold change
     (difference between means) between the two conditions, providing a simpler visualization
     focused on the differential expression.
+    
+    When split_dot_mode=True, the heatmap displays dots split in half vertically, where the
+    left half shows values for the first condition and the right half shows values for the
+    second condition. The size of each half-dot is determined by the number of cells in that 
+    condition for that group, creating a visualization that highlights both expression differences
+    and relative group sizes simultaneously.
     
     Genes are shown on the y-axis and groups (cell types, clusters, etc.) are shown
     on the x-axis, with a legend and colorbar positioned to the right of the plot.
@@ -117,7 +125,7 @@ def heatmap(
         vcenter, vmin, vmax, or cmap is explicitly specified.
     cmap : str or colormap, optional
         Colormap to use for the heatmap. If None, defaults to "coolwarm" (divergent) when 
-        z-scoring is applied, and "viridis" (sequential) otherwise.
+        z-scoring is applied, "Reds" in split dot mode, and "viridis" (sequential) otherwise.
     dendrogram : bool, optional
         Whether to show dendrograms for hierarchical clustering
     cluster_rows : bool, optional
@@ -136,7 +144,7 @@ def heatmap(
         Base size in inches for each tile when automatically calculating figure size.
         Default is 0.5 inches. For square tiles (tile_aspect_ratio=1), this is the width and height.
         For non-square tiles, this is the width if tile_aspect_ratio > 1, or the height if 
-        tile_aspect_ratio < 1.
+        tile_aspect_ratio < 1.cell
     show_gene_labels : bool, optional
         Whether to show gene labels
     show_group_labels : bool, optional
@@ -212,6 +220,15 @@ def heatmap(
         If None, defaults to the values of condition1 and condition2.
     exclude_groups : str or list, optional
         Group name(s) to exclude from the heatmap.
+    fold_change_mode : bool, optional
+        Whether to use fold change coloring instead of split tiles
+    split_dot_mode : bool, optional
+        Whether to use split dots instead of split tiles. When True, the size of each half-dot
+        represents the number of cells in that condition for that group
+    max_cell_count : int, optional
+        Upper limit for cell count used for dot sizing. If provided, all dots will be scaled
+        relative to this maximum value, even if actual cell counts exceed it. This helps maintain
+        readable visualization when some groups have much larger cell counts than others.
     **kwargs : 
         Additional keyword arguments passed to matplotlib
 
@@ -274,6 +291,8 @@ def heatmap(
     # Log the plot type
     if fold_change_mode:
         logger.info(f"Creating fold change heatmap with {len(var_names)} genes/features")
+    elif split_dot_mode:
+        logger.info(f"Creating split dot heatmap with {len(var_names)} genes/features")
     else:
         logger.info(f"Creating split heatmap with {len(var_names)} genes/features")
 
@@ -367,6 +386,32 @@ def heatmap(
             .reindex(all_groups)
             .loc[lambda df: ~df.index.isnull()]
         )
+        
+        # For split_dot_mode, also calculate cell counts for each group
+        if split_dot_mode:
+            cell_counts1 = (
+                cond1_df.groupby(groupby, observed=observed)
+                .size()
+                .reindex(all_groups)
+                .fillna(0)
+            )
+            cell_counts2 = (
+                cond2_df.groupby(groupby, observed=observed)
+                .size()
+                .reindex(all_groups)
+                .fillna(0)
+            )
+            
+            # Calculate the global maximum count across all groups and conditions
+            actual_max_count = max(max(cell_counts1), max(cell_counts2))
+            
+            # Use user-specified max if provided, otherwise use actual max
+            if max_cell_count is not None and max_cell_count > 0:
+                global_max_count = max_cell_count
+                logger.info(f"Using user-specified max count limit of {global_max_count} cells to scale all dots (actual max: {int(actual_max_count)})")
+            else:
+                global_max_count = actual_max_count
+                logger.info(f"Using global max count of {int(global_max_count)} cells to scale all dots")
 
         # Save shape for figsize calculation
         n_groups = len(cond1_means)
@@ -434,8 +479,10 @@ def heatmap(
             
             # Dynamically determine legend space based on condition name lengths
             max_condition_name_length = max(len(str(condition1_name or "")), len(str(condition2_name or "")))
+            
             # Calculate additional space needed for the legend based on name length
             additional_space = (max_condition_name_length + 5) * layout['legend_name_factor']
+                
             LEGEND_SPACE = layout['base_legend_space'] + additional_space
             
             COLORBAR_SPACE = layout['colorbar_space']           # Space for colorbar
@@ -798,6 +845,14 @@ def heatmap(
                     logger.error(f"Error during column ordering: {str(e)}")
                     # Continue without reordering
 
+        # Calculate fold changes before any scaling if in fold_change_mode
+        if fold_change_mode:
+            # Store original values before any scaling - fold changes should not be z-scored
+            fold_changes = cond2_means - cond1_means
+            
+            # Log the action for clarity
+            logger.info("Computing fold changes between conditions for fold_change_mode")
+
         # Clear existing content from the axes
         ax.clear()
 
@@ -805,36 +860,55 @@ def heatmap(
         cond1_means = cond1_means.T
         cond2_means = cond2_means.T
         
+        # If we're in fold_change_mode, also transpose the fold changes
+        if fold_change_mode:
+            fold_changes = fold_changes.T
+        
         # Reverse the row order so genes appear in the correct order when plotted 
         # (since matplotlib plots from bottom to top on the y-axis)
         cond1_means = cond1_means.iloc[::-1]
         cond2_means = cond2_means.iloc[::-1]
+        
+        # Also reverse fold changes if in fold_change_mode
+        if fold_change_mode:
+            fold_changes = fold_changes.iloc[::-1]
 
         # Calculate min/max for colormap
-        all_data = np.concatenate(
-            [
-                cond1_means.values.flatten(),
-                cond2_means.values.flatten()
-            ]
-        )
+        if fold_change_mode:
+            # For fold change mode, use the fold change values for colormap limits
+            all_data = fold_changes.values.flatten()
+        else:
+            # For split mode, use all expression values
+            all_data = np.concatenate(
+                [
+                    cond1_means.values.flatten(),
+                    cond2_means.values.flatten()
+                ]
+            )
         all_data = all_data[~np.isnan(all_data)]  # Remove NaN values
 
-        # Determine if we're using z-scoring
-        is_zscored = standard_scale == "var" or standard_scale == 0 or standard_scale == "group" or standard_scale == 1
+        # Determine if we're using z-scoring (but not in fold_change_mode where z-scoring doesn't make sense)
+        is_zscored = not fold_change_mode and (standard_scale == "var" or standard_scale == 0 or standard_scale == "group" or standard_scale == 1)
+        
+        # If in fold_change_mode and standard_scale is specified, warn that it will be ignored
+        if fold_change_mode and standard_scale is not None:
+            logger.warning("standard_scale is ignored in fold_change_mode as z-scoring is not appropriate for fold changes")
 
-        # Set default colormap based on whether we're using z-scoring
+        # Set default colormap based on mode and whether we're using z-scoring
         effective_cmap = cmap
         if effective_cmap is None:
-            if is_zscored:
-                effective_cmap = "coolwarm"  # Default divergent colormap for z-scored data
+            if fold_change_mode or is_zscored:
+                effective_cmap = "coolwarm"  # Default divergent colormap for fold change or z-scored data
+            elif split_dot_mode:
+                effective_cmap = "Reds" 
             else:
                 effective_cmap = "viridis"   # Default sequential colormap for raw data
         
         # Determine if we should use a centered colormap
-        # When z-scoring, always default to vcenter=0 
+        # When fold_change_mode or z-scoring, always default to vcenter=0 
         # Otherwise, don't center unless explicitly specified
-        if is_zscored and vcenter is None:
-            # Default to centering at 0 for z-scored data
+        if (fold_change_mode or is_zscored) and vcenter is None:
+            # Default to centering at 0 for fold change or z-scored data
             effective_vcenter = 0
         else:
             # Use provided vcenter or None
@@ -861,17 +935,26 @@ def heatmap(
         parsed_vmin = parse_percentile(vmin, all_data)
         parsed_vmax = parse_percentile(vmax, all_data)
         
-        # For z-scored data, use symmetric limits by default unless vmin/vmax are explicitly provided
+        # For z-scored data or fold_change_mode, use symmetric limits by default unless vmin/vmax are explicitly provided
         effective_vmin = parsed_vmin
         effective_vmax = parsed_vmax
         effective_vcenter = parsed_vcenter
         
-        if is_zscored and parsed_vmin is None and parsed_vmax is None:
+        if (is_zscored or fold_change_mode) and parsed_vmin is None and parsed_vmax is None:
             # Find the maximum absolute value to use for symmetric limits
-            abs_max = np.max(np.abs(all_data))
-            effective_vmin = -abs_max
-            effective_vmax = abs_max
-            logger.info(f"Using symmetric colormap limits [-{abs_max:.2f}, {abs_max:.2f}] for z-scored data")
+            if len(all_data) > 0:
+                abs_max = np.max(np.abs(all_data))
+                effective_vmin = -abs_max
+                effective_vmax = abs_max
+                if fold_change_mode:
+                    logger.info(f"Using symmetric colormap limits [-{abs_max:.2f}, {abs_max:.2f}] for fold change data")
+                else:
+                    logger.info(f"Using symmetric colormap limits [-{abs_max:.2f}, {abs_max:.2f}] for z-scored data")
+            else:
+                # If there's no data, use default limits
+                effective_vmin = -1.0
+                effective_vmax = 1.0
+                logger.info("No valid data found, using default colormap limits [-1.0, 1.0]")
         
         # Ensure vmin, vcenter, and vmax are in the correct order
         # For TwoSlopeNorm: vmin < vcenter < vmax must be true
@@ -914,7 +997,7 @@ def heatmap(
         # Use the calculated tile dimensions for each cell based on the base unit
         # Scale to appropriate relative sizes within the axes
         cell_width = 1.0  # Standard width in axes units
-        cell_height = fig_dims['tile_height'] / fig_dims['tile_width']  # Preserve aspect ratio
+        cell_height = 1.0
         
         # Draw each cell
         for i, gene in enumerate(cond1_means.index):
@@ -922,9 +1005,26 @@ def heatmap(
                 val1 = cond1_means.iloc[i, j]
                 val2 = cond2_means.iloc[i, j]
                 if fold_change_mode:
+                    # For fold change mode, use the pre-computed fold change value
+                    fc_val = fold_changes.iloc[i, j]
+                    # Pass the same value for both val1 and val2 since we're only 
+                    # using the fold change value and not computing it in the drawing function
                     _draw_fold_change_cell(
                         ax, j, i, cell_width, cell_height, 
-                        val1, val2, cmap_obj, vmin, vmax, 
+                        fc_val, fc_val, cmap_obj, vmin, vmax, 
+                        edgecolor='none', linewidth=0, **kwargs
+                    )
+                elif split_dot_mode:
+                    # For split dot mode, get the cell counts for this group
+                    count1 = cell_counts1[group] if 'cell_counts1' in locals() else None
+                    count2 = cell_counts2[group] if 'cell_counts2' in locals() else None
+                    
+                    # Draw the split dot - pass the global max count for consistent scaling
+                    _draw_split_dot_cell(
+                        ax, j, i, cell_width, cell_height,
+                        val1, val2, cmap_obj, vmin, vmax,
+                        cell_count1=count1, cell_count2=count2,
+                        global_max_count=global_max_count,
                         edgecolor='none', linewidth=0, **kwargs
                     )
                 else:
@@ -1002,7 +1102,123 @@ def heatmap(
                     facecolor=cmap_obj(0.3),  # Use a different color for contrast (lower values)
                     label=f"Higher in {condition1_name}"
                 )
-                legend_elements = [positive_change, negative_change]
+                neutral_change = mpatches.Rectangle(
+                    (0, 0), 1, 1, 
+                    facecolor=cmap_obj(0.5),  # Color for no change (center of colormap)
+                    label="No change"
+                )
+                legend_elements = [positive_change, neutral_change, negative_change]
+            elif split_dot_mode:
+                # For split dot mode, use split dot in the legend
+                left_half = mpatches.Wedge(
+                    (0.5, 0.5), 0.5, 90, 270,
+                    facecolor=cmap_obj(0.7),
+                    label=f"{condition1_name} (left half)"
+                )
+                right_half = mpatches.Wedge(
+                    (0.5, 0.5), 0.5, 270, 90,
+                    facecolor=cmap_obj(0.3),
+                    label=f"{condition2_name} (right half)"
+                )
+                legend_elements = [right_half, left_half]
+                
+                # Calculate example counts for the legend - small, medium, large
+                # Find the actual range of cell counts in the data
+                all_counts = []
+                if 'cell_counts1' in locals():
+                    all_counts.extend(cell_counts1.values)
+                if 'cell_counts2' in locals():
+                    all_counts.extend(cell_counts2.values)
+                
+                # Filter out zeros and get the min, median, and max counts
+                non_zero_counts = [c for c in all_counts if c > 0]
+                
+                if not non_zero_counts:
+                    # Default values if no real data available
+                    small_count, medium_count, large_count = 10, 100, 1000
+                else:
+                    # Use global max count (which might be user-specified) as the upper bound
+                    max_count = global_max_count if 'global_max_count' in locals() else max(non_zero_counts)
+                    
+                    # Round up to a nice number for the legend
+                    # Round to the nearest power of 10 multiplied by 1, 2, or 5
+                    magnitude = 10 ** np.floor(np.log10(max_count))
+                    if max_count / magnitude <= 1.5:
+                        large_count = magnitude
+                    elif max_count / magnitude <= 3.5:
+                        large_count = 2 * magnitude
+                    elif max_count / magnitude <= 7.5:
+                        large_count = 5 * magnitude
+                    else:
+                        large_count = 10 * magnitude
+                        
+                    # Create medium and small counts that are evenly spaced on a log scale
+                    if large_count >= 1000:
+                        medium_count = large_count / 10
+                        small_count = large_count / 100
+                    elif large_count >= 100:
+                        medium_count = large_count / 5
+                        small_count = large_count / 25
+                    else:
+                        medium_count = large_count / 3
+                        small_count = large_count / 10
+                    
+                    # Make sure all counts are integers
+                    large_count = int(large_count)
+                    medium_count = int(medium_count)
+                    small_count = max(1, int(small_count))
+                
+                # Format count labels with commas and add "+" if max_cell_count is specified
+                if max_cell_count is not None and actual_max_count > max_cell_count and large_count >= max_cell_count:
+                    large_label = f"{large_count:,}+ cells"
+                else:
+                    large_label = f"{large_count:,} cells"
+                    
+                medium_label = f"{medium_count:,} cells"
+                small_label = f"{small_count:,} cells"
+                
+                # Store important information about dot sizes in a global dictionary
+                # that can be accessed from the SizeTextHandler
+                import builtins
+                if not hasattr(builtins, 'kompot_legend_dot_info'):
+                    builtins.kompot_legend_dot_info = {}
+                
+                # Store the actual counts and the cell_width/height
+                kompot_legend_dot_info = {
+                    'small_count': small_count,
+                    'medium_count': medium_count,
+                    'large_count': large_count,
+                    'cell_width': cell_width,
+                    'cell_height': cell_height,
+                    'max_size_factor': 0.9,  # Same as in _draw_split_dot_cell
+                    'global_max_count': global_max_count  # Add global max count for legend
+                }
+                builtins.kompot_legend_dot_info = kompot_legend_dot_info
+                
+                # Create size examples for legend
+                small_example = mpatches.Rectangle(
+                    (0, 0), 1, 1, 
+                    fill=False, edgecolor='none',
+                    label=small_label
+                )
+                medium_example = mpatches.Rectangle(
+                    (0, 0), 1, 1, 
+                    fill=False, edgecolor='none',
+                    label=medium_label
+                )
+                large_example = mpatches.Rectangle(
+                    (0, 0), 1, 1, 
+                    fill=False, edgecolor='none',
+                    label=large_label
+                )
+                
+                # We'll set the cell dimensions later after the SizeTextHandler class is defined
+                
+                # Create section title without adding it to legend elements
+                # We'll add a title directly to the legend instead
+                legend_elements.append(small_example)
+                legend_elements.append(medium_example)
+                legend_elements.append(large_example)
             else:
                 # For split mode, use triangles as before
                 lower_triangle = mpatches.Polygon(
@@ -1018,7 +1234,12 @@ def heatmap(
                 legend_elements = [upper_triangle, lower_triangle]
             
             # Calculate legend position within sidebar using layout config
-            legend_height = 1.0 - layout['colorbar_height'] if layout else 0.4  # Use top portion for legend
+            # Use more space for split_dot_mode because it has more legend items
+            if split_dot_mode:
+                # Use more height for the split_dot legend
+                legend_height = 1.0 - (layout['colorbar_height'] if layout else 0.3) * 0.7
+            else:
+                legend_height = 1.0 - (layout['colorbar_height'] if layout else 0.4)  # Use top portion for legend
 
             # Custom handler for the triangular patches
             class HandlerTriangle(HandlerPatch):
@@ -1051,6 +1272,34 @@ def heatmap(
                     )
                     triangle.set_transform(trans)
                     return [triangle]
+                    
+            # Custom handler for wedges (half-circle elements)
+            class HandlerWedge(HandlerPatch):
+                def create_artists(
+                    self, legend, orig_handle, xdescent, ydescent, width, height, fontsize, trans
+                ):
+                    # Enforce square shape for the circle
+                    size = min(width, height)
+                    center_x = xdescent + width / 2
+                    center_y = ydescent + height / 2
+                    radius = size / 2
+                    
+                    # Create the appropriate half-circle based on the label
+                    if "(left half)" in orig_handle.get_label():
+                        wedge = mpatches.Wedge(
+                            (center_x, center_y), radius, 90, 270, 
+                            facecolor=orig_handle.get_facecolor(),
+                            edgecolor=orig_handle.get_edgecolor()
+                        )
+                    else:  # right half
+                        wedge = mpatches.Wedge(
+                            (center_x, center_y), radius, 270, 90, 
+                            facecolor=orig_handle.get_facecolor(),
+                            edgecolor=orig_handle.get_edgecolor()
+                        )
+                    
+                    wedge.set_transform(trans)
+                    return [wedge]
 
             # Add the legend at the top of the sidebar
             # Create an axes for the legend in the top portion of the sidebar
@@ -1066,10 +1315,27 @@ def heatmap(
             # Add the legend with adaptive font size
             # Calculate an appropriate font size based on legend space and condition name length
             max_condition_name_length = max(len(str(condition1_name or "")), len(str(condition2_name or "")))
-            # Base font size with reduction for very long condition names
+            
+            # For split_dot_mode, also consider the length of the cell count labels
+            if split_dot_mode:
+                # Get the length of the longest cell count label
+                if 'large_label' in locals():
+                    max_cell_label_length = max(
+                        len(small_label), 
+                        len(medium_label), 
+                        len(large_label)
+                    )
+                    # Use the longer of the two for font size calculation
+                    max_text_length = max(max_condition_name_length, max_cell_label_length)
+                else:
+                    max_text_length = max_condition_name_length
+            else:
+                max_text_length = max_condition_name_length
+                
+            # Base font size with reduction for very long text
             base_fontsize = layout['legend_fontsize'] if layout else 12
             fontsize_factor = layout['legend_fontsize_factor'] if layout else 0.25
-            adaptive_fontsize = max(8, base_fontsize - max(0, max_condition_name_length * fontsize_factor))
+            adaptive_fontsize = max(8, base_fontsize - max(0, max_text_length * fontsize_factor))
             
             # Create the legend with appropriate handler map based on mode
             if fold_change_mode:
@@ -1081,6 +1347,201 @@ def heatmap(
                     prop={'size': adaptive_fontsize},  # Use adaptive font size
                     title_fontsize=adaptive_fontsize + 1,  # Make title slightly larger
                 )
+            elif split_dot_mode:
+                # Create a special formatter for dot sizes in the legend
+                from matplotlib.legend_handler import HandlerBase
+                
+                class SizeTextHandler(HandlerBase):
+                    """Custom handler to create dot icons of different sizes for the legend"""
+                    
+                    @classmethod
+                    def calculate_scale_factor(cls, fontsize):
+                        """Calculate an appropriate scale factor based on the fontsize"""
+                        return fontsize * 2
+                    
+                    def create_artists(self, legend, orig_handle, xdescent, ydescent, width, height, fontsize, trans):
+                        # Access the global dot information
+                        import builtins
+                        if not hasattr(builtins, 'kompot_legend_dot_info'):
+                            builtins.kompot_legend_dot_info = {}
+                        dot_info = builtins.kompot_legend_dot_info
+                        
+                        # Extract the count from the label
+                        label = orig_handle.get_label()
+                        
+                        # Extract the actual count from the label (e.g., "100 cells" or "500+ cells" -> 100 or 500)
+                        count_str = label.split(" ")[0].replace(",", "").replace("+", "")
+                        count = int(count_str)
+                        
+                        # Use the exact same algorithm as the plot function
+                        # This ensures exact proportion matching
+                        
+                        # Get information needed for size calculation
+                        cell_width = dot_info.get('cell_width', 1.0)
+                        cell_height = dot_info.get('cell_height', 1.0)
+                        max_size_factor = dot_info.get('max_size_factor', 0.9)
+                        
+                        # Get the large, medium, small counts and global max count
+                        large_count = dot_info.get('large_count', max(count, 1000))
+                        global_max_count = dot_info.get('global_max_count', large_count)
+                        
+                        # Perform the exact same calculation as in _draw_split_dot_cell
+                        # Step 1: Determine max radius based on tile dimensions (same as plot function)
+                        max_radius = min(cell_width, cell_height) * max_size_factor / 2
+                        
+                        # Step 2: Calculate scale factor based on the global max count (same as plot function)
+                        # Use global max if available, otherwise fallback to large_count
+                        scale_factor = max_radius / np.sqrt(global_max_count if global_max_count is not None else large_count)
+                        
+                        # Step 3: Calculate dot radius based on count (same as plot function)
+                        plot_dot_radius = np.sqrt(count) * scale_factor
+                        
+                        # Calculate the scale factor based on fontsize for consistent sizing
+                        self.plot_to_legend_scale = self.calculate_scale_factor(fontsize)
+                        
+                        # Now scale to legend coordinates with the dynamic scale factor
+                        # This ensures dots are correctly proportioned relative to each other
+                        # and sized appropriately for the current font size
+                        legend_dot_radius = plot_dot_radius * self.plot_to_legend_scale
+                        
+                        # Create a dot - do NOT limit the size
+                        dot = mpatches.Circle(
+                            (xdescent + width/2, ydescent + height/2),
+                            radius=legend_dot_radius,
+                            facecolor='#AAAAAA',  # Light gray as before
+                            edgecolor='#555555',  # Medium gray border
+                            linewidth=0.5,
+                            alpha=0.8,  # Slightly transparent as before
+                            transform=trans
+                        )
+                        return [dot]
+                
+                # Create the handler map, specifying how to render each type of legend item
+                handler_map = {
+                    mpatches.Wedge: HandlerWedge(),  # For condition wedges
+                }
+                
+                # Add custom handlers for size examples
+                for item in legend_elements:
+                    if any(label in item.get_label() for label in [small_label, medium_label, large_label]):
+                        handler_map[item] = SizeTextHandler()
+                
+                # For split_dot_mode, create separate legends for conditions and dot sizes
+                if split_dot_mode:
+                    # Separate legend elements for conditions and dot sizes
+                    condition_elements = [right_half, left_half]
+                    dot_size_elements = [
+                        small_example,
+                        medium_example,
+                        large_example
+                    ]
+                    
+                    # Create handler maps for each legend
+                    condition_handler_map = {
+                        mpatches.Wedge: HandlerWedge()
+                    }
+                    
+                    dot_size_handler_map = {}
+                    for item in dot_size_elements:
+                        if any(label in item.get_label() for label in [small_label, medium_label, large_label]):
+                            dot_size_handler_map[item] = SizeTextHandler()
+                    
+                    # Split sidebar into three parts vertically:
+                    # 1. Top: Conditions legend (25%)
+                    # 2. Middle: Dot size legend (45%)
+                    # 3. Bottom: Colorbar (30%) - This will be handled later in the existing code
+                    
+                    # Define proportions of the sidebar (excluding colorbar area)
+                    conditions_height_proportion = 0.25
+                    dot_sizes_height_proportion = 0.45  # Original proportion
+                    
+                    # Get the sidebar position - this is the full area excluding the colorbar
+                    bbox = sidebar_ax.get_position()
+                    
+                    # Calculate heights and positions
+                    # The colorbar will use the bottom portion as defined elsewhere in the code
+                    colorbar_height = layout['colorbar_height'] if layout else 0.3
+                    legend_area_height = bbox.height * (1 - colorbar_height - 0.05)  # 5% buffer
+                    
+                    conditions_height = legend_area_height * conditions_height_proportion
+                    dot_sizes_height = legend_area_height * dot_sizes_height_proportion
+                    
+                    # Create conditions legend at the top portion
+                    conditions_ax = fig.add_axes([
+                        bbox.x0, 
+                        bbox.y0 + bbox.height - conditions_height, 
+                        bbox.width, 
+                        conditions_height
+                    ])
+                    conditions_ax.set_axis_off()
+                    
+                    conditions_legend = conditions_ax.legend(
+                        handles=condition_elements,
+                        loc="center",
+                        title="Conditions",
+                        frameon=False,
+                        prop={'size': adaptive_fontsize},
+                        title_fontsize=adaptive_fontsize + 1,
+                        handler_map=condition_handler_map
+                    )
+                    conditions_legend.get_title().set_fontweight('bold')
+                    
+                    # Create dot sizes legend in the middle portion with appropriate spacing
+                    dot_sizes_ax = fig.add_axes([
+                        bbox.x0, 
+                        bbox.y0 + bbox.height - conditions_height - dot_sizes_height, 
+                        bbox.width, 
+                        dot_sizes_height
+                    ])
+                    dot_sizes_ax.set_axis_off()
+                    
+                    # Calculate appropriate spacing based on largest dot size
+                    # First, calculate what the largest dot radius would be in the legend
+                    
+                    # Use same calculation as in SizeTextHandler
+                    max_radius = min(cell_width, cell_height) * kompot_legend_dot_info['max_size_factor'] / 2
+                    global_max = kompot_legend_dot_info.get('global_max_count', large_count)
+                    scale_factor = max_radius / np.sqrt(global_max)
+                    
+                    # Calculate dynamic scale factor based on the current font size
+                    dynamic_scale = SizeTextHandler.calculate_scale_factor(adaptive_fontsize)
+                    largest_dot_radius = np.sqrt(large_count) * scale_factor * dynamic_scale
+                    
+                    # Calculate appropriate spacing based on the largest dot's size and the font size
+                    # This ensures dots don't overlap while keeping proportional to text size
+                    dynamic_spacing = (largest_dot_radius * .5 / adaptive_fontsize) + 1.0
+                    
+                    # Create dot size legend with dynamically calculated spacing
+                    dot_sizes_legend = dot_sizes_ax.legend(
+                        handles=dot_size_elements,
+                        loc="center",
+                        frameon=False,
+                        title="Cell Count",  # Proper title for dot size legend
+                        prop={'size': adaptive_fontsize},
+                        title_fontsize=adaptive_fontsize + 1,
+                        handler_map=dot_size_handler_map,
+                        labelspacing=max(1.5, dynamic_spacing)  # Use dynamic spacing with a minimum value
+                    )
+                    dot_sizes_legend.get_title().set_fontweight('bold')
+                    
+                    # Store main legend (the sidebar_ax variable is used later in the code)
+                    # The colorbar code will run normally with the remaining space
+                    legend = conditions_legend
+                    
+                    # Set sidebar_ax (base legend area) invisible since we've replaced it
+                    sidebar_ax.set_visible(False)
+                else:
+                    # Standard legend for other modes
+                    legend = legend_ax.legend(
+                        handles=legend_elements,
+                        loc="center",
+                        title="Legend",
+                        frameon=False,
+                        prop={'size': adaptive_fontsize},
+                        title_fontsize=adaptive_fontsize + 1,
+                        handler_map=handler_map,
+                        ncol=1
+                    )
             else:
                 legend = legend_ax.legend(
                     handles=legend_elements,
@@ -1128,7 +1589,7 @@ def heatmap(
         # Set colorbar label based on mode and whether data was z-scored
         if colorbar_title is None:
             if fold_change_mode:
-                label_text = "Fold change"
+                label_text = "Log-Fold Change"
             elif is_zscored:
                 label_text = "Z-score"
             else:
