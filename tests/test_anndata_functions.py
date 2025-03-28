@@ -7,7 +7,7 @@ import pandas as pd
 import logging
 from unittest.mock import patch, MagicMock
 
-from kompot.anndata import compute_differential_abundance, compute_differential_expression, run_differential_analysis, RunInfo, RunComparison
+from kompot.anndata import compute_differential_abundance, compute_differential_expression, RunInfo, RunComparison
 
 
 def create_test_anndata(n_cells=100, n_genes=20, with_sample_col=False):
@@ -301,60 +301,6 @@ class TestRunHistoryPreservation:
             assert 'function' in entry
             assert entry['function'] == 'compute_differential_expression'
             assert 'environment' in entry
-
-    def test_global_run_history(self):
-        """Test that global run history is created and updated correctly."""
-        # Run the full differential analysis
-        result = run_differential_analysis(
-            self.adata,
-            groupby='group',
-            condition1='A',
-            condition2='B',
-            abundance_key='grun1',
-            expression_key='grun2',
-            generate_html_report=False,
-            compute_mahalanobis=False  # Turn off Mahalanobis to avoid errors in testing
-        )
-        
-        # Check global run history creation
-        assert 'kompot_run_history' in self.adata.uns
-        assert 'kompot_latest_run' in self.adata.uns
-        assert len(self.adata.uns['kompot_run_history']) >= 1
-        
-        # Check the run history fields
-        run_history = self.adata.uns['kompot_run_history']
-        latest_run = self.adata.uns['kompot_latest_run']
-        
-        # Check that latest run has the expected keys
-        assert 'timestamp' in latest_run
-        assert 'run_id' in latest_run
-        assert 'function' in latest_run
-        assert latest_run['function'] == 'run_differential_analysis'
-        assert 'abundance_key' in latest_run
-        assert latest_run['abundance_key'] == 'grun1'
-        assert 'expression_key' in latest_run
-        assert latest_run['expression_key'] == 'grun2'
-        
-        # Run another analysis to check that history updates
-        initial_length = len(self.adata.uns['kompot_run_history'])
-        
-        result = run_differential_analysis(
-            self.adata,
-            groupby='group',
-            condition1='A',
-            condition2='B',
-            abundance_key='grun3',
-            expression_key='grun4',
-            generate_html_report=False,
-            compute_mahalanobis=False  # Turn off Mahalanobis to avoid errors in testing
-        )
-        
-        # Check that run history was updated
-        assert len(self.adata.uns['kompot_run_history']) > initial_length
-        
-        # Check latest run was updated
-        assert self.adata.uns['kompot_latest_run']['abundance_key'] == 'grun3'
-        assert self.adata.uns['kompot_latest_run']['expression_key'] == 'grun4'
         
         
 @patch('kompot.anndata.differential_abundance.logger.warning')
@@ -413,53 +359,6 @@ def test_compute_differential_expression_warns_overwrite(mock_warning):
     assert "Fields that will be overwritten:" in args[0]
 
 
-def test_run_differential_analysis_with_sample_col():
-    """Test run_differential_analysis with sample_col parameter."""
-    # Create a test AnnData object with sample column
-    adata = create_test_anndata(with_sample_col=True)
-    
-    # Run the full differential analysis with sample_col
-    result = run_differential_analysis(
-        adata,
-        groupby='group',
-        condition1='A',
-        condition2='B',
-        sample_col='sample',  # Pass sample_col to both abundance and expression
-        abundance_key='sample_run_da',
-        expression_key='sample_run_de',
-        generate_html_report=False,
-        compute_mahalanobis=False  # Turn off Mahalanobis to avoid errors in testing
-    )
-    
-    # Verify the abundance result used sample variance
-    assert result['differential_abundance'].use_sample_variance is True
-    assert result['differential_abundance'].variance_predictor1 is not None
-    assert result['differential_abundance'].variance_predictor2 is not None
-    
-    # Verify the expression result used sample variance
-    assert result['differential_expression'].use_sample_variance is True
-    assert result['differential_expression'].variance_predictor1 is not None
-    assert result['differential_expression'].variance_predictor2 is not None
-    
-    # Check that parameter was stored correctly for both analyses in fixed storage locations
-    assert 'kompot_da' in adata.uns
-    assert 'last_run_info' in adata.uns['kompot_da']
-    assert 'params' in adata.uns['kompot_da']['last_run_info']
-    assert 'sample_col' in adata.uns['kompot_da']['last_run_info']['params']
-    assert adata.uns['kompot_da']['last_run_info']['params']['sample_col'] == 'sample'
-    assert adata.uns['kompot_da']['last_run_info']['params']['use_sample_variance'] is True
-    
-    assert 'kompot_de' in adata.uns
-    assert 'last_run_info' in adata.uns['kompot_de']
-    assert 'params' in adata.uns['kompot_de']['last_run_info']
-    assert 'sample_col' in adata.uns['kompot_de']['last_run_info']['params']
-    assert adata.uns['kompot_de']['last_run_info']['params']['sample_col'] == 'sample'
-    assert adata.uns['kompot_de']['last_run_info']['params']['use_sample_variance'] is True
-    
-    # Verify the correct result_key was stored in the last_run_info
-    assert adata.uns['kompot_da']['last_run_info']['result_key'] == 'sample_run_da'
-    assert adata.uns['kompot_de']['last_run_info']['result_key'] == 'sample_run_de'
-
 
 def test_landmark_reuse_and_storage():
     """Test landmark reuse and optional storage feature with independent storage."""
@@ -467,47 +366,27 @@ def test_landmark_reuse_and_storage():
     adata = create_test_anndata()
     
     # First run with landmarks storage enabled
-    result1 = run_differential_analysis(
+    result1 = compute_differential_expression(
         adata,
         groupby='group',
         condition1='A',
         condition2='B',
-        abundance_key='store_landmarks_run',
-        expression_key='store_landmarks_run_de',
-        generate_html_report=False,
+        result_key='store_landmarks_run',
         compute_mahalanobis=False,  # Turn off Mahalanobis to avoid errors in testing
         store_landmarks=True,  # Enable landmark storage
-        share_landmarks=True,  # Enable landmark sharing
         n_landmarks=50,  # Explicitly set n_landmarks to ensure they are computed
     )
     
     # Verify landmarks were stored only in result keys (not in standard locations after changes)
     assert 'store_landmarks_run' in adata.uns
-    assert 'landmarks' in adata.uns['store_landmarks_run']
-    assert 'landmarks_info' in adata.uns['store_landmarks_run']
-    
-    assert 'store_landmarks_run_de' in adata.uns
-    assert 'landmarks' in adata.uns['store_landmarks_run_de']
-    assert 'landmarks_info' in adata.uns['store_landmarks_run_de']
-    
-    # Standard keys should exist but without landmarks (only landmarks_info)
-    assert 'kompot_da' in adata.uns
-    assert 'landmarks' not in adata.uns['kompot_da'], "With new implementation, landmarks should not be synchronized to standard keys"
-    assert 'landmarks_info' in adata.uns['kompot_da']
-    
-    assert 'kompot_de' in adata.uns
-    assert 'landmarks' not in adata.uns['kompot_de'], "With new implementation, landmarks should not be synchronized to standard keys"
+    assert 'landmarks' not in adata.uns['kompot_de']
     assert 'landmarks_info' in adata.uns['kompot_de']
     
     # Extract landmarks for comparison
-    da_landmarks = adata.uns['store_landmarks_run']['landmarks']
-    de_landmarks = adata.uns['store_landmarks_run_de']['landmarks']
-    
-    # No longer enforcing landmarks are the SAME OBJECT - they might be different objects with same values
-    assert da_landmarks.shape == de_landmarks.shape, "Expected landmarks to have the same shape"
+    landmarks = adata.uns['store_landmarks_run']['landmarks']
     
     # Extract the shape for verification
-    landmarks_shape = da_landmarks.shape
+    landmarks_shape = landmarks.shape
     
     # Run another analysis with store_landmarks=False
     result2 = compute_differential_abundance(
@@ -713,29 +592,6 @@ def test_disk_backed_options():
         # Check that storage usage info was captured
         assert 'disk_storage' in adata.uns['disk_test_de']
         assert 'disk_storage_dir' in adata.uns['disk_test_de']
-        
-        # Finally, run differential analysis with disk backing
-        result_all = run_differential_analysis(
-            adata,
-            groupby='group',
-            condition1='A',
-            condition2='B',
-            abundance_key='disk_test_all_da',
-            expression_key='disk_test_all_de',
-            compute_mahalanobis=True,
-            store_arrays_on_disk=True,
-            disk_storage_dir=temp_dir,
-            batch_size=10,
-            generate_html_report=False
-        )
-        
-        # Check that parameters were passed through to both abundance and expression
-        assert adata.uns['kompot_da']['last_run_info']['params']['store_arrays_on_disk'] is True
-        assert adata.uns['kompot_de']['last_run_info']['params']['store_arrays_on_disk'] is True
-        
-        # Check that disk usage stats were stored for both
-        assert 'disk_storage' in adata.uns['disk_test_all_da']
-        assert 'disk_storage' in adata.uns['disk_test_all_de']
         
         # Verify that temporary directory should be auto-cleaned for models with None dir
         # We can still test this by running another analysis without specifying a directory

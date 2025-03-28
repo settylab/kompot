@@ -93,32 +93,20 @@ def create_test_data_with_multiple_runs():
         compute_mahalanobis=False  # Avoid Mahalanobis computation errors in tests
     )
     
-    # Create a global run history (which doesn't happen in the individual function calls)
-    from kompot.anndata.workflows import run_differential_analysis
-    _ = run_differential_analysis(
-        adata,
-        groupby='group',
-        condition1='A',
-        condition2='B',
-        abundance_key='da_run3',
-        expression_key='de_run3',
-        generate_html_report=False,
-        compute_mahalanobis=False
-    )
     
     # Add test DE metric fields if they don't exist
-    lfc_key_name = 'de_run3_mean_lfc_A_to_B'
-    mahalanobis_key = 'de_run3_mahalanobis_A_to_B'
+    lfc_key_name = 'de_run2_mean_lfc_A_to_B'
+    mahalanobis_key = 'de_run2_mahalanobis_A_to_B'
     
     if lfc_key_name not in adata.var.columns:
         adata.var[lfc_key_name] = np.random.randn(adata.n_vars)
     if mahalanobis_key not in adata.var.columns:
         adata.var[mahalanobis_key] = np.random.rand(adata.n_vars)
     
-    # Make sure de_run3 has proper run_info
-    if 'de_run3' not in adata.uns:
-        adata.uns['de_run3'] = {}
-    adata.uns['de_run3']['run_info'] = {
+    # Make sure de_run2 has proper run_info
+    if 'de_run2' not in adata.uns:
+        adata.uns['de_run2'] = {}
+    adata.uns['de_run2']['run_info'] = {
         'field_names': {
             'mean_lfc_key': lfc_key_name,
             'mahalanobis_key': mahalanobis_key
@@ -131,10 +119,10 @@ def create_test_data_with_multiple_runs():
     if 'run_history' not in adata.uns['kompot_de']:
         adata.uns['kompot_de']['run_history'] = []
     
-    # Add de_run3 to kompot_de run_history
+    # Add de_run2 to kompot_de run_history
     adata.uns['kompot_de']['run_history'].append({
         'run_id': 0,
-        'expression_key': 'de_run3',
+        'expression_key': 'de_run2',
         'field_names': {
             'mean_lfc_key': lfc_key_name,
             'mahalanobis_key': mahalanobis_key
@@ -142,18 +130,18 @@ def create_test_data_with_multiple_runs():
     })
     
     # Add test DA metric fields if they don't exist
-    lfc_key_da = 'da_run3_log_fold_change_A_to_B'
-    pval_key_da = 'da_run3_neg_log10_fold_change_pvalue_A_to_B'
+    lfc_key_da = 'da_run2_log_fold_change_A_to_B'
+    pval_key_da = 'da_run2_neg_log10_fold_change_pvalue_A_to_B'
     
     if lfc_key_da not in adata.obs.columns:
         adata.obs[lfc_key_da] = np.random.randn(adata.n_obs)
     if pval_key_da not in adata.obs.columns:
         adata.obs[pval_key_da] = np.random.rand(adata.n_obs)
     
-    # Make sure da_run3 has proper run_info
-    if 'da_run3' not in adata.uns:
-        adata.uns['da_run3'] = {}
-    adata.uns['da_run3']['run_info'] = {
+    # Make sure da_run2 has proper run_info
+    if 'da_run2' not in adata.uns:
+        adata.uns['da_run2'] = {}
+    adata.uns['da_run2']['run_info'] = {
         'field_names': {
             'lfc_key': lfc_key_da,
             'pval_key': pval_key_da
@@ -166,10 +154,10 @@ def create_test_data_with_multiple_runs():
     if 'run_history' not in adata.uns['kompot_da']:
         adata.uns['kompot_da']['run_history'] = []
     
-    # Add da_run3 to kompot_da run_history
+    # Add da_run2 to kompot_da run_history
     adata.uns['kompot_da']['run_history'].append({
         'run_id': 0,
-        'abundance_key': 'da_run3',
+        'abundance_key': 'da_run2',
         'field_names': {
             'lfc_key': lfc_key_da,
             'pval_key': pval_key_da
@@ -183,8 +171,8 @@ def create_test_data_with_multiple_runs():
     # Add the combined run to the global history
     adata.uns['kompot_run_history'].append({
         'run_id': 0,
-        'abundance_key': 'da_run3',
-        'expression_key': 'de_run3',
+        'abundance_key': 'da_run2',
+        'expression_key': 'de_run2',
         'field_names': {
             'de': {
                 'mean_lfc_key': lfc_key_name,
@@ -200,8 +188,8 @@ def create_test_data_with_multiple_runs():
     # Store the latest run
     adata.uns['kompot_latest_run'] = {
         'run_id': 0,
-        'abundance_key': 'da_run3',
-        'expression_key': 'de_run3'
+        'abundance_key': 'da_run2',
+        'expression_key': 'de_run2'
     }
     
     return adata
@@ -220,14 +208,14 @@ class TestKeyInferenceFunctions:
         if 'kompot_run_history' not in self.adata.uns:
             pytest.skip("kompot_run_history not found in adata.uns")
             
-        # Get latest run which should be the one with de_run3
+        # Get latest run which should be the one with de_run2
         latest_run = self.adata.uns['kompot_latest_run']
         assert 'expression_key' in latest_run
-        assert latest_run['expression_key'] == 'de_run3'
+        assert latest_run['expression_key'] == 'de_run2'
         
         # Test inference with latest run (-1)
         lfc_key, score_key = _infer_de_keys(self.adata, run_id=-1)
-        assert 'de_run3' in lfc_key, f"Expected 'de_run3' in inferred key, got {lfc_key}"
+        assert 'de_run2' in lfc_key, f"Expected 'de_run2' in inferred key, got {lfc_key}"
         assert score_key is not None
         
         # For this test, we can't easily get the specific run_id for de_run1 or de_run2
@@ -247,14 +235,14 @@ class TestKeyInferenceFunctions:
         if 'kompot_run_history' not in self.adata.uns:
             pytest.skip("kompot_run_history not found in adata.uns")
             
-        # Get latest run which should be the one with da_run3
+        # Get latest run which should be the one with da_run2
         latest_run = self.adata.uns['kompot_latest_run']
         assert 'abundance_key' in latest_run
-        assert latest_run['abundance_key'] == 'da_run3'
+        assert latest_run['abundance_key'] == 'da_run2'
         
         # Test inference with latest run (-1)
         lfc_key, pval_key, thresholds = _infer_da_keys(self.adata, run_id=-1)
-        assert 'da_run3' in lfc_key, f"Expected 'da_run3' in inferred key, got {lfc_key}"
+        assert 'da_run2' in lfc_key, f"Expected 'da_run2' in inferred key, got {lfc_key}"
         assert pval_key is not None
         assert isinstance(thresholds, tuple)
         
@@ -361,23 +349,23 @@ class TestPlotFunctions:
             pytest.skip("scanpy not installed, skipping test")
         
         # Add necessary data for gene expression plot
-        self.adata.var['de_run3_mean_lfc_A_to_B'] = np.random.randn(self.adata.n_vars)
-        self.adata.var['de_run3_mahalanobis_A_to_B'] = np.abs(np.random.randn(self.adata.n_vars))
+        self.adata.var['de_run2_mean_lfc_A_to_B'] = np.random.randn(self.adata.n_vars)
+        self.adata.var['de_run2_mahalanobis_A_to_B'] = np.abs(np.random.randn(self.adata.n_vars))
         
         # Create layers for imputed expression and fold changes
-        self.adata.layers['de_run3_A_imputed'] = self.adata.X.copy()
-        self.adata.layers['de_run3_B_imputed'] = self.adata.X.copy() + 0.5
-        self.adata.layers['de_run3_fold_change'] = self.adata.layers['de_run3_B_imputed'] - self.adata.layers['de_run3_A_imputed']
+        self.adata.layers['de_run2_A_imputed'] = self.adata.X.copy()
+        self.adata.layers['de_run2_B_imputed'] = self.adata.X.copy() + 0.5
+        self.adata.layers['de_run2_fold_change'] = self.adata.layers['de_run2_B_imputed'] - self.adata.layers['de_run2_A_imputed']
         
         # Add layer keys to run info
         if 'kompot_de' in self.adata.uns and 'run_history' in self.adata.uns['kompot_de']:
             # Update the run history with layer information
             for run in self.adata.uns['kompot_de']['run_history']:
-                if run.get('expression_key') == 'de_run3':
+                if run.get('expression_key') == 'de_run2':
                     if 'field_names' in run:
-                        run['field_names']['imputed_key_1'] = 'de_run3_A_imputed'
-                        run['field_names']['imputed_key_2'] = 'de_run3_B_imputed'
-                        run['field_names']['fold_change_key'] = 'de_run3_fold_change'
+                        run['field_names']['imputed_key_1'] = 'de_run2_A_imputed'
+                        run['field_names']['imputed_key_2'] = 'de_run2_B_imputed'
+                        run['field_names']['fold_change_key'] = 'de_run2_fold_change'
                     break
         
         # Test gene expression plot
@@ -387,8 +375,8 @@ class TestPlotFunctions:
         fig, ax = plot_gene_expression(
             self.adata, 
             gene=gene,
-            lfc_key='de_run3_mean_lfc_A_to_B',
-            score_key='de_run3_mahalanobis_A_to_B',
+            lfc_key='de_run2_mean_lfc_A_to_B',
+            score_key='de_run2_mahalanobis_A_to_B',
             basis='X_pca',
             return_fig=True
         )

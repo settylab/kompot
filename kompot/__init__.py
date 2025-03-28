@@ -38,7 +38,6 @@ from . import anndata
 from .anndata import (
     compute_differential_abundance,
     compute_differential_expression,
-    run_differential_analysis,
     RunInfo,
     RunComparison
 )
@@ -87,7 +86,7 @@ __all__ = [
     "batch_process", "apply_batched",
     
     # AnnData functionality
-    "compute_differential_abundance", "compute_differential_expression", "run_differential_analysis", 
+    "compute_differential_abundance", "compute_differential_expression", 
     "RunInfo", "RunComparison",
     
     # Submodules
