@@ -21,7 +21,7 @@ from ..utils import (
     generate_output_field_names,
     get_environment_info
 )
-from .utils import _sanitize_name
+from .utils import _sanitize_name, parse_groups
 
 logger = logging.getLogger("kompot")
 
@@ -49,6 +49,7 @@ def compute_differential_expression(
     store_arrays_on_disk: Optional[bool] = None,
     disk_storage_dir: Optional[str] = None,
     max_memory_ratio: float = 0.8,
+    groups: Optional[Union[str, Dict[str, Any], List[Dict[str, Any]], pd.Series, np.ndarray, List[np.ndarray]]] = None,
     copy: bool = False,
     inplace: bool = True,
     result_key: str = "kompot_de",
@@ -127,6 +128,25 @@ def compute_differential_expression(
     max_memory_ratio : float, optional
         Maximum fraction of available memory that arrays should occupy before
         triggering warnings or enabling disk storage, by default 0.8 (80%).
+    groups : str, Dict, List[Dict], pd.Series, np.ndarray, List[np.ndarray], optional
+        Specification for subsetting or grouping cells for additional analysis.
+        Will be interpreted in the following ways:
+        
+        - If str: Used as column name in adata.obs.
+          - If column is boolean: True values form a subset.
+          - If column is categorical or string: Each unique value forms a subset.
+          - If column doesn't allow grouping (e.g., floats): Raises an error.
+        - If Dict: Interpreted as a filter with keys being column names of adata.obs 
+          and values being allowed values in this column.
+        - If List[Dict]: Each dictionary specifies a different subset using the same
+          filtering mechanism as above.
+        - If pd.Series or np.ndarray: Interpreted like a column specified with a string.
+        - If array of appropriate shape with boolean values: Each row specifies a subset.
+        - If List of vectors/series: Each element is processed as above.
+        
+        When subsetting is defined, the global comparison is still run first, followed by
+        analyses on each subset. Only the 'mean_log_fold_change', 'weighted_mean_log_fold_change',
+        and 'mahalanobis_distances' metrics are saved for each subset with appropriate name suffixes.
     copy : bool, optional
         If True, return a copy of the AnnData object with results added,
         by default False.
@@ -618,6 +638,10 @@ def compute_differential_expression(
         # Add suffix when sample variance is used
         sample_suffix = "_sample_var" if sample_col is not None else ""
         
+        # Create a dictionary to collect all new columns to add to adata.var
+        # This will prevent dataframe fragmentation
+        new_var_columns = {}
+        
         # Add gene-level metrics to adata.var
         if compute_mahalanobis:
             # Make sure mahalanobis_distances is an array with the same length as selected_genes
@@ -648,18 +672,15 @@ def compute_differential_expression(
                 
             # Mahalanobis distance IS impacted by sample variance
             mahalanobis_key = field_names["mahalanobis_key"]
-            # Check if column already exists and initialize only if it doesn't
-            if mahalanobis_key not in adata.var:
-                adata.var[mahalanobis_key] = pd.Series(np.nan, index=adata.var_names)
-            adata.var.loc[selected_genes, mahalanobis_key] = mahalanobis_distances
+            
+            # Add to collection for batch addition
+            new_var_columns[mahalanobis_key] = pd.Series(np.nan, index=adata.var_names)
+            new_var_columns[mahalanobis_key].loc[selected_genes] = mahalanobis_distances
         
         if differential_abundance_key is not None:
             # Use the standardized field name from field_names
             # Weighted mean log fold change is NOT impacted by sample variance
             column_name = field_names["weighted_lfc_key"]
-            # Check if column already exists and initialize only if it doesn't
-            if column_name not in adata.var:
-                adata.var[column_name] = pd.Series(np.nan, index=adata.var_names)
             
             # Extract and verify weighted_mean_log_fold_change
             weighted_lfc = expression_results['weighted_mean_log_fold_change']
@@ -685,15 +706,15 @@ def compute_differential_expression(
                 else:
                     # Truncate if the array is too long
                     weighted_lfc = weighted_lfc[:len(selected_genes)]
-            adata.var.loc[selected_genes, column_name] = weighted_lfc
+            
+            # Add to collection for batch addition
+            new_var_columns[column_name] = pd.Series(np.nan, index=adata.var_names)
+            new_var_columns[column_name].loc[selected_genes] = weighted_lfc
         
         # Add mean log fold change with descriptive name
         # Use the standardized field name from field_names
         # Mean log fold change is NOT impacted by sample variance
         mean_lfc_column = field_names["mean_lfc_key"]
-        # Check if column already exists and initialize only if it doesn't
-        if mean_lfc_column not in adata.var:
-            adata.var[mean_lfc_column] = pd.Series(np.nan, index=adata.var_names)
         
         # Extract and verify mean_log_fold_change
         mean_lfc = expression_results['mean_log_fold_change']
@@ -719,13 +740,13 @@ def compute_differential_expression(
             else:
                 # Truncate if the array is too long
                 mean_lfc = mean_lfc[:len(selected_genes)]
-        adata.var.loc[selected_genes, mean_lfc_column] = mean_lfc
+        
+        # Add to collection for batch addition
+        new_var_columns[mean_lfc_column] = pd.Series(np.nan, index=adata.var_names)
+        new_var_columns[mean_lfc_column].loc[selected_genes] = mean_lfc
         
         # Standard deviation of log fold change - this IS impacted by sample variance
         lfc_std_key = field_names["lfc_std_key"]
-        # Check if column already exists and initialize only if it doesn't
-        if lfc_std_key not in adata.var:
-            adata.var[lfc_std_key] = pd.Series(np.nan, index=adata.var_names)
         
         # Extract and verify lfc_stds
         lfc_stds = expression_results['lfc_stds']
@@ -751,13 +772,13 @@ def compute_differential_expression(
             else:
                 # Truncate if the array is too long
                 lfc_stds = lfc_stds[:len(selected_genes)]
-        adata.var.loc[selected_genes, lfc_std_key] = lfc_stds
+        
+        # Add to collection for batch addition
+        new_var_columns[lfc_std_key] = pd.Series(np.nan, index=adata.var_names)
+        new_var_columns[lfc_std_key].loc[selected_genes] = lfc_stds
         
         # Bidirectionality score - NOT impacted by sample variance
         bidir_key = field_names["bidirectionality_key"]
-        # Check if column already exists and initialize only if it doesn't
-        if bidir_key not in adata.var:
-            adata.var[bidir_key] = pd.Series(np.nan, index=adata.var_names)
         
         # Extract and verify bidirectionality
         bidirectionality = expression_results['bidirectionality']
@@ -783,7 +804,33 @@ def compute_differential_expression(
             else:
                 # Truncate if the array is too long
                 bidirectionality = bidirectionality[:len(selected_genes)]
-        adata.var.loc[selected_genes, bidir_key] = bidirectionality
+        
+        # Add to collection for batch addition
+        new_var_columns[bidir_key] = pd.Series(np.nan, index=adata.var_names)
+        new_var_columns[bidir_key].loc[selected_genes] = bidirectionality
+        
+        # Add all columns to adata.var at once to prevent dataframe fragmentation
+        if new_var_columns:
+            logger.info(f"Adding {len(new_var_columns)} columns to adata.var at once")
+            
+            # Separate existing and new columns
+            existing_columns = {}
+            new_columns = {}
+            
+            for col, values in new_var_columns.items():
+                if col in adata.var.columns:
+                    existing_columns[col] = values
+                else:
+                    new_columns[col] = values
+            
+            # Update existing columns first
+            for col, values in existing_columns.items():
+                adata.var[col] = values
+            
+            # Only concatenate for brand new columns
+            if new_columns:
+                new_df = pd.DataFrame(new_columns, index=adata.var.index)
+                adata.var = pd.concat([adata.var, new_df], axis=1)
         
         # Add cell-gene level results
         n_selected_genes = len(selected_genes)
@@ -942,8 +989,197 @@ def compute_differential_expression(
         if differential_abundance_key is not None:
             field_mapping[field_names["weighted_lfc_key"]] = {"location": "var", "type": "weighted_mean_log_fold_change", "description": "Weighted mean log fold change"}
         
+        # Process groups and perform subset-specific analyses if groups are provided
+        group_results = {}
+        subset_field_mapping = {}
+        if groups is not None:
+            logger.info("Processing group-based subsetting for differential expression analysis")
+            
+            # Parse the groups parameter to get subset masks
+            subset_masks, subset_names = parse_groups(adata, groups)
+            
+            # Check if we have any valid subsets
+            if not subset_masks:
+                logger.warning("No valid subsets found based on the 'groups' parameter")
+            else:
+                # Log the identified subsets
+                logger.info(f"Identified {len(subset_names)} subset(s): {', '.join(subset_names)}")
+                
+                # Create a dictionary to collect all new columns for each subset
+                # This will help prevent DataFrame fragmentation
+                new_var_columns = {}
+                
+                # For each subset, run prediction and store subset-specific metrics
+                for subset_name, mask in subset_masks.items():
+                    if np.sum(mask) < 10:  # Minimum cells for analysis
+                        logger.warning(f"Subset '{subset_name}' has fewer than 10 cells ({np.sum(mask)}). Skipping analysis.")
+                        continue
+                    
+                    # Only apply the mask to the current dataset's cells
+                    subset_mask = mask
+                    
+                    logger.info(f"Running differential expression analysis on subset '{subset_name}' " 
+                               f"with {np.sum(subset_mask):,} cells")
+                    
+                    # Get the subset of X_for_prediction for prediction
+                    X_subset = adata.obsm[obsm_key][subset_mask]
+                    
+                    # For subsets, disable landmarks if they exist
+                    use_subset_landmarks = False
+                    subset_landmarks = None
+                    
+                    # If we have landmarks and the subset is larger than the number of landmarks
+                    if hasattr(diff_expression, 'computed_landmarks') and diff_expression.computed_landmarks is not None:
+                        n_landmarks = diff_expression.computed_landmarks.shape[0]
+                        if np.sum(subset_mask) > n_landmarks:
+                            # Subset is larger than the number of landmarks, compute new landmarks from subset
+                            logger.info(f"Subset '{subset_name}' has {np.sum(subset_mask):,} cells, more than the {n_landmarks:,} landmarks. "
+                                       f"Computing new landmarks from the subset.")
+                            from mellon.parameters import compute_landmarks
+                            subset_landmarks = compute_landmarks(
+                                X_subset,
+                                gp_type='fixed',
+                                n_landmarks=n_landmarks,
+                                random_state=diff_expression.random_state
+                            )
+                            use_subset_landmarks = True
+                        else:
+                            # Just disable landmarks for this subset
+                            logger.debug(f"Disabling landmarks for subset '{subset_name}' with {np.sum(subset_mask):,} cells")
+                    
+                    # Run prediction for this subset using the fitted model
+                    if use_subset_landmarks:
+                        # Run with new landmarks computed from the subset
+                        subset_results = diff_expression.predict(
+                            X_subset,
+                            compute_mahalanobis=compute_mahalanobis,
+                            progress=True,  # Show progress for each subset
+                            landmarks_override=subset_landmarks
+                        )
+                    else:
+                        # Run without using landmarks
+                        subset_results = diff_expression.predict(
+                            X_subset,
+                            compute_mahalanobis=compute_mahalanobis,
+                            progress=True,  # Show progress for each subset
+                            use_landmarks=False
+                        )
+                    
+                    # Save the subset results for storage
+                    group_results[subset_name] = subset_results
+                    
+                    # Generate subset-specific field names
+                    subset_field_suffix = f"_{subset_name}"
+                    
+                    # Only store specific metrics for subsets
+                    for metric_name in ["mean_log_fold_change", "mahalanobis_distances"]:
+                        if metric_name in subset_results:
+                            # Create field name with subset suffix
+                            if metric_name == "mean_log_fold_change":
+                                base_key = field_names["mean_lfc_key"]
+                                subset_key = f"{base_key}_{subset_name}"
+                                
+                                # Extract values and collect for later addition to the dataframe
+                                subset_values = subset_results[metric_name]
+                                
+                                # Add to collection for batch addition
+                                new_var_columns[subset_key] = pd.Series(np.nan, index=adata.var_names)
+                                new_var_columns[subset_key].loc[selected_genes] = subset_values
+                                
+                                # Add to field mapping
+                                subset_field_mapping[subset_key] = {
+                                    "location": "var", 
+                                    "type": f"mean_log_fold_change_{subset_name}", 
+                                    "description": f"Mean log fold change for subset {subset_name}"
+                                }
+                                
+                            elif metric_name == "mahalanobis_distances" and compute_mahalanobis:
+                                base_key = field_names["mahalanobis_key"]
+                                subset_key = f"{base_key}_{subset_name}"
+                                
+                                # Extract values
+                                subset_values = subset_results[metric_name]
+                                
+                                # Add to collection for batch addition
+                                new_var_columns[subset_key] = pd.Series(np.nan, index=adata.var_names)
+                                new_var_columns[subset_key].loc[selected_genes] = subset_values
+                                
+                                # Add to field mapping
+                                subset_field_mapping[subset_key] = {
+                                    "location": "var", 
+                                    "type": f"mahalanobis_{subset_name}", 
+                                    "description": f"Mahalanobis distances for subset {subset_name}"
+                                }
+                    
+                    # Handle weighted mean log fold change if needed
+                    if differential_abundance_key is not None and "fold_change" in subset_results:
+                        # Get density values for the subset
+                        cond1_safe = _sanitize_name(condition1)
+                        cond2_safe = _sanitize_name(condition2)
+                        
+                        density_col1 = f"{differential_abundance_key}_log_density_{cond1_safe}"
+                        density_col2 = f"{differential_abundance_key}_log_density_{cond2_safe}"
+                        
+                        if density_col1 in adata.obs and density_col2 in adata.obs:
+                            # Filter density values to the subset
+                            log_density_condition1 = adata.obs[density_col1][subset_mask]
+                            log_density_condition2 = adata.obs[density_col2][subset_mask]
+                            
+                            # Calculate log density difference
+                            log_density_diff = log_density_condition2 - log_density_condition1
+                            
+                            # Compute weighted mean fold change for the subset
+                            weighted_lfc = compute_weighted_mean_fold_change(
+                                subset_results['fold_change'],
+                                log_density_diff=log_density_diff
+                            )
+                            
+                            # Add to collection for batch addition
+                            base_key = field_names["weighted_lfc_key"]
+                            subset_key = f"{base_key}_{subset_name}"
+                            
+                            new_var_columns[subset_key] = pd.Series(np.nan, index=adata.var_names)
+                            new_var_columns[subset_key].loc[selected_genes] = weighted_lfc
+                            
+                            # Add to field mapping
+                            subset_field_mapping[subset_key] = {
+                                "location": "var", 
+                                "type": f"weighted_mean_log_fold_change_{subset_name}", 
+                                "description": f"Weighted mean log fold change for subset {subset_name}"
+                            }
+                
+                # After processing all subsets, add all columns to adata.var at once
+                if new_var_columns:
+                    logger.info(f"Adding {len(new_var_columns)} columns to adata.var for all subsets at once")
+                    
+                    # Separate existing and new columns
+                    existing_columns = {}
+                    new_columns = {}
+                    
+                    for col, values in new_var_columns.items():
+                        if col in adata.var.columns:
+                            existing_columns[col] = values
+                        else:
+                            new_columns[col] = values
+                    
+                    # Update existing columns first
+                    for col, values in existing_columns.items():
+                        adata.var[col] = values
+                    
+                    # Only concatenate for brand new columns
+                    if new_columns:
+                        new_df = pd.DataFrame(new_columns, index=adata.var.index)
+                        adata.var = pd.concat([adata.var, new_df], axis=1)
+        
+        # Add subset fields to the main field mapping
+        field_mapping.update(subset_field_mapping)
+        
         # Add this mapping to run info
         current_run_info["field_mapping"] = field_mapping
+        
+        # Store subset names in run info if groups were provided
+        if groups is not None and subset_names:
+            current_run_info["subset_names"] = subset_names
 
         # Also track and update all AnnData keys that are being written to
         anndata_field_tracking = {}
@@ -962,6 +1198,13 @@ def compute_differential_expression(
         if "uns" not in anndata_field_tracking:
             anndata_field_tracking["uns"] = {}
         anndata_field_tracking["uns"][result_key] = new_run_id
+        
+        # Also track subset-specific fields
+        for subset_key, field_info in subset_field_mapping.items():
+            location = field_info["location"]
+            if location not in anndata_field_tracking:
+                anndata_field_tracking[location] = {}
+            anndata_field_tracking[location][subset_key] = new_run_id
         
         # Add or update tracking information in adata.uns[storage_key]
         if "anndata_fields" not in adata.uns[storage_key]:

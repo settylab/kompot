@@ -20,6 +20,207 @@ def _sanitize_name(name):
     return "".join([c if c.isalnum() else "_" for c in name])
 
 
+def parse_groups(adata, groups):
+    """
+    Parse various group specifications into a dictionary of subset masks.
+    
+    Parameters
+    ----------
+    adata : AnnData
+        AnnData object
+    groups : str, Dict, List[Dict], pd.Series, np.ndarray, List[np.ndarray]
+        Group specification for subsetting. Can be:
+        - str: column name in adata.obs
+        - Dict: filter with keys as column names in adata.obs and values as allowed values
+        - List[Dict]: list of filters for different subgroups
+        - pd.Series/np.ndarray: values to divide or subset
+        - np.ndarray with boolean values: each row specifies a subset
+        - List of vectors/series: multiple subsetting vectors
+        
+    Returns
+    -------
+    Tuple[Dict[str, np.ndarray], List[str]]
+        - Dictionary of subset masks, with keys as subset names and values as boolean masks
+        - List of subset names in the order they were defined
+    
+    Raises
+    ------
+    ValueError
+        If groups cannot be interpreted for subsetting, or if column does not exist
+    """
+    subset_masks = {}
+    subset_names = []
+    
+    # Case 1: String (column name in adata.obs)
+    if isinstance(groups, str):
+        group_col = groups
+        if group_col not in adata.obs:
+            raise ValueError(f"Column '{group_col}' not found in adata.obs")
+        
+        col_dtype = adata.obs[group_col].dtype
+        col_values = adata.obs[group_col]
+        
+        # Boolean column - single subset of True values
+        if pd.api.types.is_bool_dtype(col_dtype):
+            subset_masks["True"] = col_values.values
+            subset_names.append("True")
+        # Categorical or string column - subset for each category
+        elif isinstance(col_dtype, pd.CategoricalDtype) or pd.api.types.is_string_dtype(col_dtype):
+            for category in adata.obs[group_col].unique():
+                mask = (adata.obs[group_col] == category).values
+                subset_name = str(category)
+                subset_masks[subset_name] = mask
+                subset_names.append(subset_name)
+        # Float column - not valid for grouping
+        elif pd.api.types.is_float_dtype(col_dtype):
+            raise ValueError(f"Column '{group_col}' has float values which cannot be used for grouping")
+        else:
+            # Try to convert to categories and use those for grouping
+            try:
+                for category in adata.obs[group_col].unique():
+                    mask = (adata.obs[group_col] == category).values
+                    subset_name = str(category)
+                    subset_masks[subset_name] = mask
+                    subset_names.append(subset_name)
+            except Exception as e:
+                raise ValueError(f"Cannot interpret column '{group_col}' for grouping: {str(e)}")
+    
+    # Case 2: Dictionary (filter on obs columns)
+    elif isinstance(groups, dict):
+        # Use the dictionary as a single filter
+        mask = np.ones(adata.n_obs, dtype=bool)
+        filter_desc = []
+        
+        for col, values in groups.items():
+            if col not in adata.obs:
+                raise ValueError(f"Column '{col}' not found in adata.obs")
+            
+            # Convert single value to list for uniform handling
+            if not isinstance(values, (list, tuple, np.ndarray, pd.Series)):
+                values = [values]
+            
+            # Create a submask for each value
+            submask = np.zeros(adata.n_obs, dtype=bool)
+            for value in values:
+                submask |= (adata.obs[col] == value).values
+            
+            mask &= submask
+            filter_desc.append(f"{col}={','.join(map(str, values))}")
+        
+        subset_name = "_".join(filter_desc)
+        subset_masks[subset_name] = mask
+        subset_names.append(subset_name)
+    
+    # Case 3: List of dictionaries (multiple filters)
+    elif isinstance(groups, list) and all(isinstance(g, dict) for g in groups):
+        for i, group_dict in enumerate(groups):
+            mask = np.ones(adata.n_obs, dtype=bool)
+            filter_desc = []
+            
+            for col, values in group_dict.items():
+                if col not in adata.obs:
+                    raise ValueError(f"Column '{col}' not found in adata.obs")
+                
+                # Convert single value to list for uniform handling
+                if not isinstance(values, (list, tuple, np.ndarray, pd.Series)):
+                    values = [values]
+                
+                # Create a submask for each value
+                submask = np.zeros(adata.n_obs, dtype=bool)
+                for value in values:
+                    submask |= (adata.obs[col] == value).values
+                
+                mask &= submask
+                filter_desc.append(f"{col}={','.join(map(str, values))}")
+            
+            subset_name = f"group{i+1}" if not filter_desc else "_".join(filter_desc)
+            subset_masks[subset_name] = mask
+            subset_names.append(subset_name)
+    
+    # Case 4: 2D Array of boolean masks - needs to be checked BEFORE the 1D array case
+    elif isinstance(groups, np.ndarray) and groups.ndim == 2:
+        # First check if it's a boolean array (which is what we're looking for)
+        if pd.api.types.is_bool_dtype(groups.dtype) or np.all(np.isin(groups, [0, 1, True, False])):
+            # Check shapes to ensure it's a 2D array of masks
+            n_subsets, n_cells = groups.shape
+            
+            # If the first dimension is larger, assume it's an array of observations, not masks
+            if n_subsets > n_cells:
+                # This is likely not a set of masks, but an array of values (features x cells)
+                raise ValueError(f"2D array with shape {groups.shape} doesn't match expected mask format. "
+                               f"The first dimension ({n_subsets}) should be the number of masks and "
+                               f"the second dimension ({n_cells}) should match the number of cells ({adata.n_obs}).")
+                
+            # Check if the second dimension matches the number of cells
+            if n_cells != adata.n_obs:
+                raise ValueError(f"2D array of shape {groups.shape} doesn't match the number of cells ({adata.n_obs})")
+            
+            # Each row is a different subset
+            for i in range(n_subsets):
+                subset_name = f"subset{i+1}"
+                # Convert to boolean array if not already
+                mask = groups[i].astype(bool)
+                subset_masks[subset_name] = mask
+                subset_names.append(subset_name)
+                
+    # Case 5: Series or array (like a column)
+    elif isinstance(groups, (pd.Series, np.ndarray)):
+        # Ensure it's the right shape
+        if len(groups) != adata.n_obs:
+            raise ValueError(f"Length of groups ({len(groups)}) doesn't match number of cells ({adata.n_obs})")
+        
+        # Handle boolean mask directly
+        if pd.api.types.is_bool_dtype(groups.dtype):
+            subset_masks["True"] = np.array(groups)
+            subset_names.append("True")
+        else:
+            # Use unique values to create subsets
+            unique_values = np.unique(groups)
+            for value in unique_values:
+                if isinstance(groups, pd.Series):
+                    mask = (groups == value).values
+                else:
+                    mask = (groups == value)
+                subset_name = str(value)
+                subset_masks[subset_name] = mask
+                subset_names.append(subset_name)
+    
+    # Case 6: List of arrays/series
+    elif isinstance(groups, list) and all(isinstance(g, (np.ndarray, pd.Series)) for g in groups):
+        for i, group_arr in enumerate(groups):
+            # Check length
+            if len(group_arr) != adata.n_obs:
+                raise ValueError(f"Length of group {i+1} ({len(group_arr)}) doesn't match number of cells ({adata.n_obs})")
+            
+            # Handle boolean mask directly
+            if pd.api.types.is_bool_dtype(group_arr.dtype):
+                subset_name = f"subset{i+1}"
+                subset_masks[subset_name] = np.array(group_arr)
+                subset_names.append(subset_name)
+            else:
+                # Use unique values to create subsets
+                unique_values = np.unique(group_arr)
+                for value in unique_values:
+                    if isinstance(group_arr, pd.Series):
+                        mask = (group_arr == value).values
+                    else:
+                        mask = (group_arr == value)
+                    subset_name = f"subset{i+1}_{value}"
+                    subset_masks[subset_name] = mask
+                    subset_names.append(subset_name)
+    
+    # If we couldn't interpret the groups parameter
+    else:
+        raise ValueError(
+            "Cannot interpret 'groups' parameter. It should be a string (column name), "
+            "a dictionary (filter), a list of dictionaries (multiple filters), "
+            "a Series/array (like a column), an array of boolean masks, "
+            "or a list of arrays/series."
+        )
+        
+    return subset_masks, subset_names
+
+
 class RunComparison:
     """
     Class to display comparison results between two runs.

@@ -10,6 +10,7 @@ All notable changes to this project will be documented in this file.
  - implement `RunInfo` utility to fetch information about previous runs
  - bugfix passing `ax` to `kompot.plot.embedding`
  - implemented `mgroups` in `kompot.plot.embedding` to plot multiple groupings
+ - implement group-wise differential expression through `groups` parameter in `kompot.compute_differential_expression`
 
 ## [0.3.3]
 

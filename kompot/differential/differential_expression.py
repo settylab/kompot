@@ -602,7 +602,9 @@ class DifferentialExpression:
         self, 
         X_new: np.ndarray, 
         compute_mahalanobis: bool = False,
-        progress: bool = True
+        progress: bool = True,
+        use_landmarks: bool = True,
+        landmarks_override: Optional[np.ndarray] = None
     ) -> Dict[str, np.ndarray]:
         """
         Predict gene expression and differential metrics for new points.
@@ -619,6 +621,14 @@ class DifferentialExpression:
             so it's optional in the predict method. Default is False.
         progress : bool, optional
             Whether to show progress bars for gene-wise operations, by default True.
+        use_landmarks : bool, optional
+            Whether to use landmarks for Mahalanobis distance calculation if available, by default True.
+            Setting to False will force computation using all provided points, which can be more accurate
+            for small datasets or subsets.
+        landmarks_override : np.ndarray, optional
+            Explicitly provided landmarks to use instead of the ones from the fitted model.
+            Shape (n_landmarks, n_features). Used when custom landmarks are needed for a specific
+            prediction, such as when analyzing a subset of data.
             
         Returns
         -------
@@ -740,6 +750,8 @@ class DifferentialExpression:
             mahalanobis_distances = self.compute_mahalanobis_distances(
                 X=X_new, 
                 fold_change=fold_change,
+                use_landmarks=use_landmarks,  # Pass the use_landmarks parameter
+                landmarks_override=landmarks_override,  # Pass any custom landmarks
                 progress=progress  # Use the progress parameter here
             )
             
@@ -771,6 +783,8 @@ class DifferentialExpression:
                     temp_result = self.compute_mahalanobis_distances(
                         X=X_new, 
                         fold_change=fold_change,
+                        use_landmarks=use_landmarks,  # Pass the use_landmarks parameter
+                        landmarks_override=landmarks_override,  # Pass any custom landmarks
                         progress=progress  # Use the progress parameter here
                     )
                     # The actual distances will be discarded, we just want the side effect of computing the variance
