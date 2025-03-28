@@ -205,9 +205,12 @@ def compute_differential_expression(
         ],
         "layers": [
             field_names["imputed_key_1"],        # Not impacted by sample variance
+            field_names["imputed_key_2"],        # Not impacted by sample variance
             field_names["fold_change_key"]       # Not impacted by sample variance
         ]
     }
+    if differential_abundance_key is not None:
+        all_patterns["var"].append(field_names["weighted_lfc_key"])
     
     # Track overall results
     has_overwrites = False
@@ -916,8 +919,33 @@ def compute_differential_expression(
         
         # Store current params and run info
         adata.uns[storage_key]["last_run_info"] = current_run_info
+
         
-        # Track all AnnData keys that are being written to
+        # Create a comprehensive field-to-location mapping for field tracking
+        # This maps the full field names to their locations and descriptions
+        field_mapping = {
+            # Var fields
+            field_names["mean_lfc_key"]: {"location": "var", "type": "mean_log_fold_change", "description": "Mean log fold change values"},
+            field_names["lfc_std_key"]: {"location": "var", "type": "log_fold_change_std", "description": "Standard deviation of log fold changes"},
+            field_names["bidirectionality_key"]: {"location": "var", "type": "bidirectionality", "description": "Bidirectionality scores"},
+            
+            # Layer fields
+            field_names["imputed_key_1"]: {"location": "layers", "type": "imputed", "description": f"Imputed expression for {condition1}"},
+            field_names["imputed_key_2"]: {"location": "layers", "type": "imputed", "description": f"Imputed expression for {condition2}"},
+            field_names["fold_change_key"]: {"location": "layers", "type": "fold_change", "description": "Log fold change for each cell and gene"},
+        }
+        
+        # Add optional fields if present
+        if compute_mahalanobis:
+            field_mapping[field_names["mahalanobis_key"]] = {"location": "var", "type": "mahalanobis", "description": "Mahalanobis distances"}
+            
+        if differential_abundance_key is not None:
+            field_mapping[field_names["weighted_lfc_key"]] = {"location": "var", "type": "weighted_mean_log_fold_change", "description": "Weighted mean log fold change"}
+        
+        # Add this mapping to run info
+        current_run_info["field_mapping"] = field_mapping
+
+        # Also track and update all AnnData keys that are being written to
         anndata_field_tracking = {}
         
         # Use all_patterns to track fields in each location

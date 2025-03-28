@@ -538,7 +538,25 @@ def compute_differential_abundance(
     # Store current params and run info
     adata.uns[storage_key]["last_run_info"] = current_run_info
     
-    # Track all AnnData keys that are being written to
+    # Create a comprehensive field-to-location mapping for field tracking
+    # This maps the full field names to their locations
+    field_mapping = {
+        # Obs fields
+        field_names["lfc_key"]: {"location": "obs", "type": "log_fold_change", "description": "Log fold change values"},
+        field_names["zscore_key"]: {"location": "obs", "type": "log_fold_change_zscore", "description": "Z-scores for fold changes"},
+        field_names["pval_key"]: {"location": "obs", "type": "pvalue", "description": "Negative log10 p-values"},
+        field_names["direction_key"]: {"location": "obs", "type": "direction", "description": "Direction classification (up/down/neutral)"},
+        field_names["density_key_1"]: {"location": "obs", "type": "density", "description": f"Log density for {condition1}"},
+        field_names["density_key_2"]: {"location": "obs", "type": "density", "description": f"Log density for {condition2}"},
+        
+        # Uns fields
+        f"{field_names['direction_key']}_colors": {"location": "uns", "type": "colors", "description": "Color mapping for direction categories"}
+    }
+
+    # Add this mapping to run info
+    current_run_info["field_mapping"] = field_mapping
+
+    # Also track and update all AnnData keys that are being written to
     anndata_field_tracking = {
         "obs": {},
         "uns": {}

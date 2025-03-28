@@ -1,4 +1,12 @@
 """Core utility functions for anndata module."""
+import pandas as pd
+import numpy as np
+from typing import Optional, Dict, Any, List, Union, Tuple
+import logging
+import pprint
+import json
+
+logger = logging.getLogger("kompot")
 
 def _sanitize_name(name):
     """Convert a string to a valid column/key name.
@@ -10,3 +18,1284 @@ def _sanitize_name(name):
         String with invalid characters replaced.
     """
     return "".join([c if c.isalnum() else "_" for c in name])
+
+
+class RunComparison:
+    """
+    Class to display comparison results between two runs.
+    
+    This class provides a convenient interface to examine differences
+    between two differential analysis runs, with nice formatting for
+    both terminal and Jupyter notebook environments.
+    
+    Attributes
+    ----------
+    adata : AnnData
+        AnnData object containing the run information
+    this_run_id : int
+        Run ID for the first run
+    other_run_id : int
+        Run ID for the second run
+    analysis_type : str
+        Type of analysis ('de' or 'da')
+    parameter_differences : Dict[str, Dict[str, Any]]
+        Dictionary of parameter differences
+    field_differences : Dict[str, Dict[str, List[str]]]
+        Dictionary of field differences by location
+    this_run_adjusted_id : int
+        The adjusted (positive) run ID for the first run
+    other_run_adjusted_id : int
+        The adjusted (positive) run ID for the second run
+    overwritten_fields : List[Dict[str, Any]]
+        List of fields that were overwritten by one run from the other
+    """
+    
+    def __init__(self, 
+                 adata, 
+                 run_id1: int, 
+                 run_id2: int, 
+                 analysis_type: str):
+        """
+        Initialize a RunComparison object.
+        
+        Parameters
+        ----------
+        adata : AnnData
+            AnnData object containing run history
+        run_id1 : int
+            First run ID to compare
+        run_id2 : int
+            Second run ID to compare
+        analysis_type : str
+            Type of analysis: 'de' for differential expression or 
+            'da' for differential abundance
+        """
+        self.adata = adata
+        self.this_run_id = run_id1
+        self.other_run_id = run_id2
+        self.analysis_type = analysis_type
+        self.storage_key = f"kompot_{analysis_type}"
+        
+        # First, get the run info for both runs
+        from ..utils import get_run_from_history
+        
+        # Get the run info for the first run
+        this_run_info = get_run_from_history(adata, run_id=run_id1, analysis_type=analysis_type)
+        if this_run_info is None:
+            raise ValueError(f"Run ID {run_id1} not found in {analysis_type} run history.")
+        
+        # Get the run info for the second run
+        other_run_info = get_run_from_history(adata, run_id=run_id2, analysis_type=analysis_type)
+        if other_run_info is None:
+            raise ValueError(f"Run ID {run_id2} not found in {analysis_type} run history.")
+        
+        # Make sure we use adjusted run IDs
+        self.this_run_adjusted_id = this_run_info.get('adjusted_run_id', run_id1)
+        self.other_run_adjusted_id = other_run_info.get('adjusted_run_id', run_id2)
+        
+        # Store timestamps for display
+        self.this_timestamp = this_run_info.get('timestamp', '')
+        self.other_timestamp = other_run_info.get('timestamp', '')
+        
+        # Compare parameters
+        param_comparison = {}
+        this_params = this_run_info.get('params', {})
+        other_params = other_run_info.get('params', {})
+        all_params = set(list(this_params.keys()) + list(other_params.keys()))
+        
+        for param in all_params:
+            this_value = this_params.get(param, None)
+            other_value = other_params.get(param, None)
+            
+            if this_value != other_value:
+                param_comparison[param] = {
+                    'this_run': this_value,
+                    'other_run': other_value
+                }
+        
+        self.parameter_differences = param_comparison
+        
+        # Extract field names and locations from run info
+        this_field_names = this_run_info.get('field_names', {})
+        other_field_names = other_run_info.get('field_names', {})
+        
+        # Store field mappings to know where fields were written
+        self.this_field_mapping = this_run_info.get('field_mapping', {})
+        self.other_field_mapping = other_run_info.get('field_mapping', {})
+        
+        # Get fields written by each run from tracking information
+        self.this_run_fields = self._get_fields_for_run(self.this_run_adjusted_id)
+        self.other_run_fields = self._get_fields_for_run(self.other_run_adjusted_id)
+        
+        # Calculate field differences
+        self.field_differences = self._calculate_field_differences()
+        
+        # Find overwritten fields
+        self.overwritten_fields = self._find_overwritten_fields()
+    
+    def _get_fields_for_run(self, run_id: int) -> Dict[str, List[str]]:
+        """
+        Get all fields in the AnnData object that were written by this run.
+        
+        Parameters
+        ----------
+        run_id : int
+            The adjusted run ID to find fields for
+            
+        Returns
+        -------
+        Dict[str, List[str]]
+            Dictionary with AnnData locations as keys and lists of field names as values
+        """
+        if (self.storage_key not in self.adata.uns or 
+            'anndata_fields' not in self.adata.uns[self.storage_key]):
+            return {}
+            
+        tracking = self.adata.uns[self.storage_key]['anndata_fields']
+        result = {}
+        
+        # Initialize result for all locations
+        for location in tracking.keys():
+            result[location] = []
+        
+        # Collect fields by run ID
+        for location, fields in tracking.items():
+            for field, field_run_id in fields.items():
+                if field_run_id == run_id:
+                    result[location].append(field)
+        
+        return result
+    
+    def _calculate_field_differences(self) -> Dict[str, Dict[str, List[Dict[str, Any]]]]:
+        """
+        Calculate differences in fields between the two runs, including current field ownership.
+        
+        Returns
+        -------
+        Dict[str, Dict[str, List[Dict[str, Any]]]]
+            Dictionary of field differences by location, with enhanced field information
+        """
+        field_differences = {}
+        
+        # Get all locations from both runs
+        all_locations = set()
+        for location in list(self.this_run_fields.keys()) + list(self.other_run_fields.keys()):
+            all_locations.add(location)
+        
+        # Get field ownership information from anndata_fields tracking
+        field_ownership = {}
+        if (self.storage_key in self.adata.uns and 'anndata_fields' in self.adata.uns[self.storage_key]):
+            tracking = self.adata.uns[self.storage_key]['anndata_fields']
+            for location, fields in tracking.items():
+                if location not in field_ownership:
+                    field_ownership[location] = {}
+                for field, owner_id in fields.items():
+                    field_ownership[location][field] = owner_id
+        
+        # Compare fields for each location
+        for location in all_locations:
+            this_fields = set(self.this_run_fields.get(location, []))
+            other_fields = set(self.other_run_fields.get(location, []))
+            
+            only_this = this_fields - other_fields
+            only_other = other_fields - this_fields
+            both = this_fields.intersection(other_fields)
+            
+            if only_this or only_other or both:
+                field_differences[location] = {
+                    'only_this_run': [],
+                    'only_other_run': [],
+                    'both_runs': []
+                }
+                
+                # Process fields only in this run
+                for field in sorted(list(only_this)):
+                    field_info = {
+                        "field": field,
+                        "location": location,
+                        "type": None,
+                        "description": None,
+                        "current_owner": None
+                    }
+                    
+                    # Add mapping information if available
+                    if field in self.this_field_mapping:
+                        mapping_info = self.this_field_mapping[field]
+                        field_info["type"] = mapping_info.get("type")
+                        field_info["description"] = mapping_info.get("description")
+                    
+                    # Add current owner info
+                    if location in field_ownership and field in field_ownership[location]:
+                        current_owner = field_ownership[location][field]
+                        field_info["current_owner"] = current_owner
+                        # Is the current owner one of our compared runs?
+                        if current_owner == self.this_run_adjusted_id:
+                            field_info["owned_by"] = "this_run"
+                        elif current_owner == self.other_run_adjusted_id:
+                            field_info["owned_by"] = "other_run"
+                        else:
+                            field_info["owned_by"] = "different_run"
+                    
+                    field_differences[location]['only_this_run'].append(field_info)
+                
+                # Process fields only in other run
+                for field in sorted(list(only_other)):
+                    field_info = {
+                        "field": field,
+                        "location": location,
+                        "type": None,
+                        "description": None,
+                        "current_owner": None
+                    }
+                    
+                    # Add mapping information if available
+                    if field in self.other_field_mapping:
+                        mapping_info = self.other_field_mapping[field]
+                        field_info["type"] = mapping_info.get("type")
+                        field_info["description"] = mapping_info.get("description")
+                    
+                    # Add current owner info
+                    if location in field_ownership and field in field_ownership[location]:
+                        current_owner = field_ownership[location][field]
+                        field_info["current_owner"] = current_owner
+                        # Is the current owner one of our compared runs?
+                        if current_owner == self.this_run_adjusted_id:
+                            field_info["owned_by"] = "this_run"
+                        elif current_owner == self.other_run_adjusted_id:
+                            field_info["owned_by"] = "other_run"
+                        else:
+                            field_info["owned_by"] = "different_run"
+                    
+                    field_differences[location]['only_other_run'].append(field_info)
+                
+                # Process fields in both runs
+                for field in sorted(list(both)):
+                    field_info = {
+                        "field": field,
+                        "location": location,
+                        "type": None,
+                        "description": None,
+                        "current_owner": None
+                    }
+                    
+                    # Try to find info in either mapping (first this run, then other run)
+                    if field in self.this_field_mapping:
+                        mapping_info = self.this_field_mapping[field]
+                        field_info["type"] = mapping_info.get("type")
+                        field_info["description"] = mapping_info.get("description")
+                    elif field in self.other_field_mapping:
+                        mapping_info = self.other_field_mapping[field]
+                        field_info["type"] = mapping_info.get("type")
+                        field_info["description"] = mapping_info.get("description")
+                    
+                    # Add current owner info
+                    if location in field_ownership and field in field_ownership[location]:
+                        current_owner = field_ownership[location][field]
+                        field_info["current_owner"] = current_owner
+                        # Is the current owner one of our compared runs?
+                        if current_owner == self.this_run_adjusted_id:
+                            field_info["owned_by"] = "this_run"
+                        elif current_owner == self.other_run_adjusted_id:
+                            field_info["owned_by"] = "other_run"
+                        else:
+                            field_info["owned_by"] = "different_run"
+                    
+                    field_differences[location]['both_runs'].append(field_info)
+        
+        return field_differences
+    
+    def _find_overwritten_fields(self) -> List[Dict[str, Any]]:
+        """
+        Find fields that were overwritten by one run from the other.
+        
+        Returns
+        -------
+        List[Dict[str, Any]]
+            List of overwritten field information, each containing:
+            - field: The field name
+            - location: The location in AnnData (obs, var, etc.)
+            - original_run_id: The run ID that originally created the field
+            - overwritten_by_run_id: The run ID that overwrote the field
+        """
+        if (self.storage_key not in self.adata.uns or 
+            'anndata_fields' not in self.adata.uns[self.storage_key]):
+            return []
+            
+        tracking = self.adata.uns[self.storage_key]['anndata_fields']
+        overwritten = []
+        
+        # Get run history to check chronological order
+        if 'run_history' not in self.adata.uns[self.storage_key]:
+            return []
+        
+        run_history = self.adata.uns[self.storage_key]['run_history']
+        
+        # Determine which run came first
+        if self.this_run_adjusted_id < self.other_run_adjusted_id:
+            earlier_run_id = self.this_run_adjusted_id
+            later_run_id = self.other_run_adjusted_id
+        else:
+            earlier_run_id = self.other_run_adjusted_id
+            later_run_id = self.this_run_adjusted_id
+        
+        # Find fields that appear in both runs' field names
+        # Go through each location and check fields
+        for location in set(list(self.this_run_fields.keys()) + list(self.other_run_fields.keys())):
+            if location not in tracking:
+                continue
+            
+            # Get fields from each run at this location
+            this_fields = set(self.this_run_fields.get(location, []))
+            other_fields = set(self.other_run_fields.get(location, []))
+            
+            # Find fields in common between both runs
+            common_fields = this_fields.intersection(other_fields)
+            
+            # Check each common field to see who currently owns it
+            for field in common_fields:
+                if field not in tracking[location]:
+                    continue
+                    
+                current_owner = tracking[location][field]
+                
+                # Determine if it was overwritten
+                if current_owner == self.this_run_adjusted_id and self.this_run_adjusted_id > self.other_run_adjusted_id:
+                    # Field is owned by this_run and this_run is newer
+                    overwritten.append({
+                        'field': field,
+                        'location': location,
+                        'original_run_id': self.other_run_adjusted_id,
+                        'overwritten_by_run_id': self.this_run_adjusted_id
+                    })
+                elif current_owner == self.other_run_adjusted_id and self.other_run_adjusted_id > self.this_run_adjusted_id:
+                    # Field is owned by other_run and other_run is newer
+                    overwritten.append({
+                        'field': field,
+                        'location': location,
+                        'original_run_id': self.this_run_adjusted_id,
+                        'overwritten_by_run_id': self.other_run_adjusted_id
+                    })
+        
+        # If no overwritten fields were found, look for fields with the same name
+        # This handles cases where both runs use the same result_key
+        if not overwritten:
+            for location in set(list(self.this_run_fields.keys()) + list(self.other_run_fields.keys())):
+                if location not in tracking:
+                    continue
+                    
+                # Get all fields in this location for both runs
+                this_fields = set(self.this_run_fields.get(location, []))
+                other_fields = set(self.other_run_fields.get(location, []))
+                
+                # Find common fields
+                common_fields = this_fields.intersection(other_fields)
+                
+                # If both runs are in the sequence and there are common fields,
+                # assume fields from the earlier run were overwritten by the later run
+                if common_fields and abs(self.this_run_adjusted_id - self.other_run_adjusted_id) == 1:
+                    if self.this_run_adjusted_id > self.other_run_adjusted_id:
+                        # this_run is newer, it likely overwrote other_run's fields
+                        for field in common_fields:
+                            overwritten.append({
+                                'field': field,
+                                'location': location,
+                                'original_run_id': self.other_run_adjusted_id,
+                                'overwritten_by_run_id': self.this_run_adjusted_id
+                            })
+                    else:
+                        # other_run is newer, it likely overwrote this_run's fields
+                        for field in common_fields:
+                            overwritten.append({
+                                'field': field,
+                                'location': location,
+                                'original_run_id': self.this_run_adjusted_id,
+                                'overwritten_by_run_id': self.other_run_adjusted_id
+                            })
+        
+        return overwritten
+        
+    def __str__(self) -> str:
+        """
+        String representation of the comparison.
+        
+        Returns
+        -------
+        str
+            Human-readable comparison summary
+        """
+        lines = [
+            f"Comparison of Run {self.this_run_adjusted_id} and Run {self.other_run_adjusted_id}",
+            f"Run {self.this_run_adjusted_id} timestamp: {self.this_timestamp}",
+            f"Run {self.other_run_adjusted_id} timestamp: {self.other_timestamp}",
+            ""
+        ]
+        
+        # Parameter differences
+        if self.parameter_differences:
+            lines.append("Parameter Differences:")
+            for param, values in self.parameter_differences.items():
+                lines.append(f"  {param}:")
+                lines.append(f"    Run {self.this_run_adjusted_id}: {values['this_run']}")
+                lines.append(f"    Run {self.other_run_adjusted_id}: {values['other_run']}")
+            lines.append("")
+        else:
+            lines.append("No parameter differences found")
+            lines.append("")
+        
+        # Field differences with tabular format
+        if self.field_differences:
+            lines.append("Field Differences:")
+            
+            # Collect all fields for a more organized display
+            all_diff_fields = []
+            for location, diffs in self.field_differences.items():
+                # Process fields only in this run
+                for field_info in diffs.get('only_this_run', []):
+                    if isinstance(field_info, dict):
+                        field_info['category'] = f"Only in Run {self.this_run_adjusted_id}"
+                        field_info['display_location'] = location
+                        all_diff_fields.append(field_info)
+                
+                # Process fields only in other run
+                for field_info in diffs.get('only_other_run', []):
+                    if isinstance(field_info, dict):
+                        field_info['category'] = f"Only in Run {self.other_run_adjusted_id}"
+                        field_info['display_location'] = location
+                        all_diff_fields.append(field_info)
+                
+                # Process fields in both runs
+                for field_info in diffs.get('both_runs', []):
+                    if isinstance(field_info, dict):
+                        field_info['category'] = "In both runs"
+                        field_info['display_location'] = location
+                        all_diff_fields.append(field_info)
+            
+            # If we have fields to display, create a nice table
+            if all_diff_fields:
+                # Prepare tabular headers
+                lines.append("")
+                lines.append("  ┌───────────────────────────────┬──────────┬────────────────────────┬───────────────┬───────────────────┐")
+                lines.append("  │ Field Name                    │ Location │ Description            │ Status        │ Current Owner     │")
+                lines.append("  ├───────────────────────────────┼──────────┼────────────────────────┼───────────────┼───────────────────┤")
+                
+                # Sort fields by location and name
+                all_diff_fields.sort(key=lambda x: (x.get('display_location', ''), x.get('field', '')))
+                
+                # Add each field as a row
+                for info in all_diff_fields:
+                    name = info.get('field', '')[:31].ljust(31)  # Wider field name column
+                    location = info.get('display_location', '')[:8].ljust(8)
+                    desc = (info.get('description') or "")[:24].ljust(24)  # Narrower description
+                    category = info.get('category', '')[:13].ljust(13)  # Slightly narrower status
+                    
+                    # Determine current owner display 
+                    owner_id = info.get('current_owner')
+                    owned_by = info.get('owned_by')
+                    
+                    if owned_by == 'this_run':
+                        owner_display = f"Run {self.this_run_adjusted_id} (current)"
+                    elif owned_by == 'other_run':
+                        owner_display = f"Run {self.other_run_adjusted_id} (current)"
+                    elif owner_id is not None:
+                        owner_display = f"Run {owner_id} (different)"
+                    else:
+                        owner_display = "Unknown"
+                        
+                    owner_display = owner_display[:17].ljust(17)
+                    
+                    lines.append(f"  │ {name} │ {location} │ {desc} │ {category} │ {owner_display} │")
+                
+                lines.append("  └───────────────────────────────┴──────────┴────────────────────────┴───────────────┴───────────────────┘")
+            lines.append("")
+        else:
+            lines.append("No field differences found")
+            lines.append("")
+        
+        # We no longer need a separate Overwritten Fields section since this info is now in the Field Differences table
+        
+        return "\n".join(lines)
+    
+    def _repr_html_(self) -> str:
+        """
+        HTML representation for Jupyter notebooks.
+        
+        Returns
+        -------
+        str
+            HTML-formatted comparison
+        """
+        html = [
+            "<div style='max-width:800px'>",
+            f"<h3>Comparison of Run {self.this_run_adjusted_id} and Run {self.other_run_adjusted_id}</h3>",
+            "<table style='width:100%; border-collapse:collapse; margin-bottom:10px'>",
+            "<tr style='background-color:#f0f0f0'>",
+            "<th style='text-align:left; padding:5px'>Run</th>",
+            "<th style='text-align:left; padding:5px'>Timestamp</th>",
+            "</tr>"
+        ]
+        
+        # Add run info
+        html.append(f"<tr><td style='padding:5px; border:1px solid #ddd'>Run {self.this_run_adjusted_id}</td>")
+        html.append(f"<td style='padding:5px; border:1px solid #ddd'>{self.this_timestamp}</td></tr>")
+        
+        html.append(f"<tr><td style='padding:5px; border:1px solid #ddd'>Run {self.other_run_adjusted_id}</td>")
+        html.append(f"<td style='padding:5px; border:1px solid #ddd'>{self.other_timestamp}</td></tr>")
+        
+        html.append("</table>")
+        
+        # Parameter differences
+        if self.parameter_differences:
+            html.append("<h4>Parameter Differences</h4>")
+            html.append("<table style='width:100%; border-collapse:collapse'>")
+            html.append("<tr style='background-color:#f0f0f0'>")
+            html.append(f"<th style='text-align:left; padding:5px; width:30%'>Parameter</th>")
+            html.append(f"<th style='text-align:left; padding:5px; width:35%'>Run {self.this_run_adjusted_id}</th>")
+            html.append(f"<th style='text-align:left; padding:5px; width:35%'>Run {self.other_run_adjusted_id}</th>")
+            html.append("</tr>")
+            
+            for param, values in self.parameter_differences.items():
+                html.append(f"<tr><td style='padding:5px; border:1px solid #ddd'>{param}</td>")
+                html.append(f"<td style='padding:5px; border:1px solid #ddd'>{values['this_run']}</td>")
+                html.append(f"<td style='padding:5px; border:1px solid #ddd'>{values['other_run']}</td></tr>")
+                
+            html.append("</table>")
+        else:
+            html.append("<p><em>No parameter differences found</em></p>")
+        
+        # Field differences with tabular format
+        if self.field_differences:
+            html.append("<h4>Field Differences</h4>")
+            
+            # Collect all fields for a more organized display
+            all_diff_fields = []
+            for location, diffs in self.field_differences.items():
+                # Process fields only in this run
+                for field_info in diffs.get('only_this_run', []):
+                    if isinstance(field_info, dict):
+                        field_info['category'] = f"Only in Run {self.this_run_adjusted_id}"
+                        field_info['display_location'] = location
+                        all_diff_fields.append(field_info)
+                
+                # Process fields only in other run
+                for field_info in diffs.get('only_other_run', []):
+                    if isinstance(field_info, dict):
+                        field_info['category'] = f"Only in Run {self.other_run_adjusted_id}"
+                        field_info['display_location'] = location
+                        all_diff_fields.append(field_info)
+                
+                # Process fields in both runs
+                for field_info in diffs.get('both_runs', []):
+                    if isinstance(field_info, dict):
+                        field_info['category'] = "In both runs"
+                        field_info['display_location'] = location
+                        all_diff_fields.append(field_info)
+            
+            # Create a table for all field differences
+            if all_diff_fields:
+                # Sort fields by location and name for better organization
+                all_diff_fields.sort(key=lambda x: (x.get('display_location', ''), x.get('field', '')))
+                
+                # Create table
+                html.append("<table style='width:100%; border-collapse:collapse; margin-top:10px'>")
+                html.append("<tr style='background-color:#f0f0f0'>")
+                html.append("<th style='text-align:left; padding:5px; width:35%'>Field Name</th>") # Made wider
+                html.append("<th style='text-align:left; padding:5px; width:8%'>Location</th>")    # Made slightly narrower
+                html.append("<th style='text-align:left; padding:5px; width:25%'>Description</th>") # Made slightly narrower
+                html.append("<th style='text-align:left; padding:5px; width:12%'>Status</th>")
+                html.append("<th style='text-align:left; padding:5px; width:20%'>Current Owner</th>")
+                html.append("</tr>")
+                
+                # Add rows for each field
+                for info in all_diff_fields:
+                    field = info.get('field', '')
+                    location = info.get('display_location', '')
+                    desc = info.get('description', '')
+                    category = info.get('category', '')
+                    
+                    # Determine current owner display
+                    owner_id = info.get('current_owner')
+                    owned_by = info.get('owned_by')
+                    
+                    if owned_by == 'this_run':
+                        owner_display = f"Run {self.this_run_adjusted_id} <span style='color:green'>(current)</span>"
+                    elif owned_by == 'other_run':
+                        owner_display = f"Run {self.other_run_adjusted_id} <span style='color:green'>(current)</span>"
+                    elif owner_id is not None:
+                        owner_display = f"Run {owner_id} <span style='color:orange'>(different)</span>"
+                    else:
+                        owner_display = "<span style='color:gray'>Unknown</span>"
+                    
+                    # Apply row styling based on category
+                    if category == f"Only in Run {self.this_run_adjusted_id}":
+                        category_style = "color:#2a6099"  # Blue for this run
+                    elif category == f"Only in Run {self.other_run_adjusted_id}":
+                        category_style = "color:#992a5b"  # Pink for other run
+                    else:
+                        category_style = "color:#666"  # Gray for both
+                    
+                    html.append("<tr>")
+                    html.append(f"<td style='padding:5px; border:1px solid #ddd'>{field}</td>")
+                    html.append(f"<td style='padding:5px; border:1px solid #ddd'>{location}</td>")
+                    html.append(f"<td style='padding:5px; border:1px solid #ddd'>{desc}</td>")
+                    html.append(f"<td style='padding:5px; border:1px solid #ddd; {category_style}'>{category}</td>")
+                    html.append(f"<td style='padding:5px; border:1px solid #ddd'>{owner_display}</td>")
+                    html.append("</tr>")
+                
+                html.append("</table>")
+            else:
+                html.append("<p><em>No field differences details available</em></p>")
+        else:
+            html.append("<p><em>No field differences found</em></p>")
+        
+        # We no longer need a separate Overwritten Fields section since this info is now in the Field Differences table
+        
+        html.append("</div>")
+        return "\n".join(html)
+    
+    def as_dict(self) -> Dict[str, Any]:
+        """
+        Return the comparison data as a dictionary.
+        
+        Returns
+        -------
+        Dict[str, Any]
+            Dictionary with comparison results
+        """
+        return {
+            'this_run_id': self.this_run_id,
+            'other_run_id': self.other_run_id,
+            'this_run_adjusted_id': self.this_run_adjusted_id,
+            'other_run_adjusted_id': self.other_run_adjusted_id,
+            'this_timestamp': self.this_timestamp,
+            'other_timestamp': self.other_timestamp,
+            'parameter_differences': self.parameter_differences,
+            'field_differences': self.field_differences,
+            'overwritten_fields': self.overwritten_fields
+        }
+
+
+class RunInfo:
+    """
+    Class to retrieve and format run information for differential analysis.
+    
+    This class provides a convenient interface to examine run information
+    from differential expression (de) or differential abundance (da) analyses.
+    It offers various display formats for both interactive Python sessions and
+    Jupyter notebooks.
+    
+    Attributes
+    ----------
+    adata : AnnData
+        The AnnData object containing the run information
+    run_id : int
+        The run ID for this specific analysis
+    analysis_type : str
+        The type of analysis ('de' or 'da')
+    run_info : dict
+        The full run information dictionary
+    storage_key : str
+        The key in adata.uns where this run is stored
+    field_names : dict
+        The field names used by this run
+    adata_fields : dict
+        Dictionary tracking which fields in adata were written by this run
+    params : dict
+        The parameters used for this analysis
+    environment : dict
+        Information about the environment where the analysis was run
+    overwritten_fields : list
+        List of fields that were overwritten by newer runs
+    """
+    
+    def __init__(self, 
+                 adata, 
+                 run_id: Optional[int] = None, 
+                 analysis_type: Optional[str] = None):
+        """
+        Initialize a RunInfo object.
+        
+        Parameters
+        ----------
+        adata : AnnData
+            AnnData object containing run history
+        run_id : int, optional
+            Run ID to retrieve. Negative indices count from the end.
+            If None, uses the most recent run (-1).
+        analysis_type : str, optional
+            Type of analysis: 'de' for differential expression or 
+            'da' for differential abundance. If None, attempts to detect.
+        """
+        self.adata = adata
+        if run_id is None:
+            run_id = -1  # Default to most recent run
+        self.run_id = run_id
+        
+        # Detect analysis type if not provided
+        if analysis_type is None:
+            # Try to detect from uns keys
+            if 'kompot_de' in adata.uns and 'run_history' in adata.uns['kompot_de']:
+                analysis_type = 'de'
+            elif 'kompot_da' in adata.uns and 'run_history' in adata.uns['kompot_da']:
+                analysis_type = 'da'
+            else:
+                raise ValueError("Could not detect analysis type. Please specify 'de' or 'da'.")
+                
+        if analysis_type not in ['de', 'da']:
+            raise ValueError(f"Invalid analysis_type: {analysis_type}. Must be 'de' or 'da'.")
+            
+        self.analysis_type = analysis_type
+        self.storage_key = f"kompot_{analysis_type}"
+        
+        # Get run info
+        from ..utils import get_run_from_history
+        
+        # Check if run history exists
+        if (self.storage_key not in adata.uns or 
+            'run_history' not in adata.uns[self.storage_key] or
+            len(adata.uns[self.storage_key]['run_history']) == 0):
+            raise ValueError(f"No run history found for {analysis_type} analysis.")
+        
+        # Get run info
+        self.run_info = get_run_from_history(adata, run_id=run_id, analysis_type=analysis_type)
+        
+        if self.run_info is None:
+            raise ValueError(f"Run ID {run_id} not found in {analysis_type} run history.")
+            
+        # Set adjusted run_id
+        self.adjusted_run_id = self.run_info.get('adjusted_run_id', None)
+        
+        # Extract key information
+        self.field_names = self.run_info.get('field_names', {})
+        self.params = self.run_info.get('params', {}).copy()  # Make a copy to avoid modifying the original
+        self.environment = self.run_info.get('environment', {})
+        self.timestamp = self.run_info.get('timestamp', '')
+        
+        # Ensure result_key is included in params if missing
+        if 'result_key' not in self.params and 'result_key' in self.run_info:
+            self.params['result_key'] = self.run_info['result_key']
+        
+        # Get all fields modified by this run
+        self.adata_fields = self._get_fields_for_run()
+        
+        # Check for fields that have been overwritten by newer runs
+        self.overwritten_fields = self._check_overwritten_fields()
+        
+    def _get_fields_for_run(self) -> Dict[str, List[str]]:
+        """
+        Get all fields in the AnnData object that were written by this run.
+        
+        Returns
+        -------
+        Dict[str, List[str]]
+            Dictionary with AnnData locations as keys and lists of field names as values
+        """
+        result = {}
+        
+        # Get fields from field_mapping in the run_info - this is the only source of truth
+        field_mapping = self.get_raw_data().get('field_mapping', {})
+        
+        if not field_mapping:
+            logger.warning(f"No field_mapping found for run {self.adjusted_run_id}.")
+            return {}
+            
+        # Initialize result
+        locations = set(mapping.get('location') for mapping in field_mapping.values() if mapping.get('location'))
+        for location in locations:
+            result[location] = []
+            
+        # Add fields to their locations
+        for field, mapping in field_mapping.items():
+            location = mapping.get('location')
+            if location:
+                if location not in result:
+                    result[location] = []
+                result[location].append(field)
+        
+        # Sort field lists for consistent display
+        for location in result:
+            result[location].sort()
+            
+        return result
+    
+    def _check_overwritten_fields(self) -> List[Dict[str, Any]]:
+        """
+        Check if any fields from this run have been overwritten by newer runs.
+        
+        Returns
+        -------
+        List[Dict[str, Any]]
+            List of dictionaries with overwritten field information, each containing:
+            - field: The field name
+            - location: The location in AnnData (obs, var, etc.)
+            - current_run_id: The run ID that now owns this field
+            - expected_run_id: The run ID that should own this field (this run)
+        """
+        if (self.storage_key not in self.adata.uns or 
+            'anndata_fields' not in self.adata.uns[self.storage_key]):
+            return []
+            
+        tracking = self.adata.uns[self.storage_key]['anndata_fields']
+        overwritten = []
+        
+        # Get fields from field_mapping as the source of truth
+        field_mapping = self.get_raw_data().get('field_mapping', {})
+        
+        # If no field_mapping, we don't know what fields to check
+        if not field_mapping:
+            logger.warning(f"No field_mapping found for run {self.adjusted_run_id} to check for overwritten fields.")
+            return []
+        
+        # Check each field from field_mapping against the tracking info
+        for field, mapping in field_mapping.items():
+            location = mapping.get('location')
+            if not location or location not in tracking or field not in tracking[location]:
+                # Skip fields not in the tracking dictionary
+                continue
+                
+            # Check if the field is attributed to a different run
+            current_run_id = tracking[location][field]
+            if current_run_id != self.adjusted_run_id:
+                overwritten.append({
+                    'field': field,
+                    'location': location,
+                    'current_run_id': current_run_id,
+                    'expected_run_id': self.adjusted_run_id
+                })
+                    
+        return overwritten
+    
+    def compare_with(self, other_run_id: int) -> 'RunComparison':
+        """
+        Compare this run with another run.
+        
+        Parameters
+        ----------
+        other_run_id : int
+            Run ID to compare with
+            
+        Returns
+        -------
+        RunComparison
+            Object containing comparison results with nice display methods
+        """
+        return RunComparison(self.adata, self.run_id, other_run_id, self.analysis_type)
+    
+    def get_data(self) -> Dict[str, Any]:
+        """
+        Get all data related to this run.
+        
+        Returns
+        -------
+        Dict[str, Any]
+            Dictionary with all run data
+        """
+        # Get field data based on adata_fields
+        field_data = {}
+        
+        for location, fields in self.adata_fields.items():
+            field_data[location] = {}
+            
+            if location == 'obs':
+                for field in fields:
+                    if field in self.adata.obs:
+                        field_data[location][field] = self.adata.obs[field]
+            elif location == 'var':
+                for field in fields:
+                    if field in self.adata.var:
+                        field_data[location][field] = self.adata.var[field]
+            elif location == 'uns':
+                for field in fields:
+                    if field in self.adata.uns:
+                        field_data[location][field] = self.adata.uns[field]
+            elif location == 'layers':
+                for field in fields:
+                    if field in self.adata.layers:
+                        field_data[location][field] = self.adata.layers[field]
+        
+        return {
+            'run_id': self.run_id,
+            'adjusted_run_id': self.adjusted_run_id,
+            'analysis_type': self.analysis_type,
+            'field_names': self.field_names,
+            'params': self.params,
+            'environment': self.environment,
+            'timestamp': self.timestamp,
+            'overwritten_fields': self.overwritten_fields,
+            'field_data': field_data
+        }
+    
+    def get_summary(self) -> Dict[str, Any]:
+        """
+        Get a summary of this run with key information.
+        
+        Returns
+        -------
+        Dict[str, Any]
+            Dictionary with run summary
+        """
+        # Get basic information without field data
+        summary = {
+            'run_id': self.run_id,
+            'adjusted_run_id': self.adjusted_run_id,
+            'analysis_type': self.analysis_type,
+            'timestamp': self.timestamp,
+            'conditions': f"{self.params.get('condition1', 'unknown')} to {self.params.get('condition2', 'unknown')}",
+            'obsm_key': self.params.get('obsm_key', 'unknown'),
+            'layer': self.params.get('layer', None),
+            'uses_sample_variance': self.params.get('use_sample_variance', False),
+            'field_count': sum(len(fields) for fields in self.adata_fields.values()),
+            'overwritten_field_count': len(self.overwritten_fields),
+            'overwritten_fields': self.overwritten_fields
+        }
+        
+        # Don't add anndata_locations directly to summary
+        # We'll use it to enhance field listings instead
+        return summary
+    
+    def _repr_html_(self) -> str:
+        """
+        HTML representation for Jupyter notebooks.
+        
+        Returns
+        -------
+        str
+            HTML representation
+        """
+        summary = self.get_summary()
+        
+        # Build HTML
+        html = [
+            "<div style='max-width:800px'>",
+            f"<h3>Run {summary['adjusted_run_id']} ({summary['analysis_type'].upper()} Analysis)</h3>",
+            "<table style='width:100%; border-collapse:collapse; margin-bottom:10px'>",
+            "<tr style='background-color:#f0f0f0'><th style='text-align:left; padding:5px; width:30%'>Parameter</th><th style='text-align:left; padding:5px; width:70%'>Value</th></tr>"
+        ]
+        
+        # Add summary rows
+        for k, v in summary.items():
+            if k not in ['run_id', 'analysis_type', 'overwritten_fields']:
+                html.append(f"<tr><td style='padding:5px; border:1px solid #ddd'>{k}</td><td style='padding:5px; border:1px solid #ddd'>{v}</td></tr>")
+        
+        html.append("</table>")
+        
+        # Add field section as a structured table
+        if self.adata_fields:
+            html.append("<h4>Fields Created by This Run</h4>")
+            html.append("<table style='width:100%; border-collapse:collapse'>")
+            html.append("<tr style='background-color:#f0f0f0'>")
+            html.append("<th style='text-align:left; padding:5px; width:40%'>Field Name</th>") # Even wider field name
+            html.append("<th style='text-align:left; padding:5px; width:10%'>Location</th>")
+            html.append("<th style='text-align:left; padding:5px; width:35%'>Description</th>")
+            html.append("<th style='text-align:left; padding:5px; width:15%'>Status</th>")
+            html.append("</tr>")
+            
+            # Get all field info for formatting
+            all_fields = []
+            raw_data = self.get_raw_data()
+            field_mapping = raw_data.get('field_mapping', {})
+            
+            # Collect all fields with their metadata
+            for location, fields in self.adata_fields.items():
+                for field in fields:
+                    # Get field metadata
+                    field_info = {
+                        'name': field,
+                        'location': location,
+                        'type': None,
+                        'description': None,
+                        'overwritten': None
+                    }
+                    
+                    # Check if field was overwritten
+                    overwritten_info = next((info for info in self.overwritten_fields if 
+                                        info['location'] == location and info['field'] == field), None)
+                    if overwritten_info:
+                        field_info['overwritten'] = overwritten_info['current_run_id']
+                    
+                    # Get additional info from field_mapping
+                    if field in field_mapping:
+                        mapping = field_mapping[field]
+                        field_info['location'] = mapping.get('location', location)
+                        field_info['type'] = mapping.get('type')
+                        field_info['description'] = mapping.get('description')
+                    
+                    all_fields.append(field_info)
+            
+            # Sort fields by location and name for better organization
+            all_fields.sort(key=lambda x: (x['location'], x['name']))
+            
+            # Add a row for each field
+            for field_info in all_fields:
+                name = field_info['name']
+                location = field_info['location']
+                field_type = field_info['type'] or ""
+                description = field_info['description'] or ""
+                overwritten = field_info['overwritten']
+                
+                # Style for overwritten fields
+                row_style = " style='color:red;'" if overwritten else ""
+                
+                html.append(f"<tr{row_style}>")
+                html.append(f"<td style='padding:5px; border:1px solid #ddd'>{name}</td>")
+                html.append(f"<td style='padding:5px; border:1px solid #ddd'>{location}</td>")
+                html.append(f"<td style='padding:5px; border:1px solid #ddd'>{description}</td>")
+                if overwritten:
+                    html.append(f"<td style='padding:5px; border:1px solid #ddd'>Overwritten by run {overwritten}</td>")
+                else:
+                    html.append(f"<td style='padding:5px; border:1px solid #ddd'>Active</td>")
+                html.append("</tr>")
+                
+            html.append("</table>")
+        
+        # Add parameters section
+        if self.params:
+            html.append("<h4>Analysis Parameters</h4>")
+            html.append("<table style='width:100%; border-collapse:collapse'>")
+            html.append("<tr style='background-color:#f0f0f0'><th style='text-align:left; padding:5px; width:25%'>Parameter</th><th style='text-align:left; padding:5px; width:75%'>Value</th></tr>")
+            
+            for param, value in self.params.items():
+                html.append(f"<tr><td style='padding:5px; border:1px solid #ddd'>{param}</td><td style='padding:5px; border:1px solid #ddd'>{value}</td></tr>")
+                
+            html.append("</table>")
+        
+        # Add environment information
+        if self.environment:
+            html.append("<h4>Execution Environment</h4>")
+            html.append("<table style='width:100%; border-collapse:collapse'>")
+            html.append("<tr style='background-color:#f0f0f0'><th style='text-align:left; padding:5px; width:25%'>Field</th><th style='text-align:left; padding:5px; width:75%'>Value</th></tr>")
+            
+            for key, value in self.environment.items():
+                html.append(f"<tr><td style='padding:5px; border:1px solid #ddd'>{key}</td><td style='padding:5px; border:1px solid #ddd'>{value}</td></tr>")
+                
+            html.append("</table>")
+        
+        html.append("</div>")
+        return "\n".join(html)
+    
+    def __str__(self) -> str:
+        """
+        String representation of the RunInfo object.
+        
+        Returns
+        -------
+        str
+            String representation
+        """
+        summary = self.get_summary()
+        
+        # Build string representation
+        lines = [
+            f"RunInfo: {summary['analysis_type'].upper()} Analysis Run {summary['adjusted_run_id']}",
+            f"Timestamp: {summary['timestamp']}",
+            f"Conditions: {summary['conditions']}",
+            f"OBSM Key: {summary['obsm_key']}",
+            f"Layer: {summary['layer']}",
+            f"Uses Sample Variance: {summary['uses_sample_variance']}",
+            f"Total Fields: {summary['field_count']} (Overwritten: {summary['overwritten_field_count']})",
+            ""
+        ]
+        
+        # Add fields in a tabular format
+        if self.adata_fields:
+            lines.append("Fields Created by This Run:")
+            
+            # Get all field info for tabular display
+            all_fields = []
+            raw_data = self.get_raw_data()
+            field_mapping = raw_data.get('field_mapping', {})
+            
+            # Collect all fields with their metadata
+            for location, fields in self.adata_fields.items():
+                for field in fields:
+                    # Get field metadata
+                    field_info = {
+                        'name': field,
+                        'location': location,
+                        'type': None,
+                        'description': None,
+                        'overwritten': None
+                    }
+                    
+                    # Check if field was overwritten
+                    overwritten_info = next((info for info in self.overwritten_fields if 
+                                        info['location'] == location and info['field'] == field), None)
+                    if overwritten_info:
+                        field_info['overwritten'] = overwritten_info['current_run_id']
+                    
+                    # Get additional info from field_mapping
+                    if field in field_mapping:
+                        mapping = field_mapping[field]
+                        field_info['location'] = mapping.get('location', location)
+                        field_info['type'] = mapping.get('type')
+                        field_info['description'] = mapping.get('description')
+                    
+                    all_fields.append(field_info)
+            
+            # Sort fields by location and name for better organization
+            all_fields.sort(key=lambda x: (x['location'], x['name']))
+            
+            # Prepare tabular headers
+            lines.append("  ┌─────────────────────────┬──────────┬──────────────────────────────┬─────────────────┐")
+            lines.append("  │ Field Name              │ Location │ Description                  │ Status          │")
+            lines.append("  ├─────────────────────────┼──────────┼──────────────────────────────┼─────────────────┤")
+            
+            # Add each field as a row
+            for info in all_fields:
+                name = info['name'][:23].ljust(23)
+                location = info['location'][:8].ljust(8)
+                desc = (info['description'] or "")[:28].ljust(28)
+                
+                if info['overwritten']:
+                    status = f"Overwritten ({info['overwritten']})"[:15].ljust(15)
+                else:
+                    status = "Active".ljust(15)
+                
+                lines.append(f"  │ {name} │ {location} │ {desc} │ {status} │")
+            
+            lines.append("  └─────────────────────────┴──────────┴──────────────────────────────┴─────────────────┘")
+            lines.append("")
+            
+        # Add parameter summary
+        if self.params:
+            lines.append("Parameters:")
+            for param, value in self.params.items():
+                lines.append(f"  {param}: {value}")
+        
+        return "\n".join(lines)
+    
+    def __repr__(self) -> str:
+        """
+        Return the string representation of the RunInfo object.
+        
+        Returns
+        -------
+        str
+            String representation
+        """
+        return self.__str__()
+    
+    def as_dict(self) -> Dict[str, Any]:
+        """
+        Return the RunInfo object as a dictionary.
+        
+        Returns
+        -------
+        Dict[str, Any]
+            Dictionary representation
+        """
+        return self.get_data()
+    
+    def to_json(self, indent: int = 2) -> str:
+        """
+        Convert the RunInfo summary to a JSON string.
+        
+        Parameters
+        ----------
+        indent : int, optional
+            Number of spaces for indentation, by default 2
+            
+        Returns
+        -------
+        str
+            JSON string representation
+        """
+        summary = self.get_summary()
+        
+        # Convert any non-serializable objects to strings
+        for k, v in summary.items():
+            if not isinstance(v, (str, int, float, bool, list, dict, type(None))):
+                summary[k] = str(v)
+                
+        return json.dumps(summary, indent=indent)
+    
+        
+    def get_raw_data(self) -> Dict[str, Any]:
+        """
+        Get the raw run information dictionary from adata.uns.
+        
+        This provides direct access to the complete run information as stored in the AnnData object.
+        
+        Returns
+        -------
+        Dict[str, Any]
+            The raw dictionary containing all run information
+        """
+        if self.run_info is None:
+            return {}
+        
+        return self.run_info
+    
+    @staticmethod
+    def get_runs(adata, analysis_type: Optional[str] = None) -> List[Dict[str, Any]]:
+        """
+        Get a list of all available runs in the AnnData object.
+        
+        Parameters
+        ----------
+        adata : AnnData
+            AnnData object containing run history
+        analysis_type : str, optional
+            Type of analysis: 'de', 'da', or None for both
+            
+        Returns
+        -------
+        List[Dict[str, Any]]
+            List of run summaries
+        """
+        runs = []
+        
+        # Check DE runs
+        if analysis_type in [None, 'de'] and 'kompot_de' in adata.uns and 'run_history' in adata.uns['kompot_de']:
+            de_runs = []
+            for i, run in enumerate(adata.uns['kompot_de']['run_history']):
+                try:
+                    run_info = RunInfo(adata, run_id=i, analysis_type='de')
+                    de_runs.append(run_info.get_summary())
+                except Exception as e:
+                    logger.warning(f"Error loading DE run {i}: {e}")
+            runs.extend(de_runs)
+            
+        # Check DA runs
+        if analysis_type in [None, 'da'] and 'kompot_da' in adata.uns and 'run_history' in adata.uns['kompot_da']:
+            da_runs = []
+            for i, run in enumerate(adata.uns['kompot_da']['run_history']):
+                try:
+                    run_info = RunInfo(adata, run_id=i, analysis_type='da')
+                    da_runs.append(run_info.get_summary())
+                except Exception as e:
+                    logger.warning(f"Error loading DA run {i}: {e}")
+            runs.extend(da_runs)
+            
+        return runs
+    
+    @staticmethod
+    def list_runs(adata, analysis_type: Optional[str] = None) -> str:
+        """
+        List all available runs in the AnnData object and print the result.
+        
+        Parameters
+        ----------
+        adata : AnnData
+            AnnData object containing run history
+        analysis_type : str, optional
+            Type of analysis: 'de', 'da', or None for both
+            
+        Returns
+        -------
+        str
+            Formatted list of runs
+        """
+        runs = RunInfo.get_runs(adata, analysis_type)
+        
+        if not runs:
+            result = "No runs found."
+        else:
+            lines = ["Available Runs:"]
+            for i, run in enumerate(runs):
+                lines.append(f"{i}. {run['analysis_type'].upper()} Run {run['adjusted_run_id']}: {run['conditions']} ({run['timestamp']})")
+            result = "\n".join(lines)
+        
+        # Print the result by default
+        print(result)
+        
+        return result

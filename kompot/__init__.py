@@ -38,7 +38,9 @@ from . import anndata
 from .anndata import (
     compute_differential_abundance,
     compute_differential_expression,
-    run_differential_analysis
+    run_differential_analysis,
+    RunInfo,
+    RunComparison
 )
 
 # Configure logging
@@ -86,6 +88,7 @@ __all__ = [
     
     # AnnData functionality
     "compute_differential_abundance", "compute_differential_expression", "run_differential_analysis", 
+    "RunInfo", "RunComparison",
     
     # Submodules
     "plot", "anndata", "differential"

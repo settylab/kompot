@@ -163,3 +163,86 @@ class TestAnnDataFieldTracking:
         
         # The run_id should be 1 more than the first
         assert second_run_id == first_run_id + 1
+        
+    def test_anndata_locations_tracking(self, dummy_adata, caplog):
+        """Test that anndata_locations field is properly stored in run info."""
+        caplog.set_level(logging.INFO)
+        
+        # Run differential abundance analysis 
+        compute_differential_abundance(
+            dummy_adata,
+            groupby='group',
+            condition1='group1',
+            condition2='group2',
+            obsm_key='DM_EigenVectors',
+            result_key='test_locations_da',
+            n_landmarks=10
+        )
+        
+        # Check that field_mapping is present in run info
+        assert 'kompot_da' in dummy_adata.uns
+        assert 'last_run_info' in dummy_adata.uns['kompot_da']
+        assert 'field_mapping' in dummy_adata.uns['kompot_da']['last_run_info']
+        
+        # Check specific field mappings
+        field_mapping = dummy_adata.uns['kompot_da']['last_run_info']['field_mapping']
+        
+        # Find the log fold change field
+        lfc_field = None
+        for field, mapping in field_mapping.items():
+            if mapping.get('type') == 'log_fold_change':
+                lfc_field = field
+                break
+                
+        assert lfc_field is not None
+        assert field_mapping[lfc_field]['location'] == 'obs'
+        assert 'description' in field_mapping[lfc_field]
+        
+        # Find the direction field
+        direction_field = None
+        for field, mapping in field_mapping.items():
+            if mapping.get('type') == 'direction':
+                direction_field = field
+                break
+                
+        assert direction_field is not None
+        assert field_mapping[direction_field]['location'] == 'obs'
+        
+        # Run differential expression analysis for comparison
+        compute_differential_expression(
+            dummy_adata,
+            groupby='group',
+            condition1='group1',
+            condition2='group2',
+            obsm_key='DM_EigenVectors',
+            result_key='test_locations_de',
+            n_landmarks=10,
+            compute_mahalanobis=False  # For simplicity in testing
+        )
+        
+        # Check that field_mapping is present in DE run info
+        assert 'kompot_de' in dummy_adata.uns
+        assert 'last_run_info' in dummy_adata.uns['kompot_de']
+        assert 'field_mapping' in dummy_adata.uns['kompot_de']['last_run_info']
+        
+        # Check specific field mappings for DE
+        de_field_mapping = dummy_adata.uns['kompot_de']['last_run_info']['field_mapping']
+        
+        # Find var field (mean log fold change)
+        var_field = None
+        for field, mapping in de_field_mapping.items():
+            if mapping.get('location') == 'var' and mapping.get('type') == 'mean_log_fold_change':
+                var_field = field
+                break
+                
+        assert var_field is not None
+        assert 'description' in de_field_mapping[var_field]
+        
+        # Find layer field (fold change)
+        layer_field = None
+        for field, mapping in de_field_mapping.items():
+            if mapping.get('location') == 'layers' and mapping.get('type') == 'fold_change':
+                layer_field = field
+                break
+                
+        assert layer_field is not None
