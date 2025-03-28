@@ -3,7 +3,7 @@
 import pytest
 import numpy as np
 import matplotlib.pyplot as plt
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 
 try:
     import scanpy as sc
@@ -279,4 +279,268 @@ def test_embedding_colormap_parameters():
         )
         
     assert result is not None
+    plt.close(result)
+
+
+def test_embedding_with_ax():
+    """Test embedding when an ax is provided."""
+    from kompot.plot import embedding
+    
+    # Create a small test AnnData object
+    np.random.seed(42)
+    n_cells = 100
+    adata = sc.AnnData(X=np.random.normal(size=(n_cells, 10)))
+    adata.obsm['X_umap'] = np.random.normal(size=(n_cells, 2))
+    adata.obs['cluster'] = np.random.choice(['A', 'B', 'C'], size=n_cells)
+    
+    # Create a figure and axis
+    fig, ax = plt.subplots(figsize=(8, 6))
+    
+    # Test with ax provided and return_fig=False
+    result = embedding(
+        adata, 
+        basis='umap',
+        color='cluster', 
+        ax=ax,
+        return_fig=False
+    )
+    
+    # Should return None as return_fig=False
+    assert result is None
+    
+    # Test with ax provided and return_fig=True
+    fig, ax = plt.subplots(figsize=(8, 6))
+    result = embedding(
+        adata, 
+        basis='umap',
+        color='cluster', 
+        ax=ax,
+        return_fig=True
+    )
+    
+    # Should return the figure as return_fig=True
+    assert result is not None
+    assert result is fig  # Should be the same figure object
+    
+    plt.close(fig)
+
+
+def test_embedding_with_mgroups():
+    """Test embedding with the mgroups parameter."""
+    from kompot.plot import embedding
+    
+    # Create a small test AnnData object
+    np.random.seed(42)
+    n_cells = 100
+    adata = sc.AnnData(X=np.random.normal(size=(n_cells, 10)))
+    adata.obsm['X_umap'] = np.random.normal(size=(n_cells, 2))
+    adata.obs['cluster'] = np.random.choice(['A', 'B', 'C'], size=n_cells)
+    adata.obs['condition'] = np.random.choice(['control', 'treatment'], size=n_cells)
+    adata.obs['batch'] = np.random.choice(['batch1', 'batch2'], size=n_cells)
+    
+    # Define multiple group conditions
+    mgroups = [
+        {'condition': 'control'},
+        {'condition': 'treatment'},
+        {'batch': 'batch1'},
+        {'batch': 'batch2'}
+    ]
+    
+    # Test with mgroups and default ncols
+    with patch('matplotlib.pyplot.show'):
+        result = embedding(
+            adata, 
+            basis='umap',
+            color='cluster',
+            mgroups=mgroups,
+            return_fig=True
+        )
+        
+    assert result is not None
+    # Should have the right number of subplots
+    assert len(result.axes) >= len(mgroups)
+    plt.close(result)
+    
+    # Test with mgroups and custom ncols
+    with patch('matplotlib.pyplot.show'):
+        result = embedding(
+            adata, 
+            basis='umap',
+            color='cluster',
+            mgroups=mgroups,
+            ncols=2,  # Force 2 columns
+            return_fig=True
+        )
+        
+    assert result is not None
+    # Should have the right number of subplots
+    assert len(result.axes) >= 4  # At least 4 axes for our 4 groups
+    plt.close(result)
+    
+    # Test with mgroups and custom titles
+    titles = ['Control Group', 'Treatment Group', 'Batch 1', 'Batch 2']
+    with patch('matplotlib.pyplot.show'):
+        result = embedding(
+            adata, 
+            basis='umap',
+            color='cluster',
+            mgroups=mgroups,
+            title=titles,
+            return_fig=True
+        )
+        
+    assert result is not None
+    plt.close(result)
+    
+    # Test with mgroups and a single title
+    with patch('matplotlib.pyplot.show'):
+        result = embedding(
+            adata, 
+            basis='umap',
+            color='cluster',
+            mgroups=mgroups,
+            title='Single Title',
+            return_fig=True
+        )
+        
+    assert result is not None
+    plt.close(result)
+
+
+def test_embedding_mgroups_with_color_list_error():
+    """Test that error is raised when using mgroups with a list of colors."""
+    from kompot.plot import embedding
+    
+    # Create a small test AnnData object
+    np.random.seed(42)
+    n_cells = 100
+    adata = sc.AnnData(X=np.random.normal(size=(n_cells, 10)))
+    adata.obsm['X_umap'] = np.random.normal(size=(n_cells, 2))
+    adata.obs['cluster'] = np.random.choice(['A', 'B', 'C'], size=n_cells)
+    adata.obs['condition'] = np.random.choice(['control', 'treatment'], size=n_cells)
+    
+    # Define multiple group conditions
+    mgroups = [
+        {'condition': 'control'},
+        {'condition': 'treatment'}
+    ]
+    
+    # Test that error is raised when using mgroups with a list of colors
+    with pytest.raises(ValueError):
+        embedding(
+            adata, 
+            basis='umap',
+            color=['cluster', 'condition'],  # List of colors
+            mgroups=mgroups
+        )
+
+
+def test_embedding_with_user_provided_ax_and_background():
+    """Test embedding with user-provided ax and background cells."""
+    from kompot.plot import embedding
+    
+    # Create a small test AnnData object
+    np.random.seed(42)
+    n_cells = 100
+    adata = sc.AnnData(X=np.random.normal(size=(n_cells, 10)))
+    adata.obsm['X_umap'] = np.random.normal(size=(n_cells, 2))
+    adata.obs['cluster'] = np.random.choice(['A', 'B', 'C'], size=n_cells)
+    adata.obs['condition'] = np.random.choice(['control', 'treatment'], size=n_cells)
+    
+    # Define groups for filtering
+    groups = {'condition': ['treatment']}
+    
+    # Create a figure and axis
+    fig, ax = plt.subplots(figsize=(8, 6))
+    
+    # Mock the scatter function to verify it's called for background cells
+    original_scatter = ax.scatter
+    ax.scatter = MagicMock(wraps=original_scatter)
+    
+    # Test with ax provided, groups, and background_color
+    embedding(
+        adata, 
+        basis='umap',
+        color='cluster', 
+        groups=groups,
+        background_color='lightgrey',
+        ax=ax
+    )
+    
+    # Verify that the scatter function was called
+    ax.scatter.assert_called()  # This just checks that scatter was called at least once
+    
+    plt.close(fig)
+
+
+def test_embedding_complex_multi_panel():
+    """Test embedding in a multi-panel figure with different configurations."""
+    from kompot.plot import embedding
+    
+    # Create a small test AnnData object
+    np.random.seed(42)
+    n_cells = 100
+    adata = sc.AnnData(X=np.random.normal(size=(n_cells, 10)))
+    adata.obsm['X_umap'] = np.random.normal(size=(n_cells, 2))
+    adata.obs['cluster'] = np.random.choice(['A', 'B', 'C'], size=n_cells)
+    adata.obs['condition'] = np.random.choice(['control', 'treatment'], size=n_cells)
+    adata.obs['batch'] = np.random.choice(['batch1', 'batch2'], size=n_cells)
+    
+    # Create a 3x1 figure manually
+    fig, axs = plt.subplots(3, 1, figsize=(6, 12))
+    
+    # Plot with different groups in each subplot
+    with patch('matplotlib.pyplot.show'):  # Prevent showing
+        # First subplot: control group
+        embedding(
+            adata, 
+            basis='umap',
+            color='cluster', 
+            groups={'condition': 'control'},
+            ax=axs[0],
+            title='Control Cells'
+        )
+        
+        # Second subplot: treatment group
+        embedding(
+            adata, 
+            basis='umap',
+            color='cluster', 
+            groups={'condition': 'treatment'},
+            ax=axs[1],
+            title='Treatment Cells'
+        )
+        
+        # Third subplot: batch1 group
+        embedding(
+            adata, 
+            basis='umap',
+            color='cluster', 
+            groups={'batch': 'batch1'},
+            ax=axs[2],
+            title='Batch 1 Cells'
+        )
+    
+    plt.close(fig)
+    
+    # Test the same layout using mgroups
+    mgroups = [
+        {'condition': 'control'},
+        {'condition': 'treatment'},
+        {'batch': 'batch1'}
+    ]
+    
+    with patch('matplotlib.pyplot.show'):
+        result = embedding(
+            adata, 
+            basis='umap',
+            color='cluster',
+            mgroups=mgroups,
+            ncols=1,  # Force 1 column
+            title=['Control Cells', 'Treatment Cells', 'Batch 1 Cells'],
+            return_fig=True
+        )
+        
+    assert result is not None
+    assert len(result.axes) >= 3  # At least 3 axes for our 3 groups
     plt.close(result)

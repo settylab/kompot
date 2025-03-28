@@ -23,6 +23,8 @@ def embedding(
     groups: Optional[Union[Dict[str, Union[str, List[str]]], str, List[str]]] = None,
     background_color: Optional[str] = "lightgrey",
     matplotlib_scatter_kwargs: Optional[Dict[str, Any]] = None,
+    mgroups: Optional[List[Dict[str, Union[str, List[str]]]]] = None,
+    ncols: Optional[int] = None,
     **kwargs
 ) -> Any:
     """
@@ -51,6 +53,13 @@ def embedding(
         when plotting background cells. Common options include 'alpha', 's' (size),
         'edgecolors', and 'zorder'. Defaults match scanpy's styling with 
         {'zorder': 0, 'edgecolors': 'none', 'linewidths': 0, 'alpha': 0.7}.
+    mgroups : List[Dict[str, Union[str, List[str]]]], optional
+        List of groups dictionaries to create multiple panels. Each element is treated 
+        as a separate groups argument in its own subplot. Cannot be used with multiple colors.
+        If provided, title argument should align with the number of groups in mgroups.
+    ncols : int, optional
+        Number of columns for panel layout when using mgroups. Default is 4 or less
+        depending on the number of panels.
     **kwargs : 
         All other parameters are passed directly to scanpy.pl.embedding.
         See scanpy.pl.embedding documentation for details on available parameters.
@@ -73,9 +82,127 @@ def embedding(
         )
         return None
     
-    # Process kwargs with special handling for show and return_fig
+    # Handle mgroups parameter (multiple groups in subplots)
+    if mgroups is not None:
+        # Check if color is a list, which is incompatible with mgroups
+        if 'color' in kwargs and isinstance(kwargs['color'], (list, tuple, np.ndarray)):
+            raise ValueError("Cannot use multiple colors (list of color values) with mgroups parameter.")
+        
+        # Extract relevant parameters for subplot creation
+        user_return_fig = kwargs.get('return_fig', False)
+        user_show = kwargs.get('show', None)
+        
+        # Get or create titles for each subplot
+        titles = kwargs.pop('title', None)
+        if titles is None:
+            # Generate default titles based on group definitions
+            titles = []
+            for i, group_dict in enumerate(mgroups):
+                if isinstance(group_dict, dict):
+                    # Create descriptive title based on group filtering
+                    parts = []
+                    for col, vals in group_dict.items():
+                        if not isinstance(vals, (list, tuple, np.ndarray)):
+                            vals = [vals]
+                        parts.append(f"{col}={','.join(str(v) for v in vals)}")
+                    titles.append(" & ".join(parts))
+                else:
+                    # If not a dict, use a simple generic title
+                    titles.append(f"Group {i+1}")
+        elif isinstance(titles, str):
+            # Convert single string title to list with placeholders for other panels
+            titles = [titles] + [f"Group {i+1}" for i in range(1, len(mgroups))]
+        
+        # Ensure titles match number of groups
+        if len(titles) < len(mgroups):
+            # Add generic titles for any missing
+            titles.extend([f"Group {i+1}" for i in range(len(titles), len(mgroups))])
+        
+        # Create subplots using scanpy's grid spec
+        n_panels = len(mgroups)
+        
+        # Determine number of columns (user-specified or default)
+        if ncols is not None:
+            n_cols = ncols
+        else:
+            n_cols = min(4, n_panels)  # Default: up to 4 columns, then wrap
+            
+        n_rows = (n_panels - 1) // n_cols + 1
+        
+        # Create figure with appropriate size
+        figsize = kwargs.pop('figsize', None)
+        if figsize is None:
+            # Default sizing similar to scanpy
+            figsize = (4 * n_cols, 4 * n_rows)
+        
+        fig, axs = plt.subplots(n_rows, n_cols, figsize=figsize, 
+                               squeeze=False,  # Always return 2D array of axes
+                               tight_layout=True)
+        axs = axs.flatten()  # Flatten to 1D for easier indexing
+        
+        # Create each subplot recursively
+        for i, (group_dict, title, ax) in enumerate(zip(mgroups, titles, axs)):
+            # Skip this call if we've run out of groups
+            if i >= len(mgroups):
+                ax.axis('off')  # Hide unused axes
+                continue
+                
+            # Create a copy of kwargs for this subplot
+            subplot_kwargs = kwargs.copy()
+            subplot_kwargs['ax'] = ax
+            subplot_kwargs['title'] = title
+            subplot_kwargs['show'] = False  # Never show individual subplots
+            subplot_kwargs['return_fig'] = False  # Don't return individual figures
+            
+            # Make the recursive call for this panel
+            embedding(
+                adata=adata,
+                basis=basis,
+                groups=group_dict,
+                background_color=background_color,
+                matplotlib_scatter_kwargs=matplotlib_scatter_kwargs,
+                **subplot_kwargs
+            )
+            
+            # Calculate and display cell fraction in title if title looks auto-generated
+            if title.startswith("Group ") or "=" in title:
+                if isinstance(group_dict, dict):
+                    # Calculate mask for this group
+                    mask = np.ones(adata.n_obs, dtype=bool)
+                    for column, values in group_dict.items():
+                        if column not in adata.obs.columns:
+                            continue
+                        if not isinstance(values, (list, tuple, np.ndarray)):
+                            values = [values]
+                        column_mask = adata.obs[column].isin(values)
+                        mask = mask & column_mask
+                    
+                    # Add percentage to title
+                    cell_fraction = np.sum(mask) / adata.n_obs
+                    ax.set_title(f"{title}\n({cell_fraction:.1%} of cells)")
+        
+        # Hide any unused axes
+        for i in range(len(mgroups), len(axs)):
+            axs[i].axis('off')
+        
+        # Handle figure showing based on user preference
+        if user_show is None or user_show:
+            plt.tight_layout()
+            plt.show()
+        
+        # Return the figure if requested
+        if user_return_fig:
+            return fig
+        else:
+            return None
+        
+    # Single plot case - process kwargs with special handling for show and return_fig
     user_show = kwargs.pop('show', None)
     user_return_fig = kwargs.pop('return_fig', False)
+    
+    # Pass ncols to scanpy if it was provided but mgroups is not used
+    if ncols is not None:
+        kwargs['ncols'] = ncols
     
     # We need return_fig=True for our implementation regardless of user setting
     # And we'll handle the showing ourselves
