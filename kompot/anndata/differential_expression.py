@@ -21,7 +21,7 @@ from ..utils import (
     generate_output_field_names,
     get_environment_info
 )
-from .core import _sanitize_name
+from .utils import _sanitize_name
 
 logger = logging.getLogger("kompot")
 

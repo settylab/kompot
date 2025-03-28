@@ -1,10 +1,10 @@
 AnnData Integration
 ===================
 
-Core
-----
+Differential Abundance
+----------------------
 
-.. automodule:: kompot.anndata.core
+.. automodule:: kompot.anndata.differential_abundance
    :members:
    :undoc-members:
    :show-inheritance:
@@ -17,18 +17,10 @@ Differential Expression
    :undoc-members:
    :show-inheritance:
 
-Differential Abundance
-----------------------
-
-.. automodule:: kompot.anndata.differential_abundance
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-Workflows
+Utilities
 ---------
 
-.. automodule:: kompot.anndata.workflows
+.. automodule:: kompot.anndata.utils
    :members:
    :undoc-members:
    :show-inheritance:

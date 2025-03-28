@@ -10,7 +10,7 @@ from typing import Optional, Union, Dict, Any, List, Tuple
 
 from .differential_abundance import compute_differential_abundance
 from .differential_expression import compute_differential_expression
-from .core import _sanitize_name
+from .utils import _sanitize_name
 from ..utils import get_environment_info
 
 logger = logging.getLogger("kompot")

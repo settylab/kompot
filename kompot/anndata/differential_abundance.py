@@ -15,7 +15,7 @@ from ..utils import (
     get_environment_info,
     KOMPOT_COLORS
 )
-from .core import _sanitize_name
+from .utils import _sanitize_name
 
 logger = logging.getLogger("kompot")
 
