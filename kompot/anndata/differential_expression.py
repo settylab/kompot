@@ -892,8 +892,8 @@ def compute_differential_expression(
             "storage_stats": storage_stats,
             "params": params_dict
         }
-        
-        # Always use fixed key "kompot_de" regardless of result_key
+
+        # seems easiest to just use the resultss key here
         storage_key = "kompot_de"
         
         # Initialize or update adata.uns[storage_key]
@@ -901,7 +901,6 @@ def compute_differential_expression(
             adata.uns[storage_key] = {}
             
         # Add environment info to the run info
-        from ..utils import get_environment_info
         env_info = get_environment_info()
         current_run_info["environment"] = env_info
         
@@ -917,6 +916,36 @@ def compute_differential_expression(
         
         # Store current params and run info
         adata.uns[storage_key]["last_run_info"] = current_run_info
+        
+        # Track all AnnData keys that are being written to
+        anndata_field_tracking = {}
+        
+        # Use all_patterns to track fields in each location
+        for location, patterns in all_patterns.items():
+            # Create a dictionary for each location
+            if location not in anndata_field_tracking:
+                anndata_field_tracking[location] = {}
+            
+            # For each pattern, store the current run_id
+            for pattern in patterns:
+                anndata_field_tracking[location][pattern] = new_run_id
+        
+        # Also track the result_key itself in uns
+        if "uns" not in anndata_field_tracking:
+            anndata_field_tracking["uns"] = {}
+        anndata_field_tracking["uns"][result_key] = new_run_id
+        
+        # Add or update tracking information in adata.uns[storage_key]
+        if "anndata_fields" not in adata.uns[storage_key]:
+            adata.uns[storage_key]["anndata_fields"] = anndata_field_tracking
+        else:
+            # Update existing tracking dictionary
+            for section, fields in anndata_field_tracking.items():
+                if section not in adata.uns[storage_key]["anndata_fields"]:
+                    adata.uns[storage_key]["anndata_fields"][section] = {}
+                
+                for field, run_id in fields.items():
+                    adata.uns[storage_key]["anndata_fields"][section][field] = run_id
         
     if copy:
         if return_full_results:

@@ -44,11 +44,64 @@ KOMPOT_COLORS = {
 }
 
 
+def validate_field_run_id(
+    adata: AnnData,
+    field_name: str,
+    location: str,
+    requested_run_id: int,
+    storage_key: str
+) -> Tuple[bool, Optional[int], Optional[str]]:
+    """
+    Validate if a field was last written by the requested run_id.
+    
+    Parameters
+    ----------
+    adata : AnnData
+        AnnData object containing field tracking information
+    field_name : str
+        Name of the field to validate
+    location : str
+        Location of the field ('obs', 'var', 'uns', 'layers')
+    requested_run_id : int
+        The run ID that is being requested (must be positive/adjusted)
+    storage_key : str
+        The storage key where tracking information is stored (e.g., 'kompot_de', 'kompot_da')
+        
+    Returns
+    -------
+    Tuple[bool, Optional[int], Optional[str]]
+        - Boolean indicating if the field was last written by the requested run
+        - The actual run_id that last wrote to this field, or None if not found
+        - Warning message if validation fails, or None if validation passes
+    """
+    # Check if we have tracking information
+    if (storage_key in adata.uns and 
+        "anndata_fields" in adata.uns[storage_key] and 
+        location in adata.uns[storage_key]["anndata_fields"]):
+        
+        tracking_info = adata.uns[storage_key]["anndata_fields"][location]
+        
+        # Check if this specific field is being tracked
+        if field_name in tracking_info:
+            actual_run_id = tracking_info[field_name]
+            
+            if actual_run_id != requested_run_id:
+                warning_msg = (f"Field '{field_name}' in {location} was last written by run_id={actual_run_id}, "
+                              f"but you requested run_id={requested_run_id}. The data may be inconsistent.")
+                return False, actual_run_id, warning_msg
+            
+            return True, actual_run_id, None
+        
+    # If no tracking information, we can't validate
+    return True, None, None
+
 def get_run_from_history(
     adata: AnnData, 
     run_id: Optional[int] = None, 
     history_key: str = 'kompot_run_history',
-    analysis_type: Optional[str] = None
+    analysis_type: Optional[str] = None,
+    validate_field: Optional[str] = None,
+    field_location: Optional[str] = None
 ) -> Optional[Dict[str, Any]]:
     """
     Get run information from run history based on run_id.
@@ -72,6 +125,12 @@ def get_run_from_history(
         Type of analysis to look up: "da", "de", or None.
         If provided, only looks in the specific analysis type's history
         and ignores history_key.
+    validate_field : str, optional
+        If provided, validate that this field was last written by the requested run_id.
+        This helps ensure data consistency when retrieving data for a specific run.
+    field_location : str, optional
+        Location of the field to validate ('obs', 'var', 'uns', 'layers').
+        Required if validate_field is provided.
         
     Returns
     -------
@@ -88,14 +147,20 @@ def get_run_from_history(
     if run_id is None:
         return None
     
+    # Determine storage_key
+    storage_key = None
+    
     # Use specific analysis history if provided
     if analysis_type is not None:
         if analysis_type == "da":
             history_key = "kompot_da.run_history"
+            storage_key = "kompot_da"
         elif analysis_type == "de":
             history_key = "kompot_de.run_history"
+            storage_key = "kompot_de"
         elif analysis_type == "combined":
             history_key = "kompot_run_history"
+            storage_key = "kompot_run_history"
         else:
             logger.warning(f"Unknown analysis_type: {analysis_type}. Using provided history_key: {history_key}")
     
@@ -115,6 +180,14 @@ def get_run_from_history(
     # Direct access to specified history key
     elif history_key in adata.uns:
         history = adata.uns[history_key]
+        # Try to infer storage_key if not already set
+        if storage_key is None:
+            if "kompot_da" in history_key:
+                storage_key = "kompot_da"
+            elif "kompot_de" in history_key:
+                storage_key = "kompot_de"
+            else:
+                storage_key = history_key
     
     # Not found
     else:
@@ -138,6 +211,32 @@ def get_run_from_history(
     if 0 <= adjusted_run_id < len(history):
         run_info = history[adjusted_run_id]
         run_info["adjusted_run_id"] = adjusted_run_id
+        
+        # Validate field if requested
+        if validate_field is not None and field_location is not None and storage_key is not None:
+            is_valid, actual_run_id, warning_msg = validate_field_run_id(
+                adata=adata,
+                field_name=validate_field,
+                location=field_location,
+                requested_run_id=adjusted_run_id,
+                storage_key=storage_key
+            )
+            
+            if not is_valid:
+                logger.warning(warning_msg)
+                
+                # Add validation info to the run_info
+                if "validation" not in run_info:
+                    run_info["validation"] = {}
+                
+                run_info["validation"][validate_field] = {
+                    "valid": False,
+                    "field_location": field_location,
+                    "requested_run_id": adjusted_run_id,
+                    "actual_run_id": actual_run_id,
+                    "warning": warning_msg
+                }
+        
         return run_info
     else:
         logger.warning(f"Run ID {run_id} not found in {history_key}.")

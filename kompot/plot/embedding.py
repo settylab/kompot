@@ -84,7 +84,7 @@ def embedding(
     
     # Calculate point size using scanpy's formula if not provided
     # Scanpy uses size = 120000 / n_cells if size is not specified
-    user_size = kwargs.get('size', None)
+    user_size = kwargs.get('s', None)
     if user_size is None:
         # Calculate the point size based on the total number of cells
         total_points = adata.n_obs

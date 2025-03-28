@@ -247,6 +247,7 @@ class DifferentialExpression:
                 'sigma': sigma,
                 'optimizer': 'advi',
                 'predictor_with_uncertainty': True,
+                'n_landmarks':n_landmarks,
             }
             
             # Update defaults with user-provided values, but filter out parameters that
@@ -262,7 +263,7 @@ class DifferentialExpression:
                 estimator_defaults['gp_type'] = 'fixed'
                 # Store provided landmarks for future use
                 self.computed_landmarks = landmarks
-            elif self.n_landmarks is not None:
+            elif self.n_landmarks is not None and self.n_landmarks > 0:
                 # Use mellon's compute_landmarks function to get properly distributed landmarks
                 # Pass the random_state parameter directly to ensure reproducible results
                 X_combined = np.vstack([X_condition1, X_condition2])
@@ -324,10 +325,6 @@ class DifferentialExpression:
                         "This could lead to inflated Mahalanobis distances."
                     )
             
-            # No memory analysis needed during fit - SampleVarianceEstimator will analyze memory 
-            # during predict() only when actually needed (when diag=False)
-            
-            # Now fit variance estimators with the memory analysis information
             
             # Fit variance estimator for condition 1
             if condition1_sample_indices is not None:

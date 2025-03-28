@@ -538,6 +538,44 @@ def compute_differential_abundance(
     # Store current params and run info
     adata.uns[storage_key]["last_run_info"] = current_run_info
     
+    # Track all AnnData keys that are being written to
+    anndata_field_tracking = {
+        "obs": {},
+        "uns": {}
+    }
+    
+    # Track obs fields
+    obs_fields = [
+        field_names["lfc_key"],
+        field_names["zscore_key"],
+        field_names["pval_key"],
+        field_names["direction_key"],
+        field_names["density_key_1"],
+        field_names["density_key_2"]
+    ]
+    
+    # Add each field to tracking with current run_id
+    for field in obs_fields:
+        anndata_field_tracking["obs"][field] = new_run_id
+    
+    # Also track the result_key itself in uns
+    anndata_field_tracking["uns"][result_key] = new_run_id
+    # Also track the direction colors key
+    direction_colors_key = f"{field_names['direction_key']}_colors"
+    anndata_field_tracking["uns"][direction_colors_key] = new_run_id
+    
+    # Add or update tracking information in adata.uns[storage_key]
+    if "anndata_fields" not in adata.uns[storage_key]:
+        adata.uns[storage_key]["anndata_fields"] = anndata_field_tracking
+    else:
+        # Update existing tracking dictionary
+        for section, fields in anndata_field_tracking.items():
+            if section not in adata.uns[storage_key]["anndata_fields"]:
+                adata.uns[storage_key]["anndata_fields"][section] = {}
+            
+            for field, run_id in fields.items():
+                adata.uns[storage_key]["anndata_fields"][section][field] = run_id
+    
     # Return results as a dictionary
     result_dict = {
         "log_fold_change": abundance_results['log_fold_change'],

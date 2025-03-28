@@ -80,6 +80,7 @@ def _infer_de_keys(adata: AnnData, run_id: int = -1, lfc_key: Optional[str] = No
     
     if run_info is not None and 'field_names' in run_info:
         field_names = run_info['field_names']
+        adjusted_run_id = run_info.get("adjusted_run_id")
         
         # Get lfc_key from field_names
         if inferred_lfc_key is None and 'mean_lfc_key' in field_names:
@@ -88,6 +89,15 @@ def _infer_de_keys(adata: AnnData, run_id: int = -1, lfc_key: Optional[str] = No
             if inferred_lfc_key not in adata.var.columns:
                 inferred_lfc_key = None
                 logger.warning(f"Found mean_lfc_key '{inferred_lfc_key}' in run info, but column not in adata.var")
+            # Validate that this field was written by the requested run
+            elif adjusted_run_id is not None:
+                validate_info = get_run_from_history(
+                    adata, 
+                    run_id=run_id, 
+                    analysis_type="de",
+                    validate_field=inferred_lfc_key,
+                    field_location="var"
+                )
         
         # Get score_key from field_names
         if inferred_score_key is None and 'mahalanobis_key' in field_names:
@@ -96,6 +106,15 @@ def _infer_de_keys(adata: AnnData, run_id: int = -1, lfc_key: Optional[str] = No
             if inferred_score_key not in adata.var.columns:
                 logger.warning(f"Found mahalanobis_key '{inferred_score_key}' in run info, but column not in adata.var")
                 inferred_score_key = None
+            # Validate that this field was written by the requested run
+            elif adjusted_run_id is not None:
+                validate_info = get_run_from_history(
+                    adata, 
+                    run_id=run_id, 
+                    analysis_type="de",
+                    validate_field=inferred_score_key,
+                    field_location="var"
+                )
     
     # If lfc_key still not found, raise error
     if inferred_lfc_key is None:
@@ -154,6 +173,7 @@ def _infer_da_keys(adata: AnnData, run_id: int = -1, lfc_key: Optional[str] = No
         # Get field names directly from the run_info
         if 'field_names' in run_info:
             field_names = run_info['field_names']
+            adjusted_run_id = run_info.get("adjusted_run_id")
             
             # Get lfc_key from field_names
             if inferred_lfc_key is None and 'lfc_key' in field_names:
@@ -162,6 +182,15 @@ def _infer_da_keys(adata: AnnData, run_id: int = -1, lfc_key: Optional[str] = No
                 if inferred_lfc_key not in adata.obs.columns:
                     logger.warning(f"Found lfc_key '{inferred_lfc_key}' in run info, but column not in adata.obs")
                     inferred_lfc_key = None
+                # Validate that this field was written by the requested run
+                elif adjusted_run_id is not None:
+                    validate_info = get_run_from_history(
+                        adata, 
+                        run_id=run_id, 
+                        analysis_type="da",
+                        validate_field=inferred_lfc_key,
+                        field_location="obs"
+                    )
             
             # Get pval_key from field_names
             if inferred_pval_key is None and 'pval_key' in field_names:
@@ -170,6 +199,15 @@ def _infer_da_keys(adata: AnnData, run_id: int = -1, lfc_key: Optional[str] = No
                 if inferred_pval_key not in adata.obs.columns:
                     logger.warning(f"Found pval_key '{inferred_pval_key}' in run info, but column not in adata.obs")
                     inferred_pval_key = None
+                # Validate that this field was written by the requested run
+                elif adjusted_run_id is not None:
+                    validate_info = get_run_from_history(
+                        adata, 
+                        run_id=run_id, 
+                        analysis_type="da",
+                        validate_field=inferred_pval_key,
+                        field_location="obs"
+                    )
     
     # If keys still not found, raise error
     if inferred_lfc_key is None:
