@@ -1,6 +1,7 @@
 """Functions for plotting embeddings with group filtering."""
 
 import matplotlib.pyplot as plt
+from matplotlib import gridspec
 import numpy as np
 from typing import Optional, Dict, List, Union, Tuple, Any
 from anndata import AnnData
@@ -118,7 +119,7 @@ def embedding(
             # Add generic titles for any missing
             titles.extend([f"Group {i+1}" for i in range(len(titles), len(mgroups))])
         
-        # Create subplots using scanpy's grid spec
+        # Create subplots using scanpy's grid spec approach
         n_panels = len(mgroups)
         
         # Determine number of columns (user-specified or default)
@@ -129,16 +130,51 @@ def embedding(
             
         n_rows = (n_panels - 1) // n_cols + 1
         
-        # Create figure with appropriate size
+        # Get wspace from kwargs or use scanpy's default calculation
+        wspace = kwargs.pop('wspace', None)
+        if wspace is None:
+            # Use scanpy's default calculation for wspace
+            wspace = 0.75 / plt.rcParams["figure.figsize"][0] + 0.02
+            
+        hspace = kwargs.pop('hspace', 0.25)  # Default from scanpy
+        
+        # Create figure with appropriate size - following scanpy's approach
         figsize = kwargs.pop('figsize', None)
         if figsize is None:
-            # Default sizing similar to scanpy
-            figsize = (4 * n_cols, 4 * n_rows)
+            # Use scanpy's sizing which accounts for legend space
+            figsize = (
+                n_cols * plt.rcParams["figure.figsize"][0] * (1 + wspace),
+                n_rows * plt.rcParams["figure.figsize"][1]
+            )
+            
+        # Create figure
+        fig = plt.figure(figsize=figsize)
         
-        fig, axs = plt.subplots(n_rows, n_cols, figsize=figsize, 
-                               squeeze=False,  # Always return 2D array of axes
-                               tight_layout=True)
-        axs = axs.flatten()  # Flatten to 1D for easier indexing
+        # Create gridspec with proper spacing for legends
+        left = 0.2 / n_cols
+        bottom = 0.13 / n_rows
+        gs = gridspec.GridSpec(
+            nrows=n_rows,
+            ncols=n_cols,
+            left=left,
+            right=1 - (n_cols - 1) * left - 0.01 / n_cols,  # Leave space for legends
+            bottom=bottom,
+            top=1 - (n_rows - 1) * bottom - 0.1 / n_rows,
+            hspace=hspace,
+            wspace=wspace,
+        )
+        
+        # Create axes
+        axs = []
+        for i in range(n_rows * n_cols):
+            if i < n_panels:
+                ax = plt.subplot(gs[i // n_cols, i % n_cols])
+                axs.append(ax)
+            else:
+                # Create empty axis for unused grid cells
+                ax = plt.subplot(gs[i // n_cols, i % n_cols])
+                ax.axis('off')
+                axs.append(ax)
         
         # Create each subplot recursively
         for i, (group_dict, title, ax) in enumerate(zip(mgroups, titles, axs)):
@@ -153,6 +189,13 @@ def embedding(
             subplot_kwargs['title'] = title
             subplot_kwargs['show'] = False  # Never show individual subplots
             subplot_kwargs['return_fig'] = False  # Don't return individual figures
+            
+            # Get the current position to make space for legend if needed
+            legend_loc = subplot_kwargs.get('legend_loc', 'right margin')
+            if legend_loc == 'right margin':
+                # Shrink the plot to make room for the legend (similar to scanpy's approach)
+                box = ax.get_position()
+                ax.set_position([box.x0, box.y0, box.width * 0.91, box.height])
             
             # Make the recursive call for this panel
             embedding(
@@ -185,9 +228,8 @@ def embedding(
         for i in range(len(mgroups), len(axs)):
             axs[i].axis('off')
         
-        # Handle figure showing based on user preference
+        # Handle figure showing based on user preference (don't use tight_layout as we've already set up the grid properly)
         if user_show is None or user_show:
-            plt.tight_layout()
             plt.show()
         
         # Return the figure if requested
