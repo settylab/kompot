@@ -8,6 +8,7 @@ All notable changes to this project will be documented in this file.
  - more flexible `volcano_de` plot
  - `fold_change_mode` parameter for heatmap to only show fold-change instead of split tiles
  - implement `RunInfo` utility to fetch information about previous runs
+ - bugfix passing `ax` to `kompot.plot.embedding`
 
 ## [0.3.3]
 

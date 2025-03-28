@@ -172,25 +172,56 @@ def embedding(
     # Create subset for scanpy to plot
     selected_adata = adata[mask]
     
-    # Call scanpy embedding function with the subset
-    result = sc.pl.embedding(
-        selected_adata,
-        basis=basis.replace("X_", ""),  # Scanpy doesn't want the X_ prefix
-        **kwargs
-    )
+    # When ax is provided, we need to modify kwargs for scanpy
+    if 'ax' in kwargs:
+        # Store the figure for returning later if needed
+        ax_fig = kwargs['ax'].figure
+        
+        # Create a copy of kwargs to avoid modifying the original
+        scanpy_kwargs = kwargs.copy()
+        
+        # When ax is provided, set return_fig=False to avoid scanpy error
+        scanpy_kwargs['return_fig'] = False
+        
+        # Call scanpy embedding function with the subset
+        result = sc.pl.embedding(
+            selected_adata,
+            basis=basis.replace("X_", ""),  # Scanpy doesn't want the X_ prefix
+            **scanpy_kwargs
+        )
+        
+        # Store the figure as the result if user wants it returned
+        if user_return_fig:
+            result = ax_fig
+    else:
+        # Normal case - no ax provided
+        result = sc.pl.embedding(
+            selected_adata,
+            basis=basis.replace("X_", ""),  # Scanpy doesn't want the X_ prefix
+            **kwargs
+        )
     
     # Add background points if requested and there are filtered cells
     has_filtered_cells = not np.all(mask)
     if background_color is not None and has_filtered_cells:
-        # Get figure and axes from scanpy's result
-        if isinstance(result, dict):
+        if 'ax' in kwargs:
+            # User provided ax parameter - use it directly
+            axes = [kwargs['ax']]
+            
+            # Add background to the specified axis
+            for ax in axes:
+                ax.scatter(
+                    adata[~mask].obsm[basis_key][:, 0],
+                    adata[~mask].obsm[basis_key][:, 1],
+                    c=background_color,
+                    **matplotlib_scatter_kwargs
+                )
+        elif isinstance(result, dict):
             # Multi-panel case where result is a dict of axes
-            fig = next(iter(result.values())).figure
             axes_dict = result
             
             # Add background to each axis
             for ax in axes_dict.values():
-                # Add background cells
                 ax.scatter(
                     adata[~mask].obsm[basis_key][:, 0],
                     adata[~mask].obsm[basis_key][:, 1],
@@ -211,7 +242,6 @@ def embedding(
             
             # Add background to each axis
             for ax in axes:
-                # Add background cells
                 ax.scatter(
                     adata[~mask].obsm[basis_key][:, 0],
                     adata[~mask].obsm[basis_key][:, 1],
@@ -220,12 +250,19 @@ def embedding(
                 )
     
     # Handle showing based on user preference
-    if user_show is None:
-        # Default behavior is to show if not returning the figure
-        if not user_return_fig:
+    # Don't show automatically if an ax is provided (user is likely building a multi-panel figure)
+    if 'ax' in kwargs:
+        # Only show if user explicitly requested it
+        if user_show:
             plt.show()
-    elif user_show:
-        plt.show()
+    else:
+        # Normal showing behavior for standalone plots
+        if user_show is None:
+            # Default behavior is to show if not returning the figure
+            if not user_return_fig:
+                plt.show()
+        elif user_show:
+            plt.show()
     
     # Return according to user preference
     if user_return_fig:
