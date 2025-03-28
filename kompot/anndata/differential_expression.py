@@ -359,8 +359,8 @@ def compute_differential_expression(
         adata = adata.copy()
     
     # Create masks for each condition
-    mask1 = adata.obs[groupby] == condition1
-    mask2 = adata.obs[groupby] == condition2
+    mask1 = (adata.obs[groupby] == condition1).values
+    mask2 = (adata.obs[groupby] == condition2).values
     
     if np.sum(mask1) == 0:
         raise ValueError(f"Condition '{condition1}' not found in '{groupby}'.")

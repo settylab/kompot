@@ -247,7 +247,7 @@ class DifferentialExpression:
                 'sigma': sigma,
                 'optimizer': 'advi',
                 'predictor_with_uncertainty': True,
-                'n_landmarks':n_landmarks,
+                'n_landmarks':self.n_landmarks,
             }
             
             # Update defaults with user-provided values, but filter out parameters that
