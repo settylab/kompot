@@ -744,7 +744,7 @@ class DifferentialExpression:
         
         # Compute Mahalanobis distances if requested
         if compute_mahalanobis:
-            logger.info("Computing Mahalanobis distances...")
+            logger.debug("Computing Mahalanobis distances...")
             
             # Pass the progress parameter to control tqdm display
             mahalanobis_distances = self.compute_mahalanobis_distances(

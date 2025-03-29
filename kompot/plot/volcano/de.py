@@ -65,6 +65,7 @@ def volcano_de(
     save: Optional[str] = None,
     run_id: int = -1,
     legend_ncol: Optional[int] = None,
+    group: Optional[str] = None,
     **kwargs
 ) -> Union[None, Tuple[plt.Figure, plt.Axes]]:
     """
@@ -167,6 +168,10 @@ def volcano_de(
         Specific run ID to use for fetching field names from run history.
         Negative indices count from the end (-1 is the latest run). If None, 
         uses the latest run information.
+    group : str, optional
+        If provided, use data for a specific group/subset analyzed with the 'groups' parameter
+        in compute_differential_expression. Will use the values from adata.varm instead of
+        adata.var for Mahalanobis distances, mean fold changes, and weighted mean fold changes.
     **kwargs : 
         Additional parameters passed to plt.scatter
         
@@ -228,17 +233,115 @@ def volcano_de(
     else:
         fig = ax.figure
     
-    # Extract data for all genes
-    x = adata.var[lfc_key].values
-    y = adata.var[score_key].values
+    # Check if group-specific data is provided and should be used
+    x = None
+    y = None
+    
+    if group is not None:
+        # Get run information to access field names
+        run_info = get_run_from_history(adata, run_id, analysis_type="de")
+        
+        if not run_info or 'field_names' not in run_info:
+            logger.warning(f"Cannot find run information for group-specific data. Make sure you're using the correct run_id.")
+            return
+        
+        # Get varm keys directly from run information
+        if 'varm_keys' not in run_info:
+            logger.warning(f"No varm keys found in run information. This run may not have used groups.")
+            return
+            
+        lfc_varm_key = run_info['varm_keys']['mean_lfc']
+        score_varm_key = run_info['varm_keys']['mahalanobis']
+        weighted_lfc_varm_key = run_info['varm_keys']['weighted_lfc']
+        
+        logger.debug(f"Using varm keys: lfc={lfc_varm_key}, score={score_varm_key}, weighted={weighted_lfc_varm_key}")
+        
+        # Check if the keys exist in varm and group is available
+        lfc_data_available = (
+            lfc_varm_key in adata.varm and 
+            group in adata.varm[lfc_varm_key].columns
+        )
+        
+        score_data_available = (
+            score_varm_key in adata.varm and 
+            group in adata.varm[score_varm_key].columns
+        )
+        
+        weighted_lfc_data_available = (
+            weighted_lfc_varm_key in adata.varm and
+            group in adata.varm[weighted_lfc_varm_key].columns
+        )
+        
+        if lfc_data_available and score_data_available:
+            logger.info(f"Using group-specific data for group '{group}' from varm")
+            x = adata.varm[lfc_varm_key][group].values
+            y = adata.varm[score_varm_key][group].values
+            
+            # Log information about weighted mean log fold change
+            if weighted_lfc_data_available:
+                logger.info(f"Group-specific weighted mean log fold change data found for '{group}'")
+            else:
+                logger.info(f"Group-specific weighted mean log fold change data not available for '{group}'")
+            
+            # Update title to indicate group-specific data
+            if title is None and condition1 and condition2:
+                title = f"Volcano Plot: {condition1} vs {condition2} - Group: {group}"
+            elif title is not None and "Group:" not in title:
+                title = f"{title} - Group: {group}"
+                
+            # Log some basic stats about the data
+            n_valid = np.sum(~np.isnan(x) & ~np.isnan(y))
+            logger.info(f"Found {n_valid:,} valid genes with group-specific metrics for '{group}'")
+            
+        else:
+            missing_keys = []
+            if not lfc_data_available:
+                missing_keys.append(f"{lfc_varm_key} for {group}")
+            if not score_data_available:
+                missing_keys.append(f"{score_varm_key} for {group}")
+                
+            # Check available groups for more helpful error message
+            available_lfc_groups = []
+            available_score_groups = []
+            
+            if lfc_varm_key in adata.varm:
+                available_lfc_groups = list(adata.varm[lfc_varm_key].columns)
+            
+            if score_varm_key in adata.varm:
+                available_score_groups = list(adata.varm[score_varm_key].columns)
+                
+            available_groups = set(available_lfc_groups).intersection(set(available_score_groups))
+            
+            if available_groups:
+                group_str = ", ".join(sorted(available_groups))
+                logger.warning(f"Group-specific data for '{group}' not found in varm. Missing: {', '.join(missing_keys)}. Available groups: {group_str}. Falling back to default data.")
+            else:
+                logger.warning(f"Group-specific data for '{group}' not found in varm. Missing: {', '.join(missing_keys)}. No groups available. Falling back to default data.")
+    
+    # If no group-specific data was found or no group was specified, use regular var data
+    if x is None or y is None:
+        x = adata.var[lfc_key].values
+        y = adata.var[score_key].values
     
     # Create a DataFrame with all relevant information
-    de_data = pd.DataFrame({
+    data_dict = {
         'gene': adata.var_names,
-        'lfc': adata.var[lfc_key],
-        'score': adata.var[score_key],
-        'sort_val': adata.var[sort_key or score_key]
-    })
+        'lfc': x,
+        'score': y
+    }
+    
+    # Add sort_val - either from the specified sort_key or use y (score) by default
+    if sort_key is not None:
+        # If group-specific and sort_key appears to be a weighted_lfc column and group-specific weighted_lfc available
+        if group is not None and "weighted" in sort_key.lower() and weighted_lfc_data_available:
+            data_dict['sort_val'] = adata.varm[weighted_lfc_varm_key][group].values
+            logger.info(f"Using group-specific weighted mean log fold change for sorting")
+        else:
+            data_dict['sort_val'] = adata.var[sort_key].values
+    else:
+        data_dict['sort_val'] = y
+        
+    de_data = pd.DataFrame(data_dict)
     
     # If background_color_key is provided, add it to the dataframe
     if background_color_key is not None and background_color_key in adata.var.columns:

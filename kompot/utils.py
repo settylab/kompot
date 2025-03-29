@@ -353,7 +353,7 @@ def generate_output_field_names(
     elif analysis_type == "de":
         # Define which fields are actually impacted by sample variance
         # Fields like mean_lfc, bidirectionality, imputed data, fold_change are not affected by sample variance
-        sample_variance_impacted = ["mahalanobis_key", "lfc_std_key"]
+        sample_variance_impacted = ["mahalanobis_key", "lfc_std_key", "mahalanobis_varm_key"]
         
         # Differential expression field names
         field_names.update({
@@ -364,7 +364,12 @@ def generate_output_field_names(
             "bidirectionality_key": f"{result_key}_bidirectionality_{cond1_safe}_to_{cond2_safe}",
             "imputed_key_1": f"{result_key}_imputed_{cond1_safe}",
             "imputed_key_2": f"{result_key}_imputed_{cond2_safe}",
-            "fold_change_key": f"{result_key}_fold_change_{cond1_safe}_to_{cond2_safe}"
+            "fold_change_key": f"{result_key}_fold_change_{cond1_safe}_to_{cond2_safe}",
+            
+            # Add varm field names for group-specific metrics
+            "mean_lfc_varm_key": f"{result_key}_mean_lfc_{cond1_safe}_to_{cond2_safe}_groups",
+            "mahalanobis_varm_key": f"{result_key}_mahalanobis_{cond1_safe}_to_{cond2_safe}{suffix}_groups",
+            "weighted_lfc_varm_key": f"{result_key}_weighted_lfc_{cond1_safe}_to_{cond2_safe}_groups"
         })
         field_names["sample_variance_impacted_fields"] = sample_variance_impacted
         
@@ -429,8 +434,10 @@ def detect_output_field_overwrite(
         obj_to_check = adata.var
     elif location == "layers":
         obj_to_check = adata.layers
+    elif location == "varm":
+        obj_to_check = adata.varm
     else:
-        raise ValueError(f"Unknown location: {location}. Use 'obs', 'var', or 'layers'")
+        raise ValueError(f"Unknown location: {location}. Use 'obs', 'var', 'layers', or 'varm'")
     
     # Check for patterns in the specified location
     if hasattr(obj_to_check, 'columns'):  # DataFrame-like (obs or var)
@@ -743,7 +750,7 @@ def compute_mahalanobis_distances(
     
     # Try Cholesky decomposition (should work for positive definite matrices)
     try:
-        logger.info("Computing Cholesky decomposition of covariance matrix")
+        logger.debug("Computing Cholesky decomposition of covariance matrix")
         chol = jnp.linalg.cholesky(cov_stable)
         
         # Define computation function using Cholesky decomposition

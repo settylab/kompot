@@ -308,7 +308,34 @@ class RunComparison:
             this_value = this_params.get(param, None)
             other_value = other_params.get(param, None)
             
-            if this_value != other_value:
+            # Special handling for array-like parameters
+            values_equal = False
+            
+            # Check if either value is None
+            if this_value is None or other_value is None:
+                values_equal = (this_value is None and other_value is None)
+            # If both are array-like
+            elif hasattr(this_value, '__len__') and not isinstance(this_value, (str, dict)) and \
+                 hasattr(other_value, '__len__') and not isinstance(other_value, (str, dict)):
+                try:
+                    import numpy as np
+                    values_equal = np.array_equal(np.array(this_value), np.array(other_value), equal_nan=True)
+                except:
+                    # Fall back to list comparison if numpy is not available or comparison fails
+                    try:
+                        values_equal = list(this_value) == list(other_value)
+                    except:
+                        # If conversion to list fails, try direct comparison
+                        try:
+                            values_equal = (this_value == other_value)
+                        except:
+                            # If all else fails, assume they're different
+                            values_equal = False
+            else:
+                # For non-array values, use direct comparison
+                values_equal = (this_value == other_value)
+            
+            if not values_equal:
                 param_comparison[param] = {
                     'this_run': this_value,
                     'other_run': other_value

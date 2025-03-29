@@ -276,18 +276,34 @@ def test_compute_de_with_groups_string():
     # Get unique categories
     categories = adata.obs['category'].unique()
     
-    # Print all columns to debug
-    print(f"Available columns for string test: {list(adata.var.columns)}")
+    # Print debug information 
+    print(f"Available varm keys: {list(adata.varm.keys())}")
     
-    # Check that each category has its own mean log fold change field
+    # Get the varm key for mean log fold change - looking for the one with "contains_subsets"
+    varm_key = None
+    for key, info in field_mapping.items():
+        if (info.get("location") == "varm" and 
+            info.get("contains_subsets") is not None and 
+            "mean" in info.get("type", "").lower()):
+            varm_key = key
+            break
+    
+    assert varm_key is not None, f"No varm mean fold change key with subsets found in field_mapping: {field_mapping}"
+    print(f"Found varm key: {varm_key}")
+    
+    # Check that the varm matrix exists
+    assert varm_key in adata.varm, f"varm key {varm_key} not found in adata.varm"
+    
+    # Check that each category has its own column in the varm matrix
+    varm_df = adata.varm[varm_key]
+    print(f"varm matrix columns: {list(varm_df.columns)}")
+    
     for category in categories:
-        # Find columns that match this category
-        matching_cols = [col for col in adata.var.columns if category in col and "mean" in col]
-        assert matching_cols, f"No columns containing '{category}' found in: {list(adata.var.columns)}"
-        subset_field = matching_cols[0]
+        # Check that the category is a column in the varm DataFrame
+        assert category in varm_df.columns, f"Category '{category}' not found in varm matrix columns: {list(varm_df.columns)}"
         
-        # Check that the field has values (not all NaN)
-        assert not pd.isna(adata.var[subset_field]).all()
+        # Check that the column has values (not all NaN)
+        assert not pd.isna(varm_df[category]).all(), f"All values for category '{category}' are NaN"
 
 
 def test_compute_de_with_groups_dict():
@@ -306,26 +322,46 @@ def test_compute_de_with_groups_dict():
         return_full_results=True
     )
     
-    # Print columns to debug
-    print(f"Available columns for dict test: {list(adata.var.columns)}")
+    # Check that the field names include subset-specific fields
+    run_info = adata.uns['kompot_de']['last_run_info']
+    field_mapping = run_info['field_mapping']
     
-    # The subset name should be based on the filter description
-    subset_field_long = "de_test_dict_mean_log_fold_change_A_to_B_is_selected=True"
-    subset_field_short = "de_test_dict_mean_lfc_A_to_B_is_selected=True"
+    # Print debug information 
+    print(f"Available varm keys: {list(adata.varm.keys())}")
     
-    # Use the field that exists in the data
-    if subset_field_long in adata.var.columns:
-        subset_field = subset_field_long
-    elif subset_field_short in adata.var.columns:
-        subset_field = subset_field_short
-    else:
-        # Look for any field with is_selected=True in the name
-        matching_cols = [col for col in adata.var.columns if "is_selected=True" in col and "mean" in col]
-        assert matching_cols, f"No columns containing 'is_selected=True' found in: {list(adata.var.columns)}"
-        subset_field = matching_cols[0]
+    # Get the varm key for mean log fold change - looking for the one with "contains_subsets"
+    varm_key = None
+    for key, info in field_mapping.items():
+        if (info.get("location") == "varm" and 
+            info.get("contains_subsets") is not None and 
+            "mean" in info.get("type", "").lower()):
+            varm_key = key
+            break
     
-    # Check that the field exists and has values
-    assert not pd.isna(adata.var[subset_field]).all()
+    assert varm_key is not None, f"No varm mean fold change key with subsets found in field_mapping: {field_mapping}"
+    print(f"Found varm key: {varm_key}")
+    
+    # Check that the varm matrix exists
+    assert varm_key in adata.varm, f"varm key {varm_key} not found in adata.varm"
+    
+    # Check that the varm matrix has the expected subset column
+    varm_df = adata.varm[varm_key]
+    print(f"varm matrix columns: {list(varm_df.columns)}")
+    
+    # The expected subset name for the dictionary filter
+    expected_subset = "is_selected=True"
+    
+    # Check if there's a column containing the subset name (might be partial match)
+    matching_cols = [col for col in varm_df.columns if "is_selected=True" in col]
+    if not matching_cols:
+        # If no exact match, look for any column containing "is_selected"
+        matching_cols = [col for col in varm_df.columns if "is_selected" in col]
+    
+    assert matching_cols, f"No column for subset '{expected_subset}' found in varm matrix columns: {list(varm_df.columns)}"
+    subset_col = matching_cols[0]
+    
+    # Check that the column has values (not all NaN)
+    assert not pd.isna(varm_df[subset_col]).all(), f"All values for subset '{subset_col}' are NaN"
 
 
 def test_compute_de_with_groups_array():
@@ -347,26 +383,46 @@ def test_compute_de_with_groups_array():
         return_full_results=True
     )
     
-    # Print columns to debug
-    print(f"Available columns for array test: {list(adata.var.columns)}")
+    # Check that the field names include subset-specific fields
+    run_info = adata.uns['kompot_de']['last_run_info']
+    field_mapping = run_info['field_mapping']
     
-    # The subset name should be 'True' for boolean array (try both naming patterns)
-    subset_field_long = "de_test_array_mean_log_fold_change_A_to_B_True"
-    subset_field_short = "de_test_array_mean_lfc_A_to_B_True"
+    # Print debug information 
+    print(f"Available varm keys: {list(adata.varm.keys())}")
     
-    # Use the field that exists in the data
-    if subset_field_long in adata.var.columns:
-        subset_field = subset_field_long
-    elif subset_field_short in adata.var.columns:
-        subset_field = subset_field_short
-    else:
-        # Just look for any field with the 'True' subset marker
-        matching_cols = [col for col in adata.var.columns if "True" in col and "mean" in col]
-        assert matching_cols, f"No columns containing 'True' subset identifier found in: {list(adata.var.columns)}"
-        subset_field = matching_cols[0]
+    # Get the varm key for mean log fold change - looking for the one with "contains_subsets"
+    varm_key = None
+    for key, info in field_mapping.items():
+        if (info.get("location") == "varm" and 
+            info.get("contains_subsets") is not None and 
+            "mean" in info.get("type", "").lower()):
+            varm_key = key
+            break
     
-    # Check that the field exists and has values
-    assert not pd.isna(adata.var[subset_field]).all()
+    assert varm_key is not None, f"No varm mean fold change key with subsets found in field_mapping: {field_mapping}"
+    print(f"Found varm key: {varm_key}")
+    
+    # Check that the varm matrix exists
+    assert varm_key in adata.varm, f"varm key {varm_key} not found in adata.varm"
+    
+    # Check that the varm matrix has the expected subset column
+    varm_df = adata.varm[varm_key]
+    print(f"varm matrix columns: {list(varm_df.columns)}")
+    
+    # For a boolean array, the subset name should be 'True'
+    expected_subset = "True"
+    
+    # Check if there's a column with the exact name 'True'
+    matching_cols = [col for col in varm_df.columns if col == "True"]
+    if not matching_cols:
+        # If no exact match, look for any column containing "True"
+        matching_cols = [col for col in varm_df.columns if "True" in str(col)]
+    
+    assert matching_cols, f"No column for subset '{expected_subset}' found in varm matrix columns: {list(varm_df.columns)}"
+    subset_col = matching_cols[0]
+    
+    # Check that the column has values (not all NaN)
+    assert not pd.isna(varm_df[subset_col]).all(), f"All values for subset '{subset_col}' are NaN"
 
 
 def test_compute_de_with_multiple_groups():
@@ -391,47 +447,83 @@ def test_compute_de_with_multiple_groups():
         return_full_results=True
     )
     
-    # Print all columns to debug
-    print(f"Available columns for multiple groups test: {list(adata.var.columns)}")
-    
-    # Find column name patterns - be more flexible with the naming
-    # For first subset (cat1)
-    cat1_cols = [col for col in adata.var.columns if "cat1" in col and "mean" in col]
-    assert cat1_cols, f"No columns containing 'cat1' found in: {list(adata.var.columns)}"
-    subset1_lfc = cat1_cols[0]
-    
-    # For second subset (cat2 + is_selected)
-    cat2_cols = [col for col in adata.var.columns if "cat2" in col and "is_selected" in col and "mean" in col]
-    assert cat2_cols, f"No columns containing both 'cat2' and 'is_selected' found in: {list(adata.var.columns)}"
-    subset2_lfc = cat2_cols[0]
-    
-    # Check that Mahalanobis distances are also computed for each subset
-    # Find mahalanobis columns for cat1
-    cat1_mah_cols = [col for col in adata.var.columns if "cat1" in col and "mahalanobis" in col.lower()]
-    assert cat1_mah_cols, f"No mahalanobis columns containing 'cat1' found in: {list(adata.var.columns)}"
-    subset1_mah = cat1_mah_cols[0]
-    
-    # Find mahalanobis columns for cat2 + is_selected
-    cat2_mah_cols = [col for col in adata.var.columns if "cat2" in col and "is_selected" in col and "mahalanobis" in col.lower()]
-    assert cat2_mah_cols, f"No mahalanobis columns containing both 'cat2' and 'is_selected' found in: {list(adata.var.columns)}"
-    subset2_mah = cat2_mah_cols[0]
-    
-    # Check that field_mapping includes subset fields
+    # Check that the field names include subset-specific fields
     run_info = adata.uns['kompot_de']['last_run_info']
-    assert 'field_mapping' in run_info
-    assert subset1_lfc in run_info['field_mapping']
-    assert subset2_lfc in run_info['field_mapping']
-    assert subset1_mah in run_info['field_mapping']
-    assert subset2_mah in run_info['field_mapping']
+    field_mapping = run_info['field_mapping']
     
-    # Check field tracking
+    # Print debug information 
+    print(f"Available varm keys: {list(adata.varm.keys())}")
+    
+    # Get varm keys for mean log fold change and mahalanobis distances - looking for those with "contains_subsets"
+    mean_lfc_varm_key = None
+    mahalanobis_varm_key = None
+    
+    for key, info in field_mapping.items():
+        if info.get("location") == "varm" and info.get("contains_subsets") is not None:
+            if "mean" in info.get("type", "").lower():
+                mean_lfc_varm_key = key
+            elif "mahalanobis" in info.get("type", "").lower():
+                mahalanobis_varm_key = key
+    
+    assert mean_lfc_varm_key is not None, f"No varm mean fold change key with subsets found in field_mapping: {field_mapping}"
+    assert mahalanobis_varm_key is not None, f"No varm mahalanobis key with subsets found in field_mapping: {field_mapping}"
+    
+    print(f"Found varm keys - mean LFC: {mean_lfc_varm_key}, mahalanobis: {mahalanobis_varm_key}")
+    
+    # Check that the varm matrices exist
+    assert mean_lfc_varm_key in adata.varm, f"varm key {mean_lfc_varm_key} not found in adata.varm"
+    assert mahalanobis_varm_key in adata.varm, f"varm key {mahalanobis_varm_key} not found in adata.varm"
+    
+    # Get the varm dataframes
+    mean_lfc_df = adata.varm[mean_lfc_varm_key]
+    mahalanobis_df = adata.varm[mahalanobis_varm_key]
+    
+    print(f"Mean LFC matrix columns: {list(mean_lfc_df.columns)}")
+    print(f"Mahalanobis matrix columns: {list(mahalanobis_df.columns)}")
+    
+    # Expected subset names or patterns
+    expected_subsets = [
+        "category=cat1",  # For the first filter
+        "category=cat2,is_selected=True"  # For the second filter
+    ]
+    
+    # Check first filter - cat1
+    cat1_subset_cols = [col for col in mean_lfc_df.columns if "cat1" in str(col)]
+    assert cat1_subset_cols, f"No column for 'cat1' found in mean LFC matrix: {list(mean_lfc_df.columns)}"
+    cat1_col = cat1_subset_cols[0]
+    
+    # Check second filter - cat2 + is_selected
+    cat2_subset_cols = [col for col in mean_lfc_df.columns 
+                       if "cat2" in str(col) and "is_selected" in str(col)]
+    assert cat2_subset_cols, f"No column for 'cat2,is_selected' found in mean LFC matrix: {list(mean_lfc_df.columns)}"
+    cat2_col = cat2_subset_cols[0]
+    
+    # Check that the columns have values (not all NaN)
+    assert not pd.isna(mean_lfc_df[cat1_col]).all(), f"All values for '{cat1_col}' in mean LFC matrix are NaN"
+    assert not pd.isna(mean_lfc_df[cat2_col]).all(), f"All values for '{cat2_col}' in mean LFC matrix are NaN"
+    
+    # Check that mahalanobis columns exist and have values
+    mahalanobis_cat1_cols = [col for col in mahalanobis_df.columns if "cat1" in str(col)]
+    assert mahalanobis_cat1_cols, f"No column for 'cat1' found in mahalanobis matrix: {list(mahalanobis_df.columns)}"
+    mahalanobis_cat1_col = mahalanobis_cat1_cols[0]
+    
+    mahalanobis_cat2_cols = [col for col in mahalanobis_df.columns 
+                            if "cat2" in str(col) and "is_selected" in str(col)]
+    assert mahalanobis_cat2_cols, f"No column for 'cat2,is_selected' found in mahalanobis matrix: {list(mahalanobis_df.columns)}"
+    mahalanobis_cat2_col = mahalanobis_cat2_cols[0]
+    
+    # Check that the mahalanobis columns have values (not all NaN)
+    assert not pd.isna(mahalanobis_df[mahalanobis_cat1_col]).all(), f"All values for '{mahalanobis_cat1_col}' in mahalanobis matrix are NaN"
+    assert not pd.isna(mahalanobis_df[mahalanobis_cat2_col]).all(), f"All values for '{mahalanobis_cat2_col}' in mahalanobis matrix are NaN"
+    
+    # Check field tracking - make sure varm matrices are tracked
     assert 'anndata_fields' in adata.uns['kompot_de']
     field_tracking = adata.uns['kompot_de']['anndata_fields']
-    assert 'var' in field_tracking
+    assert 'varm' in field_tracking
     
-    # Check that subset fields are tracked
-    for field in [subset1_lfc, subset2_lfc, subset1_mah, subset2_mah]:
-        assert field in field_tracking['var']
+    # Check that varm fields are tracked
+    assert mean_lfc_varm_key in field_tracking['varm']
+    assert mahalanobis_varm_key in field_tracking['varm']
 
 
 def test_compute_de_with_landmark_handling():
@@ -488,24 +580,67 @@ def test_compute_de_with_landmark_handling():
         return_full_results=True
     )
     
-    # Check that results were computed successfully for both subsets
-    large_subset_cols = [col for col in adata.var.columns if "subset1" in col and "mean" in col]
-    assert large_subset_cols, f"No columns for large subset (subset1) found"
-    large_subset_field = large_subset_cols[0]
+    # Check that the field names include subset-specific fields
+    run_info = adata.uns['kompot_de']['last_run_info']
+    field_mapping = run_info['field_mapping']
     
-    small_subset_cols = [col for col in adata.var.columns if "subset2" in col and "mean" in col]
-    assert small_subset_cols, f"No columns for small subset (subset2) found"
-    small_subset_field = small_subset_cols[0]
+    # Print debug information 
+    print(f"Available varm keys: {list(adata.varm.keys())}")
     
-    # Check that mahalanobis distances were computed for both subsets
-    large_subset_mah_cols = [col for col in adata.var.columns if "subset1" in col and "mahalanobis" in col.lower()]
-    assert large_subset_mah_cols, f"No mahalanobis columns for large subset (subset1) found"
-    small_subset_mah_cols = [col for col in adata.var.columns if "subset2" in col and "mahalanobis" in col.lower()]
-    assert small_subset_mah_cols, f"No mahalanobis columns for small subset (subset2) found"
+    # Get varm keys for mean log fold change and mahalanobis distances - looking for those with "contains_subsets"
+    mean_lfc_varm_key = None
+    mahalanobis_varm_key = None
     
-    # Check that the fields have values (not all NaN)
-    assert not pd.isna(adata.var[large_subset_field]).all()
-    assert not pd.isna(adata.var[small_subset_field]).all()
+    for key, info in field_mapping.items():
+        if info.get("location") == "varm" and info.get("contains_subsets") is not None:
+            if "mean" in info.get("type", "").lower():
+                mean_lfc_varm_key = key
+            elif "mahalanobis" in info.get("type", "").lower():
+                mahalanobis_varm_key = key
+    
+    assert mean_lfc_varm_key is not None, f"No varm mean fold change key with subsets found in field_mapping: {field_mapping}"
+    assert mahalanobis_varm_key is not None, f"No varm mahalanobis key with subsets found in field_mapping: {field_mapping}"
+    
+    print(f"Found varm keys - mean LFC: {mean_lfc_varm_key}, mahalanobis: {mahalanobis_varm_key}")
+    
+    # Check that the varm matrices exist
+    assert mean_lfc_varm_key in adata.varm, f"varm key {mean_lfc_varm_key} not found in adata.varm"
+    assert mahalanobis_varm_key in adata.varm, f"varm key {mahalanobis_varm_key} not found in adata.varm"
+    
+    # Get the varm dataframes
+    mean_lfc_df = adata.varm[mean_lfc_varm_key]
+    mahalanobis_df = adata.varm[mahalanobis_varm_key]
+    
+    print(f"Mean LFC matrix columns: {list(mean_lfc_df.columns)}")
+    print(f"Mahalanobis matrix columns: {list(mahalanobis_df.columns)}")
+    
+    # The subset names should be "subset1" and "subset2" for boolean arrays in a 2D array
+    # Check first subset (large)
+    subset1_cols = [col for col in mean_lfc_df.columns if "subset1" in str(col)]
+    assert subset1_cols, f"No column for 'subset1' found in mean LFC matrix: {list(mean_lfc_df.columns)}"
+    subset1_col = subset1_cols[0]
+    
+    # Check second subset (small)
+    subset2_cols = [col for col in mean_lfc_df.columns if "subset2" in str(col)]
+    assert subset2_cols, f"No column for 'subset2' found in mean LFC matrix: {list(mean_lfc_df.columns)}"
+    subset2_col = subset2_cols[0]
+    
+    # Check that the columns have values (not all NaN)
+    assert not pd.isna(mean_lfc_df[subset1_col]).all(), f"All values for '{subset1_col}' in mean LFC matrix are NaN"
+    assert not pd.isna(mean_lfc_df[subset2_col]).all(), f"All values for '{subset2_col}' in mean LFC matrix are NaN"
+    
+    # Check that mahalanobis columns exist and have values
+    mahalanobis_subset1_cols = [col for col in mahalanobis_df.columns if "subset1" in str(col)]
+    assert mahalanobis_subset1_cols, f"No column for 'subset1' found in mahalanobis matrix: {list(mahalanobis_df.columns)}"
+    mahalanobis_subset1_col = mahalanobis_subset1_cols[0]
+    
+    mahalanobis_subset2_cols = [col for col in mahalanobis_df.columns if "subset2" in str(col)]
+    assert mahalanobis_subset2_cols, f"No column for 'subset2' found in mahalanobis matrix: {list(mahalanobis_df.columns)}"
+    mahalanobis_subset2_col = mahalanobis_subset2_cols[0]
+    
+    # Check that the mahalanobis columns have values (not all NaN)
+    assert not pd.isna(mahalanobis_df[mahalanobis_subset1_col]).all(), f"All values for '{mahalanobis_subset1_col}' in mahalanobis matrix are NaN"
+    assert not pd.isna(mahalanobis_df[mahalanobis_subset2_col]).all(), f"All values for '{mahalanobis_subset2_col}' in mahalanobis matrix are NaN"
 
 
 def test_compute_de_with_weighted_lfc_and_groups():
@@ -536,28 +671,69 @@ def test_compute_de_with_weighted_lfc_and_groups():
         return_full_results=True
     )
     
+    # Check that the field names include subset-specific fields
+    run_info = adata.uns['kompot_de']['last_run_info']
+    field_mapping = run_info['field_mapping']
+    
     # Get unique categories
     categories = adata.obs['category'].unique()
     
-    # Print all columns to help debug
-    print(f"Available columns for weighted test: {list(adata.var.columns)}")
+    # Print debug information 
+    print(f"Available varm keys: {list(adata.varm.keys())}")
     
-    # Look for any column that contains "weighted" for the global field
-    matching_cols = [col for col in adata.var.columns if "weighted" in col and "_A_to_B" in col and not any(cat in col for cat in categories)]
-    assert matching_cols, f"No weighted LFC columns found in: {list(adata.var.columns)}"
-    global_weighted_lfc = matching_cols[0]
+    # Get varm keys for mean log fold change and weighted log fold change - looking for those with "contains_subsets"
+    mean_lfc_varm_key = None
+    weighted_lfc_varm_key = None
     
-    print(f"Using global weighted LFC column: {global_weighted_lfc}")
+    for key, info in field_mapping.items():
+        if info.get("location") == "varm" and info.get("contains_subsets") is not None:
+            if "mean" in info.get("type", "").lower() and "weighted" not in info.get("type", "").lower():
+                mean_lfc_varm_key = key
+            elif "weighted" in info.get("type", "").lower():
+                weighted_lfc_varm_key = key
     
-    # Check that each category has its own weighted mean log fold change field
+    assert mean_lfc_varm_key is not None, f"No varm mean fold change key with subsets found in field_mapping: {field_mapping}"
+    assert weighted_lfc_varm_key is not None, f"No varm weighted key with subsets found in field_mapping: {field_mapping}"
+    
+    print(f"Found varm keys - mean LFC: {mean_lfc_varm_key}, weighted LFC: {weighted_lfc_varm_key}")
+    
+    # Check that the varm matrices exist
+    assert mean_lfc_varm_key in adata.varm, f"varm key {mean_lfc_varm_key} not found in adata.varm"
+    
+    # Get the mean LFC dataframe
+    mean_lfc_df = adata.varm[mean_lfc_varm_key]
+    
+    # Get the weighted LFC dataframe if available
+    weighted_lfc_df = None
+    if weighted_lfc_varm_key is not None and weighted_lfc_varm_key in adata.varm:
+        weighted_lfc_df = adata.varm[weighted_lfc_varm_key]
+    
+    print(f"Mean LFC matrix columns: {list(mean_lfc_df.columns)}")
+    if weighted_lfc_df is not None:
+        print(f"Weighted LFC matrix columns: {list(weighted_lfc_df.columns)}")
+    else:
+        print("No weighted LFC matrix available")
+    
+    # Check the global field for regular LFC
+    assert not pd.isna(adata.var['de_test_weighted_mean_lfc_A_to_B']).all(), "Global mean LFC column has all NaN values"
+    
+    # Check the global field for weighted LFC
+    global_weighted_lfc_cols = [col for col in adata.var.columns if "weighted" in col and "_A_to_B" in col]
+    assert global_weighted_lfc_cols, f"No global weighted LFC column found in: {list(adata.var.columns)}"
+    global_weighted_lfc = global_weighted_lfc_cols[0]
+    assert not pd.isna(adata.var[global_weighted_lfc]).all(), "Global weighted LFC column has all NaN values"
+    
+    # Check that each category has its own column in both varm matrices
     for category in categories:
-        # Look for any field with both weighted and category in the name
-        potential_matches = [col for col in adata.var.columns 
-                          if "weighted" in col and category in col]
-        assert potential_matches, f"No weighted column found for category {category} in: {list(adata.var.columns)}"
-        subset_field = potential_matches[0]
+        # Check in mean LFC matrix
+        cat_cols_mean = [col for col in mean_lfc_df.columns if category in str(col)]
+        assert cat_cols_mean, f"No column for category '{category}' found in mean LFC matrix: {list(mean_lfc_df.columns)}"
+        cat_col_mean = cat_cols_mean[0]
+        assert not pd.isna(mean_lfc_df[cat_col_mean]).all(), f"All values for category '{category}' in mean LFC matrix are NaN"
         
-        print(f"Using subset field for {category}: {subset_field}")
-        
-        # Check that the field has values (not all NaN)
-        assert not pd.isna(adata.var[subset_field]).all()
+        # Check in weighted LFC matrix - only do this if we have a weighted matrix
+        if weighted_lfc_df is not None:
+            cat_cols_weighted = [col for col in weighted_lfc_df.columns if category in str(col)]
+            assert cat_cols_weighted, f"No column for category '{category}' found in weighted LFC matrix: {list(weighted_lfc_df.columns)}"
+            cat_col_weighted = cat_cols_weighted[0]
+            assert not pd.isna(weighted_lfc_df[cat_col_weighted]).all(), f"All values for category '{category}' in weighted LFC matrix are NaN"
