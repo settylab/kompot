@@ -11,6 +11,7 @@ All notable changes to this project will be documented in this file.
  - bugfix passing `ax` to `kompot.plot.embedding`
  - implemented `mgroups` in `kompot.plot.embedding` to plot multiple groupings
  - implement group-wise differential expression through `groups` parameter in `kompot.compute_differential_expression`
+ - also return and store uncertainty estimates (stds) in de analysis
 
 ## [0.3.3]
 

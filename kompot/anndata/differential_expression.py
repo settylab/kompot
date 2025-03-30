@@ -201,8 +201,17 @@ def compute_differential_expression(
     - adata.layers[f"{result_key}_condition2_imputed"]: Imputed expression for condition 2
     - adata.layers[f"{result_key}_fold_change"]: Log fold change for each cell and gene
     - adata.uns[result_key]: Dictionary with additional information and parameters
-    - If landmarks are computed, they are stored in adata.uns[result_key]['landmarks']
-      for potential reuse in other analyses.
+    
+    Posterior standard deviations of imputed expression values are stored in:
+    - If sample_col is not None (with sample variance):
+      - adata.layers[f"{result_key}_{condition1}_std"]: Cell-wise standard deviation for condition 1 (sparse matrix)
+      - adata.layers[f"{result_key}_{condition2}_std"]: Cell-wise standard deviation for condition 2 (sparse matrix)
+    - If sample_col is None (without sample variance):
+      - adata.obs[f"{result_key}_{condition1}_std"]: Cell-wise standard deviation for condition 1 (same for all genes)
+      - adata.obs[f"{result_key}_{condition2}_std"]: Cell-wise standard deviation for condition 2 (same for all genes)
+    
+    If landmarks are computed, they are stored in adata.uns[result_key]['landmarks']
+    for potential reuse in other analyses.
     """
     
     # Generate standardized field names
@@ -229,6 +238,18 @@ def compute_differential_expression(
             field_names["fold_change_key"]       # Not impacted by sample variance
         ]
     }
+    
+    # Add standard deviation tracking based on sample_col
+    if sample_col is not None:
+        # With sample variance, track them in layers
+        all_patterns["layers"].append(field_names["std_key_1"])
+        all_patterns["layers"].append(field_names["std_key_2"])
+    else:
+        # Without sample variance, track them in obs
+        if "obs" not in all_patterns:
+            all_patterns["obs"] = []
+        all_patterns["obs"].append(field_names["std_key_1"])
+        all_patterns["obs"].append(field_names["std_key_2"])
     if differential_abundance_key is not None:
         all_patterns["var"].append(field_names["weighted_lfc_key"])
     # If groups parameter is provided, also check varm for overwrites
@@ -902,18 +923,46 @@ def compute_differential_expression(
             condition1_imputed = np.array(expression_results['condition1_imputed'])
             condition2_imputed = np.array(expression_results['condition2_imputed'])
             fold_change = np.array(expression_results['fold_change'])
+            condition1_std = np.array(expression_results['condition1_std'])
+            condition2_std = np.array(expression_results['condition2_std'])
             
-            # Map the imputed values to the correct positions, only for selected genes
-            for i, gene in enumerate(selected_genes):
-                gene_idx = list(adata.var_names).index(gene)
-                adata.layers[imputed1_key][:, gene_idx] = condition1_imputed[:, i]
-                adata.layers[imputed2_key][:, gene_idx] = condition2_imputed[:, i]
-                adata.layers[fold_change_key][:, gene_idx] = fold_change[:, i]
+            # Create standard deviation keys
+            if sample_col is not None:
+                # With sample variance, store as cell-by-gene layers (sparse)
+                # Initialize standard deviation layers if they don't exist
+                if field_names["std_key_1"] not in adata.layers:
+                    adata.layers[field_names["std_key_1"]] = np.zeros_like(adata.X)
+                if field_names["std_key_2"] not in adata.layers:
+                    adata.layers[field_names["std_key_2"]] = np.zeros_like(adata.X)
+                
+                # Map the values to the correct positions, only for selected genes
+                for i, gene in enumerate(selected_genes):
+                    gene_idx = list(adata.var_names).index(gene)
+                    adata.layers[imputed1_key][:, gene_idx] = condition1_imputed[:, i]
+                    adata.layers[imputed2_key][:, gene_idx] = condition2_imputed[:, i]
+                    adata.layers[fold_change_key][:, gene_idx] = fold_change[:, i]
+                    adata.layers[field_names["std_key_1"]][:, gene_idx] = condition1_std[:, i]
+                    adata.layers[field_names["std_key_2"]][:, gene_idx] = condition2_std[:, i]
+            else:
+                # Without sample variance, store as .obs columns (same for all genes)
+                # For this case, all genes have the same std, so we just take the first gene
+                # No averaging over genes - direct extraction from the first column
+                adata.obs[field_names["std_key_1"]] = condition1_std[:, 0]
+                adata.obs[field_names["std_key_2"]] = condition2_std[:, 0]
+                
+                # Map imputed values to the correct positions
+                for i, gene in enumerate(selected_genes):
+                    gene_idx = list(adata.var_names).index(gene)
+                    adata.layers[imputed1_key][:, gene_idx] = condition1_imputed[:, i]
+                    adata.layers[imputed2_key][:, gene_idx] = condition2_imputed[:, i]
+                    adata.layers[fold_change_key][:, gene_idx] = fold_change[:, i]
         else:
             # Convert JAX arrays to NumPy arrays if needed
             condition1_imputed = np.array(expression_results['condition1_imputed'])
             condition2_imputed = np.array(expression_results['condition2_imputed'])
             fold_change = np.array(expression_results['fold_change'])
+            condition1_std = np.array(expression_results['condition1_std'])
+            condition2_std = np.array(expression_results['condition2_std'])
             
             # Check shapes and reshape if necessary
             if condition1_imputed.shape != adata.shape:
@@ -925,18 +974,20 @@ def compute_differential_expression(
             imputed1_key = field_names["imputed_key_1"]
             imputed2_key = field_names["imputed_key_2"]
             fold_change_key = field_names["fold_change_key"]
-
-            # Only create or overwrite these layers if the data shape matches
-            # If the layers already exist, only update for selected genes
-            if imputed1_key in adata.layers and imputed2_key in adata.layers and fold_change_key in adata.layers:
-                # Layers exist, update only for selected genes
-                for i, gene in enumerate(selected_genes):
-                    gene_idx = list(adata.var_names).index(gene)
-                    adata.layers[imputed1_key][:, gene_idx] = condition1_imputed[:, i]
-                    adata.layers[imputed2_key][:, gene_idx] = condition2_imputed[:, i]
-                    adata.layers[fold_change_key][:, gene_idx] = fold_change[:, i]
+            
+            if sample_col is not None:
+                # With sample variance, store as cell-by-gene layers
+                adata.layers[imputed1_key] = condition1_imputed
+                adata.layers[imputed2_key] = condition2_imputed
+                adata.layers[fold_change_key] = fold_change
+                adata.layers[field_names["std_key_1"]] = condition1_std
+                adata.layers[field_names["std_key_2"]] = condition2_std
             else:
-                # Create new layers
+                # Without sample variance, store as .obs columns (same for all genes)
+                # For this case, all genes have the same std, so we just take the first gene
+                adata.obs[field_names["std_key_1"]] = condition1_std[:, 0]
+                adata.obs[field_names["std_key_2"]] = condition2_std[:, 0]
+
                 adata.layers[imputed1_key] = condition1_imputed
                 adata.layers[imputed2_key] = condition2_imputed
                 adata.layers[fold_change_key] = fold_change
@@ -1037,6 +1088,16 @@ def compute_differential_expression(
             field_names["imputed_key_2"]: {"location": "layers", "type": "imputed", "description": f"Imputed expression for {condition2}"},
             field_names["fold_change_key"]: {"location": "layers", "type": "fold_change", "description": "Log fold change for each cell and gene"},
         }
+        
+        # Add standard deviation fields to field_mapping
+        if sample_col is not None:
+            # With sample variance, posterior standard deviations are in layers (cell-by-gene)
+            field_mapping[field_names["std_key_1"]] = {"location": "layers", "type": "std_with_sample_var", "description": f"Posterior standard deviation of imputed expression for {condition1} (with sample variance)"}
+            field_mapping[field_names["std_key_2"]] = {"location": "layers", "type": "std_with_sample_var", "description": f"Posterior standard deviation of imputed expression for {condition2} (with sample variance)"}
+        else:
+            # Without sample variance, posterior standard deviations are in obs (same for all genes)
+            field_mapping[field_names["std_key_1"]] = {"location": "obs", "type": "std", "description": f"Posterior standard deviation of imputed expression for {condition1} (same for all genes)"}
+            field_mapping[field_names["std_key_2"]] = {"location": "obs", "type": "std", "description": f"Posterior standard deviation of imputed expression for {condition2} (same for all genes)"}
         
         # Add optional fields if present
         if compute_mahalanobis:

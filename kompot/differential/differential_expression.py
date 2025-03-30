@@ -636,6 +636,8 @@ class DifferentialExpression:
             Dictionary containing the predictions:
             - 'condition1_imputed': Imputed expression for condition 1
             - 'condition2_imputed': Imputed expression for condition 2
+            - 'condition1_std': Posterior standard deviation for condition 1
+            - 'condition2_std': Posterior standard deviation for condition 2
             - 'fold_change': Fold change between conditions
             - 'lfc_stds': Z-scores for the fold changes
             - 'bidirectionality': Bidirectionality scores
@@ -663,24 +665,21 @@ class DifferentialExpression:
             return self.function_predictor2.covariance(X_batch, diag=True)
             
         # Functions for computing empirical variances using batches
-        # When using SampleVarianceEstimator, just define functions here but don't call them yet
         if self.variance_predictor1 is not None:
             def get_variance1(X_batch):
-                # Return zeros with same shape as imputed values
-                return np.zeros_like(predict_condition1(X_batch))
+                return self.variance_predictor1(X_batch, diag=True)
         else:
             def get_variance1(X_batch):
                 # Return zeros with same shape as imputed values
-                return np.zeros_like(predict_condition1(X_batch))
+                return np.zeros((X_batch.shape[0], 1))
                 
         if self.variance_predictor2 is not None:
             def get_variance2(X_batch):
-                # Return zeros with same shape as imputed values
-                return np.zeros_like(predict_condition2(X_batch))
+                return self.variance_predictor2(X_batch, diag=True)
         else:
             def get_variance2(X_batch):
                 # Return zeros with same shape as imputed values
-                return np.zeros_like(predict_condition2(X_batch))
+                return np.zeros((X_batch.shape[0], 1))
         
         # Apply batched processing to each expensive operation
         condition1_imputed = apply_batched(
@@ -693,7 +692,7 @@ class DifferentialExpression:
             desc="Predicting condition 2" if progress else None
         )
         
-        # Get uncertainties from function predictors
+        # Get uncertainties from function predictors (GP posterior variance)
         condition1_uncertainty = apply_batched(
             get_uncertainty1, X_new, batch_size=batch_size,
             desc="Computing uncertainty (condition 1)" if progress else None
@@ -703,6 +702,23 @@ class DifferentialExpression:
             get_uncertainty2, X_new, batch_size=batch_size,
             desc="Computing uncertainty (condition 2)" if progress else None
         )
+        
+        # If using sample variance, compute the per-cell, per-gene variances
+        if self.use_sample_variance:
+            # Get sample-specific variances if enabled
+            condition1_sample_variance = apply_batched(
+                get_variance1, X_new, batch_size=batch_size,
+                desc="Computing sample variance (condition 1)" if progress else None
+            )
+            
+            condition2_sample_variance = apply_batched(
+                get_variance2, X_new, batch_size=batch_size,
+                desc="Computing sample variance (condition 2)" if progress else None
+            )
+        else:
+            # Initialize with zeros if not using sample variance
+            condition1_sample_variance = np.zeros_like(condition1_imputed)
+            condition2_sample_variance = np.zeros_like(condition2_imputed)
         
         # Compute fold change
         fold_change = condition2_imputed - condition1_imputed
@@ -721,9 +737,24 @@ class DifferentialExpression:
         # Convert uncertainties to numpy arrays if needed
         condition1_uncertainty = np.asarray(condition1_uncertainty)
         condition2_uncertainty = np.asarray(condition2_uncertainty)
+        condition1_sample_variance = np.asarray(condition1_sample_variance)
+        condition2_sample_variance = np.asarray(condition2_sample_variance)
         
-        # Combined uncertainty - function predictor uncertainties
-        variance = condition1_uncertainty + condition2_uncertainty
+        # Combined uncertainty - base function predictor uncertainties
+        function_variance = condition1_uncertainty + condition2_uncertainty
+        
+        # Total variance is the sum of function predictor variance and sample variance
+        total_variance1 = condition1_uncertainty + condition1_sample_variance
+        total_variance2 = condition2_uncertainty + condition2_sample_variance
+        
+        # Compute posterior standard deviations by taking square root of total variance
+        condition1_std = np.sqrt(total_variance1 + self.eps)
+        condition2_std = np.sqrt(total_variance2 + self.eps)
+        
+        # Combined variance for fold changes
+        total_variance = function_variance
+        if self.use_sample_variance:
+            total_variance = total_variance + condition1_sample_variance + condition2_sample_variance
         
         # Compute bidirectionality
         bidirectionality = np.minimum(
@@ -733,11 +764,20 @@ class DifferentialExpression:
         
         # Compute mean log fold change
         mean_log_fold_change = np.mean(fold_change, axis=0)
+
+        # Compute z-scores using the total variance (function + sample)
+        stds = np.sqrt(total_variance + self.eps)
+        fold_change_zscores = fold_change / stds
         
+        # Add the imputed expression values and their std to the results
         result = {
             'condition1_imputed': condition1_imputed,
             'condition2_imputed': condition2_imputed,
+            'condition1_std': condition1_std,
+            'condition2_std': condition2_std,
             'fold_change': fold_change,
+            'fold_change_zscores': fold_change_zscores,
+            'mean_log_fold_change': mean_log_fold_change,
             'lfc_stds': lfc_stds,
             'bidirectionality': bidirectionality
         }
@@ -753,50 +793,7 @@ class DifferentialExpression:
                 use_landmarks=use_landmarks,  # Pass the use_landmarks parameter
                 landmarks_override=landmarks_override,  # Pass any custom landmarks
                 progress=progress  # Use the progress parameter here
-            )
-            
+            )            
             result['mahalanobis_distances'] = mahalanobis_distances
-            # Always add mean_log_fold_change to the result
-            result['mean_log_fold_change'] = mean_log_fold_change
-            
-            # Use sample variance from mahalanobis calculation for z-scores
-            # This will get the full covariance matrix with diag=False
-            if self.use_sample_variance:
-                # Even with sample variance, we need to provide a default z-score
-                # Compute basic z-scores using the function predictor uncertainties
-                stds = np.sqrt(variance + self.eps)
-                fold_change_zscores = fold_change / stds
-                result['fold_change_zscores'] = fold_change_zscores
-            else:
-                # If we're not using sample variance, just use the function predictor uncertainties
-                stds = np.sqrt(variance + self.eps)
-                fold_change_zscores = fold_change / stds
-                result['fold_change_zscores'] = fold_change_zscores
-        else:
-            # If we don't compute mahalanobis, we still need the fold change z-scores
-            if self.use_sample_variance:
-                # Get empirical variances if enabled
-                try:
-                    # Let's call compute_mahalanobis_distances and only use its variance calculations
-                    # This will get the variance with the whole landmark logic
-                    # Pass the progress parameter to control tqdm display
-                    temp_result = self.compute_mahalanobis_distances(
-                        X=X_new, 
-                        fold_change=fold_change,
-                        use_landmarks=use_landmarks,  # Pass the use_landmarks parameter
-                        landmarks_override=landmarks_override,  # Pass any custom landmarks
-                        progress=progress  # Use the progress parameter here
-                    )
-                    # The actual distances will be discarded, we just want the side effect of computing the variance
-                except Exception as e:
-                    error_msg = f"Error in sample variance computation: {e}."
-                    logger.error(error_msg)
-                    raise RuntimeError(error_msg) from e
-            
-            # Compute z-scores using function predictor uncertainties
-            stds = np.sqrt(variance + self.eps)
-            fold_change_zscores = fold_change / stds
-            result['fold_change_zscores'] = fold_change_zscores
-            result['mean_log_fold_change'] = mean_log_fold_change
         
         return result

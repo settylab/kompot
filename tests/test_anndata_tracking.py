@@ -246,3 +246,105 @@ class TestAnnDataFieldTracking:
                 break
                 
         assert layer_field is not None
+        
+    def test_std_keys_in_sample_variance_impacted(self, dummy_adata, caplog):
+        """Test that std_key_1 and std_key_2 are properly included in sample_variance_impacted list."""
+        caplog.set_level(logging.INFO)
+        
+        # Run differential expression analysis with sample_col to use sample variance
+        compute_differential_expression(
+            dummy_adata,
+            groupby='group',
+            condition1='group1',
+            condition2='group2',
+            obsm_key='DM_EigenVectors',
+            result_key='test_std_keys',
+            sample_col='sample',
+            n_landmarks=10,
+            compute_mahalanobis=False  # For simplicity in testing
+        )
+        
+        # Extract the field_names from run_info
+        assert 'kompot_de' in dummy_adata.uns
+        assert 'last_run_info' in dummy_adata.uns['kompot_de']
+        assert 'field_names' in dummy_adata.uns['kompot_de']['last_run_info']
+        
+        field_names = dummy_adata.uns['kompot_de']['last_run_info']['field_names']
+        
+        # Check that std_key_1 and std_key_2 exist in field_names
+        assert 'std_key_1' in field_names
+        assert 'std_key_2' in field_names
+        
+        # Verify these are properly formatted with the condition names
+        assert 'group1_std' in field_names['std_key_1']
+        assert 'group2_std' in field_names['std_key_2']
+        
+        # Check that sample_variance_impacted_fields include std_key_1 and std_key_2
+        assert 'sample_variance_impacted_fields' in field_names
+        assert 'std_key_1' in field_names['sample_variance_impacted_fields']
+        assert 'std_key_2' in field_names['sample_variance_impacted_fields']
+        
+        # Verify std fields are present in field_mapping
+        field_mapping = dummy_adata.uns['kompot_de']['last_run_info']['field_mapping']
+        
+        std1_field = field_names['std_key_1']
+        std2_field = field_names['std_key_2']
+        
+        assert std1_field in field_mapping
+        assert std2_field in field_mapping
+        
+        # With sample variance, std fields should be in layers
+        assert field_mapping[std1_field]['location'] == 'layers'
+        assert field_mapping[std2_field]['location'] == 'layers'
+        assert field_mapping[std1_field]['type'] == 'std_with_sample_var'
+        assert field_mapping[std2_field]['type'] == 'std_with_sample_var'
+        
+    def test_std_keys_without_sample_variance(self, dummy_adata, caplog):
+        """Test that std_key_1 and std_key_2 are properly handled without sample variance."""
+        caplog.set_level(logging.INFO)
+        
+        # Run differential expression analysis without sample_col
+        compute_differential_expression(
+            dummy_adata,
+            groupby='group',
+            condition1='group1',
+            condition2='group2',
+            obsm_key='DM_EigenVectors',
+            result_key='test_std_keys_no_samples',
+            n_landmarks=10,
+            compute_mahalanobis=False  # For simplicity in testing
+        )
+        
+        # Extract the field_names from run_info
+        assert 'kompot_de' in dummy_adata.uns
+        assert 'last_run_info' in dummy_adata.uns['kompot_de']
+        assert 'field_names' in dummy_adata.uns['kompot_de']['last_run_info']
+        
+        field_names = dummy_adata.uns['kompot_de']['last_run_info']['field_names']
+        
+        # Check that std_key_1 and std_key_2 exist in field_names
+        assert 'std_key_1' in field_names
+        assert 'std_key_2' in field_names
+        
+        # Verify these are properly formatted with the condition names
+        assert 'group1_std' in field_names['std_key_1']
+        assert 'group2_std' in field_names['std_key_2']
+        
+        # Verify std fields are present in field_mapping
+        field_mapping = dummy_adata.uns['kompot_de']['last_run_info']['field_mapping']
+        
+        std1_field = field_names['std_key_1']
+        std2_field = field_names['std_key_2']
+        
+        assert std1_field in field_mapping
+        assert std2_field in field_mapping
+        
+        # Without sample variance, std fields should be in obs
+        assert field_mapping[std1_field]['location'] == 'obs'
+        assert field_mapping[std2_field]['location'] == 'obs'
+        assert field_mapping[std1_field]['type'] == 'std'
+        assert field_mapping[std2_field]['type'] == 'std'
+        
+        # Check that fields were actually created in adata.obs
+        assert std1_field in dummy_adata.obs
+        assert std2_field in dummy_adata.obs
