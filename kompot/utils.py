@@ -353,7 +353,7 @@ def generate_output_field_names(
     elif analysis_type == "de":
         # Define which fields are actually impacted by sample variance
         # Fields like mean_lfc, bidirectionality, imputed data, fold_change are not affected by sample variance
-        sample_variance_impacted = ["mahalanobis_key", "lfc_std_key", "mahalanobis_varm_key", "std_key_1", "std_key_2"]
+        sample_variance_impacted = ["mahalanobis_key", "lfc_std_key", "mahalanobis_varm_key", "std_key_1", "std_key_2", "fold_change_zscores_key"]
         
         # Differential expression field names
         field_names.update({
@@ -365,6 +365,7 @@ def generate_output_field_names(
             "imputed_key_1": f"{result_key}_imputed_{cond1_safe}",
             "imputed_key_2": f"{result_key}_imputed_{cond2_safe}",
             "fold_change_key": f"{result_key}_fold_change_{cond1_safe}_to_{cond2_safe}",
+            "fold_change_zscores_key": f"{result_key}_fold_change_zscores_{cond1_safe}_to_{cond2_safe}{suffix}",
             "std_key_1": f"{result_key}_{cond1_safe}_std",
             "std_key_2": f"{result_key}_{cond2_safe}_std",
             

@@ -153,6 +153,12 @@ def test_sample_col_parameter():
     assert result_no_samples['model'].variance_predictor1 is None
     assert result_no_samples['model'].variance_predictor2 is None
     
+    # Check fold change z-scores layer is created
+    fold_change_zscores_key_with_samples = f"test_sample_col_fold_change_zscores_A_to_B_sample_var"
+    fold_change_zscores_key_no_samples = f"test_no_sample_col_fold_change_zscores_A_to_B"
+    assert fold_change_zscores_key_with_samples in adata.layers
+    assert fold_change_zscores_key_no_samples in adata.layers
+    
     # Verify that sample variance affects uncertainty calculations
     # Use a subset of points for efficiency
     X_test = adata.obsm['DM_EigenVectors'][:20]  # Just use 20 test points
@@ -937,3 +943,176 @@ class TestRunInfo:
         # Verify the printed output matches the return value
         printed_output = f.getvalue().strip()
         assert printed_output == text_list
+
+
+def test_gene_subset_order_preservation():
+    """Test that gene order is preserved correctly when using gene subsets."""
+    # Create a test AnnData object with specific gene names in a known order
+    try:
+        import anndata
+    except ImportError:
+        pytest.skip("anndata not installed, skipping test")
+        
+    np.random.seed(42)
+    
+    # Create test data with 20 genes
+    n_cells = 100
+    n_genes = 20
+    X = np.random.normal(0, 1, (n_cells, n_genes))
+    
+    # Use deliberately non-alphabetical gene names to test ordering
+    gene_names = [f"gene_{i:02d}" for i in range(n_genes)]
+    np.random.shuffle(gene_names)  # Shuffle to ensure order is not alphabetical
+    original_gene_order = gene_names.copy()
+    
+    # Create groups for testing
+    groups = np.array(['A'] * (n_cells // 2) + ['B'] * (n_cells // 2))
+    
+    # Create embedding
+    obsm = {
+        'DM_EigenVectors': np.random.normal(0, 1, (n_cells, 10))
+    }
+    
+    # Create observation dataframe
+    obs = pd.DataFrame({'group': groups})
+    
+    # Create var DataFrame with gene_names as index
+    var = pd.DataFrame(index=gene_names)
+    
+    # Create AnnData object
+    adata = anndata.AnnData(X=X, obs=obs, var=var, obsm=obsm)
+    
+    # Case 1: Test with all genes but in different order
+    # Create a shuffled copy of all genes
+    shuffled_all_genes = gene_names.copy()
+    np.random.shuffle(shuffled_all_genes)
+    
+    # Run differential expression with the shuffled gene list
+    result = compute_differential_expression(
+        adata,
+        groupby='group',
+        condition1='A',
+        condition2='B',
+        genes=shuffled_all_genes,
+        result_key='test_all_genes_shuffled',
+        compute_mahalanobis=False,
+        return_full_results=True
+    )
+    
+    # Verify that mean log fold change values follow the original AnnData gene order
+    # not the order in the shuffled gene list
+    assert list(adata.var_names) == original_gene_order
+    mean_lfc_column = f"test_all_genes_shuffled_mean_log_fold_change_A_to_B"
+    assert mean_lfc_column in adata.var.columns
+    
+    # All genes should have non-NaN values
+    assert not adata.var[mean_lfc_column].isna().any()
+    
+    # Case 2: Test with a subset of genes in random order
+    # Select a random subset of genes
+    subset_size = 10
+    gene_subset = np.random.choice(gene_names, subset_size, replace=False)
+    
+    # Run differential expression with the gene subset
+    result_subset = compute_differential_expression(
+        adata,
+        groupby='group',
+        condition1='A',
+        condition2='B',
+        genes=gene_subset,
+        result_key='test_gene_subset',
+        compute_mahalanobis=False,
+        return_full_results=True
+    )
+    
+    # Verify that results are only computed for the subset of genes
+    # but follow the original AnnData gene order
+    mean_lfc_column_subset = f"test_gene_subset_mean_log_fold_change_A_to_B"
+    assert mean_lfc_column_subset in adata.var.columns
+    
+    # Check that only the genes in the subset have non-NaN values
+    for gene in adata.var_names:
+        if gene in gene_subset:
+            assert not pd.isna(adata.var.loc[gene, mean_lfc_column_subset])
+        else:
+            assert pd.isna(adata.var.loc[gene, mean_lfc_column_subset])
+    
+    # Case 3: Test gene indices are correctly used in expression computation
+    # We'll manipulate the expression data to have a clear pattern
+    # and verify the results match what we expect
+    
+    # Create a new AnnData object with a clear expression pattern
+    n_cells = 100
+    n_genes = 5
+    
+    # Create an expression matrix where each gene has a unique value
+    # This will let us verify that the right indices are used
+    X_patterned = np.zeros((n_cells, n_genes))
+    for i in range(n_genes):
+        X_patterned[:, i] = i + 1  # Gene 0 has value 1, Gene 1 has value 2, etc.
+    
+    gene_names_patterned = [f"gene_{i}" for i in range(n_genes)]
+    
+    # Create groups for testing
+    groups = np.array(['A'] * (n_cells // 2) + ['B'] * (n_cells // 2))
+    
+    # Create embedding
+    obsm = {
+        'DM_EigenVectors': np.random.normal(0, 1, (n_cells, 10))
+    }
+    
+    # Create observation dataframe
+    obs = pd.DataFrame({'group': groups})
+    
+    # Create var DataFrame with gene_names as index
+    var = pd.DataFrame(index=gene_names_patterned)
+    
+    # Create AnnData object
+    adata_patterned = anndata.AnnData(X=X_patterned, obs=obs, var=var, obsm=obsm)
+    
+    # Specify a subset with genes in a different order than in adata.var_names
+    # We'll use [gene_3, gene_0, gene_4] to really test ordering
+    gene_subset_patterned = ["gene_3", "gene_0", "gene_4"]
+    
+    # Run differential expression with this subset
+    result_patterned = compute_differential_expression(
+        adata_patterned,
+        groupby='group',
+        condition1='A',
+        condition2='B',
+        genes=gene_subset_patterned,
+        result_key='test_patterned',
+        compute_mahalanobis=False,
+        return_full_results=True
+    )
+    
+    # Get the imputed layers for both conditions
+    imputed_key_1 = f"test_patterned_imputed_A"
+    imputed_key_2 = f"test_patterned_imputed_B"
+    # Verify fold change z-scores layer is created
+    fold_change_zscores_key = f"test_patterned_fold_change_zscores_A_to_B"
+    assert fold_change_zscores_key in adata_patterned.layers
+    
+    # Check that the imputed values for the selected genes match the expected pattern
+    # The imputed values should reflect the original values in the gene pattern
+    
+    # Get the indices of the subset genes in the original adata.var_names
+    subset_indices = [list(adata_patterned.var_names).index(gene) for gene in gene_subset_patterned]
+    
+    # For each gene in the subset, verify the imputed values match the expected pattern
+    for i, gene in enumerate(gene_subset_patterned):
+        # Get the index of this gene in the original adata
+        original_idx = list(adata_patterned.var_names).index(gene)
+        
+        # The value should match the original pattern (idx + 1)
+        expected_value = original_idx + 1
+        
+        # Get the actual imputed values for this gene
+        gene_idx = list(adata_patterned.var_names).index(gene)
+        actual_values_1 = adata_patterned.layers[imputed_key_1][:, gene_idx]
+        actual_values_2 = adata_patterned.layers[imputed_key_2][:, gene_idx]
+        
+        # The mean imputed value should be close to the expected value
+        # (allowing for some deviation due to the Gaussian process)
+        assert np.isclose(np.mean(actual_values_1), expected_value, atol=1.0)
+        assert np.isclose(np.mean(actual_values_2), expected_value, atol=1.0)

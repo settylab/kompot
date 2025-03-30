@@ -200,6 +200,7 @@ def compute_differential_expression(
     - adata.layers[f"{result_key}_condition1_imputed"]: Imputed expression for condition 1
     - adata.layers[f"{result_key}_condition2_imputed"]: Imputed expression for condition 2
     - adata.layers[f"{result_key}_fold_change"]: Log fold change for each cell and gene
+    - adata.layers[f"{result_key}_fold_change_zscores"]: Z-scores of log fold changes accounting for uncertainty (and sample variance if sample_col is provided)
     - adata.uns[result_key]: Dictionary with additional information and parameters
     
     Posterior standard deviations of imputed expression values are stored in:
@@ -235,7 +236,8 @@ def compute_differential_expression(
         "layers": [
             field_names["imputed_key_1"],        # Not impacted by sample variance
             field_names["imputed_key_2"],        # Not impacted by sample variance
-            field_names["fold_change_key"]       # Not impacted by sample variance
+            field_names["fold_change_key"],      # Not impacted by sample variance
+            field_names["fold_change_zscores_key"] # Impacted by sample variance
         ]
     }
     
@@ -451,15 +453,20 @@ def compute_differential_expression(
     
     # Filter genes if requested
     if genes is not None:
-        if not all(gene in adata.var_names for gene in genes):
-            missing_genes = [gene for gene in genes if gene not in adata.var_names]
+        # Create a set for efficient lookups
+        genes_set = set(genes)
+        
+        # Check for missing genes
+        missing_genes = [gene for gene in genes_set if gene not in adata.var_names]
+        if missing_genes:
             raise ValueError(f"The following genes were not found in adata.var_names: {missing_genes[:10]}" +
                           (f"... and {len(missing_genes) - 10} more" if len(missing_genes) > 10 else ""))
-        
-        gene_indices = [list(adata.var_names).index(gene) for gene in genes]
+
+        # Preserve the order of adata.var_names but filter to only the requested genes
+        selected_genes = [gene for gene in adata.var_names if gene in genes_set]
+        gene_indices = [list(adata.var_names).index(gene) for gene in selected_genes]
         expr1 = expr1[:, gene_indices]
         expr2 = expr2[:, gene_indices]
-        selected_genes = genes
     else:
         selected_genes = adata.var_names.tolist()
     
@@ -913,16 +920,35 @@ def compute_differential_expression(
 
             # Initialize layers only if they don't already exist
             if imputed1_key not in adata.layers:
-                adata.layers[imputed1_key] = np.zeros_like(adata.X)
+                # Only use sparse if working with a subset of genes
+                if len(selected_genes) < len(adata.var_names):
+                    adata.layers[imputed1_key] = sparse.csr_matrix(adata.shape)
+                else:
+                    adata.layers[imputed1_key] = np.zeros(adata.shape)
             if imputed2_key not in adata.layers:
-                adata.layers[imputed2_key] = np.zeros_like(adata.X)
+                # Only use sparse if working with a subset of genes
+                if len(selected_genes) < len(adata.var_names):
+                    adata.layers[imputed2_key] = sparse.csr_matrix(adata.shape)
+                else:
+                    adata.layers[imputed2_key] = np.zeros(adata.shape)
             if fold_change_key not in adata.layers:
-                adata.layers[fold_change_key] = np.zeros_like(adata.X)
+                # Only use sparse if working with a subset of genes
+                if len(selected_genes) < len(adata.var_names):
+                    adata.layers[fold_change_key] = sparse.csr_matrix(adata.shape)
+                else:
+                    adata.layers[fold_change_key] = np.zeros(adata.shape)
+            if field_names["fold_change_zscores_key"] not in adata.layers:
+                # Only use sparse if working with a subset of genes
+                if len(selected_genes) < len(adata.var_names):
+                    adata.layers[field_names["fold_change_zscores_key"]] = sparse.csr_matrix(adata.shape)
+                else:
+                    adata.layers[field_names["fold_change_zscores_key"]] = np.zeros(adata.shape)
             
             # Convert JAX arrays to NumPy arrays if needed
             condition1_imputed = np.array(expression_results['condition1_imputed'])
             condition2_imputed = np.array(expression_results['condition2_imputed'])
             fold_change = np.array(expression_results['fold_change'])
+            fold_change_zscores = np.array(expression_results['fold_change_zscores'])
             condition1_std = np.array(expression_results['condition1_std'])
             condition2_std = np.array(expression_results['condition2_std'])
             
@@ -931,9 +957,25 @@ def compute_differential_expression(
                 # With sample variance, store as cell-by-gene layers (sparse)
                 # Initialize standard deviation layers if they don't exist
                 if field_names["std_key_1"] not in adata.layers:
-                    adata.layers[field_names["std_key_1"]] = np.zeros_like(adata.X)
+                    # Check if we're working with a subset of genes
+                    if len(selected_genes) < len(adata.var_names):
+                        # Create a sparse matrix with zeros for all genes
+                        shape = (adata.shape[0], adata.shape[1])
+                        adata.layers[field_names["std_key_1"]] = sparse.csr_matrix(shape)
+                    else:
+                        # If we're using all genes, use a dense array
+                        shape = (adata.shape[0], adata.shape[1])
+                        adata.layers[field_names["std_key_1"]] = np.zeros(shape)
                 if field_names["std_key_2"] not in adata.layers:
-                    adata.layers[field_names["std_key_2"]] = np.zeros_like(adata.X)
+                    # Check if we're working with a subset of genes
+                    if len(selected_genes) < len(adata.var_names):
+                        # Create a sparse matrix with zeros for all genes
+                        shape = (adata.shape[0], adata.shape[1])
+                        adata.layers[field_names["std_key_2"]] = sparse.csr_matrix(shape)
+                    else:
+                        # If we're using all genes, use a dense array
+                        shape = (adata.shape[0], adata.shape[1])
+                        adata.layers[field_names["std_key_2"]] = np.zeros(shape)
                 
                 # Map the values to the correct positions, only for selected genes
                 for i, gene in enumerate(selected_genes):
@@ -956,11 +998,13 @@ def compute_differential_expression(
                     adata.layers[imputed1_key][:, gene_idx] = condition1_imputed[:, i]
                     adata.layers[imputed2_key][:, gene_idx] = condition2_imputed[:, i]
                     adata.layers[fold_change_key][:, gene_idx] = fold_change[:, i]
+                    adata.layers[field_names["fold_change_zscores_key"]][:, gene_idx] = fold_change_zscores[:, i]
         else:
             # Convert JAX arrays to NumPy arrays if needed
             condition1_imputed = np.array(expression_results['condition1_imputed'])
             condition2_imputed = np.array(expression_results['condition2_imputed'])
             fold_change = np.array(expression_results['fold_change'])
+            fold_change_zscores = np.array(expression_results['fold_change_zscores'])
             condition1_std = np.array(expression_results['condition1_std'])
             condition2_std = np.array(expression_results['condition2_std'])
             
@@ -980,6 +1024,7 @@ def compute_differential_expression(
                 adata.layers[imputed1_key] = condition1_imputed
                 adata.layers[imputed2_key] = condition2_imputed
                 adata.layers[fold_change_key] = fold_change
+                adata.layers[field_names["fold_change_zscores_key"]] = fold_change_zscores
                 adata.layers[field_names["std_key_1"]] = condition1_std
                 adata.layers[field_names["std_key_2"]] = condition2_std
             else:
@@ -991,6 +1036,7 @@ def compute_differential_expression(
                 adata.layers[imputed1_key] = condition1_imputed
                 adata.layers[imputed2_key] = condition2_imputed
                 adata.layers[fold_change_key] = fold_change
+                adata.layers[field_names["fold_change_zscores_key"]] = fold_change_zscores
         
         # Prepare parameters, run timestamp, and field metadata
         current_timestamp = datetime.datetime.now().isoformat()
@@ -1087,6 +1133,7 @@ def compute_differential_expression(
             field_names["imputed_key_1"]: {"location": "layers", "type": "imputed", "description": f"Imputed expression for {condition1}"},
             field_names["imputed_key_2"]: {"location": "layers", "type": "imputed", "description": f"Imputed expression for {condition2}"},
             field_names["fold_change_key"]: {"location": "layers", "type": "fold_change", "description": "Log fold change for each cell and gene"},
+            field_names["fold_change_zscores_key"]: {"location": "layers", "type": "fold_change_zscores", "description": f"Z-scores of log fold changes accounting for uncertainty{' and sample variance' if sample_col is not None else ''}"},
         }
         
         # Add standard deviation fields to field_mapping
