@@ -1060,7 +1060,7 @@ def test_gene_subset_order_preservation():
     # Verify that mean log fold change values follow the original AnnData gene order
     # not the order in the shuffled gene list
     assert list(adata.var_names) == original_gene_order
-    mean_lfc_column = f"test_all_genes_shuffled_mean_log_fold_change_A_to_B"
+    mean_lfc_column = f"test_all_genes_shuffled_mean_lfc_A_to_B"
     assert mean_lfc_column in adata.var.columns
     
     # All genes should have non-NaN values
@@ -1085,7 +1085,7 @@ def test_gene_subset_order_preservation():
     
     # Verify that results are only computed for the subset of genes
     # but follow the original AnnData gene order
-    mean_lfc_column_subset = f"test_gene_subset_mean_log_fold_change_A_to_B"
+    mean_lfc_column_subset = f"test_gene_subset_mean_lfc_A_to_B"
     assert mean_lfc_column_subset in adata.var.columns
     
     # Check that only the genes in the subset have non-NaN values
