@@ -110,7 +110,7 @@ def update_direction_column(
         If inplace is False, returns a modified copy of the AnnData object.
         Otherwise, returns None (adata is modified in place).
     """
-    from ..utils import get_run_from_history
+    from ..anndata.utils import get_run_from_history
     from ..plot.volcano import _infer_da_keys
     from ..plot.heatmap.direction_plot import _infer_direction_key
     

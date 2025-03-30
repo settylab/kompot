@@ -5,9 +5,9 @@ import pytest
 from kompot.utils import (
     compute_mahalanobis_distance, 
     compute_mahalanobis_distances,
-    find_landmarks, 
-    get_run_from_history
+    find_landmarks
 )
+from kompot.anndata.utils import get_run_from_history
 
 
 def test_compute_mahalanobis_distance():

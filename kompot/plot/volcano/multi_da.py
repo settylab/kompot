@@ -10,7 +10,8 @@ import warnings
 import logging
 from scipy import stats
 
-from ...utils import KOMPOT_COLORS, get_run_from_history
+from ...utils import KOMPOT_COLORS
+from ...anndata.utils import get_run_from_history
 from .utils import _extract_conditions_from_key, _infer_da_keys
 from .da import volcano_da
 

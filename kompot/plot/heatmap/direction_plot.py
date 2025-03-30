@@ -7,7 +7,8 @@ from anndata import AnnData
 import pandas as pd
 import logging
 
-from ...utils import get_run_from_history, KOMPOT_COLORS
+from ...utils import KOMPOT_COLORS
+from ...anndata.utils import get_run_from_history
 from ..volcano import _extract_conditions_from_key
 
 logger = logging.getLogger("kompot")

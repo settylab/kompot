@@ -15,7 +15,8 @@ import scipy.spatial.distance as ssd
 from matplotlib.gridspec import GridSpec
 
 from ..volcano import _extract_conditions_from_key
-from ...utils import get_run_from_history, KOMPOT_COLORS
+from ...utils import KOMPOT_COLORS
+from ...anndata.utils import get_run_from_history
 from .utils import (_prepare_gene_list, _get_expression_matrix, 
                    _filter_excluded_groups, _apply_scaling, _calculate_figsize, 
                    _setup_colormap_normalization)

@@ -16,12 +16,13 @@ except ImportError:
     )
 
 from ..differential import DifferentialExpression, compute_weighted_mean_fold_change
-from ..utils import (
-    detect_output_field_overwrite, 
+from .utils import (
+    _sanitize_name,
+    parse_groups,
     generate_output_field_names,
+    detect_output_field_overwrite,
     get_environment_info
 )
-from .utils import _sanitize_name, parse_groups
 
 logger = logging.getLogger("kompot")
 
@@ -225,40 +226,23 @@ def compute_differential_expression(
         sample_suffix="_sample_var" if sample_col is not None else ""
     )
     
-    # Collect all patterns for var columns and layers
-    all_patterns = {
-        "var": [
-            field_names["mahalanobis_key"],      # Impacted by sample variance
-            field_names["mean_lfc_key"],         # Not impacted by sample variance
-            field_names["bidirectionality_key"], # Not impacted by sample variance
-            field_names["lfc_std_key"]           # Impacted by sample variance
-        ],
-        "layers": [
-            field_names["imputed_key_1"],        # Not impacted by sample variance
-            field_names["imputed_key_2"],        # Not impacted by sample variance
-            field_names["fold_change_key"],      # Not impacted by sample variance
-            field_names["fold_change_zscores_key"] # Impacted by sample variance
-        ]
-    }
+    # Get all patterns from field_names
+    all_patterns = field_names["all_patterns"]
     
-    # Add standard deviation tracking based on sample_col
-    if sample_col is not None:
-        # With sample variance, track them in layers
-        all_patterns["layers"].append(field_names["std_key_1"])
-        all_patterns["layers"].append(field_names["std_key_2"])
-    else:
-        # Without sample variance, track them in obs
-        if "obs" not in all_patterns:
-            all_patterns["obs"] = []
-        all_patterns["obs"].append(field_names["std_key_1"])
-        all_patterns["obs"].append(field_names["std_key_2"])
+    # Update all_patterns with differential abundance integration if needed
     if differential_abundance_key is not None:
+        field_names["has_weighted_lfc"] = True
         all_patterns["var"].append(field_names["weighted_lfc_key"])
-    # If groups parameter is provided, also check varm for overwrites
+    
+    # Update all_patterns with group information if needed
     if groups is not None:
-        all_patterns["varm"] = [
-            field_names["mean_lfc_varm_key"]      # Not impacted by sample variance
-        ]
+        field_names["has_groups"] = True
+        if "varm" not in all_patterns:
+            all_patterns["varm"] = []
+            
+        # Always include mean LFC for groups
+        all_patterns["varm"].append(field_names["mean_lfc_varm_key"])
+        
         # Only add mahalanobis varm key if compute_mahalanobis is True
         if compute_mahalanobis:
             all_patterns["varm"].append(field_names["mahalanobis_varm_key"])

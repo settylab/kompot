@@ -9,13 +9,14 @@ import datetime
 from typing import Optional, Union, Dict, Any, List, Tuple
 
 from ..differential import DifferentialAbundance
-from ..utils import (
-    detect_output_field_overwrite, 
+from ..utils import KOMPOT_COLORS
+from .utils import (
+    _sanitize_name,
     generate_output_field_names,
+    parse_groups,
+    detect_output_field_overwrite,
     get_environment_info,
-    KOMPOT_COLORS
 )
-from .utils import _sanitize_name
 
 logger = logging.getLogger("kompot")
 
@@ -172,14 +173,11 @@ def compute_differential_abundance(
         sample_suffix="_sample_var" if sample_col is not None else ""
     )
     
-    # Define patterns to check for overwrites using standardized field names
-    # Include both sample-variance-impacted and non-impacted fields
-    column_patterns = [
-        field_names["lfc_key"],             # Not impacted by sample variance
-        field_names["density_key_1"],       # Not impacted by sample variance
-        field_names["zscore_key"],          # Impacted by sample variance
-        field_names["direction_key"]        # Impacted by sample variance
-    ]
+    # Get all patterns from field_names
+    all_patterns = field_names["all_patterns"]
+    
+    # Get the patterns for observation columns
+    column_patterns = all_patterns["obs"]
     
     # Detect if we'd overwrite any existing output fields
     has_overwrites, existing_fields, prev_run = detect_output_field_overwrite(

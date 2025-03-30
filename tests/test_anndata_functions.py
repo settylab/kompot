@@ -153,11 +153,14 @@ def test_sample_col_parameter():
     assert result_no_samples['model'].variance_predictor1 is None
     assert result_no_samples['model'].variance_predictor2 is None
     
-    # Check fold change z-scores layer is created
-    fold_change_zscores_key_with_samples = f"test_sample_col_fold_change_zscores_A_to_B_sample_var"
-    fold_change_zscores_key_no_samples = f"test_no_sample_col_fold_change_zscores_A_to_B"
-    assert fold_change_zscores_key_with_samples in adata.layers
-    assert fold_change_zscores_key_no_samples in adata.layers
+    # In the DE case, check for fold change z-scores in layers - this would only be for DE
+    # For DA, the zscores are stored in obs as "log_fold_change_zscore"
+    zscore_key_with_samples = f"test_sample_col_log_fold_change_zscore_A_to_B_sample_var"
+    zscore_key_no_samples = f"test_no_sample_col_log_fold_change_zscore_A_to_B"
+    
+    # For DA, these should be in obs columns
+    assert zscore_key_with_samples in adata.obs
+    assert zscore_key_no_samples in adata.obs
     
     # Verify that sample variance affects uncertainty calculations
     # Use a subset of points for efficiency
@@ -179,6 +182,61 @@ def test_sample_col_parameter():
     sample_variance2 = result['model'].variance_predictor2(X_test, diag=True).flatten()
     assert np.mean(sample_variance1) > 0, "Sample variance for condition 1 should be greater than zero"
     assert np.mean(sample_variance2) > 0, "Sample variance for condition 2 should be greater than zero"
+
+
+def test_generate_output_field_names():
+    """Test that generate_output_field_names creates correct patterns for both DA and DE."""
+    from kompot.anndata.utils import generate_output_field_names
+    
+    # Test DA field names
+    da_fields = generate_output_field_names(
+        result_key="test_key",
+        condition1="Test A",
+        condition2="Test B",
+        analysis_type="da",
+        with_sample_suffix=True
+    )
+    
+    # Check some of the fields exist
+    assert "lfc_key" in da_fields
+    assert "zscore_key" in da_fields
+    assert "pval_key" in da_fields
+    assert "direction_key" in da_fields
+    
+    # Check that sample variance suffix was added
+    assert da_fields["zscore_key"].endswith("_sample_var")
+    
+    # Check that all_patterns was generated
+    assert "all_patterns" in da_fields
+    assert "obs" in da_fields["all_patterns"]
+    
+    # Test DE field names
+    de_fields = generate_output_field_names(
+        result_key="test_key",
+        condition1="Test A",
+        condition2="Test B",
+        analysis_type="de",
+        with_sample_suffix=True
+    )
+    
+    # Check some of the fields exist
+    assert "mahalanobis_key" in de_fields
+    assert "mean_lfc_key" in de_fields
+    assert "fold_change_key" in de_fields
+    assert "fold_change_zscores_key" in de_fields
+    
+    # Check that sample variance suffix was added to affected fields
+    assert de_fields["mahalanobis_key"].endswith("_sample_var")
+    assert not de_fields["mean_lfc_key"].endswith("_sample_var")  # This field isn't affected
+    
+    # Check that all_patterns was generated
+    assert "all_patterns" in de_fields
+    assert "var" in de_fields["all_patterns"]
+    assert "layers" in de_fields["all_patterns"]
+    
+    # Verify sample_variance_impacted_fields is populated
+    assert len(de_fields["sample_variance_impacted_fields"]) > 0
+    assert "mahalanobis_key" in de_fields["sample_variance_impacted_fields"]
 
 
 class TestRunHistoryPreservation:

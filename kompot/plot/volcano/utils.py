@@ -5,7 +5,7 @@ from typing import Optional, Tuple
 from anndata import AnnData
 import logging
 
-from ...utils import get_run_from_history
+from ...anndata.utils import get_run_from_history
 
 # Get the pre-configured logger
 logger = logging.getLogger("kompot")

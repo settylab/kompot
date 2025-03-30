@@ -20,7 +20,7 @@ Differential Expression
 Utilities
 ---------
 
-.. automodule:: kompot.anndata.utils
+.. autoclass:: kompot.anndata.utils.RunInfo
    :members:
    :undoc-members:
    :show-inheritance:

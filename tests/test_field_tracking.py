@@ -7,7 +7,7 @@ import anndata
 import logging
 from unittest.mock import patch
 
-from kompot.utils import (
+from kompot.anndata.utils import (
     validate_field_run_id,
     get_run_from_history
 )
