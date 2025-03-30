@@ -13,6 +13,7 @@ All notable changes to this project will be documented in this file.
  - implement group-wise differential expression through `groups` parameter in `kompot.compute_differential_expression`
  - also return and store uncertainty estimates (stds) in de analysis
  - also return and store z-scores in de analysis
+ - implement underrepresentation filtering for de analaysis
 
 ## [0.3.3]
 

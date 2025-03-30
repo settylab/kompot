@@ -21,7 +21,10 @@ from .utils import (
     parse_groups,
     generate_output_field_names,
     detect_output_field_overwrite,
-    get_environment_info
+    get_environment_info,
+    check_underrepresentation,
+    apply_cell_filter,
+    refine_filter_for_underrepresentation
 )
 
 logger = logging.getLogger("kompot")
@@ -50,7 +53,11 @@ def compute_differential_expression(
     store_arrays_on_disk: Optional[bool] = None,
     disk_storage_dir: Optional[str] = None,
     max_memory_ratio: float = 0.8,
+    cell_filter: Optional[Union[str, List[str], Dict[str, Any], List[Dict[str, Any]]]] = None,
     groups: Optional[Union[str, Dict[str, Any], List[Dict[str, Any]], pd.Series, np.ndarray, List[np.ndarray]]] = None,
+    min_cells: int = 10,
+    min_percentage: Optional[float] = None,
+    check_representation: Optional[bool] = None,
     copy: bool = False,
     inplace: bool = True,
     result_key: str = "kompot_de",
@@ -129,6 +136,22 @@ def compute_differential_expression(
     max_memory_ratio : float, optional
         Maximum fraction of available memory that arrays should occupy before
         triggering warnings or enabling disk storage, by default 0.8 (80%).
+    cell_filter : str, List[str], Dict, List[Dict], optional
+        Specification for cells or groups to exclude from the analysis.
+        Will be interpreted in the following ways:
+        
+        - If str and `groups` is provided: Interpreted as a group name to exclude from the 
+          groups defined by the `groups` parameter.
+        - If List[str] and `groups` is provided: Multiple group names to exclude from the
+          groups defined by the `groups` parameter.
+        - If Dict: Keys are column names in adata.obs, and values are specific values to exclude.
+        - If List[Dict]: Multiple dictionaries specifying different exclusion criteria.
+        
+        Cells matching any of the specified exclusion criteria will be excluded from the analysis.
+        The string and list of strings formats are only valid when the `groups` parameter is also provided,
+        as they refer to excluding groups from the subset analysis. The dictionary formats work independently
+        to exclude cells based on their metadata.
+
     groups : str, Dict, List[Dict], pd.Series, np.ndarray, List[np.ndarray], optional
         Specification for subsetting or grouping cells for additional analysis.
         Will be interpreted in the following ways:
@@ -148,6 +171,18 @@ def compute_differential_expression(
         When subsetting is defined, the global comparison is still run first, followed by
         analyses on each subset. Only the 'mean_log_fold_change', 'weighted_mean_log_fold_change',
         and 'mahalanobis_distances' metrics are saved for each subset with appropriate name suffixes.
+    min_cells : int, optional
+        Minimum number of cells required for a condition to be considered adequately represented 
+        within each group, by default 10.
+    min_percentage : float, optional
+        Minimum percentage of cells required for a condition within each group, relative to
+        total cells in the group. If None, uses 10% divided by the number of conditions, by default None.
+    check_representation : None or bool, optional
+        Controls checking for underrepresentation when groups are specified, by default None.
+        - If None: Checks and warns about underrepresentation but does not filter automatically
+        - If True: Checks for underrepresentation and automatically applies the filter
+          (informs the user what was excluded)
+        - If False: Skips the underrepresentation check entirely
     copy : bool, optional
         If True, return a copy of the AnnData object with results added,
         by default False.
@@ -414,6 +449,110 @@ def compute_differential_expression(
     
     logger.info(f"Condition 1 ({condition1}): {np.sum(mask1):,} cells")
     logger.info(f"Condition 2 ({condition2}): {np.sum(mask2):,} cells")
+
+    # First, check for underrepresentation on the full dataset
+    # This happens BEFORE any filtering
+    underrep = {}
+    auto_filter = False
+    underrep_filter = None
+    
+    if groups is not None and check_representation is not False:
+        logger.info("Checking for underrepresentation on the full dataset")
+        underrep_result = check_underrepresentation(
+            adata, 
+            groupby=groupby, 
+            groups=groups,
+            conditions=[condition1, condition2],
+            min_cells=min_cells,
+            min_percentage=min_percentage,
+            warn=(check_representation is None),  # Only warn if None, not if True
+            print_summary=False  # Never print summary in DE context
+        )
+        
+        # Extract the underrepresentation data from the result for reporting
+        if "__underrepresentation_data" in underrep_result:
+            underrep = underrep_result.pop("__underrepresentation_data")
+        
+        # If check_representation is True and underrepresentation is found, create auto filter
+        if check_representation is True and underrep:
+            underrep_filter = underrep_result
+            
+            # Log what groups would be filtered
+            n_groups = len(underrep)
+            logger.info(f"Found {n_groups} groups with underrepresented conditions")
+            for group, conditions in underrep.items():
+                logger.info(f"  - Group '{group}': Underrepresented conditions: {conditions}")
+            
+            # Check if we should apply this filter
+            if cell_filter is None:
+                # No user-provided filter, use underrepresentation filter
+                logger.info("Automatically applying underrepresentation filter")
+                cell_filter = underrep_filter
+                auto_filter = True
+            else:
+                # User provided a filter, warn and keep user filter
+                logger.warning(
+                    "Found underrepresented groups, but a cell_filter was already specified. "
+                    "The existing cell_filter will be used; underrepresentation data is returned "
+                    "in the results dictionary."
+                )
+    
+    # Apply the cell_filter to get a filter mask
+    filter_mask, excluded_cells = apply_cell_filter(adata, cell_filter, groups)
+    
+    if excluded_cells > 0:
+        logger.info(f"Filter excluded {excluded_cells:,} cells ({excluded_cells/adata.n_obs:.2%} of dataset)")
+        
+    # When check_representation is True, check filtered data for additional underrepresentation
+    # and refine the filter mask if needed
+    if groups is not None and check_representation is True:
+        filter_mask, additional_underrep, additional_excluded = refine_filter_for_underrepresentation(
+            adata,
+            filter_mask=filter_mask,
+            groupby=groupby,
+            groups=groups,
+            conditions=[condition1, condition2],
+            min_cells=min_cells,
+            min_percentage=min_percentage
+        )
+        
+        # Update the total excluded cells count
+        excluded_cells += additional_excluded
+        
+        if additional_excluded > 0:
+            logger.info(f"Total excluded cells after refinement: {excluded_cells:,} ({excluded_cells/adata.n_obs:.2%} of dataset)")
+        
+        # Update the underrepresentation data for reporting
+        if additional_underrep:
+            # Merge with existing underrepresentation data
+            for group, conditions in additional_underrep.items():
+                if group in underrep:
+                    # Add any new conditions
+                    underrep[group] = list(set(underrep[group] + conditions))
+                else:
+                    # Add new group
+                    underrep[group] = conditions
+    
+    # Apply filter mask to condition masks
+    filtered_mask1 = mask1 & filter_mask
+    filtered_mask2 = mask2 & filter_mask
+    
+    # Check if we have enough cells after filtering
+    if np.sum(filtered_mask1) < 10:
+        raise ValueError(f"After filtering, condition '{condition1}' has fewer than 10 cells ({np.sum(filtered_mask1)}). "
+                      f"Consider adjusting your filter criteria.")
+    if np.sum(filtered_mask2) < 10:
+        raise ValueError(f"After filtering, condition '{condition2}' has fewer than 10 cells ({np.sum(filtered_mask2)}). "
+                      f"Consider adjusting your filter criteria.")
+    
+    # Log filtered cell counts
+    if cell_filter is not None or auto_filter:
+        logger.info(f"After filtering - Condition 1 ({condition1}): {np.sum(filtered_mask1):,} cells")
+        logger.info(f"After filtering - Condition 2 ({condition2}): {np.sum(filtered_mask2):,} cells")
+    
+    # Update masks with filtering
+    mask1 = filtered_mask1
+    mask2 = filtered_mask2
     
     # Extract cell states for each condition
     X_condition1 = adata.obsm[obsm_key][mask1]
@@ -601,7 +740,8 @@ def compute_differential_expression(
         logger.debug("No computed landmarks found to store. Check if landmarks were pre-computed or if n_landmarks is set correctly.")
     
     # Run prediction to compute fold changes, metrics, and Mahalanobis distances
-    X_for_prediction = adata.obsm[obsm_key]
+    # Use the filter_mask to only get predictions for cells we're interested in
+    X_for_prediction = adata.obsm[obsm_key][filter_mask]
     expression_results = diff_expression.predict(
         X_for_prediction, 
         compute_mahalanobis=compute_mahalanobis,
@@ -618,8 +758,9 @@ def compute_differential_expression(
         density_col2 = f"{differential_abundance_key}_log_density_{cond2_safe}"
         
         if density_col1 in adata.obs and density_col2 in adata.obs:
-            log_density_condition1 = adata.obs[density_col1]
-            log_density_condition2 = adata.obs[density_col2]
+            # Apply the filter mask to get only the cells we're predicting for
+            log_density_condition1 = adata.obs[density_col1][filter_mask]
+            log_density_condition2 = adata.obs[density_col2][filter_mask]
             
             # Calculate log density difference directly
             log_density_diff = log_density_condition2 - log_density_condition1
@@ -645,6 +786,12 @@ def compute_differential_expression(
         "fold_change_zscores": expression_results['fold_change_zscores'],
         "model": diff_expression,
     }
+    
+    # Add underrepresentation info if available
+    if 'underrep' in locals():
+        result_dict["underrepresentation"] = underrep
+        if 'auto_filter' in locals() and auto_filter:
+            result_dict["auto_filtered"] = True
     
     # Add optional result fields
     if compute_mahalanobis:
@@ -973,8 +1120,13 @@ def compute_differential_expression(
                 # Without sample variance, store as .obs columns (same for all genes)
                 # For this case, all genes have the same std, so we just take the first gene
                 # No averaging over genes - direct extraction from the first column
-                adata.obs[field_names["std_key_1"]] = condition1_std[:, 0]
-                adata.obs[field_names["std_key_2"]] = condition2_std[:, 0]
+                # Only assign to cells that passed the filter
+                adata.obs[field_names["std_key_1"]] = np.nan  # Initialize with NaN
+                adata.obs[field_names["std_key_2"]] = np.nan  # Initialize with NaN
+                
+                # Assign values only to cells that were included in the analysis
+                adata.obs.loc[filter_mask, field_names["std_key_1"]] = condition1_std[:, 0]
+                adata.obs.loc[filter_mask, field_names["std_key_2"]] = condition2_std[:, 0]
                 
                 # Map imputed values to the correct positions
                 for i, gene in enumerate(selected_genes):
@@ -1014,13 +1166,50 @@ def compute_differential_expression(
             else:
                 # Without sample variance, store as .obs columns (same for all genes)
                 # For this case, all genes have the same std, so we just take the first gene
-                adata.obs[field_names["std_key_1"]] = condition1_std[:, 0]
-                adata.obs[field_names["std_key_2"]] = condition2_std[:, 0]
+                # Initialize with NaN
+                adata.obs[field_names["std_key_1"]] = np.nan
+                adata.obs[field_names["std_key_2"]] = np.nan
+                
+                # Assign values only to cells that were included in the analysis
+                adata.obs.loc[filter_mask, field_names["std_key_1"]] = condition1_std[:, 0]
+                adata.obs.loc[filter_mask, field_names["std_key_2"]] = condition2_std[:, 0]
 
-                adata.layers[imputed1_key] = condition1_imputed
-                adata.layers[imputed2_key] = condition2_imputed
-                adata.layers[fold_change_key] = fold_change
-                adata.layers[field_names["fold_change_zscores_key"]] = fold_change_zscores
+                # Create dense arrays or sparse matrices of the right shape
+                if sparse.issparse(adata.X):
+                    # Use sparse matrices for layers
+                    shape = (adata.n_obs, adata.n_vars)
+                    imputed1_layer = sparse.csr_matrix(shape)
+                    imputed2_layer = sparse.csr_matrix(shape)
+                    fold_change_layer = sparse.csr_matrix(shape)
+                    fold_change_zscores_layer = sparse.csr_matrix(shape)
+                    
+                    # Assign values only to filtered cells
+                    filtered_indices = np.where(filter_mask)[0]
+                    for i, cell_idx in enumerate(filtered_indices):
+                        imputed1_layer[cell_idx] = condition1_imputed[i]
+                        imputed2_layer[cell_idx] = condition2_imputed[i]
+                        fold_change_layer[cell_idx] = fold_change[i]
+                        fold_change_zscores_layer[cell_idx] = fold_change_zscores[i]
+                else:
+                    # Use dense arrays for layers, initialize with NaN
+                    imputed1_layer = np.full(adata.shape, np.nan)
+                    imputed2_layer = np.full(adata.shape, np.nan)
+                    fold_change_layer = np.full(adata.shape, np.nan)
+                    fold_change_zscores_layer = np.full(adata.shape, np.nan)
+                    
+                    # Assign values only to filtered cells
+                    filtered_indices = np.where(filter_mask)[0]
+                    for i, cell_idx in enumerate(filtered_indices):
+                        imputed1_layer[cell_idx] = condition1_imputed[i]
+                        imputed2_layer[cell_idx] = condition2_imputed[i]
+                        fold_change_layer[cell_idx] = fold_change[i]
+                        fold_change_zscores_layer[cell_idx] = fold_change_zscores[i]
+                
+                # Store in adata.layers
+                adata.layers[imputed1_key] = imputed1_layer
+                adata.layers[imputed2_key] = imputed2_layer
+                adata.layers[fold_change_key] = fold_change_layer
+                adata.layers[field_names["fold_change_zscores_key"]] = fold_change_zscores_layer
         
         # Prepare parameters, run timestamp, and field metadata
         current_timestamp = datetime.datetime.now().isoformat()
@@ -1042,7 +1231,12 @@ def compute_differential_expression(
             "used_landmarks": True if landmarks is not None else False,
             "store_arrays_on_disk": store_arrays_on_disk,
             "max_memory_ratio": max_memory_ratio,
-            "batch_size": batch_size
+            "batch_size": batch_size,
+            "cell_filter": cell_filter,  # Store the cell filter parameter
+            "min_cells": min_cells,
+            "min_percentage": min_percentage,
+            "check_representation": check_representation,
+            "auto_filtered": auto_filter if 'auto_filter' in locals() else False
         }
         
         # Get storage usage stats if disk storage was used
@@ -1077,6 +1271,8 @@ def compute_differential_expression(
             "uses_sample_variance": sample_col is not None,
             "memory_analysis": memory_analysis if 'memory_analysis' in locals() else None,
             "storage_stats": storage_stats,
+            "underrepresentation": underrep if 'underrep' in locals() else None,
+            "auto_filtered": auto_filter if 'auto_filter' in locals() else False,
             "params": params_dict
         }
 
@@ -1144,6 +1340,14 @@ def compute_differential_expression(
             
             # Parse the groups parameter to get subset masks
             subset_masks, subset_names = parse_groups(adata, groups)
+            
+            # If filter is provided, apply it to the subset masks
+            if filter is not None:
+                filtered_subset_masks = {}
+                for name, mask in subset_masks.items():
+                    # Only include cells that are in both the subset and pass the filter
+                    filtered_subset_masks[name] = mask & filter_mask
+                subset_masks = filtered_subset_masks
             
             # Check if we have any valid subsets
             if not subset_masks:

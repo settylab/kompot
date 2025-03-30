@@ -333,6 +333,353 @@ def _sanitize_name(name):
     return "".join([c if c.isalnum() else "_" for c in name])
 
 
+def refine_filter_for_underrepresentation(
+    adata,
+    filter_mask: np.ndarray,
+    groupby: str,
+    groups: Optional[Union[str, Dict[str, Any], List[Dict[str, Any]], pd.Series, np.ndarray, List[np.ndarray]]],
+    conditions: Optional[List[str]] = None,
+    min_cells: int = 10,
+    min_percentage: Optional[float] = None,
+) -> Tuple[np.ndarray, Dict[str, Any], int]:
+    """
+    Check for underrepresentation in filtered data and refine the filter if needed.
+    
+    This function applies a filter mask to an AnnData object, checks for underrepresentation
+    in the filtered data, and returns an updated filter mask that excludes any newly 
+    detected underrepresented groups.
+    
+    Parameters
+    ----------
+    adata : AnnData
+        AnnData object
+    filter_mask : np.ndarray
+        Boolean mask of cells to include (True) or exclude (False)
+    groupby : str
+        Column in adata.obs containing the condition labels
+    groups : str, Dict, List[Dict], pd.Series, np.ndarray, List[np.ndarray], optional
+        Specification for the groups to check for underrepresentation
+    conditions : List[str], optional
+        List of condition values to check
+    min_cells : int, optional
+        Minimum number of cells required for a condition, by default 10
+    min_percentage : float, optional
+        Minimum percentage of cells required for a condition, by default None
+        
+    Returns
+    -------
+    Tuple[np.ndarray, Dict[str, Any], int]
+        - Updated filter mask
+        - Dictionary of underrepresentation data 
+        - Number of additional cells excluded
+    """
+    
+    # Create a view on the filtered data
+    # This avoids making a full copy
+    adata_view = adata[filter_mask]
+    
+    # Get original indices for mapping back
+    filtered_indices = np.where(filter_mask)[0]
+    
+    # Check for underrepresentation on filtered data
+    logger.info("Checking for underrepresentation on filtered cells")
+    underrep_result = check_underrepresentation(
+        adata_view, 
+        groupby=groupby, 
+        groups=groups,
+        conditions=conditions,
+        min_cells=min_cells,
+        min_percentage=min_percentage,
+        warn=False,  # Don't warn, we'll handle logging
+        print_summary=False  # Don't print summary, we'll handle logging
+    )
+    
+    # Extract underrepresentation data
+    underrep_data = {}
+    if "__underrepresentation_data" in underrep_result:
+        underrep_data = underrep_result.pop("__underrepresentation_data")
+    
+    # If no underrepresentation found, return original filter
+    if not underrep_data:
+        return filter_mask, underrep_data, 0
+    
+    # Log what groups would be filtered
+    n_groups = len(underrep_data)
+    logger.info(f"Found {n_groups} groups with underrepresented conditions in filtered cells")
+    for group, conditions in underrep_data.items():
+        logger.info(f"  - Group '{group}': Underrepresented conditions: {conditions}")
+    
+    # Create a mask for the filtered data
+    refined_mask = np.ones(len(adata_view), dtype=bool)
+    
+    # Apply the filter to get an additional filter mask
+    additional_mask, additional_excluded = apply_cell_filter(adata_view, underrep_result, groups)
+    refined_mask = refined_mask & additional_mask
+    
+    # Create updated filter mask for original data
+    updated_filter = filter_mask.copy()
+    
+    # Map refined mask back to original indices
+    excluded_count = 0
+    for i, include in enumerate(additional_mask):
+        if not include:
+            # This filtered cell should be excluded
+            orig_idx = filtered_indices[i]
+            updated_filter[orig_idx] = False
+            excluded_count += 1
+    
+    if excluded_count > 0:
+        logger.info(f"Refined filter excluded additional {excluded_count:,} cells")
+    
+    return updated_filter, underrep_data, excluded_count
+
+def check_underrepresentation(
+    adata,
+    groupby: str, 
+    groups: Optional[Union[str, Dict[str, Any], List[Dict[str, Any]], pd.Series, np.ndarray, List[np.ndarray]]],
+    conditions: Optional[List[str]] = None,
+    min_cells: int = 10,
+    min_percentage: Optional[float] = None,
+    warn: bool = False,
+    print_summary: bool = True
+) -> Dict[str, Union[List[str], Dict[str, List[str]]]]:
+    """
+    Check if any condition is underrepresented within the specified groups.
+    
+    This function checks each unique value in groups to see if any condition has 
+    too few cells or represents a small percentage of the total cells in that group.
+    
+    Example
+    -------
+    >>> import kompot as kp
+    >>> import anndata as ad
+    >>> import numpy as np
+    >>> 
+    >>> # Create example data
+    >>> adata = ad.AnnData(X=np.random.normal(0, 1, (100, 10)))
+    >>> adata.obs['condition'] = ['A'] * 80 + ['B'] * 20
+    >>> adata.obs['tissue'] = ['liver'] * 50 + ['kidney'] * 50
+    >>> 
+    >>> # Check for underrepresentation
+    >>> underrep = kp.check_underrepresentation(
+    ...     adata, 
+    ...     groupby='condition', 
+    ...     groups='tissue', 
+    ...     min_cells=15
+    ... )
+    >>> print(underrep)
+    {'__underrepresentation_data': {'kidney': ['B']}, 'tissue': ['kidney']}
+    >>> 
+    >>> # Use as filter in differential expression
+    >>> result = kp.compute_differential_expression(
+    ...     adata,
+    ...     groupby='condition',
+    ...     condition1='A',
+    ...     condition2='B',
+    ...     groups='tissue',
+    ...     cell_filter=underrep
+    ... )
+    
+    Parameters
+    ----------
+    adata : AnnData
+        AnnData object
+    groupby : str
+        Column in adata.obs containing the condition labels
+    groups : str, Dict, List[Dict], pd.Series, np.ndarray, List[np.ndarray]
+        Specification for the groups to check for underrepresentation:
+        - str: column name in adata.obs
+        - Dict: filter with keys as column names in adata.obs and values as allowed values
+        - List[Dict]: list of filters for different subgroups
+        - pd.Series/np.ndarray: values to divide or subset
+        - np.ndarray with boolean values: each row specifies a subset
+        - List of vectors/series: multiple subsetting vectors
+    conditions : List[str], optional
+        List of condition values to check. If None, uses all unique values in adata.obs[groupby]
+    min_cells : int, optional
+        Minimum number of cells required for a condition to be considered adequately represented, by default 10
+    min_percentage : float, optional
+        Minimum percentage of cells required for a condition, relative to total cells in the group.
+        If None, uses 10% divided by the number of conditions, by default None
+    warn : bool, optional
+        Whether to log warnings when underrepresentation is detected, by default False
+    print_summary : bool, optional
+        Whether to print a summary report when underrepresentation is detected, by default True
+        
+    Returns
+    -------
+    Dict
+        A dictionary structured for filtering in compute_differential_expression.
+        
+        The dictionary contains:
+        - A special key '__underrepresentation_data' with the detailed findings,
+          where keys are group values and values are lists of underrepresented conditions
+        - A key matching the provided groups parameter (if it's a string),
+          with the values being a list of groups that have underrepresentation
+        
+        This format is designed to be used directly with the cell_filter parameter in
+        compute_differential_expression
+        
+    Notes
+    -----
+    If groups is specified and underrepresentation is detected, the function will log a warning 
+    and suggest using the returned dictionary as a filter for differential expression analysis.
+    
+    Example
+    -------
+    >>> import anndata as ad
+    >>> import pandas as pd
+    >>> import numpy as np
+    >>> import kompot as kp
+    >>>
+    >>> # Create example data
+    >>> adata = ad.AnnData(X=np.random.normal(0, 1, (100, 10)))
+    >>> adata.obs['condition'] = ['A'] * 70 + ['B'] * 30
+    >>> adata.obs['group'] = ['group1'] * 50 + ['group2'] * 50
+    >>>
+    >>> # Check for underrepresentation
+    >>> underrep = kp.check_underrepresentation(
+    ...     adata,
+    ...     groupby='condition', 
+    ...     groups='group', 
+    ...     min_cells=20
+    ... )
+    >>> print(underrep)
+    {'group2': ['B']}
+    >>>
+    >>> # Use result as filter in differential expression
+    >>> result = kp.compute_differential_expression(
+    ...     adata,
+    ...     groupby='condition',
+    ...     condition1='A',
+    ...     condition2='B',
+    ...     groups='group',
+    ...     cell_filter=underrep
+    ... )
+    """
+    
+    # Check if groupby column exists
+    if groupby not in adata.obs:
+        raise ValueError(f"Column '{groupby}' not found in adata.obs. Available columns: {list(adata.obs.columns)}")
+    
+    # Get conditions if not provided
+    if conditions is None:
+        conditions = list(adata.obs[groupby].unique())
+    
+    # Set default min_percentage if not provided
+    if min_percentage is None:
+        min_percentage = 10 / len(conditions)
+    
+    # Initialize result dictionary
+    underrepresented = {}
+    
+    # If no groups specified, just check overall representation
+    if groups is None:
+        return {}
+    
+    # Parse the groups parameter to get subset masks
+    subset_masks, subset_names = parse_groups(adata, groups)
+    
+    # Check each group for underrepresentation
+    for group_name, mask in subset_masks.items():
+        # Count cells in this group
+        group_total = np.sum(mask)
+        
+        if group_total == 0:
+            logger.warning(f"Group '{group_name}' has no cells, skipping.")
+            continue
+        
+        # Check each condition
+        underrep_conditions = []
+        for condition in conditions:
+            # Create condition mask
+            condition_mask = (adata.obs[groupby] == condition).values
+            
+            # Count cells that are both in this group and this condition
+            cells_in_condition = np.sum(mask & condition_mask)
+            
+            # Calculate percentage
+            percentage = (cells_in_condition / group_total) * 100
+            
+            # Check if underrepresented
+            if cells_in_condition < min_cells or percentage < min_percentage:
+                underrep_conditions.append(condition)
+                
+                if warn:
+                    logger.warning(
+                        f"Condition '{condition}' is underrepresented in group '{group_name}': "
+                        f"{cells_in_condition} cells ({percentage:.2f}% of group). "
+                        f"Min required: {min_cells} cells or {min_percentage:.2f}%."
+                    )
+        
+        # If any conditions are underrepresented, add to result
+        if underrep_conditions:
+            underrepresented[group_name] = underrep_conditions
+    
+    # Print summary report
+    if underrepresented and print_summary:
+        print(f"\n{'='*80}\nUNDERREPRESENTATION REPORT\n{'='*80}")
+        print(f"Found {len(underrepresented)} groups with underrepresented conditions.")
+        
+        for group, conditions_list in underrepresented.items():
+            print(f"\n- Group: {group}")
+            print(f"  Underrepresented conditions: {', '.join(conditions_list)}")
+            
+            # Show detailed counts
+            group_mask = subset_masks[group]
+            group_total = np.sum(group_mask)
+            
+            # Table header
+            print(f"\n  {'Condition':<20} {'Count':<10} {'Percentage':<15} {'Status':<15}")
+            print(f"  {'-'*60}")
+            
+            # Show stats for all conditions
+            for condition in conditions:
+                condition_mask = (adata.obs[groupby] == condition).values
+                cells_in_condition = np.sum(group_mask & condition_mask)
+                percentage = (cells_in_condition / group_total) * 100
+                
+                # Determine status
+                if condition in conditions_list:
+                    status = "UNDERREPRESENTED"
+                else:
+                    status = "OK"
+                
+                print(f"  {condition:<20} {cells_in_condition:<10} {percentage:.2f}%{' '*9} {status:<15}")
+        
+        # Suggestion for filtering
+        print(f"\n{'='*80}")
+        print("RECOMMENDATION:")
+        print("The detected underrepresentation may affect differential expression results.")
+        print("Consider filtering these groups with the returned dictionary when running differential analysis:")
+        print("Example: adata.compute_differential_expression(..., cell_filter=underrepresented)")
+        print(f"{'='*80}\n")
+    
+    # Create a filter that's compatible with compute_differential_expression
+    # For direct use as cell_filter, we need to return a dictionary where:
+    # - Keys are column names in adata.obs
+    # - Values are values to exclude
+    filter_dict = {}
+    
+    if underrepresented:
+        # Store the original data format for reference
+        filter_dict["__underrepresentation_data"] = underrepresented
+        
+        # Create a filter format for compute_differential_expression
+        # We'll use the groupby column and the groups parameter to create a filter
+        if isinstance(groups, str):
+            # If groups is a column name, filter by both group column and condition
+            for group, conditions_list in underrepresented.items():
+                # We need to exclude cells that match BOTH this group AND any underrepresented conditions
+                filter_dict[groups] = filter_dict.get(groups, []) + [group]
+        else:
+            # For other group types, we'll use the group name as provided in the result
+            # This is less precise but still gives a usable filter
+            for group, conditions_list in underrepresented.items():
+                filter_dict[groupby] = filter_dict.get(groupby, []) + conditions_list
+    
+    return filter_dict
+
 def parse_groups(adata, groups):
     """
     Parse various group specifications into a dictionary of subset masks.
@@ -2034,3 +2381,137 @@ def get_run_from_history(
     else:
         logger.warning(f"Run ID {run_id} not found in {history_key}.")
         return None
+
+
+def apply_cell_filter(
+    adata,
+    cell_filter: Optional[Union[str, List[str], Dict[str, Any], List[Dict[str, Any]]]] = None,
+    groups: Optional[Union[str, Dict[str, Any], List[Dict[str, Any]], pd.Series, np.ndarray, List[np.ndarray]]] = None
+) -> Tuple[np.ndarray, int]:
+    """
+    Apply a cell filter to an AnnData object and return the filter mask.
+    
+    This function centralizes the filtering logic used in differential expression analysis.
+    
+    Parameters
+    ----------
+    adata : AnnData
+        AnnData object to filter
+    cell_filter : str, List[str], Dict, List[Dict], optional
+        Specification for cells or groups to exclude from the analysis:
+        - str: a single group name from groups to exclude
+        - List[str]: multiple group names from groups to exclude
+        - Dict: keys are column names in adata.obs, values are categories to exclude
+        - List[Dict]: multiple exclusion criteria dicts
+        If None, no filtering is applied
+    groups : str, Dict, List[Dict], pd.Series, np.ndarray, List[np.ndarray], optional
+        Group specification used for subsetting when cell_filter is a string or list of strings.
+        Only required when cell_filter is a string or list of strings, otherwise ignored.
+        
+    Returns
+    -------
+    Tuple[np.ndarray, int]
+        - Boolean mask of cells to keep (True = keep, False = exclude)
+        - Number of cells excluded by the filter
+    
+    Raises
+    ------
+    ValueError
+        If cell_filter is invalid or uses columns not found in adata.obs
+    """
+    
+    # Default: keep all cells
+    filter_mask = np.ones(adata.n_obs, dtype=bool)
+    
+    # If no filter is provided, return all cells
+    if cell_filter is None:
+        return filter_mask, 0
+    
+    # Create exclude mask (cells to exclude)
+    exclude_mask = np.zeros(adata.n_obs, dtype=bool)
+    
+    # String or list of strings only valid when groups is also provided
+    if (isinstance(cell_filter, str) or 
+        (isinstance(cell_filter, (list, tuple)) and all(isinstance(x, str) for x in cell_filter))):
+        
+        if groups is None:
+            raise ValueError(
+                "When cell_filter is a string or list of strings, the groups parameter must also be provided "
+                "to specify which groups to exclude."
+            )
+        
+        # Get subset masks from the groups parameter
+        subset_masks, subset_names = parse_groups(adata, groups)
+        
+        # Case 1: String (single group to exclude from groups parameter)
+        if isinstance(cell_filter, str):
+            if cell_filter in subset_names:
+                # Exclude the specified subset
+                exclude_mask |= subset_masks[cell_filter]
+                logger.info(f"Excluding group '{cell_filter}' from groups: {np.sum(exclude_mask):,} cells excluded")
+            else:
+                logger.warning(f"Group '{cell_filter}' not found in subset_names: {subset_names}. No cells excluded.")
+        
+        # Case 2: List of strings (multiple groups to exclude from groups parameter)
+        else:  # Already checked it's a list of strings
+            exclude_values = cell_filter
+            for group_name in exclude_values:
+                if group_name in subset_names:
+                    exclude_mask |= subset_masks[group_name]
+                else:
+                    logger.warning(f"Group '{group_name}' not found in subset_names: {subset_names}. Skipping.")
+            
+            logger.info(f"Excluding groups {exclude_values} from groups parameter: {np.sum(exclude_mask):,} cells excluded")
+    
+    # Case 3: Dictionary (keys are column names, values are values to exclude)
+    elif isinstance(cell_filter, dict):
+        for col, values in cell_filter.items():
+            if col == "__underrepresentation_data":
+                continue  # Skip the special key
+                
+            if col not in adata.obs:
+                logger.warning(f"Column '{col}' not found in adata.obs. Skipping this filter.")
+                continue
+            
+            # Ensure values is a list
+            if not isinstance(values, (list, tuple)):
+                values = [values]
+            
+            # Exclude cells matching any of the values
+            col_mask = (adata.obs[col].isin(values)).values
+            exclude_mask |= col_mask
+            logger.debug(f"Excluding {np.sum(col_mask):,} cells where {col} is in {values}")
+        
+        logger.info(f"Excluding cells based on filter dictionary: {np.sum(exclude_mask):,} cells excluded")
+    
+    # Case 4: List of dictionaries (multiple exclusion criteria)
+    elif isinstance(cell_filter, (list, tuple)) and all(isinstance(x, dict) for x in cell_filter):
+        for i, criteria in enumerate(cell_filter):
+            criteria_mask = np.zeros(adata.n_obs, dtype=bool)
+            
+            for col, values in criteria.items():
+                if col not in adata.obs:
+                    raise ValueError(f"Column '{col}' not found in adata.obs")
+                
+                # Ensure values is a list
+                if not isinstance(values, (list, tuple)):
+                    values = [values]
+                
+                # Exclude cells matching any of the values
+                col_mask = (adata.obs[col].isin(values)).values
+                criteria_mask |= col_mask
+            
+            exclude_mask |= criteria_mask
+            logger.debug(f"Exclusion criteria {i+1}: {np.sum(criteria_mask):,} cells excluded")
+        
+        logger.info(f"Excluding cells based on multiple criteria: {np.sum(exclude_mask):,} cells excluded")
+    
+    else:
+        raise ValueError(
+            "Invalid cell_filter parameter. It should be a string, a list of strings, "
+            "a dictionary, or a list of dictionaries."
+        )
+    
+    # Update the filter mask to exclude specified cells
+    filter_mask = ~exclude_mask
+    return filter_mask, np.sum(exclude_mask)

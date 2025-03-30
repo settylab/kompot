@@ -38,6 +38,7 @@ from . import anndata
 from .anndata import (
     compute_differential_abundance,
     compute_differential_expression,
+    check_underrepresentation,
     RunInfo,
     RunComparison
 )
@@ -87,7 +88,7 @@ __all__ = [
     
     # AnnData functionality
     "compute_differential_abundance", "compute_differential_expression", 
-    "RunInfo", "RunComparison",
+    "check_underrepresentation", "RunInfo", "RunComparison",
     
     # Submodules
     "plot", "anndata", "differential"
