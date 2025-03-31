@@ -96,3 +96,17 @@ except (ImportError, TypeError) as e:
     def embedding(*args, **kwargs):
         raise ImportError("Embedding plotting function unavailable due to scanpy compatibility issues. "
                          "Please update scanpy or use Python 3.9-3.11 instead of 3.12.")
+
+# Import StringDB report class
+try:
+    from .stringdb import StringDBReport
+    __all__.append("StringDBReport")
+except ImportError as e:
+    logger.warning(f"Could not import StringDBReport due to: {e}")
+    
+    class StringDBReport:
+        """Stub class when actual implementation is not available."""
+        
+        def __init__(self, *args, **kwargs):
+            raise ImportError("StringDBReport is unavailable due to missing dependencies. "
+                             "Make sure 'requests' and other required packages are installed.")

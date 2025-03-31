@@ -2,8 +2,9 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.3.4]
+## [Unreleased]
 
+ - StringDBReport class for gene set visualization and reporting
  - make sure da directions categories are always retained and ordered correctly
  - more flexible `volcano_de` plot
  - `fold_change_mode` parameter for heatmap to only show fold-change instead of split tiles
