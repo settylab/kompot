@@ -649,7 +649,7 @@ def check_underrepresentation(
     
     return filter_dict
 
-def parse_groups(adata, groups):
+def parse_groups(adata, groups, formatted_names=False):
     """
     Parse various group specifications into a dictionary of subset masks.
     
@@ -672,6 +672,9 @@ def parse_groups(adata, groups):
         - pd.Series/np.ndarray: values to divide or subset (creates a subset for each unique value)
         - np.ndarray with boolean values: each row specifies a subset
         - List of vectors/series: multiple subsetting vectors
+    formatted_names : bool, optional
+        If True, returns more human-readable names for automatically generated subset names.
+        If False (default), returns the sanitized machine-friendly names.
         
     Returns
     -------
@@ -699,6 +702,10 @@ def parse_groups(adata, groups):
     ... }
     >>> subset_masks, subset_names = parse_groups(adata, named_filters)
     >>> # subset_names will be ['control_group', 'treated_high_dose']
+    >>>
+    >>> # Using formatted names for display
+    >>> subset_masks, subset_names = parse_groups(adata, {'category': 'A'}, formatted_names=True)
+    >>> # Will return "Category: A" instead of "category=A"
     """
     subset_masks = {}
     subset_names = []
@@ -715,14 +722,22 @@ def parse_groups(adata, groups):
         # Boolean column - single subset of True values
         if pd.api.types.is_bool_dtype(col_dtype):
             subset_masks["True"] = col_values.values
-            subset_names.append("True")
+            display_name = f"{group_col.capitalize()}: True" if formatted_names else "True"
+            subset_names.append(display_name)
         # Categorical or string column - subset for each category
         elif isinstance(col_dtype, pd.CategoricalDtype) or pd.api.types.is_string_dtype(col_dtype):
             for category in adata.obs[group_col].unique():
                 mask = (adata.obs[group_col] == category).values
                 subset_name = str(category)
                 subset_masks[subset_name] = mask
-                subset_names.append(subset_name)
+                
+                # Format the name if requested
+                if formatted_names:
+                    display_name = f"{group_col.capitalize()}: {subset_name}"
+                else:
+                    display_name = subset_name
+                
+                subset_names.append(display_name)
         # Float column - not valid for grouping
         elif pd.api.types.is_float_dtype(col_dtype):
             raise ValueError(f"Column '{group_col}' has float values which cannot be used for grouping")
@@ -733,7 +748,14 @@ def parse_groups(adata, groups):
                     mask = (adata.obs[group_col] == category).values
                     subset_name = str(category)
                     subset_masks[subset_name] = mask
-                    subset_names.append(subset_name)
+                    
+                    # Format the name if requested
+                    if formatted_names:
+                        display_name = f"{group_col.capitalize()}: {subset_name}"
+                    else:
+                        display_name = subset_name
+                    
+                    subset_names.append(display_name)
             except Exception as e:
                 raise ValueError(f"Cannot interpret column '{group_col}' for grouping: {str(e)}")
     
@@ -765,6 +787,8 @@ def parse_groups(adata, groups):
                 # Use the provided name as the subset name
                 subset_name = name
                 subset_masks[subset_name] = mask
+                
+                # No formatting for explicitly named groups, as they're already named by the user
                 subset_names.append(subset_name)
         else:
             # Case 2a: Regular dict (single filter)
@@ -787,9 +811,21 @@ def parse_groups(adata, groups):
                 mask &= submask
                 filter_desc.append(f"{col}={','.join(map(str, values))}")
             
-            subset_name = "_".join(filter_desc)
-            subset_masks[subset_name] = mask
-            subset_names.append(subset_name)
+            # Create sanitized key for the dictionary
+            sanitized_name = "_".join(filter_desc)
+            
+            # Create a more readable version if formatted_names is True
+            if formatted_names:
+                formatted_filters = []
+                for desc in filter_desc:
+                    col, val = desc.split('=', 1)
+                    formatted_filters.append(f"{col.capitalize()}: {val}")
+                display_name = " & ".join(formatted_filters)
+            else:
+                display_name = sanitized_name
+            
+            subset_masks[sanitized_name] = mask
+            subset_names.append(display_name)
     
     # Case 3: List of dictionaries (multiple filters)
     elif isinstance(groups, list) and all(isinstance(g, dict) for g in groups):
@@ -813,9 +849,23 @@ def parse_groups(adata, groups):
                 mask &= submask
                 filter_desc.append(f"{col}={','.join(map(str, values))}")
             
-            subset_name = f"group{i+1}" if not filter_desc else "_".join(filter_desc)
-            subset_masks[subset_name] = mask
-            subset_names.append(subset_name)
+            # Create sanitized key for the dictionary
+            sanitized_name = f"group{i+1}" if not filter_desc else "_".join(filter_desc)
+            
+            # Create a more readable version if formatted_names is True
+            if formatted_names and filter_desc:
+                formatted_filters = []
+                for desc in filter_desc:
+                    col, val = desc.split('=', 1)
+                    formatted_filters.append(f"{col.capitalize()}: {val}")
+                display_name = " & ".join(formatted_filters)
+            elif formatted_names:
+                display_name = f"Group {i+1}"
+            else:
+                display_name = sanitized_name
+            
+            subset_masks[sanitized_name] = mask
+            subset_names.append(display_name)
     
     # Case 4: 2D Array of boolean masks - needs to be checked BEFORE the 1D array case
     elif isinstance(groups, np.ndarray) and groups.ndim == 2:
@@ -837,11 +887,14 @@ def parse_groups(adata, groups):
             
             # Each row is a different subset
             for i in range(n_subsets):
-                subset_name = f"subset{i+1}"
+                sanitized_name = f"subset{i+1}"
+                # Create a more readable version if formatted_names is True
+                display_name = f"Subset {i+1}" if formatted_names else sanitized_name
+                
                 # Convert to boolean array if not already
                 mask = groups[i].astype(bool)
-                subset_masks[subset_name] = mask
-                subset_names.append(subset_name)
+                subset_masks[sanitized_name] = mask
+                subset_names.append(display_name)
                 
     # Case 5: Series or array (like a column)
     elif isinstance(groups, (pd.Series, np.ndarray)):
@@ -852,7 +905,8 @@ def parse_groups(adata, groups):
         # Handle boolean mask directly
         if pd.api.types.is_bool_dtype(groups.dtype):
             subset_masks["True"] = np.array(groups)
-            subset_names.append("True")
+            display_name = "Selected" if formatted_names else "True"
+            subset_names.append(display_name)
         else:
             # Use unique values to create subsets
             unique_values = np.unique(groups)
@@ -862,8 +916,17 @@ def parse_groups(adata, groups):
                 else:
                     mask = (groups == value)
                 subset_name = str(value)
+                
+                # Create a more readable display name if requested
+                if formatted_names and isinstance(groups, pd.Series) and groups.name is not None:
+                    display_name = f"{groups.name.capitalize()}: {subset_name}"
+                elif formatted_names:
+                    display_name = f"Value: {subset_name}"
+                else:
+                    display_name = subset_name
+                
                 subset_masks[subset_name] = mask
-                subset_names.append(subset_name)
+                subset_names.append(display_name)
     
     # Case 6: List of arrays/series
     elif isinstance(groups, list) and all(isinstance(g, (np.ndarray, pd.Series)) for g in groups):
@@ -874,9 +937,12 @@ def parse_groups(adata, groups):
             
             # Handle boolean mask directly
             if pd.api.types.is_bool_dtype(group_arr.dtype):
-                subset_name = f"subset{i+1}"
-                subset_masks[subset_name] = np.array(group_arr)
-                subset_names.append(subset_name)
+                sanitized_name = f"subset{i+1}"
+                # Create a more readable display name if requested
+                display_name = f"Subset {i+1}" if formatted_names else sanitized_name
+                
+                subset_masks[sanitized_name] = np.array(group_arr)
+                subset_names.append(display_name)
             else:
                 # Use unique values to create subsets
                 unique_values = np.unique(group_arr)
@@ -885,9 +951,18 @@ def parse_groups(adata, groups):
                         mask = (group_arr == value).values
                     else:
                         mask = (group_arr == value)
-                    subset_name = f"subset{i+1}_{value}"
-                    subset_masks[subset_name] = mask
-                    subset_names.append(subset_name)
+                    sanitized_name = f"subset{i+1}_{value}"
+                    
+                    # Create a more readable display name if requested
+                    if formatted_names and isinstance(group_arr, pd.Series) and group_arr.name is not None:
+                        display_name = f"{group_arr.name.capitalize()} {i+1}: {value}"
+                    elif formatted_names:
+                        display_name = f"Subset {i+1}: {value}"
+                    else:
+                        display_name = sanitized_name
+                    
+                    subset_masks[sanitized_name] = mask
+                    subset_names.append(display_name)
     
     # If we couldn't interpret the groups parameter
     else:
