@@ -438,7 +438,7 @@ def check_underrepresentation(
     groupby: str, 
     groups: Optional[Union[str, Dict[str, Any], List[Dict[str, Any]], pd.Series, np.ndarray, List[np.ndarray]]],
     conditions: Optional[List[str]] = None,
-    min_cells: int = 10,
+    min_cells: int = 3,
     min_percentage: Optional[float] = None,
     warn: bool = False,
     print_summary: bool = True
@@ -448,37 +448,6 @@ def check_underrepresentation(
     
     This function checks each unique value in groups to see if any condition has 
     too few cells or represents a small percentage of the total cells in that group.
-    
-    Example
-    -------
-    >>> import kompot as kp
-    >>> import anndata as ad
-    >>> import numpy as np
-    >>> 
-    >>> # Create example data
-    >>> adata = ad.AnnData(X=np.random.normal(0, 1, (100, 10)))
-    >>> adata.obs['condition'] = ['A'] * 80 + ['B'] * 20
-    >>> adata.obs['tissue'] = ['liver'] * 50 + ['kidney'] * 50
-    >>> 
-    >>> # Check for underrepresentation
-    >>> underrep = kp.check_underrepresentation(
-    ...     adata, 
-    ...     groupby='condition', 
-    ...     groups='tissue', 
-    ...     min_cells=15
-    ... )
-    >>> print(underrep)
-    {'__underrepresentation_data': {'kidney': ['B']}, 'tissue': ['kidney']}
-    >>> 
-    >>> # Use as filter in differential expression
-    >>> result = kp.compute_differential_expression(
-    ...     adata,
-    ...     groupby='condition',
-    ...     condition1='A',
-    ...     condition2='B',
-    ...     groups='tissue',
-    ...     cell_filter=underrep
-    ... )
     
     Parameters
     ----------
@@ -545,7 +514,7 @@ def check_underrepresentation(
     ...     min_cells=20
     ... )
     >>> print(underrep)
-    {'group2': ['B']}
+    {'group': ['group1']}
     >>>
     >>> # Use result as filter in differential expression
     >>> result = kp.compute_differential_expression(
@@ -568,7 +537,7 @@ def check_underrepresentation(
     
     # Set default min_percentage if not provided
     if min_percentage is None:
-        min_percentage = 10 / len(conditions)
+        min_percentage = 4 / len(conditions)
     
     # Initialize result dictionary
     underrepresented = {}
@@ -650,10 +619,10 @@ def check_underrepresentation(
         # Suggestion for filtering
         print(f"\n{'='*80}")
         print("RECOMMENDATION:")
-        print("The detected underrepresentation may affect differential expression results.")
-        print("Consider filtering these groups with the returned dictionary when running differential analysis:")
-        print("Example: adata.compute_differential_expression(..., cell_filter=underrepresented)")
-        print(f"{'='*80}\n")
+        logger.info("The detected underrepresentation may affect differential expression results.")
+        logger.info("Consider filtering these groups with the returned dictionary when running differential analysis:")
+        logger.info("Example: adata.compute_differential_expression(..., cell_filter=underrepresented)")
+        logger.info(f"{'='*80}\n")
     
     # Create a filter that's compatible with compute_differential_expression
     # For direct use as cell_filter, we need to return a dictionary where:

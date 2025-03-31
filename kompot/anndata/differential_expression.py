@@ -55,7 +55,7 @@ def compute_differential_expression(
     max_memory_ratio: float = 0.8,
     cell_filter: Optional[Union[str, List[str], Dict[str, Any], List[Dict[str, Any]]]] = None,
     groups: Optional[Union[str, Dict[str, Any], List[Dict[str, Any]], pd.Series, np.ndarray, List[np.ndarray]]] = None,
-    min_cells: int = 10,
+    min_cells: int = 3,
     min_percentage: Optional[float] = None,
     check_representation: Optional[bool] = None,
     copy: bool = False,
@@ -455,8 +455,13 @@ def compute_differential_expression(
     underrep = {}
     auto_filter = False
     underrep_filter = None
+
+    if check_representation is True and groups is None:
+        raise ValueError(
+            "Cannot check underrerpresentation if no groups are specified. Set `check_representation=False` or pass `groups`."
+        )
     
-    if groups is not None and check_representation is not False:
+    if groups is not None and check_representation is not False and cell_filter is None:
         logger.info("Checking for underrepresentation on the full dataset")
         underrep_result = check_underrepresentation(
             adata, 
@@ -476,26 +481,19 @@ def compute_differential_expression(
         # If check_representation is True and underrepresentation is found, create auto filter
         if check_representation is True and underrep:
             underrep_filter = underrep_result
-            
-            # Log what groups would be filtered
-            n_groups = len(underrep)
-            logger.info(f"Found {n_groups} groups with underrepresented conditions")
-            for group, conditions in underrep.items():
-                logger.info(f"  - Group '{group}': Underrepresented conditions: {conditions}")
-            
-            # Check if we should apply this filter
-            if cell_filter is None:
+
+            if check_representation is None:
+                logger.warning("Please pass `check_representation=True` to enable filtering of these underrepresented groups.")
+            elif check_representation is True:
+                n_groups = len(underrep)
+                logger.info(f"Found {n_groups:,} groups with underrepresented conditions")
+                for group, conditions in underrep.items():
+                    logger.info(f"  - Group '{group}': Underrepresented conditions: {conditions}")
+                
                 # No user-provided filter, use underrepresentation filter
                 logger.info("Automatically applying underrepresentation filter")
                 cell_filter = underrep_filter
                 auto_filter = True
-            else:
-                # User provided a filter, warn and keep user filter
-                logger.warning(
-                    "Found underrepresented groups, but a cell_filter was already specified. "
-                    "The existing cell_filter will be used; underrepresentation data is returned "
-                    "in the results dictionary."
-                )
     
     # Apply the cell_filter to get a filter mask
     filter_mask, excluded_cells = apply_cell_filter(adata, cell_filter, groups)
@@ -505,7 +503,7 @@ def compute_differential_expression(
         
     # When check_representation is True, check filtered data for additional underrepresentation
     # and refine the filter mask if needed
-    if groups is not None and check_representation is True:
+    if groups is not None and check_representation is True and auto_filter is False:
         filter_mask, additional_underrep, additional_excluded = refine_filter_for_underrepresentation(
             adata,
             filter_mask=filter_mask,
@@ -1174,36 +1172,19 @@ def compute_differential_expression(
                 adata.obs.loc[filter_mask, field_names["std_key_1"]] = condition1_std[:, 0]
                 adata.obs.loc[filter_mask, field_names["std_key_2"]] = condition2_std[:, 0]
 
-                # Create dense arrays or sparse matrices of the right shape
-                if sparse.issparse(adata.X):
-                    # Use sparse matrices for layers
-                    shape = (adata.n_obs, adata.n_vars)
-                    imputed1_layer = sparse.csr_matrix(shape)
-                    imputed2_layer = sparse.csr_matrix(shape)
-                    fold_change_layer = sparse.csr_matrix(shape)
-                    fold_change_zscores_layer = sparse.csr_matrix(shape)
-                    
-                    # Assign values only to filtered cells
-                    filtered_indices = np.where(filter_mask)[0]
-                    for i, cell_idx in enumerate(filtered_indices):
-                        imputed1_layer[cell_idx] = condition1_imputed[i]
-                        imputed2_layer[cell_idx] = condition2_imputed[i]
-                        fold_change_layer[cell_idx] = fold_change[i]
-                        fold_change_zscores_layer[cell_idx] = fold_change_zscores[i]
-                else:
-                    # Use dense arrays for layers, initialize with NaN
-                    imputed1_layer = np.full(adata.shape, np.nan)
-                    imputed2_layer = np.full(adata.shape, np.nan)
-                    fold_change_layer = np.full(adata.shape, np.nan)
-                    fold_change_zscores_layer = np.full(adata.shape, np.nan)
-                    
-                    # Assign values only to filtered cells
-                    filtered_indices = np.where(filter_mask)[0]
-                    for i, cell_idx in enumerate(filtered_indices):
-                        imputed1_layer[cell_idx] = condition1_imputed[i]
-                        imputed2_layer[cell_idx] = condition2_imputed[i]
-                        fold_change_layer[cell_idx] = fold_change[i]
-                        fold_change_zscores_layer[cell_idx] = fold_change_zscores[i]
+                # Use dense arrays for layers, initialize with NaN
+                imputed1_layer = np.full(adata.shape, np.nan)
+                imputed2_layer = np.full(adata.shape, np.nan)
+                fold_change_layer = np.full(adata.shape, np.nan)
+                fold_change_zscores_layer = np.full(adata.shape, np.nan)
+                
+                # Assign values only to filtered cells
+                filtered_indices = np.where(filter_mask)[0]
+                for i, cell_idx in enumerate(filtered_indices):
+                    imputed1_layer[cell_idx] = condition1_imputed[i]
+                    imputed2_layer[cell_idx] = condition2_imputed[i]
+                    fold_change_layer[cell_idx] = fold_change[i]
+                    fold_change_zscores_layer[cell_idx] = fold_change_zscores[i]
                 
                 # Store in adata.layers
                 adata.layers[imputed1_key] = imputed1_layer
