@@ -24,7 +24,7 @@ def embedding(
     groups: Optional[Union[Dict[str, Union[str, List[str]]], str, List[str]]] = None,
     background_color: Optional[str] = "lightgrey",
     matplotlib_scatter_kwargs: Optional[Dict[str, Any]] = None,
-    mgroups: Optional[List[Dict[str, Union[str, List[str]]]]] = None,
+    mgroups: Optional[Union[List[Dict[str, Union[str, List[str]]]], Dict[str, Dict[str, Union[str, List[str]]]]]] = None,
     ncols: Optional[int] = None,
     **kwargs
 ) -> Any:
@@ -54,10 +54,13 @@ def embedding(
         when plotting background cells. Common options include 'alpha', 's' (size),
         'edgecolors', and 'zorder'. Defaults match scanpy's styling with 
         {'zorder': 0, 'edgecolors': 'none', 'linewidths': 0, 'alpha': 0.7}.
-    mgroups : List[Dict[str, Union[str, List[str]]]], optional
-        List of groups dictionaries to create multiple panels. Each element is treated 
+    mgroups : List[Dict[str, Union[str, List[str]]]] or Dict[str, Dict[str, Union[str, List[str]]]], optional
+        List or dictionary of groups dictionaries to create multiple panels. Each element is treated 
         as a separate groups argument in its own subplot. Cannot be used with multiple colors.
-        If provided, title argument should align with the number of groups in mgroups.
+        If provided as a list, title argument should align with the number of groups in mgroups.
+        If provided as a dictionary, the keys will be used as title names unless titles is 
+        explicitly provided. If titles is provided but too short, a warning will be issued and
+        the dictionary keys will be used for the remaining panels.
         Cannot be used when layer is a list.
     ncols : int, optional
         Number of columns for panel layout when using mgroups or when layer, or color is a list.
@@ -230,34 +233,63 @@ def embedding(
         user_return_fig = kwargs.get('return_fig', False)
         user_show = kwargs.get('show', None)
         
-        # Get or create titles for each subplot
+        # If mgroups is a dictionary of dictionaries, use its keys as titles
+        if isinstance(mgroups, dict):
+            # Convert to list for consistent processing
+            mgroups_keys = list(mgroups.keys())
+            mgroups_list = [mgroups[k] for k in mgroups_keys]
+            mgroups_dict = True
+        else:
+            mgroups_list = mgroups
+            mgroups_keys = None
+            mgroups_dict = False
+        
+        # Get the title from kwargs
+        original_title = kwargs.get('title')
+        # Now pop it for use in subplot creation
         titles = kwargs.pop('title', None)
+        
         if titles is None:
-            # Generate default titles based on group definitions
-            titles = []
-            for i, group_dict in enumerate(mgroups):
-                if isinstance(group_dict, dict):
-                    # Create descriptive title based on group filtering
-                    parts = []
-                    for col, vals in group_dict.items():
-                        if not isinstance(vals, (list, tuple, np.ndarray)):
-                            vals = [vals]
-                        parts.append(f"{col}={','.join(str(v) for v in vals)}")
-                    titles.append(" & ".join(parts))
-                else:
-                    # If not a dict, use a simple generic title
-                    titles.append(f"Group {i+1}")
+            # If mgroups was a dict, use the keys as titles
+            if mgroups_dict:
+                titles = mgroups_keys
+            else:
+                # Generate default titles based on group definitions
+                titles = []
+                for i, group_dict in enumerate(mgroups_list):
+                    if isinstance(group_dict, dict):
+                        # Create descriptive title based on group filtering
+                        parts = []
+                        for col, vals in group_dict.items():
+                            if not isinstance(vals, (list, tuple, np.ndarray)):
+                                vals = [vals]
+                            parts.append(f"{col}={','.join(str(v) for v in vals)}")
+                        titles.append(" & ".join(parts))
+                    else:
+                        # If not a dict, use a simple generic title
+                        titles.append(f"Group {i+1}")
         elif isinstance(titles, str):
             # Convert single string title to list with placeholders for other panels
-            titles = [titles] + [f"Group {i+1}" for i in range(1, len(mgroups))]
+            titles = [titles]
+            # A single title string is definitely too short for multiple groups
+            if len(mgroups_list) > 1:
+                warnings.warn(f"Provided titles list is too short (1) for the number of groups ({len(mgroups_list)}). Using default titles for the remaining groups.")
         
-        # Ensure titles match number of groups
-        if len(titles) < len(mgroups):
+        # Ensure titles match number of groups 
+        if len(titles) < len(mgroups_list):
+            # Only warn if we haven't already warned for a single string title
+            if not (isinstance(original_title, str) and len(mgroups_list) > 1):
+                warnings.warn(f"Provided titles list is too short ({len(titles)}) for the number of groups ({len(mgroups_list)}). Using default titles for the remaining groups.")
             # Add generic titles for any missing
-            titles.extend([f"Group {i+1}" for i in range(len(titles), len(mgroups))])
+            if mgroups_dict:
+                # Use the dictionary keys for remaining titles
+                remaining_keys = mgroups_keys[len(titles):]
+                titles.extend(remaining_keys)
+            else:
+                titles.extend([f"Group {i+1}" for i in range(len(titles), len(mgroups_list))])
         
         # Create subplots using scanpy's grid spec approach
-        n_panels = len(mgroups)
+        n_panels = len(mgroups_list)
         
         # Determine number of columns (user-specified or default)
         if ncols is not None:
@@ -314,9 +346,9 @@ def embedding(
                 axs.append(ax)
         
         # Create each subplot recursively
-        for i, (group_dict, title, ax) in enumerate(zip(mgroups, titles, axs)):
+        for i, (group_dict, title, ax) in enumerate(zip(mgroups_list, titles, axs)):
             # Skip this call if we've run out of groups
-            if i >= len(mgroups):
+            if i >= len(mgroups_list):
                 ax.axis('off')  # Hide unused axes
                 continue
                 
@@ -362,7 +394,7 @@ def embedding(
                     ax.set_title(f"{title}\n({cell_fraction:.1%} of cells)")
         
         # Hide any unused axes
-        for i in range(len(mgroups), len(axs)):
+        for i in range(len(mgroups_list), len(axs)):
             axs[i].axis('off')
         
         # Handle figure showing based on user preference (don't use tight_layout as we've already set up the grid properly)

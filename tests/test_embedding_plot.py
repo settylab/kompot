@@ -685,3 +685,118 @@ def test_embedding_layer_list_incompatible_with_color_list():
             color=['cluster', 'condition'],  # List of colors
             layer=['raw', 'normalized']
         )
+
+
+def test_embedding_with_mgroups_as_dict():
+    """Test embedding with mgroups as a dictionary of dictionaries."""
+    from kompot.plot import embedding
+    
+    # Create a small test AnnData object
+    np.random.seed(42)
+    n_cells = 100
+    adata = sc.AnnData(X=np.random.normal(size=(n_cells, 10)))
+    adata.obsm['X_umap'] = np.random.normal(size=(n_cells, 2))
+    adata.obs['cluster'] = np.random.choice(['A', 'B', 'C'], size=n_cells)
+    adata.obs['condition'] = np.random.choice(['control', 'treatment'], size=n_cells)
+    adata.obs['batch'] = np.random.choice(['batch1', 'batch2'], size=n_cells)
+    
+    # Define mgroups as a dictionary of dictionaries
+    mgroups = {
+        'Control Cells': {'condition': 'control'},
+        'Treatment Cells': {'condition': 'treatment'},
+        'Batch 1': {'batch': 'batch1'},
+        'Batch 2': {'batch': 'batch2'}
+    }
+    
+    # Test with mgroups as a dictionary and default ncols
+    with patch('matplotlib.pyplot.show'):
+        result = embedding(
+            adata, 
+            basis='umap',
+            color='cluster',
+            mgroups=mgroups,
+            return_fig=True
+        )
+        
+    assert result is not None
+    # Should have the right number of subplots
+    assert len(result.axes) >= len(mgroups)
+    plt.close(result)
+    
+    # Test with mgroups as a dictionary and custom ncols
+    with patch('matplotlib.pyplot.show'):
+        result = embedding(
+            adata, 
+            basis='umap',
+            color='cluster',
+            mgroups=mgroups,
+            ncols=2,  # Force 2 columns
+            return_fig=True
+        )
+        
+    assert result is not None
+    # Should have the right number of subplots
+    assert len(result.axes) >= 4  # At least 4 axes for our 4 groups
+    plt.close(result)
+
+
+def test_embedding_with_mgroups_as_dict_and_titles():
+    """Test embedding with mgroups as a dictionary and custom titles."""
+    from kompot.plot import embedding
+    import warnings
+    
+    # Create a small test AnnData object
+    np.random.seed(42)
+    n_cells = 100
+    adata = sc.AnnData(X=np.random.normal(size=(n_cells, 10)))
+    adata.obsm['X_umap'] = np.random.normal(size=(n_cells, 2))
+    adata.obs['cluster'] = np.random.choice(['A', 'B', 'C'], size=n_cells)
+    adata.obs['condition'] = np.random.choice(['control', 'treatment'], size=n_cells)
+    adata.obs['batch'] = np.random.choice(['batch1', 'batch2'], size=n_cells)
+    
+    # Define mgroups as a dictionary of dictionaries
+    mgroups = {
+        'Control Default Title': {'condition': 'control'},
+        'Treatment Default Title': {'condition': 'treatment'},
+        'Batch1 Default Title': {'batch': 'batch1'},
+        'Batch2 Default Title': {'batch': 'batch2'}
+    }
+    
+    # Test with mgroups as a dictionary and custom titles that override some of the dict keys
+    custom_titles = ['Custom Control Title', 'Custom Treatment Title']
+    
+    # Should issue a warning for short titles list
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        with patch('matplotlib.pyplot.show'):
+            result = embedding(
+                adata, 
+                basis='umap',
+                color='cluster',
+                mgroups=mgroups,
+                title=custom_titles,  # Only 2 titles for 4 groups
+                return_fig=True
+            )
+        # Check that a warning was issued
+        assert any("too short" in str(warning.message) for warning in w)
+        
+    assert result is not None
+    plt.close(result)
+    
+    # Test with mgroups as a dictionary and a single title (should use the dict keys for remaining)
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        with patch('matplotlib.pyplot.show'):
+            result = embedding(
+                adata, 
+                basis='umap',
+                color='cluster',
+                mgroups=mgroups,
+                title='Single Common Title',  # Only one title for all groups
+                return_fig=True
+            )
+        # Check that a warning was issued
+        assert any("too short" in str(warning.message) for warning in w)
+        
+    assert result is not None
+    plt.close(result)
