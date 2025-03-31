@@ -657,12 +657,19 @@ def parse_groups(adata, groups):
     ----------
     adata : AnnData
         AnnData object
-    groups : str, Dict, List[Dict], pd.Series, np.ndarray, List[np.ndarray]
+    groups : str, Dict, Dict[str, Dict], List[Dict], pd.Series, np.ndarray, List[np.ndarray]
         Group specification for subsetting. Can be:
-        - str: column name in adata.obs
+        - str: column name in adata.obs (creates a subset for each unique value)
         - Dict: filter with keys as column names in adata.obs and values as allowed values
-        - List[Dict]: list of filters for different subgroups
-        - pd.Series/np.ndarray: values to divide or subset
+          Example: {'category': 'cat1', 'is_selected': True} creates a subset of cells where 
+          category is 'cat1' AND is_selected is True
+        - Dict[str, Dict]: dict of filters for different subgroups, where outer dict keys are 
+          used as subset names. Each inner dict defines a filter as above.
+          Example: {'group1': {'category': 'cat1'}, 'group2': {'category': 'cat2', 'is_selected': True}}
+          creates two named subsets: 'group1' for cat1 cells and 'group2' for cat2 cells that are also selected
+        - List[Dict]: list of filters for different subgroups (similar to Dict[str, Dict] but with 
+          auto-generated names)
+        - pd.Series/np.ndarray: values to divide or subset (creates a subset for each unique value)
         - np.ndarray with boolean values: each row specifies a subset
         - List of vectors/series: multiple subsetting vectors
         
@@ -676,6 +683,22 @@ def parse_groups(adata, groups):
     ------
     ValueError
         If groups cannot be interpreted for subsetting, or if column does not exist
+    
+    Examples
+    --------
+    >>> # Using a column name to create subsets for each category
+    >>> subset_masks, subset_names = parse_groups(adata, 'category')
+    >>> 
+    >>> # Using a dictionary to filter cells
+    >>> subset_masks, subset_names = parse_groups(adata, {'category': 'A', 'is_selected': True})
+    >>>
+    >>> # Using a dictionary of dictionaries for named filters
+    >>> named_filters = {
+    ...     'control_group': {'treatment': 'control'},
+    ...     'treated_high_dose': {'treatment': 'drug', 'dose': 'high'}
+    ... }
+    >>> subset_masks, subset_names = parse_groups(adata, named_filters)
+    >>> # subset_names will be ['control_group', 'treated_high_dose']
     """
     subset_masks = {}
     subset_names = []
@@ -716,29 +739,57 @@ def parse_groups(adata, groups):
     
     # Case 2: Dictionary (filter on obs columns)
     elif isinstance(groups, dict):
-        # Use the dictionary as a single filter
-        mask = np.ones(adata.n_obs, dtype=bool)
-        filter_desc = []
-        
-        for col, values in groups.items():
-            if col not in adata.obs:
-                raise ValueError(f"Column '{col}' not found in adata.obs")
+        # Check if this is a dict of dicts (Case 2b) or a regular dict filter (Case 2a)
+        if all(isinstance(value, dict) for value in groups.values()):
+            # Case 2b: Dict of dicts (named filters)
+            for name, group_dict in groups.items():
+                mask = np.ones(adata.n_obs, dtype=bool)
+                filter_desc = []
+                
+                for col, values in group_dict.items():
+                    if col not in adata.obs:
+                        raise ValueError(f"Column '{col}' not found in adata.obs")
+                    
+                    # Convert single value to list for uniform handling
+                    if not isinstance(values, (list, tuple, np.ndarray, pd.Series)):
+                        values = [values]
+                    
+                    # Create a submask for each value
+                    submask = np.zeros(adata.n_obs, dtype=bool)
+                    for value in values:
+                        submask |= (adata.obs[col] == value).values
+                    
+                    mask &= submask
+                    filter_desc.append(f"{col}={','.join(map(str, values))}")
+                
+                # Use the provided name as the subset name
+                subset_name = name
+                subset_masks[subset_name] = mask
+                subset_names.append(subset_name)
+        else:
+            # Case 2a: Regular dict (single filter)
+            mask = np.ones(adata.n_obs, dtype=bool)
+            filter_desc = []
             
-            # Convert single value to list for uniform handling
-            if not isinstance(values, (list, tuple, np.ndarray, pd.Series)):
-                values = [values]
+            for col, values in groups.items():
+                if col not in adata.obs:
+                    raise ValueError(f"Column '{col}' not found in adata.obs")
+                
+                # Convert single value to list for uniform handling
+                if not isinstance(values, (list, tuple, np.ndarray, pd.Series)):
+                    values = [values]
+                
+                # Create a submask for each value
+                submask = np.zeros(adata.n_obs, dtype=bool)
+                for value in values:
+                    submask |= (adata.obs[col] == value).values
+                
+                mask &= submask
+                filter_desc.append(f"{col}={','.join(map(str, values))}")
             
-            # Create a submask for each value
-            submask = np.zeros(adata.n_obs, dtype=bool)
-            for value in values:
-                submask |= (adata.obs[col] == value).values
-            
-            mask &= submask
-            filter_desc.append(f"{col}={','.join(map(str, values))}")
-        
-        subset_name = "_".join(filter_desc)
-        subset_masks[subset_name] = mask
-        subset_names.append(subset_name)
+            subset_name = "_".join(filter_desc)
+            subset_masks[subset_name] = mask
+            subset_names.append(subset_name)
     
     # Case 3: List of dictionaries (multiple filters)
     elif isinstance(groups, list) and all(isinstance(g, dict) for g in groups):
@@ -842,9 +893,9 @@ def parse_groups(adata, groups):
     else:
         raise ValueError(
             "Cannot interpret 'groups' parameter. It should be a string (column name), "
-            "a dictionary (filter), a list of dictionaries (multiple filters), "
-            "a Series/array (like a column), an array of boolean masks, "
-            "or a list of arrays/series."
+            "a dictionary (filter), a dictionary of dictionaries (named filters), "
+            "a list of dictionaries (multiple filters), a Series/array (like a column), "
+            "an array of boolean masks, or a list of arrays/series."
         )
         
     return subset_masks, subset_names

@@ -152,7 +152,7 @@ def compute_differential_expression(
         as they refer to excluding groups from the subset analysis. The dictionary formats work independently
         to exclude cells based on their metadata.
 
-    groups : str, Dict, List[Dict], pd.Series, np.ndarray, List[np.ndarray], optional
+    groups : str, Dict, Dict[str, Dict], List[Dict], pd.Series, np.ndarray, List[np.ndarray], optional
         Specification for subsetting or grouping cells for additional analysis.
         Will be interpreted in the following ways:
         
@@ -162,8 +162,14 @@ def compute_differential_expression(
           - If column doesn't allow grouping (e.g., floats): Raises an error.
         - If Dict: Interpreted as a filter with keys being column names of adata.obs 
           and values being allowed values in this column.
+          Example: {'category': ['cat1', 'cat2'], 'is_selected': True} creates a subset of cells where 
+          category is 'cat1' or 'cat2' AND is_selected is True.
+        - If Dict[str, Dict]: Dict of filters for different subgroups, where outer dict keys are 
+          used as subset names. Each inner dict defines a filter as above.
+          Example: {'control_group': {'treatment': 'control'}, 'high_dose': {'treatment': 'drug', 'dose': 'high'}}
+          creates two named subsets using the provided names as identifiers.
         - If List[Dict]: Each dictionary specifies a different subset using the same
-          filtering mechanism as above.
+          filtering mechanism as above, but subset names are auto-generated.
         - If pd.Series or np.ndarray: Interpreted like a column specified with a string.
         - If array of appropriate shape with boolean values: Each row specifies a subset.
         - If List of vectors/series: Each element is processed as above.
@@ -1333,7 +1339,7 @@ def compute_differential_expression(
                             columns=subset_names
                         )
                         adata.varm[varm_key] = empty_df
-                        logger.info(f"Initialized {varm_key} in adata.varm with columns for all {len(subset_names):,} subsets")
+                        logger.debug(f"Initialized {varm_key} in adata.varm with columns for all {len(subset_names):,} subsets")
                 
                 # We're exclusively using adata.varm for storing group-specific metrics
                 # This provides a cleaner design with metrics properly organized by group

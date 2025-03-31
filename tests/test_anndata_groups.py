@@ -125,6 +125,42 @@ def test_parse_groups_dict():
         parse_groups(adata, {'non_existent_column': 'value'})
 
 
+def test_parse_groups_dict_of_dicts():
+    """Test the parse_groups function with dictionary of dictionaries input."""
+    adata = create_test_anndata(with_multiple_groups=True)
+    
+    # Test with named filters
+    filters = {
+        'cat1_group': {'category': 'cat1'},
+        'cat2_selected': {'category': 'cat2', 'is_selected': True},
+        'cat3_not_selected': {'category': 'cat3', 'is_selected': False}
+    }
+    
+    subset_masks, subset_names = parse_groups(adata, filters)
+    assert len(subset_masks) == 3
+    assert len(subset_names) == 3
+    
+    # Check that the provided names were used as subset names
+    for name in filters.keys():
+        assert name in subset_names
+        assert name in subset_masks
+    
+    # Each mask should have different cells
+    for name1, mask1 in subset_masks.items():
+        for name2, mask2 in subset_masks.items():
+            if name1 != name2:
+                assert not np.all(mask1 == mask2)
+    
+    # Test empty dictionary
+    subset_masks, subset_names = parse_groups(adata, {})
+    assert len(subset_masks) == 0
+    assert len(subset_names) == 0
+    
+    # Test with non-existent column
+    with pytest.raises(ValueError):
+        parse_groups(adata, {'test_group': {'non_existent_column': 'value'}})
+
+
 def test_parse_groups_list_of_dicts():
     """Test the parse_groups function with list of dictionaries input."""
     adata = create_test_anndata(with_multiple_groups=True)
@@ -423,6 +459,77 @@ def test_compute_de_with_groups_array():
     
     # Check that the column has values (not all NaN)
     assert not pd.isna(varm_df[subset_col]).all(), f"All values for subset '{subset_col}' are NaN"
+
+
+def test_compute_de_with_named_groups():
+    """Test compute_differential_expression with named groups (dict of dicts)."""
+    adata = create_test_anndata(with_multiple_groups=True)
+    
+    # Create a dict of filters with custom names
+    named_filters = {
+        'category1': {'category': 'cat1'},
+        'category2_selected': {'category': 'cat2', 'is_selected': True}
+    }
+    
+    # Run with named groups
+    result = compute_differential_expression(
+        adata,
+        groupby='group',
+        condition1='A',
+        condition2='B',
+        groups=named_filters,  # Use the dict of filters
+        result_key='de_test_named',
+        compute_mahalanobis=True,  # Enable to test Mahalanobis distances
+        return_full_results=True
+    )
+    
+    # Check that the field names include subset-specific fields
+    run_info = adata.uns['kompot_de']['last_run_info']
+    field_mapping = run_info['field_mapping']
+    
+    # Print debug information 
+    print(f"Available varm keys: {list(adata.varm.keys())}")
+    
+    # Get varm keys for mean log fold change and mahalanobis distances - looking for those with "contains_subsets"
+    mean_lfc_varm_key = None
+    mahalanobis_varm_key = None
+    
+    for key, info in field_mapping.items():
+        if info.get("location") == "varm" and info.get("contains_subsets") is not None:
+            if "mean" in info.get("type", "").lower():
+                mean_lfc_varm_key = key
+            elif "mahalanobis" in info.get("type", "").lower():
+                mahalanobis_varm_key = key
+    
+    assert mean_lfc_varm_key is not None, f"No varm mean fold change key with subsets found in field_mapping: {field_mapping}"
+    assert mahalanobis_varm_key is not None, f"No varm mahalanobis key with subsets found in field_mapping: {field_mapping}"
+    
+    print(f"Found varm keys - mean LFC: {mean_lfc_varm_key}, mahalanobis: {mahalanobis_varm_key}")
+    
+    # Check that the varm matrices exist
+    assert mean_lfc_varm_key in adata.varm, f"varm key {mean_lfc_varm_key} not found in adata.varm"
+    assert mahalanobis_varm_key in adata.varm, f"varm key {mahalanobis_varm_key} not found in adata.varm"
+    
+    # Get the varm dataframes
+    mean_lfc_df = adata.varm[mean_lfc_varm_key]
+    mahalanobis_df = adata.varm[mahalanobis_varm_key]
+    
+    print(f"Mean LFC matrix columns: {list(mean_lfc_df.columns)}")
+    print(f"Mahalanobis matrix columns: {list(mahalanobis_df.columns)}")
+    
+    # Check for custom group names
+    for group_name in named_filters.keys():
+        # Check in mean LFC varm
+        mean_lfc_cols = [col for col in mean_lfc_df.columns if group_name in str(col)]
+        assert mean_lfc_cols, f"No column for named group '{group_name}' found in mean LFC matrix: {list(mean_lfc_df.columns)}"
+        mean_lfc_col = mean_lfc_cols[0]
+        assert not pd.isna(mean_lfc_df[mean_lfc_col]).all(), f"All values for named group '{group_name}' in mean LFC matrix are NaN"
+        
+        # Check in mahalanobis varm
+        mahalanobis_cols = [col for col in mahalanobis_df.columns if group_name in str(col)]
+        assert mahalanobis_cols, f"No column for named group '{group_name}' found in mahalanobis matrix: {list(mahalanobis_df.columns)}"
+        mahalanobis_col = mahalanobis_cols[0]
+        assert not pd.isna(mahalanobis_df[mahalanobis_col]).all(), f"All values for named group '{group_name}' in mahalanobis matrix are NaN"
 
 
 def test_compute_de_with_multiple_groups():
