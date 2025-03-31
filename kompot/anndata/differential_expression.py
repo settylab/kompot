@@ -479,27 +479,22 @@ def compute_differential_expression(
             underrep = underrep_result.pop("__underrepresentation_data")
         
         # If check_representation is True and underrepresentation is found, create auto filter
-        if check_representation is True and underrep:
+        if check_representation is None:
+                logger.warning("Please pass `check_representation=True` to enable filtering out these underrepresented groups.")
+        elif check_representation is True and underrep:
             underrep_filter = underrep_result
-
-            if check_representation is None:
-                logger.warning("Please pass `check_representation=True` to enable filtering of these underrepresented groups.")
-            elif check_representation is True:
-                n_groups = len(underrep)
-                logger.info(f"Found {n_groups:,} groups with underrepresented conditions")
-                for group, conditions in underrep.items():
-                    logger.info(f"  - Group '{group}': Underrepresented conditions: {conditions}")
-                
-                # No user-provided filter, use underrepresentation filter
-                logger.info("Automatically applying underrepresentation filter")
-                cell_filter = underrep_filter
-                auto_filter = True
+            n_groups = len(underrep)
+            logger.info(f"Found {n_groups:,} groups with underrepresented conditions")
+            for group, conditions in underrep.items():
+                logger.info(f"  - Group '{group}': Underrepresented conditions: {conditions}")
+            
+            # No user-provided filter, use underrepresentation filter
+            logger.info("Automatically applying underrepresentation filter")
+            cell_filter = underrep_filter
+            auto_filter = True
     
     # Apply the cell_filter to get a filter mask
     filter_mask, excluded_cells = apply_cell_filter(adata, cell_filter, groups)
-    
-    if excluded_cells > 0:
-        logger.info(f"Filter excluded {excluded_cells:,} cells ({excluded_cells/adata.n_obs:.2%} of dataset)")
         
     # When check_representation is True, check filtered data for additional underrepresentation
     # and refine the filter mask if needed
@@ -1142,10 +1137,6 @@ def compute_differential_expression(
             condition1_std = np.array(expression_results['condition1_std'])
             condition2_std = np.array(expression_results['condition2_std'])
             
-            # Check shapes and reshape if necessary
-            if condition1_imputed.shape != adata.shape:
-                logger.warning(f"condition1_imputed shape {condition1_imputed.shape} doesn't match adata shape {adata.shape}. Skipping layer creation.")
-                return result_dict
                 
             # Use the standardized field names
             # Create descriptive layer names - these are NOT affected by sample variance
@@ -1256,30 +1247,10 @@ def compute_differential_expression(
             "auto_filtered": auto_filter if 'auto_filter' in locals() else False,
             "params": params_dict
         }
-
-        # seems easiest to just use the resultss key here
-        storage_key = "kompot_de"
-        
-        # Initialize or update adata.uns[storage_key]
-        if storage_key not in adata.uns:
-            adata.uns[storage_key] = {}
             
         # Add environment info to the run info
         env_info = get_environment_info()
         current_run_info["environment"] = env_info
-        
-        # Initialize run history if it doesn't exist
-        if "run_history" not in adata.uns[storage_key]:
-            adata.uns[storage_key]["run_history"] = []
-
-        new_run_id = len(adata.uns[storage_key]["run_history"])
-        logger.info(f"This run will have `run_id={new_run_id}`.")
-        
-        # Always append current run to the run history
-        adata.uns[storage_key]["run_history"].append(current_run_info)
-        
-        # Store current params and run info
-        adata.uns[storage_key]["last_run_info"] = current_run_info
 
         
         # Create a comprehensive field-to-location mapping for field tracking
@@ -1534,6 +1505,26 @@ def compute_differential_expression(
                 "weighted_lfc": field_names["weighted_lfc_varm_key"] if differential_abundance_key is not None else None
             }
 
+        # constant storage key makes lookups easier and does not result in conflics here
+        storage_key = "kompot_de"
+        
+        # Initialize or update adata.uns[storage_key]
+        if storage_key not in adata.uns:
+            adata.uns[storage_key] = {}
+
+        # Initialize run history if it doesn't exist
+        if "run_history" not in adata.uns[storage_key]:
+            adata.uns[storage_key]["run_history"] = []
+
+        new_run_id = len(adata.uns[storage_key]["run_history"])
+        logger.info(f"This run will have `run_id={new_run_id}`.")
+        
+        # Always append current run to the run history
+        adata.uns[storage_key]["run_history"].append(current_run_info)
+        
+        # Store current params and run info
+        adata.uns[storage_key]["last_run_info"] = current_run_info
+        
         # Also track and update all AnnData keys that are being written to
         anndata_field_tracking = {}
         

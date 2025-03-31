@@ -544,3 +544,144 @@ def test_embedding_complex_multi_panel():
     assert result is not None
     assert len(result.axes) >= 3  # At least 3 axes for our 3 groups
     plt.close(result)
+
+
+def test_embedding_with_layer_list():
+    """Test embedding with layer as a list to create multiple panels."""
+    from kompot.plot import embedding
+    
+    # Create a small test AnnData object with multiple layers
+    np.random.seed(42)
+    n_cells = 100
+    n_genes = 10
+    adata = sc.AnnData(X=np.random.normal(size=(n_cells, n_genes)))
+    adata.obsm['X_umap'] = np.random.normal(size=(n_cells, 2))
+    adata.obs['cluster'] = np.random.choice(['A', 'B', 'C'], size=n_cells)
+    
+    # Add some layers to the AnnData object
+    adata.layers['raw'] = np.random.normal(size=(n_cells, n_genes))
+    adata.layers['normalized'] = np.random.normal(size=(n_cells, n_genes))
+    adata.layers['scaled'] = np.random.normal(size=(n_cells, n_genes))
+    
+    # Add a gene name to var
+    adata.var_names = [f"gene_{i}" for i in range(n_genes)]
+    
+    # Test with layer as a list and default ncols
+    with patch('matplotlib.pyplot.show'):
+        result = embedding(
+            adata, 
+            basis='umap',
+            color='cluster',
+            layer=['raw', 'normalized', 'scaled'],
+            return_fig=True
+        )
+        
+    assert result is not None
+    # Should have the right number of subplots
+    assert len(result.axes) >= 3  # At least 3 axes for our 3 layers
+    plt.close(result)
+    
+    # Test with layer as a list and custom ncols
+    with patch('matplotlib.pyplot.show'):
+        result = embedding(
+            adata, 
+            basis='umap',
+            color='cluster',
+            layer=['raw', 'normalized', 'scaled'],
+            ncols=1,  # Force 1 column
+            return_fig=True
+        )
+        
+    assert result is not None
+    assert len(result.axes) >= 3  # At least 3 axes for our 3 layers
+    plt.close(result)
+    
+    # Test with layer as a list and custom titles
+    titles = ['Raw Data', 'Normalized Data', 'Scaled Data']
+    with patch('matplotlib.pyplot.show'):
+        result = embedding(
+            adata, 
+            basis='umap',
+            color='cluster',
+            layer=['raw', 'normalized', 'scaled'],
+            title=titles,
+            return_fig=True
+        )
+        
+    assert result is not None
+    plt.close(result)
+    
+    # Test with layer as a list and a single title
+    with patch('matplotlib.pyplot.show'):
+        result = embedding(
+            adata, 
+            basis='umap',
+            color='cluster',
+            layer=['raw', 'normalized', 'scaled'],
+            title='Single Title',
+            return_fig=True
+        )
+        
+    assert result is not None
+    plt.close(result)
+
+
+def test_embedding_layer_list_incompatible_with_mgroups():
+    """Test that error is raised when using layer as a list with mgroups."""
+    from kompot.plot import embedding
+    
+    # Create a small test AnnData object with multiple layers
+    np.random.seed(42)
+    n_cells = 100
+    n_genes = 10
+    adata = sc.AnnData(X=np.random.normal(size=(n_cells, n_genes)))
+    adata.obsm['X_umap'] = np.random.normal(size=(n_cells, 2))
+    adata.obs['cluster'] = np.random.choice(['A', 'B', 'C'], size=n_cells)
+    adata.obs['condition'] = np.random.choice(['control', 'treatment'], size=n_cells)
+    
+    # Add some layers to the AnnData object
+    adata.layers['raw'] = np.random.normal(size=(n_cells, n_genes))
+    adata.layers['normalized'] = np.random.normal(size=(n_cells, n_genes))
+    
+    # Define multiple group conditions
+    mgroups = [
+        {'condition': 'control'},
+        {'condition': 'treatment'}
+    ]
+    
+    # Test that error is raised when using layer as a list with mgroups
+    with pytest.raises(ValueError):
+        embedding(
+            adata, 
+            basis='umap',
+            color='cluster',
+            layer=['raw', 'normalized'],
+            mgroups=mgroups
+        )
+
+
+def test_embedding_layer_list_incompatible_with_color_list():
+    """Test that error is raised when using layer as a list with a list of colors."""
+    from kompot.plot import embedding
+    
+    # Create a small test AnnData object with multiple layers
+    np.random.seed(42)
+    n_cells = 100
+    n_genes = 10
+    adata = sc.AnnData(X=np.random.normal(size=(n_cells, n_genes)))
+    adata.obsm['X_umap'] = np.random.normal(size=(n_cells, 2))
+    adata.obs['cluster'] = np.random.choice(['A', 'B', 'C'], size=n_cells)
+    adata.obs['condition'] = np.random.choice(['control', 'treatment'], size=n_cells)
+    
+    # Add some layers to the AnnData object
+    adata.layers['raw'] = np.random.normal(size=(n_cells, n_genes))
+    adata.layers['normalized'] = np.random.normal(size=(n_cells, n_genes))
+    
+    # Test that error is raised when using layer as a list with a list of colors
+    with pytest.raises(ValueError):
+        embedding(
+            adata, 
+            basis='umap',
+            color=['cluster', 'condition'],  # List of colors
+            layer=['raw', 'normalized']
+        )

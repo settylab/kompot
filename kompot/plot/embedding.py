@@ -58,12 +58,17 @@ def embedding(
         List of groups dictionaries to create multiple panels. Each element is treated 
         as a separate groups argument in its own subplot. Cannot be used with multiple colors.
         If provided, title argument should align with the number of groups in mgroups.
+        Cannot be used when layer is a list.
     ncols : int, optional
-        Number of columns for panel layout when using mgroups. Default is 4 or less
-        depending on the number of panels.
+        Number of columns for panel layout when using mgroups or when layer, or color is a list.
+        Default is 4 or less depending on the number of panels.
     **kwargs : 
         All other parameters are passed directly to scanpy.pl.embedding.
         See scanpy.pl.embedding documentation for details on available parameters.
+        
+        Special handling for list parameters:
+        - layer: When layer is a list, creates multiple panels with each layer plotted in a separate
+          subplot. This only works when color is not a list and mgroups is not used.
         
     Returns
     -------
@@ -83,6 +88,138 @@ def embedding(
         )
         return None
     
+    # Handle layer as a list for multiple plots
+    layer_list = kwargs.get('layer', None)
+    if isinstance(layer_list, (list, tuple)) and len(layer_list) > 1:
+        # Check if mgroups is used, which is incompatible
+        if mgroups is not None:
+            raise ValueError("Cannot use layer as a list with mgroups parameter.")
+        
+        # Check if color is a list, which is incompatible
+        if 'color' in kwargs and isinstance(kwargs['color'], (list, tuple, np.ndarray)):
+            raise ValueError("Cannot use layer as a list when color is also a list.")
+        
+        # Extract relevant parameters for subplot creation
+        user_return_fig = kwargs.get('return_fig', False)
+        user_show = kwargs.get('show', None)
+        
+        # Get or create titles for each subplot
+        titles = kwargs.pop('title', None)
+        if titles is None:
+            # Generate default titles based on layer names
+            titles = [f"Layer: {layer}" for layer in layer_list]
+        elif isinstance(titles, str):
+            # Convert single string title to list with placeholders for other panels
+            titles = [titles] + [f"Layer: {layer}" for layer in layer_list[1:]]
+        
+        # Ensure titles match number of layers
+        if len(titles) < len(layer_list):
+            # Add generic titles for any missing
+            titles.extend([f"Layer: {layer}" for layer in layer_list[len(titles):]])
+        
+        # Create subplots using scanpy's grid spec approach
+        n_panels = len(layer_list)
+        
+        # Determine number of columns (user-specified or default)
+        if ncols is not None:
+            n_cols = ncols
+        else:
+            n_cols = min(4, n_panels)  # Default: up to 4 columns, then wrap
+            
+        n_rows = (n_panels - 1) // n_cols + 1
+        
+        # Get wspace from kwargs or use scanpy's default calculation
+        wspace = kwargs.pop('wspace', None)
+        if wspace is None:
+            # Use scanpy's default calculation for wspace
+            wspace = 0.75 / plt.rcParams["figure.figsize"][0] + 0.02
+            
+        hspace = kwargs.pop('hspace', 0.25)  # Default from scanpy
+        
+        # Create figure with appropriate size - following scanpy's approach
+        figsize = kwargs.pop('figsize', None)
+        if figsize is None:
+            # Use scanpy's sizing which accounts for legend space
+            figsize = (
+                n_cols * plt.rcParams["figure.figsize"][0] * (1 + wspace),
+                n_rows * plt.rcParams["figure.figsize"][1]
+            )
+            
+        # Create figure
+        fig = plt.figure(figsize=figsize)
+        
+        # Create gridspec with proper spacing for legends
+        left = 0.2 / n_cols
+        bottom = 0.13 / n_rows
+        gs = gridspec.GridSpec(
+            nrows=n_rows,
+            ncols=n_cols,
+            left=left,
+            right=1 - (n_cols - 1) * left - 0.01 / n_cols,  # Leave space for legends
+            bottom=bottom,
+            top=1 - (n_rows - 1) * bottom - 0.1 / n_rows,
+            hspace=hspace,
+            wspace=wspace,
+        )
+        
+        # Create axes
+        axs = []
+        for i in range(n_rows * n_cols):
+            if i < n_panels:
+                ax = plt.subplot(gs[i // n_cols, i % n_cols])
+                axs.append(ax)
+            else:
+                # Create empty axis for unused grid cells
+                ax = plt.subplot(gs[i // n_cols, i % n_cols])
+                ax.axis('off')
+                axs.append(ax)
+        
+        # Create each subplot recursively
+        for i, (layer, title, ax) in enumerate(zip(layer_list, titles, axs)):
+            # Skip this call if we've run out of layers
+            if i >= len(layer_list):
+                ax.axis('off')  # Hide unused axes
+                continue
+                
+            # Create a copy of kwargs for this subplot
+            subplot_kwargs = kwargs.copy()
+            subplot_kwargs['ax'] = ax
+            subplot_kwargs['title'] = title
+            subplot_kwargs['show'] = False  # Never show individual subplots
+            subplot_kwargs['return_fig'] = False  # Don't return individual figures
+            subplot_kwargs['layer'] = layer  # Set the individual layer
+            
+            # Get the current position to make space for legend if needed
+            legend_loc = subplot_kwargs.get('legend_loc', 'right margin')
+            if legend_loc == 'right margin':
+                # Shrink the plot to make room for the legend (similar to scanpy's approach)
+                box = ax.get_position()
+                ax.set_position([box.x0, box.y0, box.width * 0.91, box.height])
+            
+            # Make the recursive call for this panel
+            embedding(
+                adata=adata,
+                basis=basis,
+                groups=groups,
+                background_color=background_color,
+                matplotlib_scatter_kwargs=matplotlib_scatter_kwargs,
+                **subplot_kwargs
+            )
+        
+        # Hide any unused axes
+        for i in range(len(layer_list), len(axs)):
+            axs[i].axis('off')
+        
+        # Handle figure showing based on user preference (don't use tight_layout as we've already set up the grid properly)
+        if user_show is None or user_show:
+            plt.show()
+        
+        # Return the figure if requested
+        if user_return_fig:
+            return fig
+        else:
+            return None
+            
     # Handle mgroups parameter (multiple groups in subplots)
     if mgroups is not None:
         # Check if color is a list, which is incompatible with mgroups
