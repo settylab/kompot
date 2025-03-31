@@ -134,7 +134,7 @@ class SampleVarianceEstimator:
         X: np.ndarray,
         Y: np.ndarray = None, 
         grouping_vector: np.ndarray = None,
-        min_cells: int = 10,
+        min_cells: int = 2,
         ls_factor: float = 10.0,
         estimator_kwargs: Dict = None
     ):
@@ -155,7 +155,7 @@ class SampleVarianceEstimator:
         grouping_vector : np.ndarray
             Vector specifying which group each cell belongs to. Shape (n_cells,).
         min_cells : int
-            Minimum number of cells for group to train an estimator. Default is 10.
+            Minimum number of cells for group to train an estimator. Default is 2.
             Groups with fewer cells will be skipped.
         ls_factor : float, optional
             Multiplication factor to apply to length scale when it's automatically inferred, 

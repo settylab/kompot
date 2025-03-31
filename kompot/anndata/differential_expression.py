@@ -55,7 +55,7 @@ def compute_differential_expression(
     max_memory_ratio: float = 0.8,
     cell_filter: Optional[Union[str, List[str], Dict[str, Any], List[Dict[str, Any]]]] = None,
     groups: Optional[Union[str, Dict[str, Any], List[Dict[str, Any]], pd.Series, np.ndarray, List[np.ndarray]]] = None,
-    min_cells: int = 3,
+    min_cells: int = 2,
     min_percentage: Optional[float] = None,
     check_representation: Optional[bool] = None,
     copy: bool = False,
@@ -531,11 +531,11 @@ def compute_differential_expression(
     filtered_mask2 = mask2 & filter_mask
     
     # Check if we have enough cells after filtering
-    if np.sum(filtered_mask1) < 10:
-        raise ValueError(f"After filtering, condition '{condition1}' has fewer than 10 cells ({np.sum(filtered_mask1)}). "
+    if np.sum(filtered_mask1) < 2:
+        raise ValueError(f"After filtering, condition '{condition1}' has fewer than 2 cells ({np.sum(filtered_mask1)}). "
                       f"Consider adjusting your filter criteria.")
-    if np.sum(filtered_mask2) < 10:
-        raise ValueError(f"After filtering, condition '{condition2}' has fewer than 10 cells ({np.sum(filtered_mask2)}). "
+    if np.sum(filtered_mask2) < 2:
+        raise ValueError(f"After filtering, condition '{condition2}' has fewer than 2 cells ({np.sum(filtered_mask2)}). "
                       f"Consider adjusting your filter criteria.")
     
     # Log filtered cell counts
@@ -1340,8 +1340,8 @@ def compute_differential_expression(
                 
                 # For each subset, run prediction and store subset-specific metrics
                 for subset_name, mask in subset_masks.items():
-                    if np.sum(mask) < 10:  # Minimum cells for analysis
-                        logger.warning(f"Subset '{subset_name}' has fewer than 10 cells ({np.sum(mask)}). Skipping analysis.")
+                    if np.sum(mask) < 2:  # Minimum cells for analysis
+                        logger.warning(f"Subset '{subset_name}' has fewer than 2 cells ({np.sum(mask)}). Skipping analysis.")
                         continue
                     
                     # Only apply the mask to the current dataset's cells
