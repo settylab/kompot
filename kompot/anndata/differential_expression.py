@@ -485,7 +485,7 @@ def compute_differential_expression(
             underrep = underrep_result.pop("__underrepresentation_data")
         
         # If check_representation is True and underrepresentation is found, create auto filter
-        if check_representation is None:
+        if check_representation is None and underrep:
                 logger.warning("Please pass `check_representation=True` to enable filtering out these underrepresented groups.")
         elif check_representation is True and underrep:
             underrep_filter = underrep_result
@@ -1421,8 +1421,12 @@ def compute_differential_expression(
                                 # Use standardized key from field_names
                                 varm_key = field_names["mean_lfc_varm_key"]
                                 
-                                # Update all selected genes at once
-                                adata.varm[varm_key].loc[selected_genes, subset_name] = subset_values
+                                # Create a Series with proper index covering all genes, initialize with NaN
+                                full_series = pd.Series(np.nan, index=adata.var_names)
+                                # Assign values only to selected genes
+                                full_series[selected_genes] = subset_values
+                                # Assign the whole column at once
+                                adata.varm[varm_key][subset_name] = full_series
                                 
                             elif metric_name == "mahalanobis_distances" and compute_mahalanobis:
                                 base_key = field_names["mahalanobis_key"]
@@ -1435,8 +1439,12 @@ def compute_differential_expression(
                                 # Use standardized key from field_names (already includes sample suffix if needed)
                                 varm_key = field_names["mahalanobis_varm_key"]
                                 
-                                # Update all selected genes at once
-                                adata.varm[varm_key].loc[selected_genes, subset_name] = subset_values
+                                # Create a Series with proper index covering all genes, initialize with NaN
+                                full_series = pd.Series(np.nan, index=adata.var_names)
+                                # Assign values only to selected genes
+                                full_series[selected_genes] = subset_values
+                                # Assign the whole column at once
+                                adata.varm[varm_key][subset_name] = full_series
                     
                     # Handle weighted mean log fold change if needed
                     if differential_abundance_key is not None and "fold_change" in subset_results:
@@ -1465,8 +1473,12 @@ def compute_differential_expression(
                             # Use standardized key from field_names
                             varm_key = field_names["weighted_lfc_varm_key"]
                             
-                            # Update all selected genes at once
-                            adata.varm[varm_key].loc[selected_genes, subset_name] = weighted_lfc
+                            # Create a Series with proper index covering all genes, initialize with NaN
+                            full_series = pd.Series(np.nan, index=adata.var_names)
+                            # Assign values only to selected genes
+                            full_series[selected_genes] = weighted_lfc
+                            # Assign the whole column at once
+                            adata.varm[varm_key][subset_name] = full_series
                 
                 # No need to add columns to adata.var anymore as we're using varm exclusively
                 logger.info(f"Group-specific data stored in adata.varm matrices")
