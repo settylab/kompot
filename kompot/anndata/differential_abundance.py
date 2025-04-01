@@ -480,19 +480,28 @@ def compute_differential_abundance(
     # Prepare parameters, run timestamp, and field metadata
     current_timestamp = datetime.datetime.now().isoformat()
     
-    # Define parameters dict
+    # Define parameters dict - include ALL parameters for reproducibility
     params_dict = {
         "groupby": groupby,
         "condition1": condition1,
         "condition2": condition2,
         "obsm_key": obsm_key,
-        "log_fold_change_threshold": log_fold_change_threshold,
-        "pvalue_threshold": pvalue_threshold,
         "n_landmarks": n_landmarks,
-        "ls_factor": ls_factor,
-        "used_landmarks": True if landmarks is not None else False,
+        "landmarks": landmarks is not None,  # Just store if landmarks were provided, not the actual values
         "sample_col": sample_col,
         "use_sample_variance": sample_col is not None,
+        "log_fold_change_threshold": log_fold_change_threshold,
+        "pvalue_threshold": pvalue_threshold, 
+        "ls_factor": ls_factor,
+        "jit_compile": jit_compile,
+        "random_state": random_state,
+        "used_landmarks": True if landmarks is not None else False,
+        "batch_size": batch_size,
+        "store_landmarks": store_landmarks,
+        "result_key": result_key,
+        "copy": copy,
+        "inplace": inplace,
+        "overwrite": overwrite
     }
     
     current_run_info = {
@@ -510,6 +519,8 @@ def compute_differential_abundance(
         },
         "field_names": field_names,
         "uses_sample_variance": sample_col is not None,
+        # Store explicit groups flag for future group support
+        "has_groups": False,  # Currently DA doesn't support groups, but prepared for future compatibility
         "params": params_dict
     }
     

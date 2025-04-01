@@ -1192,7 +1192,7 @@ def compute_differential_expression(
         # Prepare parameters, run timestamp, and field metadata
         current_timestamp = datetime.datetime.now().isoformat()
         
-        # Define parameters dict
+        # Define parameters dict - include ALL parameters (especially groups)
         params_dict = {
             "groupby": groupby,
             "condition1": condition1,
@@ -1201,20 +1201,33 @@ def compute_differential_expression(
             "layer": layer,
             "genes": genes,
             "n_landmarks": n_landmarks,
+            "landmarks": landmarks is not None,  # Just store if landmarks were provided, not the actual values
             "sample_col": sample_col,  # Keep this for documentation in the AnnData object
             "use_sample_variance": use_sample_variance,  # This is now inferred from sample_col
             "differential_abundance_key": differential_abundance_key,
+            "sigma": sigma,
+            "ls": ls,
             "ls_factor": ls_factor,
+            "compute_mahalanobis": compute_mahalanobis,
+            "jit_compile": jit_compile,
             "eps": eps,  # Include eps parameter for numerical stability
+            "random_state": random_state,
             "used_landmarks": True if landmarks is not None else False,
             "store_arrays_on_disk": store_arrays_on_disk,
+            "disk_storage_dir": disk_storage_dir,  # Store the directory path if provided
             "max_memory_ratio": max_memory_ratio,
             "batch_size": batch_size,
             "cell_filter": cell_filter,  # Store the cell filter parameter
+            "groups": groups,  # Store the groups parameter - important for traceability
             "min_cells": min_cells,
             "min_percentage": min_percentage,
             "check_representation": check_representation,
-            "auto_filtered": auto_filter if 'auto_filter' in locals() else False
+            "auto_filtered": auto_filter if 'auto_filter' in locals() else False,
+            "store_landmarks": store_landmarks,
+            "result_key": result_key,
+            "copy": copy,
+            "inplace": inplace,
+            "overwrite": overwrite
         }
         
         # Get storage usage stats if disk storage was used
@@ -1251,6 +1264,7 @@ def compute_differential_expression(
             "storage_stats": storage_stats,
             "underrepresentation": underrep if 'underrep' in locals() else None,
             "auto_filtered": auto_filter if 'auto_filter' in locals() else False,
+            "has_groups": groups is not None and 'subset_names' in locals() and len(subset_names) > 0,  # Explicitly track group usage
             "params": params_dict
         }
             
@@ -1512,9 +1526,48 @@ def compute_differential_expression(
         # Add this mapping to run info
         current_run_info["field_mapping"] = field_mapping
         
+        # Initialize subset_names as empty list if not defined (no groups case)
+        if 'subset_names' not in locals():
+            subset_names = []
+            
         # Store subset and varm info if groups were provided
         if groups is not None and subset_names:
+            # Store the full list of subset names
             current_run_info["subset_names"] = subset_names
+            
+            # Create a more detailed groups summary for reporting
+            groups_summary = {
+                "count": len(subset_names),
+                "names": subset_names,
+                "description": str(type(groups).__name__),  # Type of groups specification
+                "cells_per_group": {}
+            }
+            
+            # Add cell counts for each group
+            for group_name, mask in subset_masks.items():
+                cell_count = np.sum(mask)
+                percentage = (cell_count / adata.n_obs) * 100
+                # Record cell counts and percentages
+                groups_summary["cells_per_group"][group_name] = {
+                    "count": int(cell_count),
+                    "percentage": float(percentage)
+                }
+                
+                # Also count cells from each condition within this group
+                if groupby in adata.obs:
+                    condition_counts = {}
+                    for condition in [condition1, condition2]:
+                        condition_mask = (adata.obs[groupby] == condition).values
+                        condition_count = np.sum(mask & condition_mask)
+                        condition_percentage = (condition_count / cell_count) * 100 if cell_count > 0 else 0
+                        condition_counts[condition] = {
+                            "count": int(condition_count),
+                            "percentage": float(condition_percentage)
+                        }
+                    groups_summary["cells_per_group"][group_name]["conditions"] = condition_counts
+            
+            # Add the groups summary to run info
+            current_run_info["groups_summary"] = groups_summary
             
             # Also store the varm keys used for group-specific metrics
             current_run_info["varm_keys"] = {

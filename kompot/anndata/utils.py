@@ -1925,6 +1925,22 @@ class RunInfo:
             'overwritten_fields': self.overwritten_fields
         }
         
+        # Add group information if available
+        raw_data = self.get_raw_data()
+        has_groups = raw_data.get('has_groups', False)
+        if has_groups:
+            groups_summary = raw_data.get('groups_summary', {})
+            summary['has_groups'] = True
+            summary['groups_count'] = groups_summary.get('count', 0)
+            summary['groups_names'] = groups_summary.get('names', [])
+            # Provide a short preview of group names
+            group_names_preview = ", ".join(summary['groups_names'][:3])
+            if len(summary['groups_names']) > 3:
+                group_names_preview += f" and {len(summary['groups_names']) - 3} more"
+            summary['groups_preview'] = group_names_preview
+        else:
+            summary['has_groups'] = False
+        
         # Don't add anndata_locations directly to summary
         # We'll use it to enhance field listings instead
         return summary
@@ -1954,6 +1970,59 @@ class RunInfo:
                 html.append(f"<tr><td style='padding:5px; border:1px solid #ddd'>{k}</td><td style='padding:5px; border:1px solid #ddd'>{v}</td></tr>")
         
         html.append("</table>")
+        
+        # Add groups section if available
+        raw_data = self.get_raw_data()
+        if raw_data.get('has_groups', False):
+            groups_summary = raw_data.get('groups_summary', {})
+            if groups_summary:
+                html.append("<h4>Group Information</h4>")
+                html.append("<p>This analysis was performed with group-based subsetting.</p>")
+                
+                # Basic group info table
+                html.append("<table style='width:100%; border-collapse:collapse; margin-bottom:10px'>")
+                html.append("<tr style='background-color:#f0f0f0'>")
+                html.append("<th style='text-align:left; padding:5px; width:25%'>Parameter</th>")
+                html.append("<th style='text-align:left; padding:5px; width:75%'>Value</th></tr>")
+                
+                html.append(f"<tr><td style='padding:5px; border:1px solid #ddd'>Number of Groups</td>")
+                html.append(f"<td style='padding:5px; border:1px solid #ddd'>{groups_summary.get('count', 0)}</td></tr>")
+                
+                html.append(f"<tr><td style='padding:5px; border:1px solid #ddd'>Group Type</td>")
+                html.append(f"<td style='padding:5px; border:1px solid #ddd'>{groups_summary.get('description', 'Unknown')}</td></tr>")
+                
+                html.append("</table>")
+                
+                # Group details table
+                cells_per_group = groups_summary.get('cells_per_group', {})
+                if cells_per_group:
+                    html.append("<h5>Group Details</h5>")
+                    html.append("<table style='width:100%; border-collapse:collapse'>")
+                    html.append("<tr style='background-color:#f0f0f0'>")
+                    html.append("<th style='text-align:left; padding:5px; width:30%'>Group Name</th>")
+                    html.append("<th style='text-align:left; padding:5px; width:15%'>Cell Count</th>")
+                    html.append("<th style='text-align:left; padding:5px; width:15%'>Percentage</th>")
+                    html.append("<th style='text-align:left; padding:5px; width:40%'>Condition Distribution</th></tr>")
+                    
+                    for group_name, stats in cells_per_group.items():
+                        cell_count = stats.get('count', 0)
+                        percentage = stats.get('percentage', 0)
+                        
+                        # Create condition distribution text
+                        condition_text = ""
+                        if 'conditions' in stats:
+                            conditions = stats['conditions']
+                            for cond_name, cond_stats in conditions.items():
+                                cond_count = cond_stats.get('count', 0)
+                                cond_pct = cond_stats.get('percentage', 0)
+                                condition_text += f"{cond_name}: {cond_count} ({cond_pct:.1f}%)<br>"
+                        
+                        html.append(f"<tr><td style='padding:5px; border:1px solid #ddd'>{group_name}</td>")
+                        html.append(f"<td style='padding:5px; border:1px solid #ddd'>{cell_count}</td>")
+                        html.append(f"<td style='padding:5px; border:1px solid #ddd'>{percentage:.1f}%</td>")
+                        html.append(f"<td style='padding:5px; border:1px solid #ddd'>{condition_text}</td></tr>")
+                    
+                    html.append("</table>")
         
         # Add field section as a structured table
         if self.adata_fields:
@@ -2069,8 +2138,51 @@ class RunInfo:
             f"Layer: {summary['layer']}",
             f"Uses Sample Variance: {summary['uses_sample_variance']}",
             f"Total Fields: {summary['field_count']} (Overwritten: {summary['overwritten_field_count']})",
-            ""
         ]
+        
+        # Add group information if available
+        if summary.get('has_groups', False):
+            lines.append(f"Groups: {summary.get('groups_count', 0)} ({summary.get('groups_preview', '')})")
+            
+            # Add more detailed group info if available
+            raw_data = self.get_raw_data()
+            groups_summary = raw_data.get('groups_summary', {})
+            if groups_summary and 'cells_per_group' in groups_summary:
+                lines.append("")
+                lines.append("Group Details:")
+                
+                # Create a table for group details
+                lines.append("  ┌─────────────────────────┬──────────┬──────────┬──────────────────────────────┐")
+                lines.append("  │ Group Name              │ Cells    │ % Total  │ Condition Distribution       │")
+                lines.append("  ├─────────────────────────┼──────────┼──────────┼──────────────────────────────┤")
+                
+                for group_name, stats in groups_summary['cells_per_group'].items():
+                    name = str(group_name)[:23].ljust(23)
+                    cell_count = str(stats.get('count', 0)).ljust(8)
+                    percentage = f"{stats.get('percentage', 0):.1f}%".ljust(8)
+                    
+                    # Format condition distribution
+                    if 'conditions' in stats:
+                        condition_text = []
+                        for cond_name, cond_stats in stats['conditions'].items():
+                            cond_count = cond_stats.get('count', 0)
+                            cond_pct = cond_stats.get('percentage', 0)
+                            condition_text.append(f"{cond_name}: {cond_count} ({cond_pct:.1f}%)")
+                        
+                        # Join with commas and truncate if too long
+                        cond_str = ", ".join(condition_text)
+                        if len(cond_str) > 28:
+                            cond_str = cond_str[:25] + "..."
+                        
+                        conditions = cond_str.ljust(28)
+                    else:
+                        conditions = "N/A".ljust(28)
+                    
+                    lines.append(f"  │ {name} │ {cell_count} │ {percentage} │ {conditions} │")
+                
+                lines.append("  └─────────────────────────┴──────────┴──────────┴──────────────────────────────┘")
+        
+        lines.append("")
         
         # Add fields in a tabular format
         if self.adata_fields:
