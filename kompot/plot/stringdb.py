@@ -217,22 +217,23 @@ class StringDBReport:
         encoded_gene = urllib.parse.quote(gene)
         
         links = {
-            "STRING DB": f"{self.string_db_base_url}/network/{encoded_gene}",
+            "STRING DB": f"{self.string_db_base_url}/cgi/network?identifiers={encoded_gene}&species={self.species_id}",
             "BioGRID": f"https://thebiogrid.org/search.php?search={encoded_gene}&organism={self.get_species_name()}",
             "Reactome": f"https://reactome.org/content/query?q={encoded_gene}&species={self.get_species_name().replace(' ', '+')}&cluster=true",
             "GeneCards": f"https://www.genecards.org/cgi-bin/carddisp.pl?gene={encoded_gene}",
         }
         
+        # Add UniProt for all organisms
+        links["UniProt"] = f"https://www.uniprot.org/uniprotkb?query={encoded_gene}+AND+organism_id:{self.species_id}"
+        
         # Species-specific resources
         if self.species_id == 9606:  # Human
-            links["UniProt"] = f"https://www.uniprot.org/uniprot/?query={encoded_gene}+AND+organism:9606"
             links["NCBI Gene"] = f"https://www.ncbi.nlm.nih.gov/gene/?term={encoded_gene}+AND+human[orgn]"
             links["OMIM"] = f"https://www.omim.org/search?search={encoded_gene}"
             links["GTeX"] = f"https://gtexportal.org/home/gene/{encoded_gene}"
         
         elif self.species_id == 10090:  # Mouse
-            links["UniProt"] = f"https://www.uniprot.org/uniprot/?query={encoded_gene}+AND+organism:10090"
-            links["MGI"] = f"http://www.informatics.jax.org/searchtool/Search.do?query={encoded_gene}"
+            links["MGI"] = f"https://www.informatics.jax.org/quicksearch/summary?queryType=exactPhrase&query={encoded_gene}&submit=Quick%0D%0ASearch"
             links["NCBI Gene"] = f"https://www.ncbi.nlm.nih.gov/gene/?term={encoded_gene}+AND+mouse[orgn]"
         
         # Add links for other species as needed
