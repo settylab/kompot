@@ -7,11 +7,9 @@ from typing import List, Dict, Optional, Any, Union, Tuple, Set
 import json
 import base64
 from io import BytesIO, StringIO
-import requests
-from IPython.display import HTML, Image, display
-
-import matplotlib.pyplot as plt
-import pandas as pd
+import importlib
+import sys
+import warnings
 
 # Setup logging
 logger = logging.getLogger("kompot")
@@ -19,6 +17,34 @@ logger = logging.getLogger("kompot")
 # StringDB API endpoints
 STRING_API_BASE_URL = "https://string-db.org/api"
 STRING_WEB_BASE_URL = "https://string-db.org/cgi"
+
+# Check for required dependencies
+STRINGDB_AVAILABLE = True
+MISSING_DEPENDENCIES = []
+
+try:
+    import requests
+except ImportError:
+    STRINGDB_AVAILABLE = False
+    MISSING_DEPENDENCIES.append("requests")
+
+try:
+    from IPython.display import HTML, Image, display
+except ImportError:
+    # IPython is optional, only needed for display in notebooks
+    pass
+
+try:
+    import matplotlib.pyplot as plt
+except ImportError:
+    # matplotlib is optional, only needed for visualization
+    pass
+
+try:
+    import pandas as pd
+except ImportError:
+    STRINGDB_AVAILABLE = False
+    MISSING_DEPENDENCIES.append("pandas")
 
 class StringDBReport:
     """Generate rich gene set reports with StringDB integration.
@@ -79,6 +105,12 @@ class StringDBReport:
         include_enrichment: bool = False,
     ):
         """Initialize the StringDBReport with genes and options."""
+        # Check for required dependencies
+        if not STRINGDB_AVAILABLE:
+            missing = ", ".join(MISSING_DEPENDENCIES)
+            error_msg = f"StringDBReport is unavailable due to missing dependencies. Make sure '{missing}' and other required packages are installed."
+            raise ImportError(error_msg)
+            
         self.genes = genes
         self.species_id = species_id
         self.string_db_base_url = "https://string-db.org"

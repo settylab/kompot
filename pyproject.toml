@@ -58,7 +58,6 @@ dependencies = [
     "psutil>=5.9.0",
     "filelock>=3.12.0",
     "importlib-resources>=5.0.0; python_version < '3.9'",
-    "requests>=2.28.0",
 ]
 
 [project.urls]
@@ -79,6 +78,9 @@ docs = [
 plot = [
     "scanpy>=1.9.0",
     "matplotlib>=3.5.0",
+    "requests>=2.28.0",
+    "IPython>=7.0.0",
+    "json5>=1.0.0",
 ]
 recommended = [
     "palantir>=1.0.0",
@@ -94,6 +96,9 @@ dev = [
 all = [
     "scanpy>=1.9.0",
     "matplotlib>=3.5.0",
+    "requests>=2.28.0",
+    "IPython>=7.0.0",
+    "json5>=1.0.0",
     "palantir>=1.0.0",
     "dask>=2024.4.0",
 ]
