@@ -1932,12 +1932,12 @@ class RunInfo:
             groups_summary = raw_data.get('groups_summary', {})
             summary['has_groups'] = True
             summary['groups_count'] = groups_summary.get('count', 0)
-            summary['groups_names'] = groups_summary.get('names', [])
+            groups_names = groups_summary.get('names', [])
             # Provide a short preview of group names
-            group_names_preview = ", ".join(summary['groups_names'][:3])
-            if len(summary['groups_names']) > 3:
-                group_names_preview += f" and {len(summary['groups_names']) - 3} more"
-            summary['groups_preview'] = group_names_preview
+            group_names_preview = ", ".join(groups_names[:3])
+            if len(groups_names) > 3:
+                group_names_preview += f" and {len(groups_names) - 3} more"
+            summary['groups'] = group_names_preview
         else:
             summary['has_groups'] = False
         

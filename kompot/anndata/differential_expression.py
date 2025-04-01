@@ -1264,7 +1264,7 @@ def compute_differential_expression(
             "storage_stats": storage_stats,
             "underrepresentation": underrep if 'underrep' in locals() else None,
             "auto_filtered": auto_filter if 'auto_filter' in locals() else False,
-            "has_groups": groups is not None and 'subset_names' in locals() and len(subset_names) > 0,  # Explicitly track group usage
+            "has_groups": groups is not None,
             "params": params_dict
         }
             
@@ -1534,6 +1534,7 @@ def compute_differential_expression(
         if groups is not None and subset_names:
             # Store the full list of subset names
             current_run_info["subset_names"] = subset_names
+            current_run_info["has_groups"] = True
             
             # Create a more detailed groups summary for reporting
             groups_summary = {
