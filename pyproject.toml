@@ -80,7 +80,7 @@ plot = [
     "matplotlib>=3.5.0",
     "requests>=2.28.0",
     "IPython>=7.0.0",
-    "json5>=1.0.0",
+    "json5~=0.9.14",
 ]
 recommended = [
     "palantir>=1.0.0",
@@ -98,7 +98,7 @@ all = [
     "matplotlib>=3.5.0",
     "requests>=2.28.0",
     "IPython>=7.0.0",
-    "json5>=1.0.0",
+    "json5~=0.9.14",
     "palantir>=1.0.0",
     "dask>=2024.4.0",
 ]
