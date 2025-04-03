@@ -16,6 +16,7 @@ All notable changes to this project will be documented in this file.
  - also return and store z-scores in de analysis
  - implement underrepresentation filtering for de analaysis
  - `plot.embedding` scanpy wrapper can now plot multiple layer
+ - make sure modified anndata is writable (use JSON for run info in `.uns`)
 
 ## [0.3.3]
 

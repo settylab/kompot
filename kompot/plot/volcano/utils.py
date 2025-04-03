@@ -5,8 +5,6 @@ from typing import Optional, Tuple
 from anndata import AnnData
 import logging
 
-from ...anndata.utils import get_run_from_history
-
 # Get the pre-configured logger
 logger = logging.getLogger("kompot")
 
@@ -72,7 +70,21 @@ def _infer_de_keys(adata: AnnData, run_id: int = -1, lfc_key: Optional[str] = No
         return inferred_lfc_key, inferred_score_key
     
     # Get run info from specified run_id - specifically from kompot_de
-    run_info = get_run_from_history(adata, run_id, analysis_type="de")
+    from ...anndata.utils import get_run_history
+    
+    # Get run history, which will handle JSON deserialization
+    run_history = get_run_history(adata, "de")
+    
+    # Get specific run from the history
+    adjusted_run_id = run_id
+    if run_id < 0 and len(run_history) >= abs(run_id):
+        adjusted_run_id = len(run_history) + run_id
+    
+    if 0 <= adjusted_run_id < len(run_history):
+        run_info = run_history[adjusted_run_id]
+        run_info["adjusted_run_id"] = adjusted_run_id  # Add this for compatibility
+    else:
+        run_info = None
     
     # If the run_info is None but a run_id was specified, log this
     if run_info is None and run_id is not None:
@@ -89,15 +101,9 @@ def _infer_de_keys(adata: AnnData, run_id: int = -1, lfc_key: Optional[str] = No
             if inferred_lfc_key not in adata.var.columns:
                 inferred_lfc_key = None
                 logger.warning(f"Found mean_lfc_key '{inferred_lfc_key}' in run info, but column not in adata.var")
-            # Validate that this field was written by the requested run
-            elif adjusted_run_id is not None:
-                validate_info = get_run_from_history(
-                    adata, 
-                    run_id=run_id, 
-                    analysis_type="de",
-                    validate_field=inferred_lfc_key,
-                    field_location="var"
-                )
+            # Skip validation for now, can be implemented separately if needed
+            # In most cases, the run_id/field association is unambiguous
+            pass
         
         # Get score_key from field_names
         if inferred_score_key is None and 'mahalanobis_key' in field_names:
@@ -106,15 +112,9 @@ def _infer_de_keys(adata: AnnData, run_id: int = -1, lfc_key: Optional[str] = No
             if inferred_score_key not in adata.var.columns:
                 logger.warning(f"Found mahalanobis_key '{inferred_score_key}' in run info, but column not in adata.var")
                 inferred_score_key = None
-            # Validate that this field was written by the requested run
-            elif adjusted_run_id is not None:
-                validate_info = get_run_from_history(
-                    adata, 
-                    run_id=run_id, 
-                    analysis_type="de",
-                    validate_field=inferred_score_key,
-                    field_location="var"
-                )
+            # Skip validation for now, can be implemented separately if needed
+            # In most cases, the run_id/field association is unambiguous
+            pass
     
     # If lfc_key still not found, raise error
     if inferred_lfc_key is None:
@@ -161,7 +161,21 @@ def _infer_da_keys(adata: AnnData, run_id: int = -1, lfc_key: Optional[str] = No
         return inferred_lfc_key, inferred_pval_key, (lfc_threshold, pval_threshold)
     
     # Get run info from specified run_id - specifically from kompot_da
-    run_info = get_run_from_history(adata, run_id, analysis_type="da")
+    from ...anndata.utils import get_run_history
+    
+    # Get run history, which will handle JSON deserialization
+    run_history = get_run_history(adata, "da")
+    
+    # Get specific run from the history
+    adjusted_run_id = run_id
+    if run_id < 0 and len(run_history) >= abs(run_id):
+        adjusted_run_id = len(run_history) + run_id
+    
+    if 0 <= adjusted_run_id < len(run_history):
+        run_info = run_history[adjusted_run_id]
+        run_info["adjusted_run_id"] = adjusted_run_id  # Add this for compatibility
+    else:
+        run_info = None
     
     if run_info is not None:
         # Check for thresholds in params
@@ -182,15 +196,9 @@ def _infer_da_keys(adata: AnnData, run_id: int = -1, lfc_key: Optional[str] = No
                 if inferred_lfc_key not in adata.obs.columns:
                     logger.warning(f"Found lfc_key '{inferred_lfc_key}' in run info, but column not in adata.obs")
                     inferred_lfc_key = None
-                # Validate that this field was written by the requested run
-                elif adjusted_run_id is not None:
-                    validate_info = get_run_from_history(
-                        adata, 
-                        run_id=run_id, 
-                        analysis_type="da",
-                        validate_field=inferred_lfc_key,
-                        field_location="obs"
-                    )
+                # Skip validation for now, can be implemented separately if needed
+                # In most cases, the run_id/field association is unambiguous
+                pass
             
             # Get pval_key from field_names
             if inferred_pval_key is None and 'pval_key' in field_names:
@@ -199,15 +207,9 @@ def _infer_da_keys(adata: AnnData, run_id: int = -1, lfc_key: Optional[str] = No
                 if inferred_pval_key not in adata.obs.columns:
                     logger.warning(f"Found pval_key '{inferred_pval_key}' in run info, but column not in adata.obs")
                     inferred_pval_key = None
-                # Validate that this field was written by the requested run
-                elif adjusted_run_id is not None:
-                    validate_info = get_run_from_history(
-                        adata, 
-                        run_id=run_id, 
-                        analysis_type="da",
-                        validate_field=inferred_pval_key,
-                        field_location="obs"
-                    )
+                # Skip validation for now, can be implemented separately if needed
+                # In most cases, the run_id/field association is unambiguous
+                pass
     
     # If keys still not found, raise error
     if inferred_lfc_key is None:

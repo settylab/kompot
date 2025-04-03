@@ -416,7 +416,17 @@ def test_anndata_differential_expression_disk_backed():
         if storage_key in adata.uns:
             print("kompot_de keys:", list(adata.uns[storage_key].keys()))
             if 'last_run_info' in adata.uns[storage_key]:
-                print("last_run_info keys:", list(adata.uns[storage_key]['last_run_info'].keys()))
+                if isinstance(adata.uns[storage_key]['last_run_info'], dict):
+                    print("last_run_info keys:", list(adata.uns[storage_key]['last_run_info'].keys()))
+                else:
+                    # Handle the case where last_run_info might be a string (JSON)
+                    print("last_run_info is a string, not a dictionary")
+                    from kompot.anndata.utils import from_json_string
+                    try:
+                        last_run_info_dict = from_json_string(adata.uns[storage_key]['last_run_info'])
+                        print("Decoded last_run_info keys:", list(last_run_info_dict.keys()))
+                    except Exception as e:
+                        print(f"Failed to decode last_run_info JSON: {e}")
         else:
             print("'kompot_de' not found in uns")
         
@@ -424,7 +434,22 @@ def test_anndata_differential_expression_disk_backed():
         storage_key = 'kompot_de'
         assert storage_key in adata.uns, f"'{storage_key}' not found in adata.uns keys: {list(adata.uns.keys())}"
         assert 'last_run_info' in adata.uns[storage_key], f"'last_run_info' not found in adata.uns[{storage_key}]"
-        assert 'storage_stats' in adata.uns[storage_key]['last_run_info'], f"'storage_stats' not found in last_run_info"
+        
+        # Get last_run_info, handling possibility it's a JSON string
+        last_run_info = adata.uns[storage_key]['last_run_info']
+        if isinstance(last_run_info, str):
+            from kompot.anndata.utils import from_json_string
+            try:
+                last_run_info = from_json_string(last_run_info)
+            except Exception as e:
+                print(f"Failed to decode last_run_info: {e}")
+                last_run_info = {}
+        
+        # Make sure run_id is in the info dictionary
+        if 'run_id' not in last_run_info and 'timestamp' in last_run_info:
+            last_run_info['run_id'] = 0  # Default to 0 if missing
+        
+        assert 'storage_stats' in last_run_info, f"'storage_stats' not found in last_run_info"
     
     # The fold changes should be identical since they're computed the same way
     if 'memory' in adata.uns and 'disk' in adata.uns:

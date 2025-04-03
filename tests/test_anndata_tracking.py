@@ -49,12 +49,15 @@ class TestAnnDataFieldTracking:
             n_landmarks=10  # Specify a small number of landmarks for testing
         )
         
+        # Import the JSON utility function
+        from kompot.anndata.utils import get_json_metadata
+        
         # Check that the tracking structure was created
         assert 'kompot_da' in dummy_adata.uns
         assert 'anndata_fields' in dummy_adata.uns['kompot_da']
         
         # Check that we have all expected locations
-        tracking = dummy_adata.uns['kompot_da']['anndata_fields']
+        tracking = get_json_metadata(dummy_adata, 'kompot_da.anndata_fields')
         assert 'obs' in tracking
         assert 'uns' in tracking
         
@@ -83,7 +86,7 @@ class TestAnnDataFieldTracking:
         )
         
         # Check that both result keys are tracked
-        tracking = dummy_adata.uns['kompot_da']['anndata_fields']
+        tracking = get_json_metadata(dummy_adata, 'kompot_da.anndata_fields')
         assert 'test_da' in tracking['uns']
         assert 'test_da_with_samples' in tracking['uns']
         
@@ -105,12 +108,15 @@ class TestAnnDataFieldTracking:
             n_landmarks=10  # Specify a small number of landmarks for testing
         )
         
+        # Import the JSON utility function
+        from kompot.anndata.utils import get_json_metadata
+        
         # Check that the tracking structure was created
         assert 'kompot_da' in dummy_adata.uns
         assert 'anndata_fields' in dummy_adata.uns['kompot_da']
         
         # Find the direction field and check that colors are tracked
-        tracking = dummy_adata.uns['kompot_da']['anndata_fields']
+        tracking = get_json_metadata(dummy_adata, 'kompot_da.anndata_fields')
         
         # Get the direction field
         direction_field = None
@@ -140,8 +146,11 @@ class TestAnnDataFieldTracking:
             n_landmarks=10  # Specify a small number of landmarks for testing
         )
         
+        # Import the JSON utility function
+        from kompot.anndata.utils import get_json_metadata
+        
         # Store the run_id of the first run
-        tracking = dummy_adata.uns['kompot_da']['anndata_fields']
+        tracking = get_json_metadata(dummy_adata, 'kompot_da.anndata_fields')
         first_run_id = tracking['uns']['test_da_reused']
         
         # Run a second DA analysis with the same result_key
@@ -157,7 +166,7 @@ class TestAnnDataFieldTracking:
         )
         
         # Check that the run_id was updated
-        tracking = dummy_adata.uns['kompot_da']['anndata_fields']
+        tracking = get_json_metadata(dummy_adata, 'kompot_da.anndata_fields')
         second_run_id = tracking['uns']['test_da_reused']
         assert second_run_id != first_run_id
         
@@ -179,34 +188,60 @@ class TestAnnDataFieldTracking:
             n_landmarks=10
         )
         
+        # Import the JSON utility function
+        from kompot.anndata.utils import get_json_metadata
+        
         # Check that field_mapping is present in run info
         assert 'kompot_da' in dummy_adata.uns
         assert 'last_run_info' in dummy_adata.uns['kompot_da']
-        assert 'field_mapping' in dummy_adata.uns['kompot_da']['last_run_info']
+        
+        run_info = get_json_metadata(dummy_adata, 'kompot_da.last_run_info')
+        assert 'field_mapping' in run_info
         
         # Check specific field mappings
-        field_mapping = dummy_adata.uns['kompot_da']['last_run_info']['field_mapping']
+        field_mapping = run_info['field_mapping']
         
         # Find the log fold change field
         lfc_field = None
         for field, mapping in field_mapping.items():
+            # Handle case where mapping could be a string
+            if isinstance(mapping, str):
+                from kompot.anndata.utils import from_json_string
+                mapping = from_json_string(mapping)
+                
             if mapping.get('type') == 'log_fold_change':
                 lfc_field = field
                 break
                 
         assert lfc_field is not None
-        assert field_mapping[lfc_field]['location'] == 'obs'
-        assert 'description' in field_mapping[lfc_field]
+        
+        # Ensure we have a dictionary before accessing
+        lfc_mapping = field_mapping[lfc_field]
+        if isinstance(lfc_mapping, str):
+            lfc_mapping = from_json_string(lfc_mapping)
+            
+        assert lfc_mapping['location'] == 'obs'
+        assert 'description' in lfc_mapping
         
         # Find the direction field
         direction_field = None
         for field, mapping in field_mapping.items():
+            # Handle case where mapping could be a string
+            if isinstance(mapping, str):
+                mapping = from_json_string(mapping)
+                
             if mapping.get('type') == 'direction':
                 direction_field = field
                 break
                 
         assert direction_field is not None
-        assert field_mapping[direction_field]['location'] == 'obs'
+        
+        # Ensure we have a dictionary before accessing
+        direction_mapping = field_mapping[direction_field]
+        if isinstance(direction_mapping, str):
+            direction_mapping = from_json_string(direction_mapping)
+            
+        assert direction_mapping['location'] == 'obs'
         
         # Run differential expression analysis for comparison
         compute_differential_expression(
@@ -223,24 +258,40 @@ class TestAnnDataFieldTracking:
         # Check that field_mapping is present in DE run info
         assert 'kompot_de' in dummy_adata.uns
         assert 'last_run_info' in dummy_adata.uns['kompot_de']
-        assert 'field_mapping' in dummy_adata.uns['kompot_de']['last_run_info']
+        
+        de_run_info = get_json_metadata(dummy_adata, 'kompot_de.last_run_info')
+        assert 'field_mapping' in de_run_info
         
         # Check specific field mappings for DE
-        de_field_mapping = dummy_adata.uns['kompot_de']['last_run_info']['field_mapping']
+        de_field_mapping = de_run_info['field_mapping']
         
         # Find var field (mean log fold change)
         var_field = None
         for field, mapping in de_field_mapping.items():
+            # Handle case where mapping could be a string
+            if isinstance(mapping, str):
+                mapping = from_json_string(mapping)
+                
             if mapping.get('location') == 'var' and mapping.get('type') == 'mean_log_fold_change':
                 var_field = field
                 break
                 
         assert var_field is not None
-        assert 'description' in de_field_mapping[var_field]
+        
+        # Ensure we have a dictionary before accessing
+        var_mapping = de_field_mapping[var_field]
+        if isinstance(var_mapping, str):
+            var_mapping = from_json_string(var_mapping)
+            
+        assert 'description' in var_mapping
         
         # Find layer field (fold change)
         layer_field = None
         for field, mapping in de_field_mapping.items():
+            # Handle case where mapping could be a string
+            if isinstance(mapping, str):
+                mapping = from_json_string(mapping)
+                
             if mapping.get('location') == 'layers' and mapping.get('type') == 'fold_change':
                 layer_field = field
                 break
@@ -264,12 +315,17 @@ class TestAnnDataFieldTracking:
             compute_mahalanobis=False  # For simplicity in testing
         )
         
+        # Import the JSON utility function
+        from kompot.anndata.utils import get_json_metadata, from_json_string
+        
         # Extract the field_names from run_info
         assert 'kompot_de' in dummy_adata.uns
         assert 'last_run_info' in dummy_adata.uns['kompot_de']
-        assert 'field_names' in dummy_adata.uns['kompot_de']['last_run_info']
         
-        field_names = dummy_adata.uns['kompot_de']['last_run_info']['field_names']
+        run_info = get_json_metadata(dummy_adata, 'kompot_de.last_run_info')
+        assert 'field_names' in run_info
+        
+        field_names = run_info['field_names']
         
         # Check that std_key_1 and std_key_2 exist in field_names
         assert 'std_key_1' in field_names
@@ -285,7 +341,7 @@ class TestAnnDataFieldTracking:
         assert 'std_key_2' in field_names['sample_variance_impacted_fields']
         
         # Verify std fields are present in field_mapping
-        field_mapping = dummy_adata.uns['kompot_de']['last_run_info']['field_mapping']
+        field_mapping = run_info['field_mapping']
         
         std1_field = field_names['std_key_1']
         std2_field = field_names['std_key_2']
@@ -293,11 +349,20 @@ class TestAnnDataFieldTracking:
         assert std1_field in field_mapping
         assert std2_field in field_mapping
         
+        # Get mapping objects and handle possible JSON strings
+        std1_mapping = field_mapping[std1_field]
+        if isinstance(std1_mapping, str):
+            std1_mapping = from_json_string(std1_mapping)
+            
+        std2_mapping = field_mapping[std2_field]
+        if isinstance(std2_mapping, str):
+            std2_mapping = from_json_string(std2_mapping)
+        
         # With sample variance, std fields should be in layers
-        assert field_mapping[std1_field]['location'] == 'layers'
-        assert field_mapping[std2_field]['location'] == 'layers'
-        assert field_mapping[std1_field]['type'] == 'std_with_sample_var'
-        assert field_mapping[std2_field]['type'] == 'std_with_sample_var'
+        assert std1_mapping['location'] == 'layers'
+        assert std2_mapping['location'] == 'layers'
+        assert std1_mapping['type'] == 'std_with_sample_var'
+        assert std2_mapping['type'] == 'std_with_sample_var'
         
     def test_std_keys_without_sample_variance(self, dummy_adata, caplog):
         """Test that std_key_1 and std_key_2 are properly handled without sample variance."""
@@ -315,12 +380,17 @@ class TestAnnDataFieldTracking:
             compute_mahalanobis=False  # For simplicity in testing
         )
         
+        # Import the JSON utility function
+        from kompot.anndata.utils import get_json_metadata, from_json_string
+        
         # Extract the field_names from run_info
         assert 'kompot_de' in dummy_adata.uns
         assert 'last_run_info' in dummy_adata.uns['kompot_de']
-        assert 'field_names' in dummy_adata.uns['kompot_de']['last_run_info']
         
-        field_names = dummy_adata.uns['kompot_de']['last_run_info']['field_names']
+        run_info = get_json_metadata(dummy_adata, 'kompot_de.last_run_info')
+        assert 'field_names' in run_info
+        
+        field_names = run_info['field_names']
         
         # Check that std_key_1 and std_key_2 exist in field_names
         assert 'std_key_1' in field_names
@@ -331,7 +401,7 @@ class TestAnnDataFieldTracking:
         assert 'group2_std' in field_names['std_key_2']
         
         # Verify std fields are present in field_mapping
-        field_mapping = dummy_adata.uns['kompot_de']['last_run_info']['field_mapping']
+        field_mapping = run_info['field_mapping']
         
         std1_field = field_names['std_key_1']
         std2_field = field_names['std_key_2']
@@ -339,11 +409,20 @@ class TestAnnDataFieldTracking:
         assert std1_field in field_mapping
         assert std2_field in field_mapping
         
+        # Get mapping objects and handle possible JSON strings
+        std1_mapping = field_mapping[std1_field]
+        if isinstance(std1_mapping, str):
+            std1_mapping = from_json_string(std1_mapping)
+            
+        std2_mapping = field_mapping[std2_field]
+        if isinstance(std2_mapping, str):
+            std2_mapping = from_json_string(std2_mapping)
+        
         # Without sample variance, std fields should be in obs
-        assert field_mapping[std1_field]['location'] == 'obs'
-        assert field_mapping[std2_field]['location'] == 'obs'
-        assert field_mapping[std1_field]['type'] == 'std'
-        assert field_mapping[std2_field]['type'] == 'std'
+        assert std1_mapping['location'] == 'obs'
+        assert std2_mapping['location'] == 'obs'
+        assert std1_mapping['type'] == 'std'
+        assert std2_mapping['type'] == 'std'
         
         # Check that fields were actually created in adata.obs
         assert std1_field in dummy_adata.obs

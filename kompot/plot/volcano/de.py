@@ -190,8 +190,11 @@ def volcano_de(
     
     # Calculate the actual (positive) run ID for logging - use same logic as volcano_da
     if run_id < 0:
-        if 'kompot_de' in adata.uns and 'run_history' in adata.uns['kompot_de']:
-            actual_run_id = len(adata.uns['kompot_de']['run_history']) + run_id
+        # Use get_run_history to get the deserialized run history
+        from ...anndata.utils import get_run_history
+        run_history = get_run_history(adata, "de")
+        if run_history is not None:
+            actual_run_id = len(run_history) + run_id
         else:
             actual_run_id = run_id
     else:
@@ -321,8 +324,21 @@ def volcano_de(
     
     # If no group-specific data was found or no group was specified, use regular var data
     if x is None or y is None:
-        x = adata.var[lfc_key].values
-        y = adata.var[score_key].values
+        x = adata.var[lfc_key].values if lfc_key is not None else None
+        y = adata.var[score_key].values if score_key is not None else None
+        
+        # Handle cases where keys are missing
+        if x is None or y is None:
+            error_msg = []
+            if x is None:
+                error_msg.append(f"LFC key '{lfc_key}' not found in adata.var")
+            if y is None:
+                error_msg.append(f"Score key '{score_key}' not found in adata.var")
+            
+            error_str = " and ".join(error_msg)
+            raise ValueError(f"Cannot create volcano plot: {error_str}")
+            
+        logger.info(f"Using data columns - lfc: '{lfc_key}', score: '{score_key}'")
     
     # Create a DataFrame with all relevant information
     data_dict = {

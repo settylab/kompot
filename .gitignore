@@ -130,3 +130,4 @@ Mellon/
 kompot_report/
 *.ipynb
 outputs/
+*.zarr/

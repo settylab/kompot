@@ -212,8 +212,11 @@ def plot_gene_expression(
     
     # Calculate the actual (positive) run ID for logging - same as volcano_da
     if run_id < 0:
-        if 'kompot_de' in adata.uns and 'run_history' in adata.uns['kompot_de']:
-            actual_run_id = len(adata.uns['kompot_de']['run_history']) + run_id
+        # Use get_run_history to get the deserialized run history
+        from ..anndata.utils import get_run_history
+        run_history = get_run_history(adata, "de")
+        if run_history is not None:
+            actual_run_id = len(run_history) + run_id
         else:
             actual_run_id = run_id
     else:

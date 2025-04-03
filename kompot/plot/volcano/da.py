@@ -170,8 +170,11 @@ def volcano_da(
     
     # Calculate the actual (positive) run ID for logging
     if run_id < 0:
-        if 'kompot_da' in adata.uns and 'run_history' in adata.uns['kompot_da']:
-            actual_run_id = len(adata.uns['kompot_da']['run_history']) + run_id
+        # Use get_run_history to get the deserialized run history
+        from ...anndata.utils import get_run_history
+        run_history = get_run_history(adata, "da")
+        if run_history is not None:
+            actual_run_id = len(run_history) + run_id
         else:
             actual_run_id = run_id
     else:

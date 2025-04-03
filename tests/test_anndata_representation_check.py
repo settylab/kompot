@@ -244,7 +244,8 @@ def test_compute_de_with_check_representation_none():
                 min_percentage=10.0,
                 check_representation=None,  # Default
                 compute_mahalanobis=False,  # Disable for faster testing
-                return_full_results=True
+                return_full_results=True,
+                n_landmarks=10  # Smaller number for faster test
             )
             
             # Should see warning about underrepresentation
@@ -258,7 +259,8 @@ def test_compute_de_with_check_representation_none():
             assert not auto_filter_calls, "No auto-filtering should occur with check_representation=None"
     
     # Check that the run info contains underrepresentation data
-    run_info = adata.uns['kompot_de']['last_run_info']
+    from kompot.anndata.utils import get_json_metadata
+    run_info = get_json_metadata(adata, 'kompot_de.last_run_info')
     assert 'underrepresentation' in run_info
     
     # Make sure underrepresentation data is not None and has content 
@@ -293,7 +295,8 @@ def test_compute_de_with_check_representation_true():
             min_percentage=1.0,  # Very permissive to avoid filtering everything
             check_representation=True,  # Enable auto-filtering
             compute_mahalanobis=False,  # Disable for faster testing
-            return_full_results=True
+            return_full_results=True,
+            n_landmarks=10  # Smaller number for faster test
         )
         
         # With very permissive parameters we might not see auto-filtering
@@ -305,7 +308,8 @@ def test_compute_de_with_check_representation_true():
         assert underrep_check_calls, "Should log checking for underrepresentation with check_representation=True"
     
     # Check that the run info exists
-    run_info = adata.uns['kompot_de']['last_run_info']
+    from kompot.anndata.utils import get_json_metadata
+    run_info = get_json_metadata(adata, 'kompot_de.last_run_info')
     
     # With permissive parameters, we might not detect any underrepresentation
     # So we just check that the 'underrepresentation' key exists
@@ -316,6 +320,7 @@ def test_compute_de_with_check_representation_true():
     assert 'auto_filtered' in run_info
     
     # Make sure the cell_filter parameter is recorded
+    assert 'params' in run_info
     assert 'cell_filter' in run_info['params']
 
 
@@ -334,11 +339,19 @@ def test_compute_de_with_check_representation_true_and_filter():
     # Create a simple initial filter
     initial_filter = {'tissue': ['tissue2']}
     
-    # Replace the refine_filter_for_underrepresentation function with a mock
-    # This allows us to check if it was called with the right arguments
-    with patch('kompot.anndata.differential_expression.refine_filter_for_underrepresentation') as mock_refine:
-        # Set up the mock to return a valid result
-        mock_refine.return_value = (np.ones(adata.n_obs, dtype=bool), {}, 0)
+    # Replace the apply_cell_filter function with a mock that returns filtered mask and details
+    # This function internally calls refine_filter_for_underrepresentation
+    with patch('kompot.anndata.differential_expression.apply_cell_filter') as mock_apply:
+        # Set up the mock to return a valid mask and filter details with underrepresentation
+        filter_mask = np.ones(adata.n_obs, dtype=bool)
+        filter_details = {
+            "total_cells": adata.n_obs,
+            "filtered_cells": adata.n_obs,
+            "filter_type": "mock",
+            "auto_filtered": True,
+            "underrepresentation": {"tissue2": ["A"]}
+        }
+        mock_apply.return_value = (filter_mask, filter_details)
         
         # Run with check_representation=True and a cell_filter
         try:
@@ -365,21 +378,27 @@ def test_compute_de_with_check_representation_true_and_filter():
             pass
         
         # Check that our mock was called - this is the key thing we're testing
-        assert mock_refine.called, "refine_filter_for_underrepresentation should be called"
+        assert mock_apply.called, "apply_cell_filter should be called"
         
-        # If called, check that it was called with the right groupby and groups
-        if mock_refine.called:
-            # args[0] is adata, args[1] is filter_mask
-            args = mock_refine.call_args[0]
-            kwargs = mock_refine.call_args[1]
+        # If called, check that it was called with the right parameters
+        if mock_apply.called:
+            # Check the key parameters (passed as keyword arguments)
+            kwargs = mock_apply.call_args[1]
             
-            # Check the key parameters
-            assert 'groupby' in kwargs, "groupby should be passed to refine_filter"
+            # These parameters should be present
+            assert 'adata' in kwargs, "adata should be passed to apply_cell_filter"
+            assert 'cell_filter' in kwargs, "cell_filter should be passed to apply_cell_filter"
+            assert 'groups' in kwargs, "groups should be passed to apply_cell_filter"
+            assert 'check_representation' in kwargs, "check_representation should be passed to apply_cell_filter"
+            assert 'groupby' in kwargs, "groupby should be passed to apply_cell_filter"
+            assert 'conditions' in kwargs, "conditions should be passed to apply_cell_filter"
+            
+            # Check values of the parameters
             assert kwargs['groupby'] == 'condition', "groupby should be 'condition'"
-            assert 'groups' in kwargs, "groups should be passed to refine_filter"
             assert kwargs['groups'] == 'tissue', "groups should be 'tissue'"
-            assert 'conditions' in kwargs, "conditions should be passed to refine_filter"
+            assert kwargs['check_representation'] == True, "check_representation should be True"
             assert set(kwargs['conditions']) == set(['A', 'B']), "conditions should be ['A', 'B']"
+            assert kwargs['cell_filter'] == initial_filter, "cell_filter should match initial_filter"
 
 
 def test_compute_de_with_check_representation_false():
@@ -401,7 +420,8 @@ def test_compute_de_with_check_representation_false():
                 min_percentage=1.0,  # Very permissive to avoid filtering everything
                 check_representation=False,  # Skip the check
                 compute_mahalanobis=False,  # Disable for faster testing
-                return_full_results=True
+                return_full_results=True,
+                n_landmarks=10  # Smaller number for faster test
             )
             
             # Should not see messages about checking for underrepresentation
@@ -412,7 +432,8 @@ def test_compute_de_with_check_representation_false():
             assert not check_calls, "No checking messages should be logged with check_representation=False"
     
     # Run info should exist
-    run_info = adata.uns['kompot_de']['last_run_info']
+    from kompot.anndata.utils import get_json_metadata
+    run_info = get_json_metadata(adata, 'kompot_de.last_run_info')
     
     # The auto_filtered field should be False
     assert 'auto_filtered' in run_info

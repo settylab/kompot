@@ -12,6 +12,7 @@ from kompot.plot.volcano import volcano_de, volcano_da, multi_volcano_da, _infer
 from kompot.plot.heatmap import heatmap
 from kompot.plot.expression import plot_gene_expression, _infer_expression_keys
 from kompot.plot.heatmap.direction_plot import direction_barplot, _infer_direction_key
+from kompot.anndata.utils.json_utils import from_json_string, to_json_string
 
 
 def create_test_anndata(n_cells=100, n_genes=20):
@@ -119,8 +120,19 @@ def create_test_data_with_multiple_runs():
     if 'run_history' not in adata.uns['kompot_de']:
         adata.uns['kompot_de']['run_history'] = []
     
-    # Add de_run2 to kompot_de run_history
-    adata.uns['kompot_de']['run_history'].append({
+    # Import the JSON utils to deserialize if needed and reserialize
+    from kompot.anndata.utils.json_utils import from_json_string, to_json_string
+    
+    # Handle the case where run_history is a JSON string
+    run_history = adata.uns['kompot_de']['run_history']
+    if isinstance(run_history, str):
+        try:
+            run_history = from_json_string(run_history)
+        except Exception:
+            run_history = []
+    
+    # Add de_run2 to the deserialized run_history
+    run_history.append({
         'run_id': 0,
         'expression_key': 'de_run2',
         'field_names': {
@@ -128,6 +140,9 @@ def create_test_data_with_multiple_runs():
             'mahalanobis_key': mahalanobis_key
         }
     })
+    
+    # Store the updated run_history back as a JSON string
+    adata.uns['kompot_de']['run_history'] = to_json_string(run_history)
     
     # Add test DA metric fields if they don't exist
     lfc_key_da = 'da_run2_log_fold_change_A_to_B'
@@ -154,8 +169,16 @@ def create_test_data_with_multiple_runs():
     if 'run_history' not in adata.uns['kompot_da']:
         adata.uns['kompot_da']['run_history'] = []
     
-    # Add da_run2 to kompot_da run_history
-    adata.uns['kompot_da']['run_history'].append({
+    # Handle the case where run_history is a JSON string
+    run_history_da = adata.uns['kompot_da']['run_history']
+    if isinstance(run_history_da, str):
+        try:
+            run_history_da = from_json_string(run_history_da)
+        except Exception:
+            run_history_da = []
+    
+    # Add da_run2 to the deserialized run_history
+    run_history_da.append({
         'run_id': 0,
         'abundance_key': 'da_run2',
         'field_names': {
@@ -164,12 +187,30 @@ def create_test_data_with_multiple_runs():
         }
     })
     
+    # Store the updated run_history back as a JSON string
+    adata.uns['kompot_da']['run_history'] = to_json_string(run_history_da)
+    
     # Create the global run history for the tests to use
     if 'kompot_run_history' not in adata.uns:
         adata.uns['kompot_run_history'] = []
+        
+    # Handle the case where kompot_run_history is a JSON string
+    global_history = adata.uns['kompot_run_history']
+    if isinstance(global_history, str):
+        try:
+            global_history = from_json_string(global_history)
+        except Exception:
+            global_history = []
+            
+    # Store back as JSON string
+    adata.uns['kompot_run_history'] = to_json_string(global_history)
     
     # Add the combined run to the global history
-    adata.uns['kompot_run_history'].append({
+    # Since we already converted to JSON string, we need to deserialize, modify, and reserialize
+    global_history = from_json_string(adata.uns['kompot_run_history'])
+    
+    # Add new item
+    global_history.append({
         'run_id': 0,
         'abundance_key': 'da_run2',
         'expression_key': 'de_run2',
@@ -184,6 +225,9 @@ def create_test_data_with_multiple_runs():
             }
         }
     })
+    
+    # Reserialize
+    adata.uns['kompot_run_history'] = to_json_string(global_history)
     
     # Store the latest run
     adata.uns['kompot_latest_run'] = {
@@ -360,13 +404,24 @@ class TestPlotFunctions:
         # Add layer keys to run info
         if 'kompot_de' in self.adata.uns and 'run_history' in self.adata.uns['kompot_de']:
             # Update the run history with layer information
-            for run in self.adata.uns['kompot_de']['run_history']:
-                if run.get('expression_key') == 'de_run2':
+            run_history = self.adata.uns['kompot_de']['run_history']
+            if isinstance(run_history, str):
+                try:
+                    run_history = from_json_string(run_history)
+                except Exception:
+                    run_history = []
+                    
+            # Now update the deserialized run history
+            for run in run_history:
+                if isinstance(run, dict) and run.get('expression_key') == 'de_run2':
                     if 'field_names' in run:
                         run['field_names']['imputed_key_1'] = 'de_run2_A_imputed'
                         run['field_names']['imputed_key_2'] = 'de_run2_B_imputed'
                         run['field_names']['fold_change_key'] = 'de_run2_fold_change'
                     break
+                    
+            # Store the updated run history back
+            self.adata.uns['kompot_de']['run_history'] = to_json_string(run_history)
         
         # Test gene expression plot
         gene = self.adata.var_names[0]
@@ -439,8 +494,16 @@ class TestPlotFunctions:
         if 'run_history' not in self.adata.uns['kompot_da']:
             self.adata.uns['kompot_da']['run_history'] = []
             
+        # Handle the case where run_history is a JSON string
+        run_history = self.adata.uns['kompot_da']['run_history']
+        if isinstance(run_history, str):
+            try:
+                run_history = from_json_string(run_history)
+            except Exception:
+                run_history = []
+        
         # Add DA run with direction key
-        self.adata.uns['kompot_da']['run_history'].append({
+        run_history.append({
             'run_id': 0,
             'params': {
                 'conditions': ['A', 'B']
@@ -449,6 +512,9 @@ class TestPlotFunctions:
                 'direction_key': 'kompot_da_log_fold_change_direction_A_to_B'
             }
         })
+        
+        # Store back as JSON string
+        self.adata.uns['kompot_da']['run_history'] = to_json_string(run_history)
         
         # Test with explicit parameters
         fig, ax = direction_barplot(
@@ -484,8 +550,16 @@ class TestPlotFunctions:
         if 'run_history' not in self.adata.uns['kompot_da']:
             self.adata.uns['kompot_da']['run_history'] = []
             
+        # Handle the case where run_history is a JSON string
+        run_history = self.adata.uns['kompot_da']['run_history']
+        if isinstance(run_history, str):
+            try:
+                run_history = from_json_string(run_history)
+            except Exception:
+                run_history = []
+            
         # Add DA run with direction key
-        self.adata.uns['kompot_da']['run_history'].append({
+        run_history.append({
             'run_id': 0,
             'params': {
                 'conditions': ['A', 'B']
@@ -494,6 +568,9 @@ class TestPlotFunctions:
                 'direction_key': 'kompot_da_log_fold_change_direction_A_to_B'
             }
         })
+        
+        # Store back as JSON string
+        self.adata.uns['kompot_da']['run_history'] = to_json_string(run_history)
         
         # Test with explicit key
         dir_key, cond1, cond2 = _infer_direction_key(
@@ -628,8 +705,17 @@ class TestPlotFunctions:
         
         # Add direction column to run info for the latest run
         if 'kompot_da' in self.adata.uns and 'run_history' in self.adata.uns['kompot_da']:
-            for run in self.adata.uns['kompot_da']['run_history']:
-                if run.get('run_id') == 0:  # Latest run in test data
+            # Handle the case where run_history is a JSON string
+            run_history = self.adata.uns['kompot_da']['run_history']
+            if isinstance(run_history, str):
+                try:
+                    run_history = from_json_string(run_history)
+                except Exception:
+                    run_history = []
+            
+            # Now update the deserialized run history
+            for run in run_history:
+                if isinstance(run, dict) and run.get('run_id') == 0:  # Latest run in test data
                     if 'field_names' not in run:
                         run['field_names'] = {}
                     run['field_names']['direction_key'] = direction_col
@@ -640,6 +726,9 @@ class TestPlotFunctions:
                     if 'conditions' not in run['params']:
                         run['params']['conditions'] = ['A', 'B']
                     break
+            
+            # Store the updated run history back
+            self.adata.uns['kompot_da']['run_history'] = to_json_string(run_history)
         
         # Test with direction column update and explicit direction column
         fig, axes = multi_volcano_da(

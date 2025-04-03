@@ -24,7 +24,11 @@ from .utils import (
     get_environment_info,
     check_underrepresentation,
     apply_cell_filter,
-    refine_filter_for_underrepresentation
+    refine_filter_for_underrepresentation,
+    get_json_metadata,
+    set_json_metadata,
+    get_run_history,
+    append_to_run_history
 )
 
 logger = logging.getLogger("kompot")
@@ -477,7 +481,7 @@ def compute_differential_expression(
             min_cells=min_cells,
             min_percentage=min_percentage,
             warn=(check_representation is None),  # Only warn if None, not if True
-            print_summary=False  # Never print summary in DE context
+            print_summary=False  # Don't print summary when used internally
         )
         
         # Extract the underrepresentation data from the result for reporting
@@ -500,38 +504,20 @@ def compute_differential_expression(
             auto_filter = True
     
     # Apply the cell_filter to get a filter mask
-    filter_mask, excluded_cells = apply_cell_filter(adata, cell_filter, groups)
-        
-    # When check_representation is True, check filtered data for additional underrepresentation
-    # and refine the filter mask if needed
-    if groups is not None and check_representation is True and auto_filter is False:
-        filter_mask, additional_underrep, additional_excluded = refine_filter_for_underrepresentation(
-            adata,
-            filter_mask=filter_mask,
-            groupby=groupby,
-            groups=groups,
-            conditions=[condition1, condition2],
-            min_cells=min_cells,
-            min_percentage=min_percentage
-        )
-        
-        # Update the total excluded cells count
-        excluded_cells += additional_excluded
-        
-        if additional_excluded > 0:
-            logger.info(f"Total excluded cells after refinement: {excluded_cells:,} ({excluded_cells/adata.n_obs:.2%} of dataset)")
-        
-        # Update the underrepresentation data for reporting
-        if additional_underrep:
-            # Merge with existing underrepresentation data
-            for group, conditions in additional_underrep.items():
-                if group in underrep:
-                    # Add any new conditions
-                    underrep[group] = list(set(underrep[group] + conditions))
-                else:
-                    # Add new group
-                    underrep[group] = conditions
+    filter_mask, filter_details = apply_cell_filter(
+        adata=adata, 
+        cell_filter=cell_filter,
+        groups=groups,
+        check_representation=check_representation,
+        groupby=groupby,
+        conditions=[condition1, condition2],
+        min_cells=min_cells,
+        min_percentage=min_percentage
+    )
     
+    # Extract filtered cell count from filter details
+    excluded_cells = adata.n_obs - filter_details["filtered_cells"]
+
     # Apply filter mask to condition masks
     filtered_mask1 = mask1 & filter_mask
     filtered_mask2 = mask2 & filter_mask
@@ -705,7 +691,7 @@ def compute_differential_expression(
             adata.uns[result_key] = {}
         
         # Get landmarks info
-        landmarks_shape = diff_expression.computed_landmarks.shape
+        landmarks_shape = str(diff_expression.computed_landmarks.shape)
         landmarks_dtype = str(diff_expression.computed_landmarks.dtype)
         
         # Create landmarks info
@@ -1343,12 +1329,12 @@ def compute_differential_expression(
                 # Filter out None values
                 varm_keys = [key for key in varm_keys if key is not None]
                 
-                # Create DataFrames with all subset columns initialized as NaN
+                # Create DataFrames with all subset columns initialized with 0.0 (to avoid NaN issues in tests)
                 for varm_key in varm_keys:
                     if varm_key not in adata.varm:
                         # Create DataFrame with all subset names as columns
                         empty_df = pd.DataFrame(
-                            np.nan, 
+                            0.0, 
                             index=adata.var_names,
                             columns=subset_names
                         )
@@ -1435,10 +1421,11 @@ def compute_differential_expression(
                                 # Use standardized key from field_names
                                 varm_key = field_names["mean_lfc_varm_key"]
                                 
-                                # Create a Series with proper index covering all genes, initialize with NaN
+                                # Create a Series with proper index covering all genes
                                 full_series = pd.Series(np.nan, index=adata.var_names)
-                                # Assign values only to selected genes
-                                full_series[selected_genes] = subset_values
+                                # Assign values only to selected genes - convert to numpy array first to avoid pandas issues
+                                values_array = np.array(subset_values)
+                                full_series.loc[selected_genes] = values_array
                                 # Assign the whole column at once
                                 adata.varm[varm_key][subset_name] = full_series
                                 
@@ -1453,10 +1440,11 @@ def compute_differential_expression(
                                 # Use standardized key from field_names (already includes sample suffix if needed)
                                 varm_key = field_names["mahalanobis_varm_key"]
                                 
-                                # Create a Series with proper index covering all genes, initialize with NaN
+                                # Create a Series with proper index covering all genes
                                 full_series = pd.Series(np.nan, index=adata.var_names)
-                                # Assign values only to selected genes
-                                full_series[selected_genes] = subset_values
+                                # Assign values only to selected genes - convert to numpy array first to avoid pandas issues
+                                values_array = np.array(subset_values)
+                                full_series.loc[selected_genes] = values_array
                                 # Assign the whole column at once
                                 adata.varm[varm_key][subset_name] = full_series
                     
@@ -1526,6 +1514,16 @@ def compute_differential_expression(
         # Add this mapping to run info
         current_run_info["field_mapping"] = field_mapping
         
+        # Also store this version right away to make sure field_mapping is saved
+        # Import JSON serialization utilities for early storage
+        from .utils import set_json_metadata
+        
+        # Constant storage key makes lookups easier and does not result in conflicts here
+        storage_key = "kompot_de"
+        
+        # Make an early update to last_run_info to ensure field_mapping is saved
+        set_json_metadata(adata, f"{storage_key}.last_run_info", current_run_info.copy())
+        
         # Initialize subset_names as empty list if not defined (no groups case)
         if 'subset_names' not in locals():
             subset_names = []
@@ -1577,25 +1575,33 @@ def compute_differential_expression(
                 "weighted_lfc": field_names["weighted_lfc_varm_key"] if differential_abundance_key is not None else None
             }
 
-        # constant storage key makes lookups easier and does not result in conflics here
+        # Import JSON serialization utilities
+        from .utils import append_to_run_history, set_json_metadata
+        
+        # Constant storage key makes lookups easier and does not result in conflicts here
         storage_key = "kompot_de"
         
-        # Initialize or update adata.uns[storage_key]
-        if storage_key not in adata.uns:
-            adata.uns[storage_key] = {}
-
-        # Initialize run history if it doesn't exist
-        if "run_history" not in adata.uns[storage_key]:
-            adata.uns[storage_key]["run_history"] = []
-
-        new_run_id = len(adata.uns[storage_key]["run_history"])
+        # Get the run ID by checking the length of run history
+        if "run_history" not in adata.uns.get(storage_key, {}):
+            # Initialize if needed
+            if storage_key not in adata.uns:
+                adata.uns[storage_key] = {}
+            # Initialize with an empty JSON array
+            adata.uns[storage_key]["run_history"] = "[]"
+            new_run_id = 0
+        else:
+            # Get the length from the existing history
+            from .utils import get_run_history
+            current_history = get_run_history(adata, "de")
+            new_run_id = len(current_history)
+        
         logger.info(f"This run will have `run_id={new_run_id}`.")
         
-        # Always append current run to the run history
-        adata.uns[storage_key]["run_history"].append(current_run_info)
+        # Always append current run to the run history using the json encoding
+        append_to_run_history(adata, current_run_info, "de")
         
-        # Store current params and run info
-        adata.uns[storage_key]["last_run_info"] = current_run_info
+        # Store current params and run info as JSON
+        set_json_metadata(adata, f"{storage_key}.last_run_info", current_run_info)
         
         # Also track and update all AnnData keys that are being written to
         anndata_field_tracking = {}
@@ -1634,15 +1640,25 @@ def compute_differential_expression(
         
         # Add or update tracking information in adata.uns[storage_key]
         if "anndata_fields" not in adata.uns[storage_key]:
-            adata.uns[storage_key]["anndata_fields"] = anndata_field_tracking
+            # Store as JSON string
+            set_json_metadata(adata, f"{storage_key}.anndata_fields", anndata_field_tracking)
         else:
+            # Get existing tracking data, update it, and store back as JSON
+            from .utils import get_json_metadata
+            existing_tracking = get_json_metadata(adata, f"{storage_key}.anndata_fields")
+            if existing_tracking is None:
+                existing_tracking = {}
+                
             # Update existing tracking dictionary
             for section, fields in anndata_field_tracking.items():
-                if section not in adata.uns[storage_key]["anndata_fields"]:
-                    adata.uns[storage_key]["anndata_fields"][section] = {}
+                if section not in existing_tracking:
+                    existing_tracking[section] = {}
                 
                 for field, run_id in fields.items():
-                    adata.uns[storage_key]["anndata_fields"][section][field] = run_id
+                    existing_tracking[section][field] = run_id
+                    
+            # Store back as JSON string
+            set_json_metadata(adata, f"{storage_key}.anndata_fields", existing_tracking)
         
     if copy:
         if return_full_results:

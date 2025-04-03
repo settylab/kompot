@@ -84,7 +84,14 @@ def test_infer_direction_key_multiple_columns():
     
     # Add conditions to run info explicitly
     if 'kompot_da' in adata.uns and 'run_history' in adata.uns['kompot_da']:
-        for run in adata.uns['kompot_da']['run_history']:
+        # Need to handle JSON string unpacking
+        from kompot.anndata.utils import get_run_history, append_to_run_history
+        
+        # Get the run history
+        runs = get_run_history(adata, 'da')
+        
+        # Update each run to include conditions
+        for i, run in enumerate(runs):
             if 'params' not in run:
                 run['params'] = {}
             run['params']['conditions'] = ['A', 'B']

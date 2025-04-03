@@ -110,6 +110,27 @@ def _draw_diagonal_split_cell(
     linewidth : float, optional
         The width of the cell border
     """
+    # Ensure ax is a valid axis object before proceeding
+    if ax is None or not hasattr(ax, 'add_patch'):
+        raise ValueError("ax must be a valid matplotlib Axes object with add_patch method")
+    
+    # Check if val1 is a string and convert to proper format
+    # This addresses the 'str' object has no attribute 'append' error
+    if isinstance(val1, str):
+        try:
+            # Try to convert string to float
+            val1 = float(val1)
+        except ValueError:
+            # If can't convert, use NaN
+            val1 = np.nan
+
+    # Handle val2 similarly if it's a string
+    if isinstance(val2, str):
+        try:
+            val2 = float(val2)
+        except ValueError:
+            val2 = np.nan
+            
     # Use provided colormap and normalize with the provided vmin/vmax
     # No need to create a new normalization object - use the one passed in
     norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
@@ -209,10 +230,50 @@ def _draw_split_dot_cell(
     alpha : float, optional
         The opacity of the cell
     edgecolor : str, optional
-        The color of the dot border
+        The color of the cell border
     linewidth : float, optional
         The width of the dot border
     """
+    # Ensure ax is a valid axis object before proceeding
+    if ax is None or not hasattr(ax, 'add_patch'):
+        raise ValueError("ax must be a valid matplotlib Axes object with add_patch method")
+    
+    # Check if val1 is a string and convert to proper format
+    # This addresses the 'str' object has no attribute 'append' error
+    if isinstance(val1, str):
+        try:
+            # Try to convert string to float
+            val1 = float(val1)
+        except ValueError:
+            # If can't convert, use NaN
+            val1 = np.nan
+
+    # Handle val2 similarly if it's a string
+    if isinstance(val2, str):
+        try:
+            val2 = float(val2)
+        except ValueError:
+            val2 = np.nan
+    
+    # Handle cell counts if they're strings
+    if isinstance(cell_count1, str):
+        try:
+            cell_count1 = float(cell_count1)
+        except ValueError:
+            cell_count1 = 0
+    
+    if isinstance(cell_count2, str):
+        try:
+            cell_count2 = float(cell_count2)
+        except ValueError:
+            cell_count2 = 0
+            
+    if isinstance(global_max_count, str):
+        try:
+            global_max_count = float(global_max_count)
+        except ValueError:
+            global_max_count = None
+            
     # Use provided colormap and normalize with the provided vmin/vmax
     norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
     
@@ -328,6 +389,27 @@ def _draw_fold_change_cell(ax, x, y, w, h, val1, val2, cmap, vmin, vmax, alpha=1
     linewidth : float, optional
         The width of the cell border
     """
+    # Ensure ax is a valid axis object before proceeding
+    if ax is None or not hasattr(ax, 'add_patch'):
+        raise ValueError("ax must be a valid matplotlib Axes object with add_patch method")
+    
+    # Check if val1 is a string and convert to proper format
+    # This addresses the 'str' object has no attribute 'append' error
+    if isinstance(val1, str):
+        try:
+            # Try to convert string to float
+            val1 = float(val1)
+        except ValueError:
+            # If can't convert, use NaN
+            val1 = np.nan
+
+    # Handle val2 similarly if it's a string
+    if isinstance(val2, str):
+        try:
+            val2 = float(val2)
+        except ValueError:
+            val2 = np.nan
+    
     # Check if the value is NaN
     if np.isnan(val1):
         # Use a very light gray for NaN

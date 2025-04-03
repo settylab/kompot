@@ -16,6 +16,10 @@ from .utils import (
     parse_groups,
     detect_output_field_overwrite,
     get_environment_info,
+    get_json_metadata,
+    set_json_metadata,
+    get_run_history,
+    append_to_run_history,
 )
 
 logger = logging.getLogger("kompot")
@@ -534,18 +538,28 @@ def compute_differential_abundance(
     env_info = get_environment_info()
     current_run_info["environment"] = env_info
     
-    # Initialize run history if it doesn't exist
-    if "run_history" not in adata.uns[storage_key]:
-        adata.uns[storage_key]["run_history"] = []
-
-    new_run_id = len(adata.uns[storage_key]["run_history"])
+    # Import JSON serialization utilities
+    from .utils import append_to_run_history, set_json_metadata
+    
+    # Get the run ID by checking the length of run history
+    storage_key = "kompot_da"
+    
+    if "run_history" not in adata.uns.get(storage_key, {}):
+        # Initialize if needed
+        if storage_key not in adata.uns:
+            adata.uns[storage_key] = {}
+        # Initialize with an empty JSON array
+        adata.uns[storage_key]["run_history"] = "[]"
+        new_run_id = 0
+    else:
+        # Get the length from the existing history
+        current_history = get_run_history(adata, "da")
+        new_run_id = len(current_history)
+        
     logger.info(f"This run will have `run_id={new_run_id}`.")
     
-    # Always append current run to the run history
-    adata.uns[storage_key]["run_history"].append(current_run_info)
-    
-    # Store current params and run info
-    adata.uns[storage_key]["last_run_info"] = current_run_info
+    # Always append current run to the run history using the json encoding
+    append_to_run_history(adata, current_run_info, "da")
     
     # Create a comprehensive field-to-location mapping for field tracking
     # This maps the full field names to their locations
@@ -564,6 +578,9 @@ def compute_differential_abundance(
 
     # Add this mapping to run info
     current_run_info["field_mapping"] = field_mapping
+    
+    # Store current params and run info as JSON
+    set_json_metadata(adata, f"{storage_key}.last_run_info", current_run_info)
 
     # Also track and update all AnnData keys that are being written to
     anndata_field_tracking = {
@@ -593,15 +610,25 @@ def compute_differential_abundance(
     
     # Add or update tracking information in adata.uns[storage_key]
     if "anndata_fields" not in adata.uns[storage_key]:
-        adata.uns[storage_key]["anndata_fields"] = anndata_field_tracking
+        # Store as JSON string
+        set_json_metadata(adata, f"{storage_key}.anndata_fields", anndata_field_tracking)
     else:
+        # Get existing tracking data, update it, and store back as JSON
+        from .utils import get_json_metadata
+        existing_tracking = get_json_metadata(adata, f"{storage_key}.anndata_fields")
+        if existing_tracking is None:
+            existing_tracking = {}
+            
         # Update existing tracking dictionary
         for section, fields in anndata_field_tracking.items():
-            if section not in adata.uns[storage_key]["anndata_fields"]:
-                adata.uns[storage_key]["anndata_fields"][section] = {}
+            if section not in existing_tracking:
+                existing_tracking[section] = {}
             
             for field, run_id in fields.items():
-                adata.uns[storage_key]["anndata_fields"][section][field] = run_id
+                existing_tracking[section][field] = run_id
+                
+        # Store back as JSON string
+        set_json_metadata(adata, f"{storage_key}.anndata_fields", existing_tracking)
     
     # Return results as a dictionary
     result_dict = {

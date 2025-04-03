@@ -124,10 +124,15 @@ def test_compute_differential_abundance_with_custom_ls_factor():
     
     # Check that ls_factor is stored in params
     assert 'kompot_da' in adata.uns
-    assert 'last_run_info' in adata.uns['kompot_da']
-    assert 'params' in adata.uns['kompot_da']['last_run_info']
-    assert 'ls_factor' in adata.uns['kompot_da']['last_run_info']['params']
-    assert adata.uns['kompot_da']['last_run_info']['params']['ls_factor'] == 20.0
+    
+    # Get last run info using the utility function
+    from kompot.anndata.utils import get_last_run_info
+    last_run_info = get_last_run_info(adata, 'da')
+    
+    assert last_run_info is not None
+    assert 'params' in last_run_info
+    assert 'ls_factor' in last_run_info['params']
+    assert last_run_info['params']['ls_factor'] == 20.0
 
 
 def test_compute_differential_abundance_with_random_state():
@@ -270,8 +275,13 @@ def test_compute_differential_abundance_with_result_key():
     
     # Check that custom result is tracked in kompot_da
     assert 'kompot_da' in adata.uns
-    assert 'last_run_info' in adata.uns['kompot_da']
-    assert adata.uns['kompot_da']['last_run_info']['result_key'] == 'custom_da'
+    
+    # Get last run info using the utility function
+    from kompot.anndata.utils import get_last_run_info
+    last_run_info = get_last_run_info(adata, 'da')
+    
+    assert last_run_info is not None
+    assert last_run_info['result_key'] == 'custom_da'
 
 
 def test_compute_differential_abundance_overwrite_behavior():
@@ -290,11 +300,19 @@ def test_compute_differential_abundance_overwrite_behavior():
     
     # Check if result key is tracked in field tracking
     assert 'kompot_da' in adata.uns
-    assert 'anndata_fields' in adata.uns['kompot_da']
-    assert 'uns' in adata.uns['kompot_da']['anndata_fields']
-    assert 'test_da' in adata.uns['kompot_da']['anndata_fields']['uns']
+    
+    # Get field tracking and run history using utility functions
+    from kompot.anndata.utils import get_json_metadata, get_run_history
+    
+    field_tracking = get_json_metadata(adata, 'kompot_da.anndata_fields')
+    assert field_tracking is not None
+    assert 'uns' in field_tracking
+    assert 'test_da' in field_tracking['uns']
+    
+    # Check run history
     assert 'run_history' in adata.uns['kompot_da']
-    initial_run_count = len(adata.uns['kompot_da']['run_history'])
+    run_history = get_run_history(adata, 'da')
+    initial_run_count = len(run_history)
     
     # Run again with same parameters and overwrite=True
     compute_differential_abundance(
@@ -307,11 +325,14 @@ def test_compute_differential_abundance_overwrite_behavior():
     )
     
     # Check that another run was added to history
-    assert len(adata.uns['kompot_da']['run_history']) == initial_run_count + 1
+    updated_run_history = get_run_history(adata, 'da')
+    assert len(updated_run_history) == initial_run_count + 1
     
     # Verify that field tracking has been updated
-    assert 'anndata_fields' in adata.uns['kompot_da']
-    assert 'test_da_log_fold_change_A_to_B' in adata.uns['kompot_da']['anndata_fields']['obs']
+    updated_field_tracking = get_json_metadata(adata, 'kompot_da.anndata_fields')
+    assert updated_field_tracking is not None
+    assert 'obs' in updated_field_tracking
+    assert 'test_da_log_fold_change_A_to_B' in updated_field_tracking['obs']
     
     # Run again with overwrite=False - should raise a ValueError
     with pytest.raises(ValueError):

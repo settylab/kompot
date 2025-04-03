@@ -1,16 +1,16 @@
-"""Core utility functions for anndata module."""
-# This file is now a facade that imports from the utils/ subpackage
+"""Utility functions and classes for working with AnnData objects."""
 
-# Import all utility functions from the subpackages
-from .utils.json_utils import (
+# JSON utilities
+from .json_utils import (
     jsonable_encoder,
-    to_json_string, 
+    to_json_string,
     from_json_string,
     get_json_metadata,
     set_json_metadata,
 )
 
-from .utils.field_tracking import (
+# Field tracking utilities
+from .field_tracking import (
     get_run_history,
     append_to_run_history,
     get_last_run_info,
@@ -22,23 +22,24 @@ from .utils.field_tracking import (
     get_run_from_history,
 )
 
-from .utils.group_utils import (
+# Group utilities
+from .group_utils import (
     parse_groups,
     check_underrepresentation,
     refine_filter_for_underrepresentation,
     apply_cell_filter,
 )
 
-from .utils.runinfo import (
+# Run info classes
+from .runinfo import (
     RunInfo,
     RunComparison,
 )
 
-# For backward compatibility, re-export all imported names
 __all__ = [
     # JSON utilities
     'jsonable_encoder',
-    'to_json_string', 
+    'to_json_string',
     'from_json_string',
     'get_json_metadata',
     'set_json_metadata',

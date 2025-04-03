@@ -403,6 +403,11 @@ def heatmap(
             .fillna(0)
         )
         
+        # Handle numeric conversion in case cell_counts are strings
+        # Convert cell_counts Series to numeric values
+        cell_counts1 = pd.to_numeric(cell_counts1, errors='coerce').fillna(0)
+        cell_counts2 = pd.to_numeric(cell_counts2, errors='coerce').fillna(0)
+        
         # Calculate the global maximum count across all groups and conditions
         actual_max_count = max(max(cell_counts1), max(cell_counts2))
         
