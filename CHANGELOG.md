@@ -17,6 +17,7 @@ All notable changes to this project will be documented in this file.
  - implement underrepresentation filtering for de analaysis
  - `plot.embedding` scanpy wrapper can now plot multiple layer
  - make sure modified anndata is writable (use JSON for run info in `.uns`)
+ - option to store posterior covariance matrix in differential expression anndata function
 
 ## [0.3.3]
 

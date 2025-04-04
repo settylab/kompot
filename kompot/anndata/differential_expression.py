@@ -68,6 +68,7 @@ def compute_differential_expression(
     overwrite: Optional[bool] = None,
     store_landmarks: bool = False,
     return_full_results: bool = False,
+    store_posterior_covariance: bool = False,
     **function_kwargs
 ) -> Union[Dict[str, np.ndarray], Any]:
     """
@@ -223,6 +224,11 @@ def compute_differential_expression(
     return_full_results : bool, optional
         If True, return the full results dictionary including the differential model,
         by default False. If False, and if copy=True, only return the AnnData object.
+    store_posterior_covariance : bool, optional
+        Whether to store the posterior covariance matrix in adata.obsp. Only available when 
+        not using sample variance (sample_col=None).
+        The covariance matrix can be quite large, as it is of shape (n_cells, n_cells), so this
+        should be used carefully with large datasets. Default is False.
     **function_kwargs : dict
         Additional arguments to pass to the FunctionEstimator.
         
@@ -246,6 +252,8 @@ def compute_differential_expression(
     - adata.layers[f"{result_key}_condition1_imputed"]: Imputed expression for condition 1
     - adata.layers[f"{result_key}_condition2_imputed"]: Imputed expression for condition 2
     - adata.layers[f"{result_key}_fold_change"]: Log fold change for each cell and gene
+    - adata.obsp["posterior_covariance"]: If store_posterior_covariance=True and conditions are met, 
+      the posterior covariance matrix. Shape (n_cells, n_cells).
     - adata.layers[f"{result_key}_fold_change_zscores"]: Z-scores of log fold changes accounting for uncertainty (and sample variance if sample_col is provided)
     - adata.uns[result_key]: Dictionary with additional information and parameters
     
@@ -644,6 +652,7 @@ def compute_differential_expression(
     use_sample_variance = sample_col is not None
     
     diff_expression = DifferentialExpression(
+        # Don't disable landmarks - we'll compute posterior covariance separately
         n_landmarks=n_landmarks,
         use_sample_variance=use_sample_variance,
         eps=eps,  # Pass the eps parameter 
@@ -727,10 +736,58 @@ def compute_differential_expression(
     # Run prediction to compute fold changes, metrics, and Mahalanobis distances
     # Use the filter_mask to only get predictions for cells we're interested in
     X_for_prediction = adata.obsm[obsm_key][filter_mask]
+    
+    # Check if we can store posterior covariance (not using sample variance)
+    # We now allow storing posterior covariance even when landmarks are used elsewhere
+    can_store_covariance = store_posterior_covariance and not use_sample_variance
+    
+    # Log warning if requested but not possible
+    if store_posterior_covariance and not can_store_covariance:
+        if use_sample_variance:
+            logger.warning("Cannot store posterior covariance when using sample variance. Posterior covariance will not be stored.")
+    
+    # Run prediction
     expression_results = diff_expression.predict(
         X_for_prediction, 
         compute_mahalanobis=compute_mahalanobis,
     )
+    
+    # Store posterior covariance matrix in obsp if requested and possible
+    if can_store_covariance:
+        logger.info("Computing posterior covariance matrix for storing in obsp...")
+        
+        # Get the posterior covariance matrix (need to compute it separately)
+        try:
+            # Get covariance matrices from the function predictors
+            cov1 = diff_expression.function_predictor1.covariance(X_for_prediction, diag=False)
+            cov2 = diff_expression.function_predictor2.covariance(X_for_prediction, diag=False)
+            
+            # The covariance of log fold change is the sum of covariances
+            posterior_covariance = cov1 + cov2
+            
+            # Get the proper name for the obsp key from field_names
+            posterior_cov_key = field_names["posterior_covariance_key"]
+            
+            # Store the covariance matrix in obsp - need to handle the full matrix
+            # Create a full-size matrix initialized with zeros or NaN
+            n_cells = adata.shape[0]
+            full_covariance = np.zeros((n_cells, n_cells))
+            
+            # Fill in the values for the cells that were included in the analysis
+            filtered_indices = np.where(filter_mask)[0]
+            for i, row_idx in enumerate(filtered_indices):
+                for j, col_idx in enumerate(filtered_indices):
+                    full_covariance[row_idx, col_idx] = posterior_covariance[i, j]
+            
+            # Store in obsp
+            adata.obsp[posterior_cov_key] = full_covariance
+            logger.info(f"Stored posterior covariance matrix in adata.obsp['{posterior_cov_key}']")
+            
+            # We'll add this to the field mapping later when it's created
+        except Exception as e:
+            logger.error(f"Failed to compute and store posterior covariance matrix: {str(e)}")
+            logger.error("Posterior covariance matrix will not be stored in obsp.")
+    
     
     # Separately compute weighted fold changes if needed
     if differential_abundance_key is not None:
@@ -1210,6 +1267,7 @@ def compute_differential_expression(
             "check_representation": check_representation,
             "auto_filtered": auto_filter if 'auto_filter' in locals() else False,
             "store_landmarks": store_landmarks,
+            "store_posterior_covariance": store_posterior_covariance,
             "result_key": result_key,
             "copy": copy,
             "inplace": inplace,
@@ -1290,6 +1348,24 @@ def compute_differential_expression(
             
         if differential_abundance_key is not None:
             field_mapping[field_names["weighted_lfc_key"]] = {"location": "var", "type": "weighted_mean_log_fold_change", "description": "Weighted mean log fold change"}
+            
+        # Add posterior covariance field if it was added to obsp
+        if can_store_covariance and "posterior_covariance_key" in field_names:
+            posterior_cov_key = field_names["posterior_covariance_key"]
+            if posterior_cov_key in adata.obsp:
+                # Create obsp section if it doesn't exist
+                if "obsp" not in field_mapping:
+                    field_mapping["obsp"] = {}
+                    
+                # Add the field mapping - the key already includes the condition pair
+                field_mapping["obsp"][posterior_cov_key] = {
+                    "location": "obsp", 
+                    "type": "covariance", 
+                    "description": f"Posterior covariance matrix for fold changes between {condition1} and {condition2}"
+                }
+                
+                # Add to current_run_info
+                current_run_info["posterior_covariance_key"] = posterior_cov_key
         
         # Process groups and perform subset-specific analyses if groups are provided
         group_results = {}

@@ -224,6 +224,9 @@ def generate_output_field_names(
         })
         field_names["sample_variance_impacted_fields"] = sample_variance_impacted
 
+        # Add posterior covariance key - specific to the condition pair
+        field_names["posterior_covariance_key"] = f"{result_key}_posterior_covariance_{cond1_safe}_to_{cond2_safe}"
+        
         # Generate all_patterns for DE
         field_names["all_patterns"] = {
             "var": [
@@ -237,6 +240,9 @@ def generate_output_field_names(
                 field_names["imputed_key_2"],        # Not impacted by sample variance
                 field_names["fold_change_key"],      # Not impacted by sample variance
                 field_names["fold_change_zscores_key"] # Impacted by sample variance
+            ],
+            "obsp": [
+                field_names["posterior_covariance_key"] # Not impacted by sample variance
             ]
         }
         
@@ -398,6 +404,8 @@ def detect_output_field_overwrite(
             overwritten_fields.append(f"obsm.{field}")
         elif location == "varm" and field in adata.varm:
             overwritten_fields.append(f"varm.{field}")
+        elif location == "obsp" and field in adata.obsp:
+            overwritten_fields.append(f"obsp.{field}")
     
     # Also check if the result_key is already in use
     if result_key is not None:
