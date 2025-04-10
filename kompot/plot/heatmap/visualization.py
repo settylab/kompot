@@ -362,7 +362,7 @@ def _draw_split_dot_cell(
     ax.add_patch(left_half)
     ax.add_patch(right_half)
 
-def _draw_fold_change_cell(ax, x, y, w, h, val1, val2, cmap, vmin, vmax, alpha=1.0, edgecolor="none", linewidth=0):
+def _draw_fold_change_cell(ax, x, y, w, h, lfc, cmap, vmin, vmax, alpha=1.0, edgecolor="none", linewidth=0):
     """
     Draw a cell colored by the fold change between two values.
 
@@ -374,10 +374,8 @@ def _draw_fold_change_cell(ax, x, y, w, h, val1, val2, cmap, vmin, vmax, alpha=1
         The bottom-left coordinates of the cell
     w, h : float
         The width and height of the cell
-    val1 : float
-        The value for the first condition, or the pre-calculated fold change value
-    val2 : float
-        The value for the second condition (not used if val1 is the fold change)
+    lfc : float
+        The log fold change value
     cmap : str or colormap
         The colormap to use
     vmin, vmax : float
@@ -393,25 +391,16 @@ def _draw_fold_change_cell(ax, x, y, w, h, val1, val2, cmap, vmin, vmax, alpha=1
     if ax is None or not hasattr(ax, 'add_patch'):
         raise ValueError("ax must be a valid matplotlib Axes object with add_patch method")
     
-    # Check if val1 is a string and convert to proper format
-    # This addresses the 'str' object has no attribute 'append' error
-    if isinstance(val1, str):
+    if isinstance(lfc, str):
         try:
             # Try to convert string to float
-            val1 = float(val1)
+            lfc = float(lfc)
         except ValueError:
             # If can't convert, use NaN
-            val1 = np.nan
-
-    # Handle val2 similarly if it's a string
-    if isinstance(val2, str):
-        try:
-            val2 = float(val2)
-        except ValueError:
-            val2 = np.nan
+            lfc = np.nan
     
     # Check if the value is NaN
-    if np.isnan(val1):
+    if np.isnan(lfc):
         # Use a very light gray for NaN
         facecolor = (0.9, 0.9, 0.9, 0.5)  # Light gray with transparency
     else:
@@ -429,8 +418,8 @@ def _draw_fold_change_cell(ax, x, y, w, h, val1, val2, cmap, vmin, vmax, alpha=1
         else:
             cmap_obj = cmap  # Already a colormap object
         
-        # Use val1 directly as the fold change (pre-computed)
-        fold_change = val1
+        # Use lfc directly as the fold change (pre-computed)
+        fold_change = lfc
         facecolor = cmap_obj(norm(fold_change))
 
     # Create a rectangle for the cell

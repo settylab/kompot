@@ -1,5 +1,6 @@
 """Core heatmap plotting functions."""
 
+from collections import namedtuple
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
@@ -62,6 +63,7 @@ def heatmap(
     vmax: Optional[Union[float, str]] = None,
     ax: Optional[plt.Axes] = None,
     return_fig: bool = False,
+    return_data: bool = False,
     save: Optional[str] = None,
     run_id: Optional[int] = None,
     condition_column: Optional[str] = None,
@@ -203,6 +205,8 @@ def heatmap(
         Axes to plot on. If None, creates new figure
     return_fig : bool, optional
         If True, returns the figure and axes
+    return_data : bool, optional
+        If True, returns the expression means and fold-changes used for the heatmap
     save : str, optional
         Path to save figure. If None, figure is not saved
     run_id : int, optional
@@ -1013,11 +1017,9 @@ def heatmap(
             if fold_change_mode:
                 # For fold change mode, use the pre-computed fold change value
                 fc_val = fold_changes.iloc[i, j]
-                # Pass the same value for both val1 and val2 since we're only 
-                # using the fold change value and not computing it in the drawing function
                 _draw_fold_change_cell(
                     ax, j, i, cell_width, cell_height, 
-                    fc_val, fc_val, cmap_obj, vmin, vmax, 
+                    fc_val, cmap_obj, vmin, vmax, 
                     edgecolor='none', linewidth=0, **kwargs
                 )
             elif split_dot_mode:
@@ -1639,9 +1641,23 @@ def heatmap(
     if save:
         plt.savefig(save, dpi=300, bbox_inches="tight")
 
-    # Return figure and axes if requested
-    if return_fig:
+    # Define named tuples for return values
+    HeatmapResult = namedtuple("HeatmapResult", ["fig", "ax", "dendrogram_axes", "cond1_means", "cond2_means", "fold_changes"])
+    DataResult = namedtuple("DataResult", ["cond1_means", "cond2_means", "fold_changes"])
+
+    # Ensure fold_changes is only included if fold_change_mode is True
+    fold_changes_result = fold_changes if fold_change_mode else None
+
+    # Return figure, axes, and data if requested
+    if return_fig and return_data:
         if dendrogram and len(dendrogram_axes) > 0:
-            return fig, ax, dendrogram_axes
+            return HeatmapResult(fig, ax, dendrogram_axes, cond1_means, cond2_means, fold_changes_result)
         else:
-            return fig, ax
+            return HeatmapResult(fig, ax, None, cond1_means, cond2_means, fold_changes_result)
+    elif return_fig:
+        if dendrogram and len(dendrogram_axes) > 0:
+            return HeatmapResult(fig, ax, dendrogram_axes, None, None, None)
+        else:
+            return HeatmapResult(fig, ax, None, None, None, None)
+    elif return_data:
+        return DataResult(cond1_means, cond2_means, fold_changes_result)
