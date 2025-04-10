@@ -62,6 +62,7 @@ def heatmap(
     vmin: Optional[Union[float, str]] = None,
     vmax: Optional[Union[float, str]] = None,
     ax: Optional[plt.Axes] = None,
+    draw_values: bool = False,
     return_fig: bool = False,
     return_data: bool = False,
     save: Optional[str] = None,
@@ -203,6 +204,8 @@ def heatmap(
         Can be specified as a percentile using 'p<number>' format (e.g., 'p95' for 95th percentile).
     ax : matplotlib.axes.Axes, optional
         Axes to plot on. If None, creates new figure
+    draw_values : bool
+        Whether to draw the values in the heatmap cells. Default is False.
     return_fig : bool, optional
         If True, returns the figure and axes
     return_data : bool, optional
@@ -856,12 +859,10 @@ def heatmap(
                 # Continue without reordering
 
     # Calculate fold changes before any scaling if in fold_change_mode
-    if fold_change_mode:
-        # Store original values before any scaling - fold changes should not be z-scored
-        fold_changes = cond2_means - cond1_means
-        
-        # Log the action for clarity
-        logger.info("Computing fold changes between conditions for fold_change_mode")
+    fold_changes = cond2_means - cond1_means
+    fold_changes = fold_changes.T
+    fold_changes = fold_changes.iloc[::-1]
+
 
     # Clear existing content from the axes
     ax.clear()
@@ -870,18 +871,10 @@ def heatmap(
     cond1_means = cond1_means.T
     cond2_means = cond2_means.T
     
-    # If we're in fold_change_mode, also transpose the fold changes
-    if fold_change_mode:
-        fold_changes = fold_changes.T
-    
     # Reverse the row order so genes appear in the correct order when plotted 
     # (since matplotlib plots from bottom to top on the y-axis)
     cond1_means = cond1_means.iloc[::-1]
     cond2_means = cond2_means.iloc[::-1]
-    
-    # Also reverse fold changes if in fold_change_mode
-    if fold_change_mode:
-        fold_changes = fold_changes.iloc[::-1]
 
     # Calculate min/max for colormap
     if fold_change_mode:
@@ -1020,7 +1013,8 @@ def heatmap(
                 _draw_fold_change_cell(
                     ax, j, i, cell_width, cell_height, 
                     fc_val, cmap_obj, vmin, vmax, 
-                    edgecolor='none', linewidth=0, **kwargs
+                    edgecolor='none', linewidth=0,
+                    draw_values=draw_values, **kwargs
                 )
             elif split_dot_mode:
                 # For split dot mode, get the cell counts for this group
@@ -1033,13 +1027,15 @@ def heatmap(
                     val1, val2, cmap_obj, vmin, vmax,
                     cell_count1=count1, cell_count2=count2,
                     global_max_count=global_max_count,
-                    edgecolor='none', linewidth=0, **kwargs
+                    edgecolor='none', linewidth=0,
+                    draw_values=draw_values, **kwargs
                 )
             else:
                 _draw_diagonal_split_cell(
                     ax, j, i, cell_width, cell_height, 
                     val1, val2, cmap_obj, vmin, vmax, 
-                    edgecolor='none', linewidth=0, **kwargs
+                    edgecolor='none', linewidth=0,
+                    draw_values=draw_values, **kwargs
                 )
 
     # Configure axis limits to show all cells
@@ -1641,23 +1637,29 @@ def heatmap(
     if save:
         plt.savefig(save, dpi=300, bbox_inches="tight")
 
-    # Define named tuples for return values
-    HeatmapResult = namedtuple("HeatmapResult", ["fig", "ax", "dendrogram_axes", "cond1_means", "cond2_means", "fold_changes"])
-    DataResult = namedtuple("DataResult", ["cond1_means", "cond2_means", "fold_changes"])
+    # Define a single namedtuple to capture all possible outputs.
+    HeatmapResult = namedtuple("HeatmapResult", [
+        "fig", "ax", "dendrogram_axes", "cond1_means", "cond2_means", "fold_changes"
+    ])
 
-    # Ensure fold_changes is only included if fold_change_mode is True
-    fold_changes_result = fold_changes if fold_change_mode else None
+    # Early exit: if neither figure nor data is requested, return nothing.
+    if not (return_fig or return_data):
+        return
 
-    # Return figure, axes, and data if requested
-    if return_fig and return_data:
-        if dendrogram and len(dendrogram_axes) > 0:
-            return HeatmapResult(fig, ax, dendrogram_axes, cond1_means, cond2_means, fold_changes_result)
-        else:
-            return HeatmapResult(fig, ax, None, cond1_means, cond2_means, fold_changes_result)
-    elif return_fig:
-        if dendrogram and len(dendrogram_axes) > 0:
-            return HeatmapResult(fig, ax, dendrogram_axes, None, None, None)
-        else:
-            return HeatmapResult(fig, ax, None, None, None, None)
-    elif return_data:
-        return DataResult(cond1_means, cond2_means, fold_changes_result)
+    # Set the results based on requested outputs.
+    result_fig = fig if return_fig else None
+    result_ax = ax if return_fig else None
+    result_dendrogram_axes = dendrogram_axes if (return_fig and dendrogram and len(dendrogram_axes) > 0) else None
+    result_cond1_means = cond1_means if return_data else None
+    result_cond2_means = cond2_means if return_data else None
+    result_fold_changes = fold_changes if (return_data and fold_change_mode) else None
+
+    # Return the unified result.
+    return HeatmapResult(
+        result_fig,
+        result_ax,
+        result_dendrogram_axes,
+        result_cond1_means,
+        result_cond2_means,
+        result_fold_changes
+    )
