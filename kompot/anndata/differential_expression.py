@@ -775,9 +775,19 @@ def compute_differential_expression(
             
             # Fill in the values for the cells that were included in the analysis
             filtered_indices = np.where(filter_mask)[0]
-            for i, row_idx in enumerate(filtered_indices):
-                for j, col_idx in enumerate(filtered_indices):
-                    full_covariance[row_idx, col_idx] = posterior_covariance[i, j]
+            
+            # Check shapes to ensure compatibility
+            n_filtered = len(filtered_indices)
+            if posterior_covariance.shape != (n_filtered, n_filtered):
+                logger.warning(f"Shape mismatch: posterior_covariance {posterior_covariance.shape} vs expected ({n_filtered}, {n_filtered})")
+                # Fall back to loop-based assignment which is safer
+                for i, row_idx in enumerate(filtered_indices):
+                    for j, col_idx in enumerate(filtered_indices):
+                        full_covariance[row_idx, col_idx] = posterior_covariance[i, j]
+            else:
+                # Use vectorized assignment when shapes match
+                for i, row_idx in enumerate(filtered_indices):
+                    full_covariance[row_idx, filtered_indices] = posterior_covariance[i]
             
             # Store in obsp
             adata.obsp[posterior_cov_key] = full_covariance
@@ -1068,8 +1078,8 @@ def compute_differential_expression(
             for col, values in existing_columns.items():
                 if len(values.index) == len(selected_genes):
                     # This is a Series with only selected_genes - update only those rows
-                    for gene in values.index:
-                        adata.var.loc[gene, col] = values[gene]
+                    # Vectorized update using loc with a list of genes
+                    adata.var.loc[values.index, col] = values
                 else:
                     # This is a full Series - should not happen with our changes, but just in case
                     adata.var[col] = values
@@ -1150,9 +1160,12 @@ def compute_differential_expression(
                         shape = (adata.shape[0], adata.shape[1])
                         adata.layers[field_names["std_key_2"]] = np.zeros(shape)
                 
-                # Map the values to the correct positions, only for selected genes
-                for i, gene in enumerate(selected_genes):
-                    gene_idx = list(adata.var_names).index(gene)
+                # Create a mapping from selected gene indices to var_names indices for faster lookup
+                gene_indices = np.array([adata.var_names.get_loc(gene) for gene in selected_genes])
+                
+                # Use vectorized operations for bulk assignment where possible
+                # For sparse matrices we need to do this column by column
+                for i, gene_idx in enumerate(gene_indices):
                     adata.layers[imputed1_key][:, gene_idx] = condition1_imputed[:, i]
                     adata.layers[imputed2_key][:, gene_idx] = condition2_imputed[:, i]
                     adata.layers[fold_change_key][:, gene_idx] = fold_change[:, i]
@@ -1218,13 +1231,14 @@ def compute_differential_expression(
                 fold_change_layer = np.full(adata.shape, np.nan)
                 fold_change_zscores_layer = np.full(adata.shape, np.nan)
                 
-                # Assign values only to filtered cells
+                # Assign values only to filtered cells - vectorized approach
                 filtered_indices = np.where(filter_mask)[0]
-                for i, cell_idx in enumerate(filtered_indices):
-                    imputed1_layer[cell_idx] = condition1_imputed[i]
-                    imputed2_layer[cell_idx] = condition2_imputed[i]
-                    fold_change_layer[cell_idx] = fold_change[i]
-                    fold_change_zscores_layer[cell_idx] = fold_change_zscores[i]
+                
+                # Vectorized assignment using advanced indexing
+                imputed1_layer[filtered_indices] = condition1_imputed
+                imputed2_layer[filtered_indices] = condition2_imputed
+                fold_change_layer[filtered_indices] = fold_change
+                fold_change_zscores_layer[filtered_indices] = fold_change_zscores
                 
                 # Store in adata.layers
                 adata.layers[imputed1_key] = imputed1_layer
