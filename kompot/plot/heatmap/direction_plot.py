@@ -154,6 +154,7 @@ def direction_barplot(
     stacked: bool = True,
     sort_by: Optional[str] = None,
     ascending: bool = False,
+    category_order: Optional[List[str]] = None,
     ax: Optional[plt.Axes] = None,
     return_fig: bool = False,
     save: Optional[str] = None,
@@ -204,7 +205,9 @@ def direction_barplot(
     sort_by : str, optional
         Direction category to sort by (e.g., "up", "down"). If None, uses the order in the data
     ascending : bool, optional
-        Whether to sort in ascending order
+        Whether to sort in ascending order.
+    category_order : list of str, optional
+        Specific categories and their order to display. Defaults to data order.
     ax : matplotlib.axes.Axes, optional
         Axes to plot on. If None, creates new figure
     return_fig : bool, optional
@@ -294,6 +297,13 @@ def direction_barplot(
     # Convert to percentages if normalized by index
     if normalize == "index":
         crosstab = crosstab * 100
+
+    if category_order is not None:
+        missing = [c for c in category_order if c not in crosstab.index]
+        if missing:
+            logger.warning(f"Missing categories in data: {missing}")
+        # Reindex rows, fill missing with zeros
+        crosstab = crosstab.reindex(category_order).fillna(0)
 
     # Reorder columns to have neutral at the top of the stack
     if "neutral" in crosstab.columns and len(crosstab.columns) > 1:
