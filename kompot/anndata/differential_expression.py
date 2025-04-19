@@ -247,8 +247,6 @@ def compute_differential_expression(
     
     - adata.var[f"{result_key}_mahalanobis"]: Mahalanobis distance for each gene
     - adata.var[f"{result_key}_weighted_lfc"]: Weighted mean log fold change for each gene
-    - adata.var[f"{result_key}_lfc_std"]: Standard deviation of log fold change for each gene
-    - adata.var[f"{result_key}_bidirectionality"]: Bidirectionality score for each gene
     - adata.layers[f"{result_key}_condition1_imputed"]: Imputed expression for condition 1
     - adata.layers[f"{result_key}_condition2_imputed"]: Imputed expression for condition 2
     - adata.layers[f"{result_key}_fold_change"]: Log fold change for each cell and gene
@@ -370,13 +368,13 @@ def compute_differential_expression(
                     if current_sample_var and params_match:
                         message += (f" Fields that will be overwritten: {field_list}. "
                                    f"Note: Only fields NOT affected by sample variance (like mean_log_fold_change, "
-                                   f"bidirectionality, imputed data, fold_change) will be overwritten since they "
+                                   f"imputed data, fold_change) will be overwritten since they "
                                    f"don't use the sample variance suffix. These results will likely be identical "
                                    f"if other parameters haven't changed.")
                     elif current_sample_var:
                         message += (f" Fields that will be overwritten: {field_list}. "
                                    f"Note: Only fields NOT affected by sample variance (like mean_log_fold_change, "
-                                   f"bidirectionality, imputed data, fold_change) will be overwritten since they "
+                                   f"imputed data, fold_change) will be overwritten since they "
                                    f"don't use the sample variance suffix.")
                     else:
                         message += (f" Fields that will be overwritten: {field_list}. "
@@ -829,8 +827,6 @@ def compute_differential_expression(
     
     # Create result dictionary
     result_dict = {
-        "lfc_stds": expression_results['lfc_stds'],
-        "bidirectionality": expression_results['bidirectionality'],
         "mean_log_fold_change": expression_results['mean_log_fold_change'],
         "condition1_imputed": expression_results['condition1_imputed'],
         "condition2_imputed": expression_results['condition2_imputed'],
@@ -986,79 +982,6 @@ def compute_differential_expression(
             new_var_columns[mean_lfc_column] = pd.Series(np.nan, index=adata.var_names)
             new_var_columns[mean_lfc_column].loc[selected_genes] = mean_lfc
         
-        # Standard deviation of log fold change - this IS impacted by sample variance
-        lfc_std_key = field_names["lfc_std_key"]
-        
-        # Extract and verify lfc_stds
-        lfc_stds = expression_results['lfc_stds']
-        # Convert list to numpy array if needed
-        if isinstance(lfc_stds, list):
-            lfc_stds = np.array(lfc_stds)
-        
-        # Ensure lfc_stds is 1D before reshaping
-        if len(lfc_stds.shape) > 1:
-            logger.warning(f"lfc_stds has shape {lfc_stds.shape}, flattening to 1D.")
-            # Take the first row if it's a 2D array
-            if lfc_stds.shape[0] < lfc_stds.shape[1]:
-                lfc_stds = lfc_stds[0]  # Take first row if more columns than rows
-            else:
-                lfc_stds = lfc_stds[:, 0]  # Take first column otherwise
-            
-        if len(lfc_stds) != len(selected_genes):
-            logger.warning(f"lfc_stds length {len(lfc_stds)} doesn't match selected_genes length {len(selected_genes)}. Reshaping.")
-            if len(lfc_stds) < len(selected_genes):
-                # Pad with NaNs if the array is too short
-                padding = np.full(len(selected_genes) - len(lfc_stds), np.nan)
-                lfc_stds = np.concatenate([lfc_stds, padding])
-            else:
-                # Truncate if the array is too long
-                lfc_stds = lfc_stds[:len(selected_genes)]
-        
-        # Add to collection for batch addition
-        if lfc_std_key in adata.var:
-            # Only create a series for selected genes to avoid overwriting existing values
-            new_var_columns[lfc_std_key] = pd.Series(lfc_stds, index=selected_genes)
-        else:
-            # Initialize with NaN for all genes if column doesn't exist yet
-            new_var_columns[lfc_std_key] = pd.Series(np.nan, index=adata.var_names)
-            new_var_columns[lfc_std_key].loc[selected_genes] = lfc_stds
-        
-        # Bidirectionality score - NOT impacted by sample variance
-        bidir_key = field_names["bidirectionality_key"]
-        
-        # Extract and verify bidirectionality
-        bidirectionality = expression_results['bidirectionality']
-        # Convert list to numpy array if needed
-        if isinstance(bidirectionality, list):
-            bidirectionality = np.array(bidirectionality)
-        
-        # Ensure bidirectionality is 1D before reshaping
-        if len(bidirectionality.shape) > 1:
-            logger.warning(f"bidirectionality has shape {bidirectionality.shape}, flattening to 1D.")
-            # Take the first row if it's a 2D array
-            if bidirectionality.shape[0] < bidirectionality.shape[1]:
-                bidirectionality = bidirectionality[0]  # Take first row if more columns than rows
-            else:
-                bidirectionality = bidirectionality[:, 0]  # Take first column otherwise
-            
-        if len(bidirectionality) != len(selected_genes):
-            logger.warning(f"bidirectionality length {len(bidirectionality)} doesn't match selected_genes length {len(selected_genes)}. Reshaping.")
-            if len(bidirectionality) < len(selected_genes):
-                # Pad with NaNs if the array is too short
-                padding = np.full(len(selected_genes) - len(bidirectionality), np.nan)
-                bidirectionality = np.concatenate([bidirectionality, padding])
-            else:
-                # Truncate if the array is too long
-                bidirectionality = bidirectionality[:len(selected_genes)]
-        
-        # Add to collection for batch addition
-        if bidir_key in adata.var:
-            # Only create a series for selected genes to avoid overwriting existing values
-            new_var_columns[bidir_key] = pd.Series(bidirectionality, index=selected_genes)
-        else:
-            # Initialize with NaN for all genes if column doesn't exist yet
-            new_var_columns[bidir_key] = pd.Series(np.nan, index=adata.var_names)
-            new_var_columns[bidir_key].loc[selected_genes] = bidirectionality
         
         # Add all columns to adata.var at once to prevent dataframe fragmentation
         if new_var_columns:
@@ -1309,8 +1232,6 @@ def compute_differential_expression(
             "lfc_key": field_names["mean_lfc_key"],
             "weighted_lfc_key": field_names["weighted_lfc_key"] if differential_abundance_key is not None else None,
             "mahalanobis_key": field_names["mahalanobis_key"] if compute_mahalanobis else None,
-            "lfc_std_key": field_names["lfc_std_key"],
-            "bidirectionality_key": field_names["bidirectionality_key"],
             "imputed_layer_keys": {
                 "condition1": field_names["imputed_key_1"],
                 "condition2": field_names["imputed_key_2"],
@@ -1336,8 +1257,6 @@ def compute_differential_expression(
         field_mapping = {
             # Var fields
             field_names["mean_lfc_key"]: {"location": "var", "type": "mean_log_fold_change", "description": "Mean log fold change values"},
-            field_names["lfc_std_key"]: {"location": "var", "type": "log_fold_change_std", "description": "Standard deviation of log fold changes"},
-            field_names["bidirectionality_key"]: {"location": "var", "type": "bidirectionality", "description": "Bidirectionality scores"},
             
             # Layer fields
             field_names["imputed_key_1"]: {"location": "layers", "type": "imputed", "description": f"Imputed expression for {condition1}"},

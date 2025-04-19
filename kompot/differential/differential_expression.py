@@ -639,8 +639,6 @@ class DifferentialExpression:
             - 'condition1_std': Posterior standard deviation for condition 1
             - 'condition2_std': Posterior standard deviation for condition 2
             - 'fold_change': Fold change between conditions
-            - 'lfc_stds': Z-scores for the fold changes
-            - 'bidirectionality': Bidirectionality scores
             - 'mean_log_fold_change': Mean log fold change across all cells
             - 'mahalanobis_distances': Only if compute_mahalanobis is True
         """
@@ -723,9 +721,6 @@ class DifferentialExpression:
         # Compute fold change
         fold_change = condition2_imputed - condition1_imputed
         
-        # Compute fold change statistics
-        lfc_stds = np.std(fold_change, axis=0)
-        
         # Ensure uncertainties have the right shape for broadcasting
         if len(condition1_uncertainty.shape) == 1:
             # Reshape to (n_samples, 1) for broadcasting with fold_change
@@ -756,12 +751,6 @@ class DifferentialExpression:
         if self.use_sample_variance:
             total_variance = total_variance + condition1_sample_variance + condition2_sample_variance
         
-        # Compute bidirectionality
-        bidirectionality = np.minimum(
-            np.quantile(fold_change, 0.95, axis=0),
-            -np.quantile(fold_change, 0.05, axis=0)
-        )
-        
         # Compute mean log fold change
         mean_log_fold_change = np.mean(fold_change, axis=0)
 
@@ -778,8 +767,6 @@ class DifferentialExpression:
             'fold_change': fold_change,
             'fold_change_zscores': fold_change_zscores,
             'mean_log_fold_change': mean_log_fold_change,
-            'lfc_stds': lfc_stds,
-            'bidirectionality': bidirectionality
         }
         
         # Compute Mahalanobis distances if requested
