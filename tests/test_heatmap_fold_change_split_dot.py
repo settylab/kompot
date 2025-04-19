@@ -98,8 +98,7 @@ class TestHeatmapVisualizationFunctions:
             y=0,
             w=1,
             h=1,
-            val1=1.0,  # This is the fold change value
-            val2=None, # Not used in fold change mode
+            lfc=1.0,  # This is the fold change value
             cmap='RdBu_r',
             vmin=-2,
             vmax=2
@@ -112,8 +111,7 @@ class TestHeatmapVisualizationFunctions:
             y=0,
             w=1,
             h=1,
-            val1=np.nan,
-            val2=None,
+            lfc=np.nan,
             cmap='RdBu_r',
             vmin=-2,
             vmax=2
@@ -126,8 +124,7 @@ class TestHeatmapVisualizationFunctions:
             y=1,
             w=1,
             h=1,
-            val1=5.0,  # Above vmax
-            val2=None,
+            lfc=5.0,  # Above vmax
             cmap='RdBu_r',
             vmin=-2,
             vmax=2
@@ -141,8 +138,7 @@ class TestHeatmapVisualizationFunctions:
             y=1,
             w=1,
             h=1,
-            val1=-5.0,  # Below vmin
-            val2=None,
+            lfc=-5.0,  # Below vmin
             cmap=custom_cmap,
             vmin=-2,
             vmax=2
@@ -415,8 +411,9 @@ class TestHeatmapWithFoldChangeMode:
         
         # Check that it works and returns dendrogram axes
         assert result is not None
-        assert isinstance(result, tuple) and len(result) >= 3
-        fig, ax, dendrogram_axes = result
+        assert isinstance(result, tuple)
+        # Handle unpacking based on namedtuple pattern
+        fig, ax, dendrogram_axes = result[:3]
         
         # Check that dendrograms were created
         assert 'row' in dendrogram_axes or 'col' in dendrogram_axes

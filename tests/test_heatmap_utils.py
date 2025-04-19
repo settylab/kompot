@@ -240,8 +240,7 @@ class TestHeatmapVisualization:
             y=0,
             w=1,
             h=1,
-            val1=1.0,
-            val2=3.0,
+            lfc=1.0,
             cmap='RdBu_r',
             vmin=-2,
             vmax=2
@@ -254,8 +253,7 @@ class TestHeatmapVisualization:
             y=0,
             w=1,
             h=1,
-            val1=np.nan,
-            val2=3.0,
+            lfc=np.nan,
             cmap='RdBu_r',
             vmin=-2,
             vmax=2
@@ -269,8 +267,7 @@ class TestHeatmapVisualization:
             y=1,
             w=1,
             h=1,
-            val1=1.0,
-            val2=3.0,
+            lfc=1.0,
             cmap=custom_cmap,
             vmin=-2,
             vmax=2
