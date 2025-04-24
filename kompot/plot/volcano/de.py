@@ -211,9 +211,9 @@ def volcano_de(
             run_info = get_run_from_history(adata, run_id, analysis_type="de")
             if run_info is not None and 'params' in run_info:
                 params = run_info['params']
-                if 'conditions' in params and len(params['conditions']) == 2:
-                    condition1 = params['conditions'][0]
-                    condition2 = params['conditions'][1]
+                if 'condition1' in params and 'condition2' in params:
+                    condition1 = params['condition1']
+                    condition2 = params['condition2']
     
     # Log which run and fields are being used
     conditions_str = f": comparing {condition1} to {condition2}" if condition1 and condition2 else ""

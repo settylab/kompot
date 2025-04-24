@@ -235,9 +235,9 @@ def plot_gene_expression(
             # If not in key, try getting from run info
             if run_info is not None and 'params' in run_info:
                 params = run_info['params']
-                if 'conditions' in params and len(params['conditions']) == 2:
-                    condition1 = params['conditions'][0]
-                    condition2 = params['conditions'][1]
+                if 'condition1' in params and 'condition2' in params:
+                    condition1 = params['condition1']
+                    condition2 = params['condition2']
         
         # If still none, provide defaults
         if condition1 is None:
