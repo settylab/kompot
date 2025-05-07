@@ -83,7 +83,8 @@ def _draw_diagonal_split_cell(
     alpha=1.0,
     edgecolor="none",
     linewidth=0,
-    draw_values=False
+    draw_values=False,
+    norm=None
 ):
     """
     Draw a cell split diagonally with two different values, and optionally display these values.
@@ -112,6 +113,8 @@ def _draw_diagonal_split_cell(
         The width of the cell border.
     draw_values : bool, optional
         If True, draw the corresponding numerical values on each triangle for debugging.
+    norm : matplotlib.colors.Normalize, optional
+        Normalization to use. If None, a standard Normalize will be created.
     """
     # Ensure ax is a valid axis object before proceeding
     if ax is None or not hasattr(ax, 'add_patch'):
@@ -131,8 +134,11 @@ def _draw_diagonal_split_cell(
         except ValueError:
             val2 = np.nan
             
-    # Normalize values and get a colormap object
-    norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
+    # Use provided norm or create a standard one
+    if norm is None:
+        norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
+        
+    # Get colormap object
     if isinstance(cmap, str):
         try:
             cmap_obj = plt.colormaps[cmap]
@@ -205,7 +211,8 @@ def _draw_split_dot_cell(
     alpha=1.0, 
     edgecolor="none", 
     linewidth=0,
-    draw_values=False
+    draw_values=False,
+    norm=None
 ):
     """
     Draw a cell with a split dot showing two different values, with dot halves sized
@@ -243,6 +250,8 @@ def _draw_split_dot_cell(
         The width of the dot border.
     draw_values : bool, optional
         If True, draw the corresponding numerical values on the left and right halves for debugging.
+    norm : matplotlib.colors.Normalize, optional
+        Normalization to use. If None, a standard Normalize will be created.
     """
     # Ensure ax is a valid axis object before proceeding
     if ax is None or not hasattr(ax, 'add_patch'):
@@ -281,8 +290,11 @@ def _draw_split_dot_cell(
         except ValueError:
             global_max_count = None
             
-    # Normalize values and get colormap object
-    norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
+    # Use provided norm or create a standard one
+    if norm is None:
+        norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
+        
+    # Get colormap object
     if isinstance(cmap, str):
         try:
             cmap_obj = plt.colormaps[cmap]
@@ -365,7 +377,7 @@ def _draw_split_dot_cell(
                 ha="center", va="center", fontsize=8,
                 bbox=dict(facecolor='white', edgecolor='none', pad=1, alpha=0.7))
 
-def _draw_fold_change_cell(ax, x, y, w, h, lfc, cmap, vmin, vmax, alpha=1.0, edgecolor="none", linewidth=0, draw_values=False):
+def _draw_fold_change_cell(ax, x, y, w, h, lfc, cmap, vmin, vmax, alpha=1.0, edgecolor="none", linewidth=0, draw_values=False, norm=None):
     """
     Draw a cell colored by the fold change between two values and optionally display the value.
 
@@ -391,6 +403,8 @@ def _draw_fold_change_cell(ax, x, y, w, h, lfc, cmap, vmin, vmax, alpha=1.0, edg
         The width of the cell border.
     draw_values : bool, optional
         If True, draw the fold change value at the center of the cell for debugging.
+    norm : matplotlib.colors.Normalize, optional
+        Normalization to use. If None, a standard Normalize will be created.
     """
     # Ensure ax is a valid axis object before proceeding
     if ax is None or not hasattr(ax, 'add_patch'):
@@ -409,8 +423,10 @@ def _draw_fold_change_cell(ax, x, y, w, h, lfc, cmap, vmin, vmax, alpha=1.0, edg
         # Use a very light gray for NaN
         facecolor = (0.9, 0.9, 0.9, 0.5)  # Light gray with transparency
     else:
-        # Normalize and map the lfc to a color
-        norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
+        # Use provided norm or create a standard one
+        if norm is None:
+            norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
+            
         # Get colormap object if cmap is a string, falling back if necessary
         if isinstance(cmap, str):
             try:

@@ -1014,7 +1014,7 @@ def heatmap(
                     ax, j, i, cell_width, cell_height, 
                     fc_val, cmap_obj, vmin, vmax, 
                     edgecolor='none', linewidth=0,
-                    draw_values=draw_values, **kwargs
+                    draw_values=draw_values, norm=norm, **kwargs
                 )
             elif split_dot_mode:
                 # For split dot mode, get the cell counts for this group
@@ -1028,14 +1028,14 @@ def heatmap(
                     cell_count1=count1, cell_count2=count2,
                     global_max_count=global_max_count,
                     edgecolor='none', linewidth=0,
-                    draw_values=draw_values, **kwargs
+                    draw_values=draw_values, norm=norm, **kwargs
                 )
             else:
                 _draw_diagonal_split_cell(
                     ax, j, i, cell_width, cell_height, 
                     val1, val2, cmap_obj, vmin, vmax, 
                     edgecolor='none', linewidth=0,
-                    draw_values=draw_values, **kwargs
+                    draw_values=draw_values, norm=norm, **kwargs
                 )
 
     # Configure axis limits to show all cells
