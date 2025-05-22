@@ -218,7 +218,6 @@ def volcano_de(
     # Log which run and fields are being used
     conditions_str = f": comparing {condition1} to {condition2}" if condition1 and condition2 else ""
     logger.info(f"Using DE run {actual_run_id}{conditions_str}")
-    logger.info(f"Using fields for DE plot - lfc_key: '{lfc_key}', score_key: '{score_key}'")
     
     # Update axis labels
     if condition1 and condition2 and xlabel == "Log Fold Change":
@@ -278,6 +277,7 @@ def volcano_de(
         
         if lfc_data_available and score_data_available:
             logger.info(f"Using group-specific data for group '{group}' from varm")
+            logger.info(f"Using fields for DE plot - lfc_key: '{lfc_varm_key}', score_key: '{score_varm_key}'")
             x = adata.varm[lfc_varm_key][group].values
             y = adata.varm[score_varm_key][group].values
             
@@ -338,7 +338,8 @@ def volcano_de(
             error_str = " and ".join(error_msg)
             raise ValueError(f"Cannot create volcano plot: {error_str}")
             
-        logger.info(f"Using data columns - lfc: '{lfc_key}', score: '{score_key}'")
+        logger.info(f"Using data columns from var - lfc: '{lfc_key}', score: '{score_key}'")
+        logger.info(f"Using fields for DE plot - lfc_key: '{lfc_key}', score_key: '{score_key}'")
     
     # Create a DataFrame with all relevant information
     data_dict = {
