@@ -39,7 +39,7 @@ def volcano_de(
     vmin: Optional[Union[float, str]] = None,
     vmax: Optional[Union[float, str]] = None,
     vcenter: Optional[float] = None,
-    show_names: bool = True,
+    show_names: Union[bool, List[str]] = True,
     figsize: Tuple[float, float] = (10, 8),
     title: Optional[str] = None,
     xlabel: Optional[str] = "Log Fold Change",
@@ -113,8 +113,10 @@ def volcano_de(
         uses that percentile (e.g., 'p95' for 95th percentile).
     vcenter : float, optional
         Center value for diverging colormaps. If provided with vmin/vmax, ensures proper ordering.
-    show_names : bool, optional
-        Whether to display gene names (default: True)
+    show_names : bool or list of str, optional
+        Whether to display gene names, or a list of specific gene names to annotate.
+        If True, shows names for all highlighted genes. If False, shows no names.
+        If a list, shows names only for genes in the list (default: True)
     figsize : tuple, optional
         Figure size as (width, height) in inches
     title : str, optional
@@ -716,7 +718,7 @@ def volcano_de(
                 )
                 
                 # Add label if requested
-                if show_names:
+                if show_names is True:
                     ax.annotate(
                         gene_name,
                         (gene_row['lfc'], gene_row['score']),
@@ -739,7 +741,7 @@ def volcano_de(
                 )
                 
                 # Add labels if requested
-                if show_names:
+                if show_names is True:
                     for _, gene_row in group_df.iterrows():
                         ax.annotate(
                             gene_row['gene'],
@@ -764,7 +766,7 @@ def volcano_de(
                     )
                     
                     # Add labels if requested
-                    if show_names:
+                    if show_names is True:
                         for _, gene_row in up_genes.iterrows():
                             ax.annotate(
                                 gene_row['gene'],
@@ -785,7 +787,7 @@ def volcano_de(
                     )
                     
                     # Add labels if requested
-                    if show_names:
+                    if show_names is True:
                         for _, gene_row in down_genes.iterrows():
                             ax.annotate(
                                 gene_row['gene'],
@@ -793,6 +795,21 @@ def volcano_de(
                                 fontsize=font_size,
                                 **text_kwargs
                             )
+    
+    # If show_names is a list, label those specific genes
+    if isinstance(show_names, list):
+        genes_to_label = [g for g in show_names if g in adata.var_names]
+        
+        if genes_to_label:
+            # Get data for these genes and add labels
+            genes_df = de_data[de_data['gene'].isin(genes_to_label)]
+            for _, gene_row in genes_df.iterrows():
+                ax.annotate(
+                    gene_row['gene'],
+                    (gene_row['lfc'], gene_row['score']),
+                    fontsize=font_size,
+                    **text_kwargs
+                )
     
     # Create dummy entries for the legend if no highlighted genes
     if len(highlight_groups) == 0 and show_legend:
