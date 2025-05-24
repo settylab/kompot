@@ -9,6 +9,7 @@ import logging
 from scipy.stats import norm as normal
 import mellon
 from mellon.parameters import compute_landmarks
+from tqdm.auto import tqdm
 
 from ..utils import (
     compute_mahalanobis_distance, 
@@ -438,7 +439,9 @@ class DifferentialExpression:
             Explicitly provided landmarks to use instead of automatically detected ones, 
             by default None.
         progress : bool, optional
-            Whether to show progress bars for gene-wise operations, by default True.
+            Whether to show tqdm.auto progress bars during Mahalanobis distance computation. 
+            When True, displays progress bars for gene-wise operations. When False, progress 
+            bars are disabled. Default is True.
             
         Returns
         -------
@@ -536,7 +539,9 @@ class DifferentialExpression:
                                 combined_cov_to_add = np.asarray(combined_cov)
                             else:
                                 combined_cov_to_add = combined_cov
-                            for g in range(combined_variance.shape[2]):
+                            for g in tqdm(range(combined_variance.shape[2]), 
+                                         desc="Processing gene-specific covariance matrices", 
+                                         disable=not progress):
                                 gene_specific_covariance[:, :, g] = combined_variance[:, :, g] + combined_cov_to_add
                             logger.debug(f"Using gene-specific covariance matrices with shape {gene_specific_covariance.shape}")
                         else:
@@ -554,7 +559,9 @@ class DifferentialExpression:
                                 combined_cov_to_add = np.asarray(combined_cov)
                             else:
                                 combined_cov_to_add = combined_cov
-                            for g in range(variance1.shape[2]):
+                            for g in tqdm(range(variance1.shape[2]), 
+                                         desc="Processing gene-specific covariance matrices (variance1)", 
+                                         disable=not progress):
                                 gene_specific_covariance[:, :, g] = variance1[:, :, g] + combined_cov_to_add
                             logger.debug(f"Using gene-specific covariance matrices from variance1 with shape {gene_specific_covariance.shape}")
                         else:
@@ -578,7 +585,9 @@ class DifferentialExpression:
                             combined_cov_to_add = np.asarray(combined_cov)
                         else:
                             combined_cov_to_add = combined_cov
-                        for g in range(variance2.shape[2]):
+                        for g in tqdm(range(variance2.shape[2]), 
+                                     desc="Processing gene-specific covariance matrices (variance2)", 
+                                     disable=not progress):
                             gene_specific_covariance[:, :, g] = variance2[:, :, g] + combined_cov_to_add
                         logger.debug(f"Using gene-specific covariance matrices from variance2 with shape {gene_specific_covariance.shape}")
                     else:
@@ -657,7 +666,10 @@ class DifferentialExpression:
             Whether to compute Mahalanobis distances. This can be computationally expensive,
             so it's optional in the predict method. Default is False.
         progress : bool, optional
-            Whether to show progress bars for gene-wise operations, by default True.
+            Whether to show tqdm.auto progress bars during computation. When True, displays 
+            progress bars for all batch processing operations including prediction, uncertainty 
+            computation, and Mahalanobis distance calculations. When False, all progress bars 
+            are disabled. Default is True.
         use_landmarks : bool, optional
             Whether to use landmarks for Mahalanobis distance calculation if available, by default True.
             Setting to False will force computation using all provided points, which can be more accurate
@@ -719,22 +731,26 @@ class DifferentialExpression:
         # Apply batched processing to each expensive operation
         condition1_imputed = apply_batched(
             predict_condition1, X_new, batch_size=batch_size,
+            show_progress=progress,
             desc="Predicting condition 1" if progress else None
         )
         
         condition2_imputed = apply_batched(
             predict_condition2, X_new, batch_size=batch_size,
+            show_progress=progress,
             desc="Predicting condition 2" if progress else None
         )
         
         # Get uncertainties from function predictors (GP posterior variance)
         condition1_uncertainty = apply_batched(
             get_uncertainty1, X_new, batch_size=batch_size,
+            show_progress=progress,
             desc="Computing uncertainty (condition 1)" if progress else None
         )
         
         condition2_uncertainty = apply_batched(
             get_uncertainty2, X_new, batch_size=batch_size,
+            show_progress=progress,
             desc="Computing uncertainty (condition 2)" if progress else None
         )
         
@@ -743,11 +759,13 @@ class DifferentialExpression:
             # Get sample-specific variances if enabled
             condition1_sample_variance = apply_batched(
                 get_variance1, X_new, batch_size=batch_size,
+                show_progress=progress,
                 desc="Computing sample variance (condition 1)" if progress else None
             )
             
             condition2_sample_variance = apply_batched(
                 get_variance2, X_new, batch_size=batch_size,
+                show_progress=progress,
                 desc="Computing sample variance (condition 2)" if progress else None
             )
         else:

@@ -70,6 +70,7 @@ def compute_differential_expression(
     return_full_results: bool = False,
     store_posterior_covariance: bool = False,
     allow_single_condition_variance: bool = False,
+    progress: bool = True,
     **function_kwargs
 ) -> Union[Dict[str, np.ndarray], Any]:
     """
@@ -233,6 +234,11 @@ def compute_differential_expression(
         not using sample variance (sample_col=None).
         The covariance matrix can be quite large, as it is of shape (n_cells, n_cells), so this
         should be used carefully with large datasets. Default is False.
+    progress : bool, optional
+        Whether to show progress bars during computation. When True, displays tqdm.auto progress 
+        bars for all batch processing operations including prediction, uncertainty computation, 
+        and Mahalanobis distance calculations. When False, all progress bars are disabled. 
+        Default is True.
     **function_kwargs : dict
         Additional arguments to pass to the FunctionEstimator.
         
@@ -753,6 +759,7 @@ def compute_differential_expression(
     expression_results = diff_expression.predict(
         X_for_prediction, 
         compute_mahalanobis=compute_mahalanobis,
+        progress=progress,
     )
     
     # Store posterior covariance matrix in obsp if requested and possible
@@ -1402,7 +1409,7 @@ def compute_differential_expression(
                         subset_results = diff_expression.predict(
                             X_subset,
                             compute_mahalanobis=compute_mahalanobis,
-                            progress=True,  # Show progress for each subset
+                            progress=progress,
                             landmarks_override=subset_landmarks
                         )
                     else:
@@ -1410,7 +1417,7 @@ def compute_differential_expression(
                         subset_results = diff_expression.predict(
                             X_subset,
                             compute_mahalanobis=compute_mahalanobis,
-                            progress=True,  # Show progress for each subset
+                            progress=progress,
                             use_landmarks=False
                         )
                     
