@@ -69,6 +69,7 @@ def compute_differential_expression(
     store_landmarks: bool = False,
     return_full_results: bool = False,
     store_posterior_covariance: bool = False,
+    allow_single_condition_variance: bool = False,
     **function_kwargs
 ) -> Union[Dict[str, np.ndarray], Any]:
     """
@@ -106,6 +107,9 @@ def compute_differential_expression(
         Column name in adata.obs containing sample labels. If provided, these will be used
         to compute sample-specific variance and will automatically enable sample variance
         estimation.
+    allow_single_condition_variance : bool, optional
+        If True, allows variance estimation with only one condition having multiple samples.
+        By default False, which requires both conditions to have multiple samples.
     differential_abundance_key : str, optional
         Key in adata.obs where abundance log-fold changes are stored, by default None.
         Will be used for weighted mean log-fold change computation.
@@ -688,6 +692,7 @@ def compute_differential_expression(
         landmarks=landmarks,
         condition1_sample_indices=condition1_sample_indices,
         condition2_sample_indices=condition2_sample_indices,
+        allow_single_condition_variance=allow_single_condition_variance,
         **function_kwargs
     )
     

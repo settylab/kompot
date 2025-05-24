@@ -159,6 +159,7 @@ class DifferentialAbundance:
         condition2_sample_indices: Optional[np.ndarray] = None,
         sample_estimator_ls: Optional[float] = None,
         sync_parameters: bool = False,
+        allow_single_condition_variance: bool = False,
         **density_kwargs
     ):
         """
@@ -311,41 +312,79 @@ class DifferentialAbundance:
             if sample_estimator_ls is not None:
                 sample_estimator_kwargs['ls'] = sample_estimator_ls
             
-            # Fit variance estimator for condition 1
+            # Fit variance estimators for both conditions, with fallback logic when allow_single_condition_variance=True
+            condition1_variance_estimator = None
+            condition2_variance_estimator = None
+            
+            # Try to fit variance estimator for condition 1
             if condition1_sample_indices is not None:
                 logger.debug("Fitting sample-specific variance estimator for condition 1 using provided indices...")
-                condition1_variance_estimator = SampleVarianceEstimator(
-                    eps=self.eps,
-                    estimator_type='density'
-                )
-                # Set a flag to indicate this estimator is called from DifferentialAbundance
-                condition1_variance_estimator._called_from_differential = True
                 
-                condition1_variance_estimator.fit(
-                    X=X_condition1, 
-                    grouping_vector=condition1_sample_indices,
-                    ls_factor=ls_factor,
-                    estimator_kwargs=sample_estimator_kwargs
-                )
-                self.variance_predictor1 = condition1_variance_estimator.predict
+                try:
+                    condition1_variance_estimator = SampleVarianceEstimator(
+                        eps=self.eps,
+                        estimator_type='density'
+                    )
+                    # Set a flag to indicate this estimator is called from DifferentialAbundance
+                    condition1_variance_estimator._called_from_differential = True
+                    
+                    condition1_variance_estimator.fit(
+                        X=X_condition1, 
+                        grouping_vector=condition1_sample_indices,
+                        ls_factor=ls_factor,
+                        estimator_kwargs=sample_estimator_kwargs
+                    )
+                    self.variance_predictor1 = condition1_variance_estimator.predict
+                    logger.debug("Successfully fitted variance estimator for condition 1")
+                    
+                except ValueError as e:
+                    if allow_single_condition_variance:
+                        logger.info(f"Variance estimation failed for condition 1: {e}. Will use condition 2 variance if available.")
+                        condition1_variance_estimator = None
+                        self.variance_predictor1 = None
+                    else:
+                        raise e
             
-            # Fit variance estimator for condition 2
+            # Try to fit variance estimator for condition 2
             if condition2_sample_indices is not None:
                 logger.debug("Fitting sample-specific variance estimator for condition 2 using provided indices...")
-                condition2_variance_estimator = SampleVarianceEstimator(
-                    eps=self.eps,
-                    estimator_type='density'
-                )
-                # Set a flag to indicate this estimator is called from DifferentialAbundance
-                condition2_variance_estimator._called_from_differential = True
                 
-                condition2_variance_estimator.fit(
-                    X=X_condition2, 
-                    grouping_vector=condition2_sample_indices,
-                    ls_factor=ls_factor,
-                    estimator_kwargs=sample_estimator_kwargs
-                )
-                self.variance_predictor2 = condition2_variance_estimator.predict
+                try:
+                    condition2_variance_estimator = SampleVarianceEstimator(
+                        eps=self.eps,
+                        estimator_type='density'
+                    )
+                    # Set a flag to indicate this estimator is called from DifferentialAbundance
+                    condition2_variance_estimator._called_from_differential = True
+                    
+                    condition2_variance_estimator.fit(
+                        X=X_condition2, 
+                        grouping_vector=condition2_sample_indices,
+                        ls_factor=ls_factor,
+                        estimator_kwargs=sample_estimator_kwargs
+                    )
+                    self.variance_predictor2 = condition2_variance_estimator.predict
+                    logger.debug("Successfully fitted variance estimator for condition 2")
+                    
+                except ValueError as e:
+                    if allow_single_condition_variance:
+                        logger.info(f"Variance estimation failed for condition 2: {e}. Will use condition 1 variance if available.")
+                        condition2_variance_estimator = None
+                        self.variance_predictor2 = None
+                    else:
+                        raise e
+            
+            # Handle single variance fallback when allow_single_condition_variance=True
+            if allow_single_condition_variance and (condition1_variance_estimator is None or condition2_variance_estimator is None):
+                if condition1_variance_estimator is not None and condition2_variance_estimator is None:
+                    logger.info("Using condition 1 variance estimator for both conditions")
+                    self.variance_predictor2 = condition1_variance_estimator.predict
+                elif condition2_variance_estimator is not None and condition1_variance_estimator is None:
+                    logger.info("Using condition 2 variance estimator for both conditions")
+                    self.variance_predictor1 = condition2_variance_estimator.predict
+                elif condition1_variance_estimator is None and condition2_variance_estimator is None:
+                    if condition1_sample_indices is not None or condition2_sample_indices is not None:
+                        raise ValueError("Both variance estimators failed to fit. Cannot proceed with sample variance estimation.")
         
         return self
     

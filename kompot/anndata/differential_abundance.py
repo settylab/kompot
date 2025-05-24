@@ -46,6 +46,7 @@ def compute_differential_abundance(
     overwrite: Optional[bool] = None,
     store_landmarks: bool = False,
     return_full_results: bool = False,
+    allow_single_condition_variance: bool = False,
     **density_kwargs
 ) -> Union[Dict[str, np.ndarray], "AnnData", Tuple[Dict[str, np.ndarray], "AnnData"]]:
     """
@@ -77,6 +78,9 @@ def compute_differential_abundance(
         Column name in adata.obs containing sample labels. If provided, these will be used
         to compute sample-specific variance and will automatically enable sample variance
         estimation.
+    allow_single_condition_variance : bool, optional
+        If True, allows variance estimation with only one condition having multiple samples.
+        By default False, which requires both conditions to have multiple samples.
     log_fold_change_threshold : float, optional
         Threshold for considering a log fold change significant, by default 1.7.
     pvalue_threshold : float, optional
@@ -395,6 +399,7 @@ def compute_differential_abundance(
         ls_factor=ls_factor, 
         condition1_sample_indices=condition1_sample_indices,
         condition2_sample_indices=condition2_sample_indices,
+        allow_single_condition_variance=allow_single_condition_variance,
         **density_kwargs
     )
     
