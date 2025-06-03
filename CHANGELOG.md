@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.2]
+
+ - avoid naming conflict on import
+
 ## [0.4.1]
 
  - avoid absolute imports
