@@ -3,7 +3,7 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-packages = ["kompot"]
+packages = {find = {exclude = ["tests*"]}}
 package-dir = {"" = "."}
 package-data = {"kompot" = ["**/*.png", "**/*.csv", "py.typed", "reporter/templates/*.html", "reporter/templates/css/*.css", "reporter/templates/js/*.js"]}
 include-package-data = true
@@ -23,7 +23,7 @@ ignore = ["E203", "W503"]
 
 [project]
 name = "kompot"
-version = "0.4.2"
+version = "0.4.3"
 description = "Differential abundance and gene expression analysis using Mahalanobis distance with JAX backend"
 readme = "README.md"
 authors = [
