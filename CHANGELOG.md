@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.4.0]
+
  - StringDBReport class for gene set visualization and reporting
  - make sure da directions categories are always retained and ordered correctly
  - more flexible `volcano_de` plot
