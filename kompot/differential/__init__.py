@@ -4,10 +4,10 @@ Differential analysis module for Kompot.
 This module provides classes for differential abundance and expression analysis.
 """
 
-from kompot.differential.differential_abundance import DifferentialAbundance
-from kompot.differential.differential_expression import DifferentialExpression
-from kompot.differential.sample_variance_estimator import SampleVarianceEstimator
-from kompot.differential.utils import compute_weighted_mean_fold_change, update_direction_column
+from .differential_abundance import DifferentialAbundance
+from .differential_expression import DifferentialExpression
+from .sample_variance_estimator import SampleVarianceEstimator
+from .utils import compute_weighted_mean_fold_change, update_direction_column
 
 __all__ = [
     "DifferentialAbundance",

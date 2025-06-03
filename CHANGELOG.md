@@ -2,7 +2,9 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [0.4.1]
+
+ - avoid absolute imports
 
 ## [0.4.0]
 
