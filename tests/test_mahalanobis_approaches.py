@@ -12,7 +12,7 @@ from kompot.utils import (
     compute_mahalanobis_distances,
     compute_mahalanobis_distance
 )
-from kompot.memory_utils import DiskStorage, DASK_AVAILABLE
+from kompot.memory_utils import DiskStorage
 from kompot.differential import DifferentialExpression, SampleVarianceEstimator
 
 # Set up a logger for this module
@@ -110,35 +110,37 @@ def test_compare_mahalanobis_approaches():
         progress=False
     )
     
-    # 4. Test disk-backed approach with dask arrays
-    if DASK_AVAILABLE:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            # Initialize disk storage
-            storage = DiskStorage(storage_dir=temp_dir)
-            
-            # Store each gene's covariance matrix separately
-            for g in range(n_genes):
-                key = f"gene_{g}"  # Change key to match pattern expected in as_dask_array
-                storage.store_array(gene_specific_cov[:, :, g], key)
-            
-            # Create a dask array representing the 3D covariance tensor
-            # We'll use the as_dask_array method to create a dask representation of our data
-            dask_cov = storage.as_dask_array(shape=(n_points, n_points, n_genes))
-            
-            # Compute distances using dask-backed approach
-            distances_disk_backed = compute_mahalanobis_distances(
-                diff_values=fold_changes,
-                covariance=dask_cov,
-                batch_size=10,
-                jit_compile=False,
-                progress=False
-            )
-            
-            # The disk-backed approach should give same results as in-memory gene-specific
-            np.testing.assert_allclose(distances_gene_specific, distances_disk_backed, rtol=1e-5)
-    else:
-        # Skip this part of the test if dask is not available
-        logger.warning("Dask not available, skipping disk-backed covariance test")
+    # 4. Test disk-backed approach with numpy memory maps
+    with tempfile.TemporaryDirectory() as temp_dir:
+        # Initialize disk storage
+        storage = DiskStorage(storage_dir=temp_dir)
+        
+        # Store each gene's covariance matrix separately
+        gene_keys = {}
+        for g in range(n_genes):
+            key = f"gene_{g}_cov"
+            storage.store_array(gene_specific_cov[:, :, g], key)
+            gene_keys[g] = key
+        
+        # Create a disk-backed covariance matrix
+        from kompot.memory_utils import DiskBackedCovarianceMatrix
+        disk_backed_cov = DiskBackedCovarianceMatrix(
+            disk_storage=storage,
+            shape=(n_points, n_points, n_genes),
+            gene_keys=gene_keys
+        )
+        
+        # Compute distances using disk-backed approach
+        distances_disk_backed = compute_mahalanobis_distances(
+            diff_values=fold_changes,
+            covariance=disk_backed_cov,
+            batch_size=10,
+            jit_compile=False,
+            progress=False
+        )
+        
+        # The disk-backed approach should give same results as in-memory gene-specific
+        np.testing.assert_allclose(distances_gene_specific, distances_disk_backed, rtol=1e-5)
     
     # 5. Force pseudoinverse approach by breaking Cholesky
     # Make a nearly singular matrix that will cause Cholesky to fail

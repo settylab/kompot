@@ -61,7 +61,7 @@ Key features:
 - Support for covariance matrices and optional landmarks
 - JAX-accelerated computations
 - Empirical variance estimation
-- **Disk-backed storage for large datasets** with Dask support
+- **Disk-backed storage for large datasets** using numpy memory maps
 - Visualization tools (volcano plots, heatmaps, expression plots)
 - **Full scverse compatibility with direct AnnData integration**
 
@@ -90,12 +90,6 @@ For additional plotting functionality with scanpy integration:
 .. code-block:: bash
 
    pip install kompot[plot]
-
-For disk-backed storage with Dask support (recommended for large datasets):
-
-.. code-block:: bash
-
-   pip install kompot[dask]
 
 To install all optional dependencies:
 

@@ -22,13 +22,6 @@ import pynndescent
 import igraph as ig
 import logging
 
-from .memory_utils import DASK_AVAILABLE
-if DASK_AVAILABLE:
-    try:
-        import dask.array as da
-        import dask
-    except ImportError:
-        pass
 
 
 logger = logging.getLogger("kompot")
@@ -104,11 +97,10 @@ def compute_mahalanobis_distances(
     diff_values : np.ndarray
         The difference vectors for which to compute Mahalanobis distances.
         Shape should be (n_samples, n_features) or (n_features, n_samples).
-    covariance : np.ndarray, jnp.ndarray, or dask.array.Array
+    covariance : np.ndarray or jnp.ndarray
         Covariance matrix or tensor:
         - If 2D shape (n_points, n_points): shared covariance for all vectors
         - If 3D shape (n_points, n_points, n_genes): gene-specific covariance matrices
-        - Can be a dask array for lazy/distributed computation
     batch_size : int, optional
         Number of vectors to process at once, by default 500.
     jit_compile : bool, optional
@@ -125,19 +117,8 @@ def compute_mahalanobis_distances(
     """
     from .batch_utils import apply_batched
     from tqdm.auto import tqdm
-    from .memory_utils import DASK_AVAILABLE
-    
-    # Check if covariance is a Dask array
-    is_dask = False
-    if DASK_AVAILABLE:
-        import dask.array as da
-        is_dask = isinstance(covariance, da.Array)
-    
-    # Convert inputs to JAX arrays if not using Dask
-    if not is_dask:
-        diffs = jnp.array(diff_values)
-    else:
-        diffs = diff_values
+    # Convert inputs to JAX arrays
+    diffs = jnp.array(diff_values)
     
     # Handle different input shapes - we want (n_genes, n_points) for gene-wise processing
     if len(diffs.shape) == 1:
@@ -145,21 +126,28 @@ def compute_mahalanobis_distances(
         diffs = diffs.reshape(1, -1)
     
     # Determine if we have gene-specific covariance matrices (3D tensor)
-    is_gene_specific = hasattr(covariance, 'shape') and len(covariance.shape) == 3
+    # Check for both regular 3D arrays and DiskBackedCovarianceMatrix
+    from .memory_utils import DiskBackedCovarianceMatrix
+    is_disk_backed = isinstance(covariance, DiskBackedCovarianceMatrix)
+    is_gene_specific = (hasattr(covariance, 'shape') and len(covariance.shape) == 3) or is_disk_backed
     
     if is_gene_specific:
         logger.info(f"Computing Mahalanobis distances using gene-specific covariance matrices")
         n_genes = diffs.shape[0]
-        n_points = covariance.shape[1]  # Shape is (n_points, n_points, n_genes)
+        if is_disk_backed:
+            n_points = covariance.shape[1]  # DiskBackedCovarianceMatrix has shape attribute
+        else:
+            n_points = covariance.shape[1]  # Shape is (n_points, n_points, n_genes)
 
         # Verify tensor dimensions
-        if covariance.shape[2] != n_genes:
+        covariance_n_genes = covariance.shape[2] if hasattr(covariance, 'shape') and len(covariance.shape) == 3 else len(covariance.gene_keys)
+        if covariance_n_genes != n_genes:
             logger.warning(
-                f"Gene dimension mismatch: covariance has {covariance.shape[2]} genes, "
+                f"Gene dimension mismatch: covariance has {covariance_n_genes} genes, "
                 f"but diff values has {n_genes} genes. Using genes from diff values."
             )
             # If there's a mismatch, truncate to the shorter dimension
-            min_genes = min(covariance.shape[2], n_genes)
+            min_genes = min(covariance_n_genes, n_genes)
             n_genes = min_genes
 
         # Create a custom function that can be mapped over gene dimensions
@@ -193,39 +181,7 @@ def compute_mahalanobis_distances(
                 logger.warning(f"Gene {g}: Cholesky decomposition failed. Matrix is not positive definite. Using NaN.")
                 return np.nan
         
-        # Handle dask arrays specifically
-        if is_dask:
-            import dask.array as da
-                        
-            # Apply the function to each gene in parallel with dask
-            # We map the function over the genes and then compute the result
-            if progress:
-                logger.info(f"Computing Mahalanobis distances for {n_genes:,} genes using dask")
-            
-            distances = []
-            for g in range(n_genes):
-                distances.append(dask.delayed(compute_gene_mahalanobis)(g))
-                
-            # Compute the delayed values to get actual distances
-            # Use progress bar if requested
-            if progress:
-                try:
-                    from tqdm.dask import TqdmCallback
-                    # Use TqdmCallback for efficient progress tracking
-                    with TqdmCallback(desc="Computing Mahalanobis distances"):
-                        mahalanobis_distances = np.array(dask.compute(*distances))
-                except ImportError:
-                    # Fall back to standard compute if tqdm.dask is not available
-                    logger.info("tqdm.dask not available, computing without progress bar")
-                    mahalanobis_distances = np.array(dask.compute(*distances))
-            else:
-                # Compute all at once without progress bar
-                mahalanobis_distances = np.array(dask.compute(*distances))
-            
-            return mahalanobis_distances
-            
-        # For JAX arrays, proceed with the original approach
-        cov = jnp.array(covariance)
+        # For disk-backed matrices, we don't convert to JAX arrays - we use the custom function directly
         mahalanobis_distances = np.zeros(n_genes)
         
         # Process each gene separately to save memory, with progress bar

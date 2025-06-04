@@ -161,8 +161,8 @@ def test_disk_storage():
         assert storage.array_registry[key]['shape'] == test_array.shape
         assert storage.array_registry[key]['dtype'] == str(test_array.dtype)
         
-        # Load the array back, but force non-lazy loading
-        loaded_array = storage.load_array(key, lazy=False)
+        # Load the array back
+        loaded_array = storage.load_array(key)
         np.testing.assert_array_equal(loaded_array, test_array)
         
         # Check total storage
@@ -204,8 +204,7 @@ def test_disk_backed_covariance_matrix():
         DiskBackedCovarianceMatrix(
             disk_storage=sample_storage,
             shape=(10, 10, 1),
-            gene_keys=sample_keys,
-            use_dask=False
+            gene_keys=sample_keys
         )
     except TypeError:
         pytest.skip("DiskBackedCovarianceMatrix doesn't support expected interface")
@@ -230,8 +229,7 @@ def test_disk_backed_covariance_matrix():
         disk_cov = DiskBackedCovarianceMatrix(
             disk_storage=storage,
             shape=(n_cells, n_cells, n_genes),
-            gene_keys=gene_keys,
-            use_dask=False  # Force non-lazy loading
+            gene_keys=gene_keys
         )
         
         # Test single gene slice access
@@ -265,8 +263,7 @@ def test_full_disk_backed_workflow(mock_get_available_memory):
         DiskBackedCovarianceMatrix(
             disk_storage=sample_storage,
             shape=(10, 10, 1),
-            gene_keys=sample_keys,
-            use_dask=False
+            gene_keys=sample_keys
         )
     except TypeError:
         pytest.skip("DiskBackedCovarianceMatrix doesn't support expected interface")
@@ -306,8 +303,7 @@ def test_full_disk_backed_workflow(mock_get_available_memory):
         disk_cov = DiskBackedCovarianceMatrix(
             disk_storage=storage,
             shape=(n_points, n_points, n_genes),
-            gene_keys=gene_keys,
-            use_dask=False  # Force non-lazy loading
+            gene_keys=gene_keys
         )
         
         # Create some test fold changes (genes, points)

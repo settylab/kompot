@@ -10,65 +10,7 @@ from typing import Tuple, Union, Optional, Dict, Any, List
 
 logger = logging.getLogger("kompot")
 
-# Check if dask is available
-DASK_AVAILABLE = importlib.util.find_spec("dask") is not None
-if DASK_AVAILABLE:
-    try:
-        import dask.array as da
-        logger.debug("Dask is available for disk-backed array operations")
-    except ImportError:
-        DASK_AVAILABLE = False
-        logger.debug("Dask import failed despite being detected")
 
-def get_dask_array(array_shape: tuple, chunk_size: Optional[int] = None) -> Union['da.Array', None]:
-    """
-    Create a Dask array with the given shape if Dask is available.
-    
-    Parameters
-    ----------
-    array_shape : tuple
-        Shape of the array to create
-    chunk_size : int, optional
-        Chunk size to use for the array, if None will calculate a reasonable default
-    
-    Returns
-    -------
-    dask.array.Array or None
-        Dask array if available, otherwise None
-    """
-    if not DASK_AVAILABLE:
-        return None
-        
-    import dask.array as da
-    
-    # Calculate reasonable chunk size if not provided
-    if chunk_size is None:
-        # For 3D arrays, chunk along the gene dimension (shape[2]) for best performance
-        if len(array_shape) == 3:
-            # Use small chunks for first two dimensions (cells, cells) and larger for gene dimension
-            chunks = (min(100, array_shape[0]), 
-                     min(100, array_shape[1]), 
-                     1)  # Process one gene at a time
-        else:
-            # For other dimensions, use a simple heuristic (chunk size around 100MB)
-            # First estimate element size based on float64
-            elem_size = 8  # bytes (assuming float64)
-            total_size = np.prod(array_shape) * elem_size
-            
-            # Target chunk size ~100MB
-            target_chunk_size = 100 * 1024 * 1024  # 100 MB in bytes
-            
-            # Calculate number of chunks
-            n_chunks = max(1, int(total_size / target_chunk_size))
-            
-            # Divide each dimension roughly equally
-            dim_factor = n_chunks ** (1 / len(array_shape))
-            chunks = tuple(max(1, int(dim / dim_factor)) for dim in array_shape)
-    else:
-        # Use specified chunk size
-        chunks = chunk_size
-        
-    return da.zeros(array_shape, chunks=chunks)
 
 
 def human_readable_size(size_in_bytes: int) -> str:
@@ -251,17 +193,14 @@ def analyze_memory_requirements(shapes: List[tuple], max_memory_ratio: float = 0
             f"Suggestions to reduce memory usage:\n"
             f"1. Use landmark approximation with fewer landmarks\n"
             f"2. Process fewer genes at once\n"
-            f"3. Use store_arrays_on_disk=True to offload arrays to disk"
-            + (f"\n4. Install dask for better disk-backed storage (pip install dask)" if not DASK_AVAILABLE else "")
-            + f"\n" + (f"5" if not DASK_AVAILABLE else f"4") + f". Increase system memory"
+            f"3. Use store_arrays_on_disk=True to offload arrays to disk\n"
+            f"4. Increase system memory"
         )
     elif not store_arrays_on_disk and status == 'warning':
         logger.warning(
             f"WARNING: High memory usage detected. Arrays will use {memory_ratio:.2f}x "
             f"({total_size_str}) of available memory ({avail_str})."
-            + (" Consider using store_arrays_on_disk=True" + 
-               (" with dask installed" if DASK_AVAILABLE else "") + 
-               ".")
+            + " Consider using store_arrays_on_disk=True."
         )
         
     return result
@@ -319,13 +258,110 @@ def analyze_covariance_memory_requirements(n_points: int, n_genes: int,
     return analysis
 
 
-# For backwards compatibility only - will be removed in future versions
-# and replaced completely with dask arrays
+
+
 class DiskBackedCovarianceMatrix:
     """
-    DEPRECATED: Use dask arrays directly for better performance.
+    A disk-backed covariance matrix that stores gene-specific covariance matrices on disk.
+    
+    This class provides an array-like interface to access covariance matrices that are
+    stored on disk, allowing for memory-efficient handling of large covariance tensors.
+    Uses numpy memory maps for efficient disk access.
+    
+    Attributes
+    ----------
+    disk_storage : DiskStorage
+        The disk storage instance managing the arrays
+    shape : tuple
+        Shape of the full covariance tensor (n_cells, n_cells, n_genes)
+    gene_keys : dict
+        Mapping from gene indices to storage keys
     """
-    pass
+    
+    def __init__(self, disk_storage: 'DiskStorage', shape: tuple, gene_keys: dict):
+        """
+        Initialize disk-backed covariance matrix.
+        
+        Parameters
+        ----------
+        disk_storage : DiskStorage
+            Storage instance containing the gene-specific covariance matrices
+        shape : tuple
+            Shape of the full tensor (n_cells, n_cells, n_genes)
+        gene_keys : dict
+            Mapping from gene index to storage key
+        """
+        self.disk_storage = disk_storage
+        self.shape = shape
+        self.gene_keys = gene_keys
+        
+    def __getitem__(self, key):
+        """
+        Access covariance matrix data using array-like indexing.
+        
+        Parameters
+        ----------
+        key : int, slice, or tuple
+            Index specification for accessing the data
+            
+        Returns
+        -------
+        np.ndarray
+            The requested covariance data
+        """
+        if isinstance(key, int):
+            # Single gene access: disk_cov[g]
+            gene_key = self.gene_keys[key]
+            return self.disk_storage.load_array(gene_key)
+            
+        elif isinstance(key, tuple) and len(key) == 3:
+            # Full 3D indexing: disk_cov[cells1, cells2, genes]
+            cells1_slice, cells2_slice, gene_slice = key
+            
+            if isinstance(gene_slice, int):
+                # Single gene with cell slicing: disk_cov[:10, :20, g]
+                gene_key = self.gene_keys[gene_slice]
+                gene_cov = self.disk_storage.load_array(gene_key)
+                return gene_cov[cells1_slice, cells2_slice]
+                
+            elif isinstance(gene_slice, slice):
+                # Multiple genes with cell slicing: disk_cov[:, :, :5]
+                start, stop, step = gene_slice.indices(self.shape[2])
+                gene_indices = range(start, stop, step)
+                
+                # Load all requested genes and stack them
+                gene_arrays = []
+                for g in gene_indices:
+                    gene_key = self.gene_keys[g]
+                    gene_cov = self.disk_storage.load_array(gene_key)
+                    gene_arrays.append(gene_cov[cells1_slice, cells2_slice])
+                
+                return np.stack(gene_arrays, axis=2)
+                
+            elif hasattr(gene_slice, '__iter__'):
+                # Explicit gene indices: disk_cov[:, :, [2, 5, 8]]
+                gene_arrays = []
+                for g in gene_slice:
+                    gene_key = self.gene_keys[g]
+                    gene_cov = self.disk_storage.load_array(gene_key)
+                    gene_arrays.append(gene_cov[cells1_slice, cells2_slice])
+                
+                return np.stack(gene_arrays, axis=2)
+                
+        elif isinstance(key, slice):
+            # Gene slice only: disk_cov[:5] (assuming this means genes 0-4)
+            start, stop, step = key.indices(self.shape[2])
+            gene_indices = range(start, stop, step)
+            
+            gene_arrays = []
+            for g in gene_indices:
+                gene_key = self.gene_keys[g]
+                gene_arrays.append(self.disk_storage.load_array(gene_key))
+            
+            return np.stack(gene_arrays, axis=2)
+            
+        else:
+            raise NotImplementedError(f"Indexing with {type(key)} not supported")
 
 
 class DiskStorage:
@@ -350,7 +386,7 @@ class DiskStorage:
     # Class variable to track references to shared directories
     _shared_dirs = {}
     
-    def __init__(self, storage_dir: Optional[str] = None, use_dask: bool = True, namespace: Optional[str] = None):
+    def __init__(self, storage_dir: Optional[str] = None, namespace: Optional[str] = None):
         """
         Initialize disk storage manager.
         
@@ -358,8 +394,6 @@ class DiskStorage:
         ----------
         storage_dir : str, optional
             Directory to store arrays. If None, a temporary directory is created.
-        use_dask : bool, optional
-            Whether to use dask for lazy loading when available, by default True.
         namespace : str, optional
             Namespace prefix for array keys. If None, a random UUID is generated.
             Use this to prevent key collisions when sharing storage between objects.
@@ -384,14 +418,9 @@ class DiskStorage:
         # Set namespace for array keys to prevent collisions
         self.namespace = namespace if namespace is not None else f"ns_{self._instance_id}"
             
-        # Determine if we should use dask
-        self.use_dask = use_dask and DASK_AVAILABLE
         
         self.array_registry = {}
-        if self.use_dask:
-            logger.info(f"Initialized disk storage at {self.storage_dir} with dask support (namespace: {self.namespace})")
-        else:
-            logger.info(f"Initialized disk storage at {self.storage_dir} (namespace: {self.namespace})")
+        logger.info(f"Initialized disk storage at {self.storage_dir} (namespace: {self.namespace})")
         
     def __del__(self):
         """Clean up temporary directory if it was created by this instance."""
@@ -493,7 +522,7 @@ class DiskStorage:
         
         return file_path
         
-    def load_array(self, key: str, lazy: bool = None) -> Union[np.ndarray, 'da.Array']:
+    def load_array(self, key: str) -> np.ndarray:
         """
         Load an array from disk, with option for lazy loading.
         
@@ -501,13 +530,11 @@ class DiskStorage:
         ----------
         key : str
             Identifier for the array
-        lazy : bool, optional
-            Whether to use lazy loading with dask. If None, uses instance default.
             
         Returns
         -------
-        np.ndarray or dask.array.Array
-            Loaded array, either as NumPy array or Dask array
+        np.ndarray
+            Loaded array as NumPy array
         """
         if key not in self.array_registry:
             raise KeyError(f"Array with key '{key}' not found in registry")
@@ -516,17 +543,8 @@ class DiskStorage:
         if not os.path.exists(file_path):
             raise FileNotFoundError(f"Array file not found at {file_path}")
         
-        # Determine whether to use lazy loading
-        use_lazy = self.use_dask if lazy is None else (lazy and DASK_AVAILABLE)
-        
-        if use_lazy:
-            import dask.array as da
-            logger.debug(f"Lazy loading array '{key}' from disk: {self.array_registry[key]['size_human']}")
-            # Use da.from_array instead of da.from_npy_stack for single .npy files
-            return da.from_array(np.load(file_path), chunks='auto')
-        else:
-            logger.debug(f"Loading array '{key}' from disk: {self.array_registry[key]['size_human']}")
-            return np.load(file_path)
+        logger.debug(f"Loading array '{key}' from disk: {self.array_registry[key]['size_human']}")
+        return np.load(file_path)
         
     def remove_array(self, key: str):
         """
@@ -591,68 +609,3 @@ class DiskStorage:
         """
         return self.array_registry.copy()
         
-    def as_dask_array(self, shape: tuple = None, dtype = np.float64) -> 'da.Array':
-        """
-        Create a dask array representing all stored arrays in a single tensor.
-        
-        Parameters
-        ----------
-        shape : tuple, optional
-            Shape of the result array. If None, will try to infer from stored arrays.
-        dtype : numpy.dtype, optional
-            Data type of the array, by default np.float64
-            
-        Returns
-        -------
-        dask.array.Array
-            A dask array representing the stored data
-        """
-        if not self.use_dask:
-            raise ImportError("Dask is not available. Install dask or set use_dask=False.")
-        
-        import dask.array as da
-        
-        # If shape is not provided, try to infer from stored arrays
-        if shape is None:
-            # For 3D covariance matrices, we expect (cells, cells, genes)
-            # where each stored array is a 2D slice (cells, cells) for a single gene
-            if all(len(info['shape']) == 2 for info in self.array_registry.values()):
-                # All stored arrays are 2D, assume they're slices of a 3D tensor
-                # Get shape from first array
-                first_key = next(iter(self.array_registry.keys()))
-                first_shape = self.array_registry[first_key]['shape']
-                shape = (first_shape[0], first_shape[1], len(self.array_registry))
-            else:
-                raise ValueError("Cannot infer shape from stored arrays. Please provide shape explicitly.")
-        
-        # Create a list of dask arrays, one for each gene slice
-        if len(shape) == 3:
-            # We're dealing with a 3D matrix where each gene is a separate slice
-            gene_arrays = []
-            
-            # For each gene (third dimension), create or load the appropriate slice
-            for g in range(shape[2]):
-                gene_key = f"gene_{g}"
-                
-                if gene_key in self.array_registry:
-                    # Load the actual numpy array for consistency (no lazy loading here)
-                    # This ensures the exact same numeric values
-                    numpy_array = np.load(self.array_registry[gene_key]['path'])
-                    
-                    # Create a dask array from the numpy array
-                    gene_array = da.from_array(numpy_array, chunks='auto')
-                    
-                    # Make sure it has the right shape
-                    if gene_array.shape != (shape[0], shape[1]):
-                        gene_array = gene_array.reshape((shape[0], shape[1]))
-                else:
-                    # Create zeros for missing slices
-                    gene_array = da.zeros((shape[0], shape[1]), dtype=dtype)
-                
-                gene_arrays.append(gene_array)
-                
-            # Stack all gene arrays along the third dimension
-            return da.stack(gene_arrays, axis=2)
-        else:
-            # For simpler cases, just create a zeros array
-            return da.zeros(shape, dtype=dtype)

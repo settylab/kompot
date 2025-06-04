@@ -9,17 +9,8 @@ from mellon import FunctionEstimator, DensityEstimator
 
 from ..memory_utils import (
     DiskStorage,
-    analyze_covariance_memory_requirements,
-    DASK_AVAILABLE
+    analyze_covariance_memory_requirements
 )
-
-# Try to import dask if available
-if DASK_AVAILABLE:
-    try:
-        import dask.array as da
-        import dask
-    except ImportError:
-        pass
 
 logger = logging.getLogger("kompot")
 
@@ -50,7 +41,7 @@ class SampleVarianceEstimator:
         eps: float = 1e-8,  # Increased default epsilon for better numerical stability
         jit_compile: bool = True,
         estimator_type: str = 'function',
-        store_arrays_on_disk: Optional[bool] = None,
+        store_arrays_on_disk: bool = False,
         disk_storage_dir: Optional[str] = None
     ):
         """
@@ -66,30 +57,16 @@ class SampleVarianceEstimator:
             Type of estimator to use ('function' for gene expression, 'density' for cell density),
             by default 'function'.
         store_arrays_on_disk : bool, optional
-            Whether to store large arrays on disk instead of in memory, by default None.
-            If None, it will be determined based on disk_storage_dir (True if provided, False otherwise).
+            Whether to store large arrays on disk instead of in memory, by default False.
             Useful for very large datasets where covariance matrices would exceed available memory.
         disk_storage_dir : str, optional
-            Directory to store arrays on disk. If provided and store_arrays_on_disk is None,
-            store_arrays_on_disk will be set to True. If store_arrays_on_disk is False and
-            this is provided, a warning will be logged and disk storage will not be used.
+            Directory to store arrays on disk. Used only if store_arrays_on_disk is True.
         """
         self.eps = eps
         self.jit_compile = jit_compile
         self.estimator_type = estimator_type
         
-        # Determine store_arrays_on_disk based on disk_storage_dir if not explicitly set
-        if store_arrays_on_disk is None:
-            self.store_arrays_on_disk = disk_storage_dir is not None
-        else:
-            self.store_arrays_on_disk = store_arrays_on_disk
-            
-        # Log warning if store_arrays_on_disk is False but disk_storage_dir is provided
-        if not self.store_arrays_on_disk and disk_storage_dir is not None:
-            logger.warning(
-                f"Disk storage directory provided ({disk_storage_dir}) but store_arrays_on_disk is False. "
-                f"Arrays will NOT be stored on disk."
-            )
+        self.store_arrays_on_disk = store_arrays_on_disk
         
         self.disk_storage_dir = disk_storage_dir
         
@@ -421,85 +398,32 @@ class SampleVarianceEstimator:
             # Use the n_groups property set in fit method
             
             if use_disk_storage:
-                # Check if dask is available for better performance
-                if DASK_AVAILABLE:
-                    logger.debug(f"Using dask for disk-backed covariance matrix (shape={covariance_shape})")
-                    
-                    # Create dask delayed functions to compute each gene slice
-                    gene_arrays = []
-                    
-                    # Choose the computation function once - we'll use the same exact function
-                    # for all gene slices to ensure consistency with in-memory version
-                    compute_func = self._compute_cov_slice_jit if self._compute_cov_slice_jit is not None else self._compute_cov_slice
-                    
-                    # Process each gene slice
-                    for g in range(n_genes):
-                        # Extract the data for this gene
-                        gene_centered = centered_reshaped[:, :, g]  # (n_cells, n_groups)
-                        
-                        # Define a static function with captured index rather than passing gene_centered directly
-                        # This ensures each delayed task gets the correct gene slice even with dask's delayed execution
-                        @dask.delayed
-                        def compute_gene_slice(g_index):
-                            gene_centered = centered_reshaped[:, :, g_index]
-                            cov_matrix = self._compute_cov_slice(gene_centered, self.n_groups)
-                            return np.asarray(cov_matrix)
-                        
-                        # Create a delayed version of the computation with the gene index
-                        delayed_result = compute_gene_slice(g)
-                        
-                        # Convert the delayed computation to a dask array
-                        gene_array = da.from_delayed(
-                            delayed_result,
-                            shape=(n_cells, n_cells),
-                            dtype=np.float64
-                        )
-                        
-                        # Add to our list of arrays
-                        gene_arrays.append(gene_array)
-                    
-                    # Stack the gene arrays along the last axis
-                    dask_covariance = da.stack(gene_arrays, axis=2)
-                    
-                    logger.debug(f"Created dask array for covariance with shape {dask_covariance.shape}")
-                    return dask_covariance
+                # Use numpy memory mapping for disk-backed arrays
+                # Create a memory-mapped array
+                import os
+                filename = os.path.join(self._disk_storage.storage_dir, 'covariance_matrix.npy')
+                mmap_array = np.lib.format.open_memmap(
+                    filename, 
+                    mode='w+',
+                    dtype=np.float64,
+                    shape=covariance_shape
+                )
                 
-                else:
-                    # Without dask, warn the user and use numpy memory mapping
-                    logger.warning(
-                        "Dask is not available for disk-backed arrays. "
-                        "Install dask for better performance: pip install dask"
-                    )
+                # Process gene-by-gene
+                for g in range(n_genes):
+                    gene_centered = centered_reshaped[:, :, g]  # (n_cells, n_groups)
                     
-                    # Use numpy memory mapping as a fallback
-                    import tempfile
-                    import os
+                    # Compute covariance slice
+                    if self._compute_cov_slice_jit is not None:
+                        gene_cov = self._compute_cov_slice_jit(gene_centered, self.n_groups)
+                    else:
+                        gene_cov = self._compute_cov_slice(gene_centered, self.n_groups)
                     
-                    # Create a memory-mapped array
-                    filename = os.path.join(self._disk_storage.storage_dir, 'covariance_matrix.npy')
-                    mmap_array = np.lib.format.open_memmap(
-                        filename, 
-                        mode='w+',
-                        dtype=np.float64,
-                        shape=covariance_shape
-                    )
-                    
-                        
-                    # Process gene-by-gene
-                    for g in range(n_genes):
-                        gene_centered = centered_reshaped[:, :, g]  # (n_cells, n_groups)
-                        
-                        # Compute covariance slice
-                        if self._compute_cov_slice_jit is not None:
-                            gene_cov = self._compute_cov_slice_jit(gene_centered, self.n_groups)
-                        else:
-                            gene_cov = self._compute_cov_slice(gene_centered, self.n_groups)
-                        
-                        # Store in the memory-mapped array
-                        mmap_array[:, :, g] = np.array(gene_cov)
-                    
-                    # Return the memory-mapped array
-                    return mmap_array
+                    # Store in the memory-mapped array
+                    mmap_array[:, :, g] = np.array(gene_cov)
+                
+                # Return the memory-mapped array
+                return mmap_array
             else:
                 # In-memory version
                 cov_matrix = np.zeros(covariance_shape)

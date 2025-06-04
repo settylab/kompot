@@ -84,10 +84,6 @@ plot = [
 ]
 recommended = [
     "palantir>=1.0.0",
-    "dask>=2024.4.0",
-]
-dask = [
-    "dask>=2024.4.0",
 ]
 dev = [
     "pytest>=7.0.0",
@@ -100,5 +96,4 @@ all = [
     "IPython>=7.0.0",
     "json5~=0.9.14",
     "palantir>=1.0.0",
-    "dask>=2024.4.0",
 ]
