@@ -2,6 +2,7 @@
 
 import numpy as np
 import pytest
+import sys
 from unittest.mock import patch, MagicMock
 from kompot.differential.sample_variance_estimator import SampleVarianceEstimator
 from kompot.batch_utils import apply_batched, is_jax_memory_error
@@ -259,6 +260,7 @@ def test_no_predictors_error():
         estimator.predict(X_test, diag=False)
 
 
+@pytest.mark.skipif(sys.version_info < (3, 10), reason="Python 3.9 module resolution issues with mock patching")
 def test_analyze_memory_called_only_once():
     """Test that memory analysis is called only once."""
     # Create estimator with real memory analysis but mock storage
