@@ -278,8 +278,9 @@ def test_analyze_memory_called_only_once():
     # Mock the _compute_cov_slice_jit function
     estimator._compute_cov_slice_jit = MagicMock(return_value=np.zeros((5, 5)))
     
-    # Mock the analyze_covariance_memory_requirements function in the module where it's imported and used
-    with patch('kompot.differential.sample_variance_estimator.analyze_covariance_memory_requirements') as mock_analyze:
+    # Import the module and patch the function directly on the module object
+    from kompot.differential import sample_variance_estimator
+    with patch.object(sample_variance_estimator, 'analyze_covariance_memory_requirements') as mock_analyze:
         # Set up the mock to return a specific analysis result
         mock_analysis = {
             'n_points': 5,
