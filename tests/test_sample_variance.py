@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 from unittest.mock import patch, MagicMock
-from kompot.differential import SampleVarianceEstimator
+from kompot.differential.sample_variance_estimator import SampleVarianceEstimator
 from kompot.batch_utils import apply_batched, is_jax_memory_error
 
 
@@ -276,7 +276,7 @@ def test_analyze_memory_called_only_once():
     # Mock the _compute_cov_slice_jit function
     estimator._compute_cov_slice_jit = MagicMock(return_value=np.zeros((5, 5)))
     
-    # Mock the analyze_covariance_memory_requirements function
+    # Mock the analyze_covariance_memory_requirements function in the module where it's imported and used
     with patch('kompot.differential.sample_variance_estimator.analyze_covariance_memory_requirements') as mock_analyze:
         # Set up the mock to return a specific analysis result
         mock_analysis = {
