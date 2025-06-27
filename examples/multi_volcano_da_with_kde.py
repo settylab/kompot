@@ -30,10 +30,10 @@ for i in range(max(cell_types) + 1):
 lfc = lfc_base + np.random.normal(0, 0.5, n_cells)
 adata.obs["kompot_da_lfc"] = lfc
 
-# Generate simulated p-values - make them related to LFC magnitude
-pvals = np.exp(-np.abs(lfc) * 2) * 0.8 + 0.001
-adata.obs["kompot_da_pval"] = pvals
-adata.obs["kompot_da_neg_log10_fold_change_pvalue"] = -np.log10(pvals)
+# Generate simulated PTP (Posterior Tail Probability) - make them related to LFC magnitude
+ptps = np.exp(-np.abs(lfc) * 2) * 0.8 + 0.001
+adata.obs["kompot_da_ptp"] = ptps
+adata.obs["kompot_da_neg_log10_fold_change_ptp"] = -np.log10(ptps)
 
 # Add a group column to color by
 adata.obs["group"] = adata.obs["louvain"]
@@ -56,8 +56,8 @@ kp.plot.multi_volcano_da(
     adata,
     groupby="louvain",
     lfc_key="kompot_da_lfc",
-    pval_key="kompot_da_neg_log10_fold_change_pvalue",
-    pval_threshold=0.05,
+    ptp_key="kompot_da_neg_log10_fold_change_ptp",
+    ptp_threshold=0.05,
     lfc_threshold=1.0,
     color="kompot_da_log_fold_change_direction",
     alpha_background=0.5,
@@ -76,8 +76,8 @@ kp.plot.multi_volcano_da(
     adata,
     groupby="louvain",
     lfc_key="kompot_da_lfc",
-    pval_key="kompot_da_neg_log10_fold_change_pvalue",
-    pval_threshold=0.05,
+    ptp_key="kompot_da_neg_log10_fold_change_ptp",
+    ptp_threshold=0.05,
     lfc_threshold=1.0,
     color="kompot_da_log_fold_change_direction",
     alpha_background=0.5,
@@ -97,8 +97,8 @@ kp.plot.multi_volcano_da(
     adata,
     groupby="louvain",
     lfc_key="kompot_da_lfc",
-    pval_key="kompot_da_neg_log10_fold_change_pvalue",
-    pval_threshold=0.05,
+    ptp_key="kompot_da_neg_log10_fold_change_ptp",
+    ptp_threshold=0.05,
     lfc_threshold=1.0,
     color="kompot_da_log_fold_change_direction",
     alpha_background=0.5,

@@ -203,7 +203,7 @@ def test_compute_differential_abundance_with_batch_size():
     # Basic check for correct result shapes
     assert result['log_fold_change'].shape[0] == adata.n_obs
     assert result['log_fold_change_zscore'].shape[0] == adata.n_obs
-    assert result['neg_log10_fold_change_pvalue'].shape[0] == adata.n_obs
+    assert result['neg_log10_fold_change_ptp'].shape[0] == adata.n_obs
 
 
 def test_compute_differential_abundance_with_copy():
@@ -228,7 +228,7 @@ def test_compute_differential_abundance_with_copy():
     expected_obs_patterns = [
         'kompot_da_log_fold_change',
         'kompot_da_log_fold_change_zscore',
-        'kompot_da_neg_log10_fold_change_pvalue',
+        'kompot_da_neg_log10_fold_change_ptp',
         'kompot_da_log_fold_change_direction'
     ]
     
@@ -265,7 +265,7 @@ def test_compute_differential_abundance_with_result_key():
     expected_obs_patterns = [
         'custom_da_log_fold_change',
         'custom_da_log_fold_change_zscore',
-        'custom_da_neg_log10_fold_change_pvalue',
+        'custom_da_neg_log10_fold_change_ptp',
         'custom_da_log_fold_change_direction'
     ]
     

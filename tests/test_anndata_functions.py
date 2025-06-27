@@ -157,8 +157,8 @@ def test_sample_col_parameter():
     )
     
     # Check that both models have valid outputs 
-    assert 'neg_log10_fold_change_pvalue' in result
-    assert 'neg_log10_fold_change_pvalue' in result_no_samples
+    assert 'neg_log10_fold_change_ptp' in result
+    assert 'neg_log10_fold_change_ptp' in result_no_samples
     
     # Check that both models have the direction classifications
     assert 'log_fold_change_direction' in result
@@ -217,7 +217,7 @@ def test_generate_output_field_names():
     # Check some of the fields exist
     assert "lfc_key" in da_fields
     assert "zscore_key" in da_fields
-    assert "pval_key" in da_fields
+    assert "ptp_key" in da_fields
     assert "direction_key" in da_fields
     
     # Check that sample variance suffix was added

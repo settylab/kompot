@@ -32,14 +32,14 @@ for i in range(max(cell_types) + 1):
 lfc = lfc_base + np.random.normal(0, 0.5, n_cells)
 adata.obs["kompot_da_lfc"] = lfc
 
-# Generate simulated p-values - make them related to LFC magnitude
-# Higher absolute LFC -> lower p-value
-pvals = np.exp(-np.abs(lfc) * 2) * 0.8 + 0.001
-adata.obs["kompot_da_pval"] = pvals
+# Generate simulated PTP (Posterior Tail Probability) - make them related to LFC magnitude
+# Higher absolute LFC -> lower PTP (Posterior Tail Probability)
+ptps = np.exp(-np.abs(lfc) * 2) * 0.8 + 0.001
+adata.obs["kompot_da_ptp"] = ptps
 
-# Add negative log10-transformed p-values (higher values = more significant)
+# Add negative log10-transformed PTP (Posterior Tail Probability) (higher values = more significant)
 # The - sign is important here to convert to negative log10
-adata.obs["kompot_da_neg_log10_fold_change_pvalue"] = -np.log10(pvals)
+adata.obs["kompot_da_neg_log10_fold_change_ptp"] = -np.log10(ptps)
 
 # Add a group column to color by (we'll use the louvain clusters)
 adata.obs["group"] = adata.obs["louvain"]
@@ -49,9 +49,9 @@ plt.figure(figsize=(12, 10))
 kp.plot.volcano_da(
     adata,
     lfc_key="kompot_da_lfc",
-    pval_key="kompot_da_pval",
+    ptp_key="kompot_da_ptp",
     lfc_threshold=1.0,
-    pval_threshold=0.05,
+    ptp_threshold=0.05,
     title="Differential Abundance Volcano Plot"
 )
 plt.savefig("basic_da_volcano.png")
@@ -61,9 +61,9 @@ plt.figure(figsize=(12, 10))
 kp.plot.volcano_da(
     adata,
     lfc_key="kompot_da_lfc",
-    pval_key="kompot_da_pval",
+    ptp_key="kompot_da_ptp",
     lfc_threshold=1.0,
-    pval_threshold=0.05,
+    ptp_threshold=0.05,
     color="louvain",  # Color by louvain cluster
     point_size=15,
     title="DA Volcano Plot - Colored by Cluster",
@@ -75,9 +75,9 @@ plt.figure(figsize=(12, 10))
 kp.plot.volcano_da(
     adata,
     lfc_key="kompot_da_lfc",
-    pval_key="kompot_da_pval",
+    ptp_key="kompot_da_ptp",
     lfc_threshold=1.5,  # More stringent LFC threshold
-    pval_threshold=0.01,  # More stringent p-value threshold
+    ptp_threshold=0.01,  # More stringent PTP (Posterior Tail Probability) threshold
     alpha_background=0.2,  # More transparent background points
     point_size=20,  # Larger points
     highlight_color="#ff7f00",  # Custom highlight color if not using group coloring
@@ -94,7 +94,7 @@ plt.figure(figsize=(12, 10))
 kp.plot.volcano_da(
     adata,
     lfc_key="kompot_da_lfc",
-    pval_key="kompot_da_pval",
+    ptp_key="kompot_da_ptp",
     highlight_subset=highlight_mask,
     point_size=15,
     title="DA Volcano Plot - Highlighting Specific Clusters",
@@ -104,27 +104,27 @@ kp.plot.volcano_da(
 # Example with multiple groups in one figure
 fig, axes = plt.subplots(1, 2, figsize=(20, 8))
 
-# First volcano - using regular p-values (auto-transformed)
+# First volcano - using regular PTP (Posterior Tail Probability) (auto-transformed)
 kp.plot.volcano_da(
     adata,
     lfc_key="kompot_da_lfc",
-    pval_key="kompot_da_pval",
-    pval_threshold=0.05,
+    ptp_key="kompot_da_ptp",
+    ptp_threshold=0.05,
     lfc_threshold=1.0,
-    title="Using Regular p-values",
+    title="Using Regular PTP (Posterior Tail Probability)s",
     ax=axes[0],
     return_fig=True
 )
 
-# Second volcano - using pre-transformed negative log10 p-values with new naming
+# Second volcano - using pre-transformed negative log10 PTP (Posterior Tail Probability) with new naming
 kp.plot.volcano_da(
     adata,
     lfc_key="kompot_da_lfc",
-    pval_key="kompot_da_neg_log10_fold_change_pvalue",  # Using standardized negative log10 name
-    pval_threshold=0.05,  # Will be interpreted correctly based on the key name
+    ptp_key="kompot_da_neg_log10_fold_change_ptp",  # Using standardized negative log10 name
+    ptp_threshold=0.05,  # Will be interpreted correctly based on the key name
     lfc_threshold=1.0,
-    log_transform_pval=False,  # Don't transform again since already transformed
-    title="Using negative log10 p-values",
+    log_transform_ptp=False,  # Don't transform again since already transformed
+    title="Using negative log10 PTP (Posterior Tail Probability)s",
     ax=axes[1],
     return_fig=True
 )
@@ -132,16 +132,16 @@ kp.plot.volcano_da(
 plt.tight_layout()
 plt.savefig("multiple_da_volcanos.png")
 
-# Example showing automatic detection of negative log10 p-values with standardized naming
+# Example showing automatic detection of negative log10 PTP (Posterior Tail Probability) with standardized naming
 plt.figure(figsize=(12, 10))
 kp.plot.volcano_da(
     adata,
     lfc_key="kompot_da_lfc",
-    pval_key="kompot_da_neg_log10_fold_change_pvalue",  # Using standardized negative log10 name
-    pval_threshold=0.01,  # Function will handle this correctly
+    ptp_key="kompot_da_neg_log10_fold_change_ptp",  # Using standardized negative log10 name
+    ptp_threshold=0.01,  # Function will handle this correctly
     lfc_threshold=1.2,
-    title="Standard negative log10 p-value naming",
-    save="neg_log10_pval_volcano.png"
+    title="Standard negative log10 PTP (Posterior Tail Probability) naming",
+    save="neg_log10_ptp_volcano.png"
 )
 
 # Demonstrate using the colors that would be stored in adata.uns
@@ -166,8 +166,8 @@ plt.figure(figsize=(12, 10))
 kp.plot.volcano_da(
     adata,
     lfc_key="kompot_da_lfc",
-    pval_key="kompot_da_neg_log10_fold_change_pvalue",
-    pval_threshold=0.05,
+    ptp_key="kompot_da_neg_log10_fold_change_ptp",
+    ptp_threshold=0.05,
     lfc_threshold=1.0,
     color="kompot_da_log_fold_change_direction",  # Color by direction category
     title="Volcano Plot with Direction Coloring",

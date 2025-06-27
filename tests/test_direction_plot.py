@@ -63,7 +63,7 @@ def test_infer_direction_key_multiple_columns():
         condition1='A',
         condition2='B',
         log_fold_change_threshold=1.0,
-        pvalue_threshold=0.05,
+        ptp_threshold=0.05,
         result_key='da_run1'
     )
     
@@ -74,7 +74,7 @@ def test_infer_direction_key_multiple_columns():
         condition1='A',
         condition2='B',
         log_fold_change_threshold=1.5,
-        pvalue_threshold=0.01,
+        ptp_threshold=0.01,
         result_key='da_run2'
     )
     
@@ -122,7 +122,7 @@ def test_direction_barplot_normalization_options():
         condition1='A',
         condition2='B',
         log_fold_change_threshold=1.0,
-        pvalue_threshold=0.05
+        ptp_threshold=0.05
     )
     
     # Test with index normalization (default)
@@ -184,7 +184,7 @@ def test_direction_barplot_stacked_vs_grouped():
         condition1='A',
         condition2='B',
         log_fold_change_threshold=1.0,
-        pvalue_threshold=0.05
+        ptp_threshold=0.05
     )
     
     # Test with stacked bars (default)
@@ -230,7 +230,7 @@ def test_direction_barplot_sorting_options():
         condition1='A',
         condition2='B',
         log_fold_change_threshold=1.0,
-        pvalue_threshold=0.05
+        ptp_threshold=0.05
     )
     
     # Test sorting by 'up' direction, ascending
@@ -278,7 +278,7 @@ def test_direction_barplot_legend_customization():
         condition1='A',
         condition2='B',
         log_fold_change_threshold=1.0,
-        pvalue_threshold=0.05
+        ptp_threshold=0.05
     )
     
     # Test with custom legend title and location
@@ -310,7 +310,7 @@ def test_direction_barplot_custom_colors():
         condition1='A',
         condition2='B',
         log_fold_change_threshold=1.0,
-        pvalue_threshold=0.05
+        ptp_threshold=0.05
     )
     
     # Define custom colors
@@ -348,7 +348,7 @@ def test_direction_barplot_custom_title_and_labels():
         condition1='A',
         condition2='B',
         log_fold_change_threshold=1.0,
-        pvalue_threshold=0.05
+        ptp_threshold=0.05
     )
     
     # Test with custom title and labels

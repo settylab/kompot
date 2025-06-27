@@ -27,11 +27,11 @@ logger = logging.getLogger("kompot")
 def volcano_da(
     adata: AnnData,
     lfc_key: Optional[str] = None,
-    pval_key: Optional[str] = None, 
+    ptp_key: Optional[str] = None, 
     group_key: Optional[str] = None,
-    log_transform_pval: bool = True,
+    log_transform_ptp: bool = True,
     lfc_threshold: Optional[float] = None,
-    pval_threshold: Optional[float] = None,
+    ptp_threshold: Optional[float] = None,
     color: Optional[Union[str, List[str]]] = None,
     alpha_background: float = 1.0,  # No alpha by default
     highlight_subset: Optional[Union[np.ndarray, List[bool]]] = None,
@@ -39,7 +39,7 @@ def volcano_da(
     figsize: Tuple[float, float] = (10, 8),
     title: Optional[str] = "Differential Abundance Volcano Plot",
     xlabel: Optional[str] = "Log Fold Change",
-    ylabel: Optional[str] = "-log10(p-value)",
+    ylabel: Optional[str] = "-log10(ptp)",
     n_x_ticks: int = 3,
     n_y_ticks: int = 3,
     legend_loc: str = "best",
@@ -69,7 +69,7 @@ def volcano_da(
     Create a volcano plot for differential abundance results.
     
     This function visualizes cells in a 2D volcano plot with log fold change on the x-axis
-    and significance (-log10 p-value) on the y-axis. Cells can be colored by any column
+    and significance (-log10 PTP (Posterior Tail Probability)) on the y-axis. Cells can be colored by any column
     in adata.obs.
     
     Parameters
@@ -79,17 +79,17 @@ def volcano_da(
     lfc_key : str, optional
         Key in adata.obs for log fold change values.
         If None, will try to infer from ``kompot_da_`` keys.
-    pval_key : str, optional
-        Key in adata.obs for p-values.
+    ptp_key : str, optional
+        Key in adata.obs for PTPs (Posterior Tail Probabilities). Posterior Tail Probability is a significance measure score similar to p-value.
         If None, will try to infer from ``kompot_da_`` keys.
     group_key : str, optional
         Key in adata.obs to group cells by (for coloring)
-    log_transform_pval : bool, optional
-        Whether to -log10 transform p-values for the y-axis
+    log_transform_ptp : bool, optional
+        Whether to -log10 transform PTPs (Posterior Tail Probabilities) for the y-axis
     lfc_threshold : float, optional
         Log fold change threshold for significance (for drawing threshold lines)
-    pval_threshold : float, optional
-        P-value threshold for significance (for drawing threshold lines)
+    ptp_threshold : float, optional
+        PTP (Posterior Tail Probability) threshold for significance (for drawing threshold lines)
     color : str or list of str, optional
         Keys in adata.obs for coloring cells. Requires scanpy.
     alpha_background : float, optional
@@ -166,7 +166,7 @@ def volcano_da(
     grid_kwargs = grid_kwargs or {'alpha': 0.3}
     
     # Infer keys using helper function
-    lfc_key, pval_key, thresholds = _infer_da_keys(adata, run_id, lfc_key, pval_key)
+    lfc_key, ptp_key, thresholds = _infer_da_keys(adata, run_id, lfc_key, ptp_key)
     
     # Calculate the actual (positive) run ID for logging
     if run_id < 0:
@@ -181,10 +181,10 @@ def volcano_da(
         actual_run_id = run_id
     
     # Extract the threshold values
-    auto_lfc_threshold, auto_pval_threshold = thresholds
+    auto_lfc_threshold, auto_ptp_threshold = thresholds
     
     # Track which values needed inference for logging
-    needed_column_inference = lfc_key is None or pval_key is None
+    needed_column_inference = lfc_key is None or ptp_key is None
     needed_threshold_inference = False
     
     # Use run thresholds if available and not explicitly overridden
@@ -192,8 +192,8 @@ def volcano_da(
         lfc_threshold = auto_lfc_threshold
         needed_threshold_inference = True
     
-    if pval_threshold is None and auto_pval_threshold is not None:
-        pval_threshold = auto_pval_threshold
+    if ptp_threshold is None and auto_ptp_threshold is not None:
+        ptp_threshold = auto_ptp_threshold
         needed_threshold_inference = True
         
     # Update direction column if requested
@@ -203,10 +203,10 @@ def volcano_da(
         update_dir(
             adata=adata,
             lfc_threshold=lfc_threshold,
-            pval_threshold=pval_threshold,
+            ptp_threshold=ptp_threshold,
             direction_column=direction_column,
             lfc_key=lfc_key,
-            pval_key=pval_key,
+            ptp_key=ptp_key,
             run_id=run_id,
             inplace=True
         )
@@ -232,10 +232,10 @@ def volcano_da(
     if needed_column_inference:
         conditions_str = f": comparing {condition1} to {condition2}" if condition1 and condition2 else ""
         logger.info(f"Inferred DA columns from run {actual_run_id}{conditions_str}")
-        logger.info(f"Using fields for DA plot - lfc_key: '{lfc_key}', pval_key: '{pval_key}'")
+        logger.info(f"Using fields for DA plot - lfc_key: '{lfc_key}', ptp_key: '{ptp_key}'")
     
     if needed_threshold_inference:
-        logger.info(f"Using inferred thresholds - lfc_threshold: {lfc_threshold}, pval_threshold: {pval_threshold}")
+        logger.info(f"Using inferred thresholds - lfc_threshold: {lfc_threshold}, ptp_threshold: {ptp_threshold}")
     
     # Update axis labels with condition information if not explicitly set
     if condition1 and condition2 and xlabel == "Log Fold Change":
@@ -257,42 +257,42 @@ def volcano_da(
     # Extract data
     x = adata.obs[lfc_key].values
     
-    # Handle p-values - check if they're already negative log10 transformed
-    if 'neg_log10' in pval_key.lower() or pval_key.lower().startswith('neg_log10') or '-log10' in pval_key.lower():
+    # Handle PTPs (Posterior Tail Probabilities) - check if they're already negative log10 transformed
+    if 'neg_log10' in ptp_key.lower() or ptp_key.lower().startswith('neg_log10') or '-log10' in ptp_key.lower():
         # Already negative log10 transformed - use as is (values should be positive)
-        y = adata.obs[pval_key].values
-        ylabel = ylabel or "-log10(p-value)"
-        log_transform_pval = False  # Override since already transformed
-    elif log_transform_pval:
-        y = -np.log10(adata.obs[pval_key].values)
-        ylabel = ylabel or "-log10(p-value)"
+        y = adata.obs[ptp_key].values
+        ylabel = ylabel or "-log10(PTP (Posterior Tail Probability))"
+        log_transform_ptp = False  # Override since already transformed
+    elif log_transform_ptp:
+        y = -np.log10(adata.obs[ptp_key].values)
+        ylabel = ylabel or "-log10(PTP (Posterior Tail Probability))"
     else:
-        y = adata.obs[pval_key].values
-        ylabel = ylabel or "p-value"
+        y = adata.obs[ptp_key].values
+        ylabel = ylabel or "PTP (Posterior Tail Probability)"
     
     # Define significance thresholds for coloring
-    if pval_threshold is not None:
-        if 'neg_log10' in pval_key.lower() or pval_key.lower().startswith('neg_log10') or '-log10' in pval_key.lower():
+    if ptp_threshold is not None:
+        if 'neg_log10' in ptp_key.lower() or ptp_key.lower().startswith('neg_log10') or '-log10' in ptp_key.lower():
             # Key indicates values are already negative log10 transformed (higher = more significant)
-            # Convert pval_threshold to -log10 scale if it's a raw p-value (between 0 and 1)
-            if 0 < pval_threshold < 1:
-                y_threshold = -np.log10(pval_threshold)  # Convert to -log10 scale
+            # Convert ptp_threshold to -log10 scale if it's a raw PTP (Posterior Tail Probability) (between 0 and 1)
+            if 0 < ptp_threshold < 1:
+                y_threshold = -np.log10(ptp_threshold)  # Convert to -log10 scale
             else:
                 # Assume it's already on -log10 scale
-                y_threshold = pval_threshold
-        elif log_transform_pval:
-            y_threshold = -np.log10(pval_threshold)
+                y_threshold = ptp_threshold
+        elif log_transform_ptp:
+            y_threshold = -np.log10(ptp_threshold)
         else:
-            y_threshold = pval_threshold
+            y_threshold = ptp_threshold
     else:
         y_threshold = None
     
     # Define masks for significant cells
-    if pval_threshold is not None and lfc_threshold is not None:
+    if ptp_threshold is not None and lfc_threshold is not None:
         # Both thresholds provided
         significant = (y > y_threshold) & (np.abs(x) > lfc_threshold)
-    elif pval_threshold is not None:
-        # Only p-value threshold provided
+    elif ptp_threshold is not None:
+        # Only PTP (Posterior Tail Probability) threshold provided
         significant = y > y_threshold
     elif lfc_threshold is not None:
         # Only LFC threshold provided
@@ -481,17 +481,17 @@ def volcano_da(
             ax.axvline(x=lfc_threshold, color="black", linestyle="--", alpha=0.5)
             ax.axvline(x=-lfc_threshold, color="black", linestyle="--", alpha=0.5)
         
-        if pval_threshold is not None:
-            if 'neg_log10' in pval_key.lower() or pval_key.lower().startswith('neg_log10') or '-log10' in pval_key.lower():
-                # For negative log10 p-values, convert if needed
-                if 0 < pval_threshold < 1:
-                    ax.axhline(y=-np.log10(pval_threshold), color="black", linestyle="--", alpha=0.5)
+        if ptp_threshold is not None:
+            if 'neg_log10' in ptp_key.lower() or ptp_key.lower().startswith('neg_log10') or '-log10' in ptp_key.lower():
+                # For negative PTPs (Posterior Tail Probabilities), convert if needed
+                if 0 < ptp_threshold < 1:
+                    ax.axhline(y=-np.log10(ptp_threshold), color="black", linestyle="--", alpha=0.5)
                 else:
-                    ax.axhline(y=pval_threshold, color="black", linestyle="--", alpha=0.5)
-            elif log_transform_pval:
-                ax.axhline(y=-np.log10(pval_threshold), color="black", linestyle="--", alpha=0.5)
+                    ax.axhline(y=ptp_threshold, color="black", linestyle="--", alpha=0.5)
+            elif log_transform_ptp:
+                ax.axhline(y=-np.log10(ptp_threshold), color="black", linestyle="--", alpha=0.5)
             else:
-                ax.axhline(y=pval_threshold, color="black", linestyle="--", alpha=0.5)
+                ax.axhline(y=ptp_threshold, color="black", linestyle="--", alpha=0.5)
     
     # Add center line if requested (unchanged from previous behavior)
     if show_thresholds:
