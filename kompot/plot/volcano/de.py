@@ -257,9 +257,7 @@ def volcano_de(
             
         lfc_varm_key = run_info['varm_keys']['mean_lfc']
         score_varm_key = run_info['varm_keys']['mahalanobis']
-        #weighted_lfc_varm_key = run_info['varm_keys']['weighted_lfc']
-        
-        #logger.debug(f"Using varm keys: lfc={lfc_varm_key}, score={score_varm_key}, weighted={weighted_lfc_varm_key}")
+
         logger.debug(f"Using varm keys: lfc={lfc_varm_key}, score={score_varm_key}")
         
         # Check if the keys exist in varm and group is available
@@ -273,10 +271,6 @@ def volcano_de(
             group in adata.varm[score_varm_key].columns
         )
         
-        # weighted_lfc_data_available = (
-        #     weighted_lfc_varm_key in adata.varm and
-        #     group in adata.varm[weighted_lfc_varm_key].columns
-        # )
         
         if lfc_data_available and score_data_available:
             logger.info(f"Using group-specific data for group '{group}' from varm")
@@ -284,11 +278,6 @@ def volcano_de(
             x = adata.varm[lfc_varm_key][group].values
             y = adata.varm[score_varm_key][group].values
             
-            # # Log information about weighted mean log fold change
-            # if weighted_lfc_data_available:
-            #     logger.info(f"Group-specific weighted mean log fold change data found for '{group}'")
-            # else:
-            #     logger.info(f"Group-specific weighted mean log fold change data not available for '{group}'")
             
             # Update title to indicate group-specific data
             if title is None and condition1 and condition2:
@@ -353,18 +342,20 @@ def volcano_de(
     
     # Add sort_val - either from the specified sort_key or use y (score) by default
     if sort_key is not None:
-    #     # If group-specific and sort_key appears to be a weighted_lfc column and group-specific weighted_lfc available
-    #     if group is not None and "weighted" in sort_key.lower() and weighted_lfc_data_available:
-    #         data_dict['sort_val'] = adata.varm[weighted_lfc_varm_key][group].values
-    #         logger.info(f"Using group-specific weighted mean log fold change for sorting")
-    #     else:
-    #         data_dict['sort_val'] = adata.var[sort_key].values
-        # If group-specific and sort_key appears to be a weighted_lfc column and group-specific weighted_lfc available
-        if group is not None and "lfc" in sort_key.lower() and lfc_data_available:
-            data_dict['sort_val'] = adata.varm[lfc_data_available][group].values
-            logger.info(f"Using group-specific mean log fold change for sorting")
-        else:
-            data_dict['sort_val'] = adata.var[sort_key].values
+            # If group-specific and sort_key appears to be a weighted_lfc column and group-specific weighted_lfc available
+            if group is not None and "mean_lfc" in sort_key.lower() and lfc_data_available:
+                data_dict['sort_val'] = adata.varm[lfc_varm_key][group].values
+                logger.info(f"Using group-specific weighted mean log fold change for sorting")
+            elif sort_key in adata.var.columns:
+                data_dict['sort_val'] = adata.var[sort_key].values
+                logger.info(f"Using '{sort_key}' for sorting")
+            elif sort_key in adata.varm.keys():
+                data_dict['sort_val'] = adata.varm[sort_key][group].values
+                logger.info(f"Using group-specific '{sort_key}' for sorting")
+            else:
+                msg = f"sort_key = '{sort_key}' not found in adata.var or adata.varm."
+                logger.error(msg)
+                raise KeyError(msg)
     else:
         data_dict['sort_val'] = y
         

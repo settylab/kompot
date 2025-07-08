@@ -411,7 +411,7 @@ def compute_differential_abundance(
         log_fold_change_threshold=log_fold_change_threshold,
         ptp_threshold=ptp_threshold
     )
-    # Note: mean_log_fold_change is no longer computed by default
+    # Note: weighted_mean_log_fold_change is no longer computed by default
     
     # Handle landmarks for future reference
     if hasattr(diff_abundance, 'computed_landmarks') and diff_abundance.computed_landmarks is not None:
