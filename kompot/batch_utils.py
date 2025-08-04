@@ -6,6 +6,7 @@ import logging
 from functools import wraps
 from typing import Any, Callable, Dict, List, Optional, Union, TypeVar, cast
 from tqdm.auto import tqdm
+from .gc_utils import no_gc, explicit_cleanup
 
 logger = logging.getLogger("kompot")
 
@@ -173,37 +174,51 @@ def batch_process(default_batch_size: int = 500):
             # Track which samples we've successfully processed
             processed_indices = set()
             
-            # First attempt with specified batch size
+            # First attempt with specified batch size - use GC optimization for large batch processing
             logger.info(f"Processing data in batches of size {batch_size}")
-            for start_idx in tqdm(range(0, n_samples, batch_size), 
-                                desc=f"Processing data (batch size={batch_size})"):
-                end_idx = min(start_idx + batch_size, n_samples)
-                batch_indices = list(range(start_idx, end_idx))
+            
+            with no_gc(generation=0):
+                temp_batches = []
                 
-                # Skip batch if all indices have been processed
-                if all(idx in processed_indices for idx in batch_indices):
-                    continue
+                for i, start_idx in enumerate(tqdm(range(0, n_samples, batch_size), 
+                                    desc=f"Processing data (batch size={batch_size})")):
+                    end_idx = min(start_idx + batch_size, n_samples)
+                    batch_indices = list(range(start_idx, end_idx))
                     
-                # Filter out already processed indices
-                remaining_indices = [idx for idx in batch_indices if idx not in processed_indices]
-                if not remaining_indices:
-                    continue
+                    # Skip batch if all indices have been processed
+                    if all(idx in processed_indices for idx in batch_indices):
+                        continue
+                        
+                    # Filter out already processed indices
+                    remaining_indices = [idx for idx in batch_indices if idx not in processed_indices]
+                    if not remaining_indices:
+                        continue
+                    
+                    batch_X = X_new[remaining_indices]
+                    temp_batches.append(batch_X)
+                    
+                    try:
+                        # Process this batch
+                        result = func(self, batch_X, *args, **kwargs)
+                        batch_results.append(result)
+                        processed_indices.update(remaining_indices)
+                        
+                        # Periodic cleanup every 10 batches to prevent memory buildup
+                        if i % 10 == 0 and temp_batches:
+                            explicit_cleanup(temp_batches, collect_generation=0)
+                            temp_batches.clear()
+                            
+                    except Exception as e:
+                        # Check if it's a memory-related error
+                        if is_jax_memory_error(e):
+                            logger.warning(f"Memory error with batch size {batch_size}. Will try with smaller batches.")
+                            # Continue with next batch size - we'll handle remaining indices later
+                        else:
+                            # If it's not a memory error, re-raise
+                            raise
                 
-                batch_X = X_new[remaining_indices]
-                
-                try:
-                    # Process this batch
-                    result = func(self, batch_X, *args, **kwargs)
-                    batch_results.append(result)
-                    processed_indices.update(remaining_indices)
-                except Exception as e:
-                    # Check if it's a memory-related error
-                    if is_jax_memory_error(e):
-                        logger.warning(f"Memory error with batch size {batch_size}. Will try with smaller batches.")
-                        # Continue with next batch size - we'll handle remaining indices later
-                    else:
-                        # If it's not a memory error, re-raise
-                        raise
+                # Final cleanup
+                explicit_cleanup(temp_batches, collect_generation=0)
             
             # If we haven't processed all samples, try with smaller batch sizes
             if len(processed_indices) < n_samples:

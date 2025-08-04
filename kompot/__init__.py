@@ -28,6 +28,7 @@ from .differential.sample_variance_estimator import SampleVarianceEstimator
 # Import utility functions
 from .utils import compute_mahalanobis_distance, find_landmarks
 from .batch_utils import batch_process, apply_batched
+from .gc_utils import no_gc, explicit_cleanup, memory_efficient_loop, tune_gc_thresholds, get_memory_stats, log_memory_stats
 
 # Now import submodules - after the classes are imported
 from . import differential
@@ -85,6 +86,10 @@ __all__ = [
     # Utility functions
     "compute_mahalanobis_distance", "find_landmarks",
     "batch_process", "apply_batched",
+    
+    # Memory management utilities
+    "no_gc", "explicit_cleanup", "memory_efficient_loop", "tune_gc_thresholds",
+    "get_memory_stats", "log_memory_stats",
     
     # AnnData functionality
     "compute_differential_abundance", "compute_differential_expression", 

@@ -406,6 +406,10 @@ class DiskStorage:
                 # Python is shutting down, don't try to import or log
                 return
                 
+            # Explicit cleanup of array registry to break potential reference cycles
+            if hasattr(self, 'array_registry'):
+                self.array_registry.clear()
+                
             # Only perform cleanup if this instance owns the directory and it exists
             if (hasattr(self, '_temp_dir') and self._temp_dir and 
                 os.path.exists(self.storage_dir) and 
@@ -423,6 +427,11 @@ class DiskStorage:
                 # Only remove if this instance is the registered owner
                 if DiskStorage._shared_dirs[self.storage_dir] == self._instance_id:
                     DiskStorage._shared_dirs.pop(self.storage_dir, None)
+                    
+            # Final GC cleanup
+            import gc
+            gc.collect(0)
+                    
         except ImportError:
             # Python is shutting down or module not available
             pass
