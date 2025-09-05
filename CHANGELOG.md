@@ -6,7 +6,9 @@ All notable changes to this project will be documented in this file.
 
  - StringDBReport class for gene set visualization and reporting
  - make sure da directions categories are always retained and ordered correctly
- - more flexible `volcano_de` plot
+ - comprehensive FDR implementation for differential expression analysis
+ - FDR-based visualization in `volcano_de` plots: support for local/tail FDR y-axes and coloring
+ - more flexible `volcano_de` plot with FDR-based coloring and y-axis options
  - `fold_change_mode` parameter for heatmap to only show fold-change instead of split tiles
  - implement `RunInfo` utility to fetch information about previous runs
  - bugfix passing `ax` to `kompot.plot.embedding`
