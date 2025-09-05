@@ -34,6 +34,246 @@ from .utils import (
 logger = logging.getLogger("kompot")
 
 
+def _prepare_null_genes(
+    null_genes: Union[int, List[int], None],
+    available_genes: List[str], 
+    null_seed: Optional[int]
+) -> tuple[List[int], bool]:
+    """
+    Select null genes for FDR calculation.
+    
+    Args:
+        null_genes: Specification of null genes (int for random sampling, list for specific genes, None to disable)
+        available_genes: List of available gene names
+        null_seed: Random seed for reproducible selection
+        
+    Returns:
+        (null_gene_indices, used_replacement): List of gene indices and whether sampling with replacement was used
+    """
+    if null_genes is None or null_genes == 0:
+        return [], False
+        
+    n_available = len(available_genes)
+    
+    if isinstance(null_genes, int):
+        if null_genes <= 0:
+            raise ValueError(f"null_genes must be positive, got {null_genes}")
+            
+        rng = np.random.RandomState(null_seed)
+        
+        if null_genes > n_available:
+            logger.warning(f"Requested {null_genes} null genes but only {n_available} genes available. "
+                         f"Using sampling with replacement.")
+            null_gene_indices = rng.choice(n_available, size=null_genes, replace=True).tolist()
+            used_replacement = True
+        else:
+            null_gene_indices = rng.choice(n_available, size=null_genes, replace=False).tolist()
+            used_replacement = False
+            
+    elif isinstance(null_genes, list):
+        null_gene_indices = null_genes.copy()
+        used_replacement = False
+        
+        if not all(isinstance(idx, int) for idx in null_gene_indices):
+            raise ValueError("All elements in null_genes list must be integers")
+            
+        invalid_indices = [idx for idx in null_gene_indices if idx < 0 or idx >= n_available]
+        if invalid_indices:
+            raise ValueError(f"Invalid gene indices: {invalid_indices}. Must be between 0 and {n_available-1}")
+            
+    else:
+        raise ValueError(f"null_genes must be int, list of ints, or None, got {type(null_genes)}")
+        
+    return null_gene_indices, used_replacement
+
+
+def _generate_shuffled_expression(
+    expr1: np.ndarray, expr2: np.ndarray,
+    null_gene_indices: List[int],
+    null_seed: Optional[int]
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Generate shuffled expression matrices for null genes.
+    
+    Each gene gets differently shuffled expression values between conditions to break
+    the association between cell state and gene expression.
+    
+    Args:
+        expr1: Expression matrix for condition 1 (cells x genes)
+        expr2: Expression matrix for condition 2 (cells x genes)  
+        null_gene_indices: Indices of genes to use for null distribution
+        null_seed: Random seed for reproducible shuffling
+        
+    Returns:
+        (shuffled_expr1, shuffled_expr2): Expression matrices with shuffled values between conditions
+    """
+    if not null_gene_indices:
+        return np.empty((expr1.shape[0], 0)), np.empty((expr2.shape[0], 0))
+        
+    # Combine expression matrices
+    combined_expr = np.vstack([expr1, expr2])
+    n_cells_1 = expr1.shape[0] 
+    n_cells_2 = expr2.shape[0]
+    
+    # Initialize output arrays for shuffled null genes
+    shuffled_expr_combined = np.zeros((n_cells_1 + n_cells_2, len(null_gene_indices)))
+    
+    # Set up base random state
+    base_rng = np.random.RandomState(null_seed)
+    
+    # For each null gene, create a differently shuffled version
+    for i, gene_idx in enumerate(null_gene_indices):
+        # Create a unique random state for this gene instance
+        gene_seed = base_rng.randint(0, 2**31 - 1)
+        gene_rng = np.random.RandomState(gene_seed)
+        
+        # Get expression values for this gene from both conditions
+        gene_expr = combined_expr[:, gene_idx].copy()
+        
+        # Shuffle the expression values to break condition-expression association
+        # This creates a null distribution where expression is random w.r.t. conditions
+        shuffled_expr_combined[:, i] = gene_rng.permutation(gene_expr)
+    
+    # Split back into condition-specific matrices
+    shuffled_expr1 = shuffled_expr_combined[:n_cells_1, :]
+    shuffled_expr2 = shuffled_expr_combined[n_cells_1:, :]
+    
+    return shuffled_expr1, shuffled_expr2
+
+
+def _compute_fdr_statistics(
+    real_mahalanobis: np.ndarray,
+    null_mahalanobis: np.ndarray,
+    fdr_threshold: float
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Compute p-values, local FDR, and tail-based FDR from null distribution of Mahalanobis distances.
+    
+    Note: Larger Mahalanobis distances indicate MORE significance (deviation from null).
+    Mahalanobis distances are always non-negative.
+    
+    Args:
+        real_mahalanobis: Mahalanobis distances for real genes (non-negative)
+        null_mahalanobis: Mahalanobis distances for null genes (background)
+        fdr_threshold: FDR threshold for significance
+        
+    Returns:
+        (pvalues, local_fdr_values, tail_fdr_values, is_significant): P-values, local FDR, tail-based FDR, and boolean significance
+    """
+    from scipy import stats
+    from statsmodels.stats.multitest import local_fdr, multipletests
+    
+    # Step 1: Compute empirical p-values from null distribution
+    # For Mahalanobis distances: larger distance = more extreme = smaller p-value
+    pvalues = np.zeros(len(real_mahalanobis))
+    
+    for i, real_dist in enumerate(real_mahalanobis):
+        # Right-tailed p-value: fraction of null distances >= real distance
+        # This is correct because larger Mahalanobis = more significant
+        pvalues[i] = np.sum(null_mahalanobis >= real_dist) / len(null_mahalanobis)
+    
+    # Ensure p-values are not exactly 0 for downstream calculations
+    # Only add pseudocount for truly zero p-values
+    zero_pvalues = (pvalues == 0.0)
+    if np.any(zero_pvalues):
+        min_pvalue = 1.0 / (2 * len(null_mahalanobis))  # Conservative minimum for zeros
+        pvalues[zero_pvalues] = min_pvalue
+    
+    # Step 2: Compute tail-based FDR using Benjamini-Hochberg
+    _, tail_fdr_values, _, _ = multipletests(pvalues, method='fdr_bh')
+    
+    # Step 3: Convert to appropriate statistics for local FDR calculation
+    # For local FDR, we need z-scores. Convert using inverse normal CDF
+    # Since larger Mahalanobis = smaller p-value = larger |z-score|
+    zscores = -stats.norm.ppf(pvalues)  # One-tailed conversion
+    
+    # Handle potential infinite z-scores by clipping
+    zscores = np.clip(zscores, -10, 10)
+    
+    # Step 4: Apply local FDR estimation (similar to fdrtool approach)
+    try:
+        # Local FDR estimation with empirical null modeling
+        local_fdr_values = local_fdr(
+            zscores, 
+            null_proportion=1.0,  # Assume theoretical null proportion
+            null_pdf=None,       # Let it estimate empirical null distribution
+            deg=7,               # Polynomial degree for spline fitting (fdrtool default)
+            nbins=30,            # Number of bins for density estimation
+            alpha=0              # No higher criticism threshold
+        )
+        
+        # Ensure local FDR values are valid probabilities
+        local_fdr_values = np.clip(local_fdr_values, 0, 1)
+        
+        # Fix edge case: when all p-values are very high (no signal), local FDR can incorrectly return 0
+        # In such cases, use tail-based FDR as more reliable
+        high_pvalue_mask = pvalues > 0.9
+        if np.all(high_pvalue_mask):
+            logger.debug("All p-values > 0.9, using tail-based FDR instead of local FDR")
+            local_fdr_values = tail_fdr_values.copy()
+        elif np.any(high_pvalue_mask):
+            # For individual high p-values, ensure local FDR is at least as high as tail FDR
+            problematic = high_pvalue_mask & (local_fdr_values < tail_fdr_values)
+            if np.any(problematic):
+                local_fdr_values[problematic] = tail_fdr_values[problematic]
+                logger.debug(f"Fixed {np.sum(problematic)} genes where local FDR was lower than tail FDR for high p-values")
+        
+    except Exception as e:
+        logger.warning(f"Local FDR estimation failed: {e}. Using tail-based FDR as fallback.")
+        # Fallback to tail-based FDR if local FDR computation fails
+        local_fdr_values = tail_fdr_values.copy()
+    
+    # Step 5: Determine significance based on local FDR threshold (more conservative)
+    # Use local FDR as primary significance criterion
+    is_significant = local_fdr_values < fdr_threshold
+    
+    return pvalues, local_fdr_values, tail_fdr_values, is_significant
+
+
+def _annotate_differential_genes(
+    fdr_values: np.ndarray,
+    mahalanobis_distances: np.ndarray,
+    gene_names: List[str], 
+    fdr_threshold: float
+) -> tuple[pd.Series, Dict[str, Any]]:
+    """
+    Create boolean DE annotation and summary statistics.
+    
+    Args:
+        fdr_values: FDR-corrected p-values
+        mahalanobis_distances: Mahalanobis distances for genes
+        gene_names: Names of genes
+        fdr_threshold: FDR threshold for significance
+        
+    Returns:
+        (de_boolean_series, summary_stats): Boolean DE annotation and summary statistics
+    """
+    # Create boolean series
+    is_significant = fdr_values < fdr_threshold
+    de_boolean_series = pd.Series(is_significant, index=gene_names)
+    
+    # Calculate summary statistics
+    n_significant = np.sum(is_significant)
+    n_total = len(gene_names)
+    
+    # Find threshold Mahalanobis distance corresponding to FDR threshold
+    if n_significant > 0:
+        significant_distances = mahalanobis_distances[is_significant]
+        min_significant_distance = np.min(significant_distances)
+    else:
+        min_significant_distance = np.inf
+    
+    summary_stats = {
+        'n_significant': n_significant,
+        'n_total': n_total,
+        'fraction_significant': n_significant / n_total,
+        'fdr_threshold': fdr_threshold,
+        'min_significant_mahalanobis': min_significant_distance
+    }
+    
+    return de_boolean_series, summary_stats
+
+
 def compute_differential_expression(
     adata,
     groupby: str,
@@ -71,6 +311,9 @@ def compute_differential_expression(
     store_posterior_covariance: bool = False,
     allow_single_condition_variance: bool = False,
     progress: bool = True,
+    null_genes: Union[int, List[int], None] = 1000,
+    null_seed: Optional[int] = None,
+    fdr_threshold: float = 0.05,
     **function_kwargs
 ) -> Union[Dict[str, np.ndarray], Any]:
     """
@@ -239,6 +482,24 @@ def compute_differential_expression(
         bars for all batch processing operations including prediction, uncertainty computation, 
         and Mahalanobis distance calculations. When False, all progress bars are disabled. 
         Default is True.
+    null_genes : int, List[int], or None, optional
+        Specification for generating null distribution to compute FDR-corrected p-values:
+        
+        - If int: Number of genes to randomly sample for null distribution (default 1000)
+        - If List[int]: Specific gene indices to use for null distribution
+        - If None or 0: Disable FDR calculation (no p-values computed)
+        
+        Null genes have their expression values shuffled between conditions to break the
+        association with cell state, creating a background distribution for statistical testing.
+    null_seed : int, optional
+        Random seed for reproducible null gene selection and expression shuffling.
+        Ensures consistent results across runs when using random null gene sampling.
+        If None, results will vary between runs. Default is None.
+    fdr_threshold : float, optional
+        FDR threshold for identifying significantly differentially expressed genes.
+        Genes with FDR < fdr_threshold will be marked as significantly DE in a boolean
+        column. Also used for reporting the Mahalanobis distance threshold in logs.
+        Default is 0.05.
     **function_kwargs : dict
         Additional arguments to pass to the FunctionEstimator.
         
@@ -257,6 +518,10 @@ def compute_differential_expression(
     
     - adata.var[f"{result_key}_mahalanobis"]: Mahalanobis distance for each gene
     - adata.var[f"{result_key}_weighted_lfc"]: Weighted mean log fold change for each gene
+    - adata.var[f"{result_key}_mahalanobis_pvalue"]: P-values from empirical null distribution (if null_genes is not None)
+    - adata.var[f"{result_key}_mahalanobis_local_fdr"]: Local FDR values using empirical null estimation similar to R's fdrtool (if null_genes is not None)
+    - adata.var[f"{result_key}_mahalanobis_tail_fdr"]: Tail-based FDR values using Benjamini-Hochberg correction (if null_genes is not None)
+    - adata.var[f"{result_key}_is_de"]: Boolean indicator of differential expression at specified local FDR threshold (if null_genes is not None)
     - adata.layers[f"{result_key}_condition1_imputed"]: Imputed expression for condition 1
     - adata.layers[f"{result_key}_condition2_imputed"]: Imputed expression for condition 2
     - adata.layers[f"{result_key}_fold_change"]: Log fold change for each cell and gene
@@ -287,8 +552,27 @@ def compute_differential_expression(
         sample_suffix="_sample_var" if sample_col is not None else ""
     )
     
+    # Add FDR-related field names if null_genes is specified
+    if null_genes is not None and null_genes != 0:
+        sample_suffix = "_sample_var" if sample_col is not None else ""
+        field_names.update({
+            "mahalanobis_pvalue_key": f"{result_key}_mahalanobis_pvalue{sample_suffix}",
+            "mahalanobis_local_fdr_key": f"{result_key}_mahalanobis_local_fdr{sample_suffix}",
+            "mahalanobis_tail_fdr_key": f"{result_key}_mahalanobis_tail_fdr{sample_suffix}",
+            "is_de_key": f"{result_key}_is_de{sample_suffix}",
+        })
+    
     # Get all patterns from field_names
     all_patterns = field_names["all_patterns"]
+    
+    # Update all_patterns with FDR fields if needed
+    if null_genes is not None and null_genes != 0:
+        all_patterns["var"].extend([
+            field_names["mahalanobis_pvalue_key"],
+            field_names["mahalanobis_local_fdr_key"],
+            field_names["mahalanobis_tail_fdr_key"], 
+            field_names["is_de_key"]
+        ])
     
     # Update all_patterns with differential abundance integration if needed
     if differential_abundance_key is not None:
@@ -594,6 +878,60 @@ def compute_differential_expression(
     else:
         selected_genes = adata.var_names.tolist()
     
+    # Phase 1: Prepare null genes for FDR calculation if requested
+    use_fdr = null_genes is not None and null_genes != 0 and compute_mahalanobis
+    null_gene_indices = []
+    null_expr1 = np.empty((expr1.shape[0], 0))
+    null_expr2 = np.empty((expr2.shape[0], 0))
+    
+    if use_fdr:
+        logger.info(f"Preparing null distribution with null_genes={null_genes}, null_seed={null_seed}")
+        
+        # Select null genes from available genes (before filtering)
+        available_genes = adata.var_names.tolist()
+        null_gene_indices, used_replacement = _prepare_null_genes(
+            null_genes=null_genes,
+            available_genes=available_genes,
+            null_seed=null_seed
+        )
+        
+        if null_gene_indices:
+            # Generate shuffled expression matrices for null genes
+            # Use the original unfiltered expression data
+            orig_expr1 = adata.X[mask1] if layer is None else adata.layers[layer][mask1]
+            orig_expr2 = adata.X[mask2] if layer is None else adata.layers[layer][mask2]
+            
+            # Convert to dense if sparse
+            if sparse.issparse(orig_expr1):
+                orig_expr1 = orig_expr1.toarray()
+            if sparse.issparse(orig_expr2):
+                orig_expr2 = orig_expr2.toarray()
+            
+            null_expr1, null_expr2 = _generate_shuffled_expression(
+                expr1=orig_expr1,
+                expr2=orig_expr2,
+                null_gene_indices=null_gene_indices,
+                null_seed=null_seed
+            )
+            
+            logger.info(f"Generated shuffled expression for {len(null_gene_indices)} null genes" + 
+                       (" (with replacement)" if used_replacement else ""))
+        
+        # Expand expression matrices to include null genes
+        if null_gene_indices:
+            expr1 = np.hstack([expr1, null_expr1])
+            expr2 = np.hstack([expr2, null_expr2])
+            
+            # Create expanded gene list: real genes + null gene names
+            null_gene_names = [f"NULL_{i}_{adata.var_names[idx]}" for i, idx in enumerate(null_gene_indices)]
+            expanded_genes = selected_genes + null_gene_names
+        else:
+            expanded_genes = selected_genes
+    else:
+        expanded_genes = selected_genes
+        if null_genes is not None and null_genes != 0 and not compute_mahalanobis:
+            logger.warning("FDR calculation requires compute_mahalanobis=True. Skipping FDR calculation.")
+    
     # Check if we have landmarks that can be reused
     stored_landmarks = None
     
@@ -762,6 +1100,72 @@ def compute_differential_expression(
         progress=progress,
     )
     
+    # Phase 3: Compute FDR statistics if null genes were used
+    fdr_results = {}
+    if use_fdr and null_gene_indices and compute_mahalanobis:
+        logger.info("Computing FDR statistics from null distribution")
+        
+        # Split results into real vs null genes
+        n_real_genes = len(selected_genes)
+        n_null_genes = len(null_gene_indices)
+        
+        if 'mahalanobis_distances' in expression_results:
+            # Extract Mahalanobis distances for real and null genes
+            all_mahalanobis = expression_results['mahalanobis_distances']
+            real_mahalanobis = all_mahalanobis[:n_real_genes]
+            null_mahalanobis = all_mahalanobis[n_real_genes:]
+            
+            # Compute FDR statistics
+            pvalues, local_fdr_values, tail_fdr_values, is_significant = _compute_fdr_statistics(
+                real_mahalanobis=real_mahalanobis,
+                null_mahalanobis=null_mahalanobis,
+                fdr_threshold=fdr_threshold
+            )
+            
+            # Create boolean DE annotation and summary stats
+            de_annotation, summary_stats = _annotate_differential_genes(
+                fdr_values=local_fdr_values,
+                mahalanobis_distances=real_mahalanobis,
+                gene_names=selected_genes,
+                fdr_threshold=fdr_threshold
+            )
+            
+            # Store FDR results
+            fdr_results = {
+                'pvalues': pvalues,
+                'local_fdr_values': local_fdr_values,
+                'tail_fdr_values': tail_fdr_values,
+                'is_significant': is_significant,
+                'de_annotation': de_annotation,
+                'summary_stats': summary_stats
+            }
+            
+            # Log summary information
+            logger.info(f"FDR analysis complete: {summary_stats['n_significant']}/{summary_stats['n_total']} genes "
+                       f"significantly DE at FDR < {fdr_threshold}")
+            
+            if summary_stats['n_significant'] > 0:
+                logger.info(f"Mahalanobis distance threshold for FDR < {fdr_threshold}: "
+                           f"{summary_stats['min_significant_mahalanobis']:.4f}")
+            
+            # Update expression_results to only include real genes
+            # Remove null genes from all result arrays
+            for key in ['mean_log_fold_change', 'condition1_imputed', 'condition2_imputed', 
+                       'fold_change', 'fold_change_zscores', 'condition1_std', 'condition2_std']:
+                if key in expression_results:
+                    if key in ['condition1_imputed', 'condition2_imputed', 'fold_change', 'fold_change_zscores', 'condition1_std', 'condition2_std']:
+                        # These are cell-by-gene matrices
+                        expression_results[key] = expression_results[key][:, :n_real_genes]
+                    else:
+                        # These are gene-level vectors
+                        expression_results[key] = expression_results[key][:n_real_genes]
+            
+            # Update mahalanobis_distances to only include real genes
+            if 'mahalanobis_distances' in expression_results:
+                expression_results['mahalanobis_distances'] = real_mahalanobis
+        else:
+            logger.warning("Mahalanobis distances not computed - cannot perform FDR calculation")
+    
     # Store posterior covariance matrix in obsp if requested and possible
     if can_store_covariance:
         logger.info("Computing posterior covariance matrix for storing in obsp...")
@@ -846,6 +1250,16 @@ def compute_differential_expression(
         "fold_change_zscores": expression_results['fold_change_zscores'],
         "model": diff_expression,
     }
+    
+    # Add FDR results if computed
+    if fdr_results:
+        result_dict.update({
+            "mahalanobis_pvalues": fdr_results['pvalues'],
+            "mahalanobis_local_fdr": fdr_results['local_fdr_values'],
+            "mahalanobis_tail_fdr": fdr_results['tail_fdr_values'], 
+            "is_differentially_expressed": fdr_results['is_significant'],
+            "fdr_summary": fdr_results['summary_stats']
+        })
     
     # Add underrepresentation info if available
     if 'underrep' in locals():
@@ -994,6 +1408,40 @@ def compute_differential_expression(
             new_var_columns[mean_lfc_column] = pd.Series(np.nan, index=adata.var_names)
             new_var_columns[mean_lfc_column].loc[selected_genes] = mean_lfc
         
+        
+        # Add FDR-related columns if they were computed
+        if fdr_results and use_fdr:
+            # Add p-values
+            pvalue_column = field_names["mahalanobis_pvalue_key"]
+            if pvalue_column in adata.var:
+                new_var_columns[pvalue_column] = pd.Series(fdr_results['pvalues'], index=selected_genes)
+            else:
+                new_var_columns[pvalue_column] = pd.Series(np.nan, index=adata.var_names)
+                new_var_columns[pvalue_column].loc[selected_genes] = fdr_results['pvalues']
+            
+            # Add local FDR values  
+            local_fdr_column = field_names["mahalanobis_local_fdr_key"]
+            if local_fdr_column in adata.var:
+                new_var_columns[local_fdr_column] = pd.Series(fdr_results['local_fdr_values'], index=selected_genes)
+            else:
+                new_var_columns[local_fdr_column] = pd.Series(np.nan, index=adata.var_names)
+                new_var_columns[local_fdr_column].loc[selected_genes] = fdr_results['local_fdr_values']
+                
+            # Add tail-based FDR values
+            tail_fdr_column = field_names["mahalanobis_tail_fdr_key"] 
+            if tail_fdr_column in adata.var:
+                new_var_columns[tail_fdr_column] = pd.Series(fdr_results['tail_fdr_values'], index=selected_genes)
+            else:
+                new_var_columns[tail_fdr_column] = pd.Series(np.nan, index=adata.var_names)
+                new_var_columns[tail_fdr_column].loc[selected_genes] = fdr_results['tail_fdr_values']
+                
+            # Add boolean DE annotation (based on local FDR)
+            de_column = field_names["is_de_key"]
+            if de_column in adata.var:
+                new_var_columns[de_column] = pd.Series(fdr_results['is_significant'], index=selected_genes)
+            else:
+                new_var_columns[de_column] = pd.Series(False, index=adata.var_names)  # Default to False for non-analyzed genes
+                new_var_columns[de_column].loc[selected_genes] = fdr_results['is_significant']
         
         # Add all columns to adata.var at once to prevent dataframe fragmentation
         if new_var_columns:
@@ -1211,6 +1659,9 @@ def compute_differential_expression(
             "batch_size": batch_size,
             "cell_filter": cell_filter,  # Store the cell filter parameter
             "groups": groups,  # Store the groups parameter - important for traceability
+            "null_genes": null_genes,  # FDR null distribution specification
+            "null_seed": null_seed,  # Random seed for null gene selection and shuffling
+            "fdr_threshold": fdr_threshold,  # FDR threshold for significance
             "min_cells": min_cells,
             "min_percentage": min_percentage,
             "check_representation": check_representation,
@@ -1244,6 +1695,13 @@ def compute_differential_expression(
             "lfc_key": field_names["mean_lfc_key"],
             "weighted_lfc_key": field_names["weighted_lfc_key"] if differential_abundance_key is not None else None,
             "mahalanobis_key": field_names["mahalanobis_key"] if compute_mahalanobis else None,
+            "fdr_keys": {
+                "pvalue_key": field_names.get("mahalanobis_pvalue_key") if use_fdr else None,
+                "local_fdr_key": field_names.get("mahalanobis_local_fdr_key") if use_fdr else None,
+                "tail_fdr_key": field_names.get("mahalanobis_tail_fdr_key") if use_fdr else None,
+                "is_de_key": field_names.get("is_de_key") if use_fdr else None
+            } if use_fdr else None,
+            "fdr_results": fdr_results.get("summary_stats") if fdr_results else None,
             "imputed_layer_keys": {
                 "condition1": field_names["imputed_key_1"],
                 "condition2": field_names["imputed_key_2"],
@@ -1290,6 +1748,13 @@ def compute_differential_expression(
         # Add optional fields if present
         if compute_mahalanobis:
             field_mapping[field_names["mahalanobis_key"]] = {"location": "var", "type": "mahalanobis", "description": "Mahalanobis distances"}
+            
+        # Add FDR fields if they were computed
+        if fdr_results and use_fdr:
+            field_mapping[field_names["mahalanobis_pvalue_key"]] = {"location": "var", "type": "mahalanobis_pvalue", "description": "P-values from empirical null distribution"}
+            field_mapping[field_names["mahalanobis_local_fdr_key"]] = {"location": "var", "type": "mahalanobis_local_fdr", "description": "Local FDR values using empirical null estimation similar to R's fdrtool"}
+            field_mapping[field_names["mahalanobis_tail_fdr_key"]] = {"location": "var", "type": "mahalanobis_tail_fdr", "description": "Tail-based FDR values using Benjamini-Hochberg correction"}
+            field_mapping[field_names["is_de_key"]] = {"location": "var", "type": "is_de", "description": f"Boolean indicator of differential expression at local FDR < {fdr_threshold}"}
             
         if differential_abundance_key is not None:
             field_mapping[field_names["weighted_lfc_key"]] = {"location": "var", "type": "weighted_mean_log_fold_change", "description": "Weighted mean log fold change"}
