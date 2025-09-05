@@ -434,7 +434,8 @@ def test_compute_differential_expression_warns_overwrite(mock_warning):
         condition1='A', 
         condition2='B', 
         result_key='test_key',
-        compute_mahalanobis=False  # Avoid Mahalanobis computation errors in tests
+        compute_mahalanobis=False,  # Avoid Mahalanobis computation errors in tests
+        null_genes=None  # Disable FDR to test overwrite warning specifically
     )
     
     # Reset mock to clear any prior calls
@@ -447,7 +448,8 @@ def test_compute_differential_expression_warns_overwrite(mock_warning):
         condition1='A', 
         condition2='B', 
         result_key='test_key',
-        compute_mahalanobis=False  # Avoid Mahalanobis computation errors in tests
+        compute_mahalanobis=False,  # Avoid Mahalanobis computation errors in tests
+        null_genes=None  # Disable FDR to test overwrite warning specifically
     )
     
     # Check that a warning was issued with appropriate text
