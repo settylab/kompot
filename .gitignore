@@ -131,4 +131,3 @@ kompot_report/
 *.ipynb
 outputs/
 *.zarr/
-wheel_contents/

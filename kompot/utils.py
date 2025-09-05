@@ -126,7 +126,6 @@ def compute_mahalanobis_distances(
     from .batch_utils import apply_batched
     from tqdm.auto import tqdm
     from .memory_utils import DASK_AVAILABLE
-    from .gc_utils import no_gc, explicit_cleanup
     
     # Check if covariance is a Dask array
     is_dask = False
@@ -229,22 +228,10 @@ def compute_mahalanobis_distances(
         cov = jnp.array(covariance)
         mahalanobis_distances = np.zeros(n_genes)
         
-        # Use memory-efficient processing for gene-specific calculations
-        with no_gc(generation=0):
-            # Process each gene separately to save memory, with progress bar
-            gene_iterator = tqdm(range(n_genes), desc="Computing gene-specific Mahalanobis distances") if progress else range(n_genes)
-            temp_arrays = []
-            
-            for i, g in enumerate(gene_iterator):
-                mahalanobis_distances[g] = compute_gene_mahalanobis(g)
-                
-                # Periodic cleanup every 100 genes to prevent memory buildup
-                if i % 100 == 0 and temp_arrays:
-                    explicit_cleanup(temp_arrays, collect_generation=0)
-                    temp_arrays.clear()
-            
-            # Final cleanup
-            explicit_cleanup(temp_arrays, collect_generation=0)
+        # Process each gene separately to save memory, with progress bar
+        gene_iterator = tqdm(range(n_genes), desc="Computing gene-specific Mahalanobis distances") if progress else range(n_genes)
+        for g in gene_iterator:
+            mahalanobis_distances[g] = compute_gene_mahalanobis(g)
             
         return mahalanobis_distances
 
@@ -310,39 +297,33 @@ def compute_mahalanobis_distances(
     # Try Cholesky decomposition (should work for positive definite matrices)
     try:
         logger.debug("Computing Cholesky decomposition of covariance matrix")
+        chol = jnp.linalg.cholesky(cov_stable)
         
-        # Use GC optimization for Cholesky computation - this is a memory-intensive operation
-        with no_gc(generation=0):
-            chol = jnp.linalg.cholesky(cov_stable)
-            
-            # Define computation function using Cholesky decomposition
-            def compute_cholesky_batch(batch_diffs):
-                try:
-                    # Solve the triangular system for each vector
-                    solved = jax.vmap(lambda d: jax.scipy.linalg.solve_triangular(chol, d, lower=True))(batch_diffs)
-                    # Compute the distance as the L2 norm of the solved vector
-                    return jnp.sqrt(jnp.sum(solved**2, axis=1))
-                except Exception as e:
-                    logger.error(f"Error in Cholesky solution: {e}. Returning NaN values.")
-                    return jnp.full(batch_diffs.shape[0], np.nan)
-            
-            # JIT compile if enabled
-            if jit_compile:
-                chol_compute_fn = jax.jit(compute_cholesky_batch)
-            else:
-                chol_compute_fn = compute_cholesky_batch
-            
-            # Process in batches using apply_batched - respect progress parameter
-            desc = "Computing Cholesky Mahalanobis distances" if progress else None
-            distances = apply_batched(
-                chol_compute_fn,
-                diffs,
-                batch_size=batch_size,
-                desc=desc
-            )
-            
-            # Explicit cleanup of large temporary arrays
-            explicit_cleanup([cov_stable, chol], collect_generation=0)
+        # Define computation function using Cholesky decomposition
+        def compute_cholesky_batch(batch_diffs):
+            try:
+                # Solve the triangular system for each vector
+                solved = jax.vmap(lambda d: jax.scipy.linalg.solve_triangular(chol, d, lower=True))(batch_diffs)
+                # Compute the distance as the L2 norm of the solved vector
+                return jnp.sqrt(jnp.sum(solved**2, axis=1))
+            except Exception as e:
+                logger.error(f"Error in Cholesky solution: {e}. Returning NaN values.")
+                return jnp.full(batch_diffs.shape[0], np.nan)
+        
+        # JIT compile if enabled
+        if jit_compile:
+            chol_compute_fn = jax.jit(compute_cholesky_batch)
+        else:
+            chol_compute_fn = compute_cholesky_batch
+        
+        # Process in batches using apply_batched - respect progress parameter
+        desc = "Computing Cholesky Mahalanobis distances" if progress else None
+        distances = apply_batched(
+            chol_compute_fn,
+            diffs,
+            batch_size=batch_size,
+            desc=desc
+        )
         
         # Post-process to handle NaN and Inf values
         invalid_mask = np.isnan(distances) | np.isinf(distances)

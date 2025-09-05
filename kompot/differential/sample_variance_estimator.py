@@ -12,7 +12,6 @@ from ..memory_utils import (
     analyze_covariance_memory_requirements,
     DASK_AVAILABLE
 )
-from ..gc_utils import no_gc, explicit_cleanup, memory_efficient_loop
 
 # Try to import dask if available
 if DASK_AVAILABLE:
@@ -502,33 +501,18 @@ class SampleVarianceEstimator:
                     # Return the memory-mapped array
                     return mmap_array
             else:
-                # In-memory version with memory optimization
+                # In-memory version
                 cov_matrix = np.zeros(covariance_shape)
                 
-                # Use memory-efficient loop processing for gene-wise operations
-                with memory_efficient_loop(tune_thresholds=True, generation_cleanup=0) as cleanup_fn:
-                    temp_arrays = []
+                for g in range(n_genes):
+                    gene_centered = centered_reshaped[:, :, g]  # (n_cells, n_groups)
                     
-                    for g in range(n_genes):
-                        gene_centered = centered_reshaped[:, :, g]  # (n_cells, n_groups)
-                        
-                        # Compute covariance slice using JIT if available
-                        if self._compute_cov_slice_jit is not None:
-                            gene_cov = self._compute_cov_slice_jit(gene_centered, self.n_groups)
-                        else:
-                            gene_cov = self._compute_cov_slice(gene_centered, self.n_groups)
-                        
-                        cov_matrix[:, :, g] = np.array(gene_cov)
-                        
-                        # Store temporary arrays for periodic cleanup
-                        temp_arrays.extend([gene_centered, gene_cov])
-                        
-                        # Periodic cleanup every 50 genes to prevent memory buildup
-                        if g % 50 == 0:
-                            cleanup_fn(temp_arrays)
-                            temp_arrays.clear()
+                    # Compute covariance slice using JIT if available
+                    if self._compute_cov_slice_jit is not None:
+                        gene_cov = self._compute_cov_slice_jit(gene_centered, self.n_groups)
+                    else:
+                        gene_cov = self._compute_cov_slice(gene_centered, self.n_groups)
                     
-                    # Final cleanup
-                    cleanup_fn(temp_arrays)
+                    cov_matrix[:, :, g] = np.array(gene_cov)
                 
                 return cov_matrix

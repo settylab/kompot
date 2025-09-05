@@ -838,14 +838,4 @@ class DifferentialExpression:
             )            
             result['mahalanobis_distances'] = mahalanobis_distances
         
-        # Explicit cleanup of large temporary arrays before returning
-        from ..gc_utils import explicit_cleanup
-        large_arrays = [
-            condition1_imputed, condition2_imputed, fold_change,
-            condition1_uncertainty, condition2_uncertainty,
-            condition1_sample_variance, condition2_sample_variance,
-            total_variance1, total_variance2, total_variance
-        ]
-        explicit_cleanup(large_arrays, collect_generation=0)
-        
         return result
