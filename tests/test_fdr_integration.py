@@ -250,7 +250,7 @@ class TestFDRIntegration:
         # Run with old parameters (no FDR parameters)
         results = compute_differential_expression(
             adata,
-            groupby='condition',
+            groupby='group',
             condition1='A',
             condition2='B',
             return_full_results=True

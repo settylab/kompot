@@ -1916,6 +1916,24 @@ def compute_differential_expression(
                                 # Extract values
                                 subset_values = subset_results[metric_name]
                                 
+                                # Handle 2D arrays by taking first column if needed
+                                if isinstance(subset_values, np.ndarray) and subset_values.ndim == 2:
+                                    if subset_values.shape[1] == 1:
+                                        subset_values = subset_values[:, 0]
+                                    else:
+                                        subset_values = subset_values[:, 0]  # Take first column otherwise
+                                
+                                # Check if length matches the expected length
+                                if len(subset_values) != len(selected_genes):
+                                    logger.warning(f"Subset {subset_name} {metric_name} length {len(subset_values)} doesn't match selected_genes length {len(selected_genes)}. Reshaping.")
+                                    if len(subset_values) < len(selected_genes):
+                                        # Pad with NaNs if the array is too short
+                                        padding = np.full(len(selected_genes) - len(subset_values), np.nan)
+                                        subset_values = np.concatenate([subset_values, padding])
+                                    else:
+                                        # Truncate if the array is too long
+                                        subset_values = subset_values[:len(selected_genes)]
+                                
                                 # Add to adata.varm - DataFrame already initialized with all columns
                                 # Use standardized key from field_names
                                 varm_key = field_names["mean_lfc_varm_key"]
@@ -1934,6 +1952,24 @@ def compute_differential_expression(
                                 
                                 # Extract values
                                 subset_values = subset_results[metric_name]
+                                
+                                # Handle 2D arrays by taking first column if needed
+                                if isinstance(subset_values, np.ndarray) and subset_values.ndim == 2:
+                                    if subset_values.shape[1] == 1:
+                                        subset_values = subset_values[:, 0]
+                                    else:
+                                        subset_values = subset_values[:, 0]  # Take first column otherwise
+                                
+                                # Check if length matches the expected length
+                                if len(subset_values) != len(selected_genes):
+                                    logger.warning(f"Subset {subset_name} {metric_name} length {len(subset_values)} doesn't match selected_genes length {len(selected_genes)}. Reshaping.")
+                                    if len(subset_values) < len(selected_genes):
+                                        # Pad with NaNs if the array is too short
+                                        padding = np.full(len(selected_genes) - len(subset_values), np.nan)
+                                        subset_values = np.concatenate([subset_values, padding])
+                                    else:
+                                        # Truncate if the array is too long
+                                        subset_values = subset_values[:len(selected_genes)]
                                 
                                 # Add to adata.varm - DataFrame already initialized with all columns
                                 # Use standardized key from field_names (already includes sample suffix if needed)
@@ -1970,6 +2006,24 @@ def compute_differential_expression(
                                 log_density_diff=log_density_diff
                             )
                             
+                            # Handle 2D arrays by taking first column if needed
+                            if isinstance(weighted_lfc, np.ndarray) and weighted_lfc.ndim == 2:
+                                if weighted_lfc.shape[1] == 1:
+                                    weighted_lfc = weighted_lfc[:, 0]
+                                else:
+                                    weighted_lfc = weighted_lfc[:, 0]  # Take first column otherwise
+                            
+                            # Check if length matches the expected length
+                            if len(weighted_lfc) != len(selected_genes):
+                                logger.warning(f"Subset {subset_name} weighted_lfc length {len(weighted_lfc)} doesn't match selected_genes length {len(selected_genes)}. Reshaping.")
+                                if len(weighted_lfc) < len(selected_genes):
+                                    # Pad with NaNs if the array is too short
+                                    padding = np.full(len(selected_genes) - len(weighted_lfc), np.nan)
+                                    weighted_lfc = np.concatenate([weighted_lfc, padding])
+                                else:
+                                    # Truncate if the array is too long
+                                    weighted_lfc = weighted_lfc[:len(selected_genes)]
+                            
                             # Add to adata.varm - DataFrame already initialized with all columns
                             # Use standardized key from field_names
                             varm_key = field_names["weighted_lfc_varm_key"]
@@ -1977,7 +2031,7 @@ def compute_differential_expression(
                             # Create a Series with proper index covering all genes, initialize with NaN
                             full_series = pd.Series(np.nan, index=adata.var_names)
                             # Assign values only to selected genes
-                            full_series[selected_genes] = weighted_lfc
+                            full_series.loc[selected_genes] = weighted_lfc
                             # Assign the whole column at once
                             adata.varm[varm_key][subset_name] = full_series
                 
