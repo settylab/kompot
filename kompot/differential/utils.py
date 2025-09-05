@@ -70,10 +70,10 @@ def compute_weighted_mean_fold_change(
 def update_direction_column(
     adata: AnnData,
     lfc_threshold: Optional[float] = None,
-    pval_threshold: Optional[float] = None,
+    ptp_threshold: Optional[float] = None,
     direction_column: Optional[str] = None,
     lfc_key: Optional[str] = None,
-    pval_key: Optional[str] = None,
+    ptp_key: Optional[str] = None,
     run_id: int = -1,
     inplace: bool = True,
 ) -> Optional[AnnData]:
@@ -81,7 +81,7 @@ def update_direction_column(
     Update the direction column in an AnnData object based on new thresholds.
     
     This function recalculates the direction categories (up, down, neutral) for cells
-    based on new log fold change and p-value thresholds.
+    based on new log fold change and PTP(Posterior Tail Probability) thresholds.
     
     Parameters
     ----------
@@ -90,15 +90,15 @@ def update_direction_column(
     lfc_threshold : float, optional
         New log fold change threshold for determining direction.
         If None, uses the threshold from the specified run_id.
-    pval_threshold : float, optional
-        New p-value threshold for determining direction (raw p-value, not -log10).
+    ptp_threshold : float, optional
+        New PTP(Posterior Tail Probability) threshold for determining direction (raw PTP(Posterior Tail Probability), not -log10).
         If None, uses the threshold from the specified run_id.
     direction_column : str, optional
         Direction column to update. If None, infers from run_id.
     lfc_key : str, optional
         Log fold change column in adata.obs. If None, infers from run_id.
-    pval_key : str, optional
-        P-value column in adata.obs. If None, infers from run_id.
+    ptp_key : str, optional
+        PTP(Posterior Tail Probability) column in adata.obs. If None, infers from run_id. Posterior Tail Probability is a significance measure score similar to p-value.
     run_id : int, optional
         Run ID to use for inferring column names. Default is -1 (latest run).
     inplace : bool, optional
@@ -119,24 +119,24 @@ def update_direction_column(
         adata = adata.copy()
     
     # Get column names if not provided
-    if lfc_key is None or pval_key is None:
-        inferred_lfc_key, inferred_pval_key, thresholds = _infer_da_keys(adata, run_id)
-        auto_lfc_threshold, auto_pval_threshold = thresholds
+    if lfc_key is None or ptp_key is None:
+        inferred_lfc_key, inferred_ptp_key, thresholds = _infer_da_keys(adata, run_id)
+        auto_lfc_threshold, auto_ptp_threshold = thresholds
         
         # Use inferred keys if not explicitly provided
         if lfc_key is None:
             lfc_key = inferred_lfc_key
-        if pval_key is None:
-            pval_key = inferred_pval_key
+        if ptp_key is None:
+            ptp_key = inferred_ptp_key
     else:
         # If both keys are provided, still try to get thresholds from run info
         run_info = get_run_from_history(adata, run_id, analysis_type="da")
         if run_info is not None and 'params' in run_info:
             params = run_info['params']
             auto_lfc_threshold = params.get('log_fold_change_threshold')
-            auto_pval_threshold = params.get('pvalue_threshold')
+            auto_ptp_threshold = params.get('ptp_threshold')
         else:
-            auto_lfc_threshold, auto_pval_threshold = None, None
+            auto_lfc_threshold, auto_ptp_threshold = None, None
     
     # Use run thresholds if new thresholds not provided
     if lfc_threshold is None and auto_lfc_threshold is not None:
@@ -145,11 +145,11 @@ def update_direction_column(
     elif lfc_threshold is None:
         raise ValueError("No log fold change threshold found. Please provide lfc_threshold.")
         
-    if pval_threshold is None and auto_pval_threshold is not None:
-        pval_threshold = auto_pval_threshold
-        logger.debug(f"Using run_id={run_id} pval_threshold: {pval_threshold}")
-    elif pval_threshold is None:
-        raise ValueError("No p-value threshold found. Please provide pval_threshold.")
+    if ptp_threshold is None and auto_ptp_threshold is not None:
+        ptp_threshold = auto_ptp_threshold
+        logger.debug(f"Using run_id={run_id} ptp_threshold: {ptp_threshold}")
+    elif ptp_threshold is None:
+        raise ValueError("No Posterior Tail Probability threshold found. Please provide ptp_threshold.")
     
     # Find direction column if not provided
     if direction_column is None:
@@ -168,21 +168,21 @@ def update_direction_column(
                 raise ValueError("Could not find direction column. Please provide direction_column.")
     
     logger.info(f"Updating direction column '{direction_column}' with thresholds: "
-                f"lfc_threshold={lfc_threshold}, pval_threshold={pval_threshold}")
+                f"lfc_threshold={lfc_threshold}, ptp_threshold={ptp_threshold}")
     
-    # Get log fold change and p-value data
+    # Get log fold change and PTP(Posterior Tail Probability) data
     lfc = adata.obs[lfc_key].values
     
-    # Check if p-values are already -log10 transformed
-    if 'neg_log10' in pval_key.lower() or '-log10' in pval_key.lower():
+    # Check if PTPs (Posterior Tail Probabilities) are already -log10 transformed
+    if 'neg_log10' in ptp_key.lower() or '-log10' in ptp_key.lower():
         # Already in -log10 form, so higher values are more significant
-        pvals = adata.obs[pval_key].values
-        log10_pval_threshold = -np.log10(pval_threshold)
-        is_significant = pvals > log10_pval_threshold
+        ptps = adata.obs[ptp_key].values
+        log10_ptp_threshold = -np.log10(ptp_threshold)
+        is_significant = ptps > log10_ptp_threshold
     else:
-        # Raw p-values, so lower is more significant
-        pvals = adata.obs[pval_key].values
-        is_significant = pvals < pval_threshold
+        # Raw PTPs (Posterior Tail Probabilities), so lower is more significant
+        ptps = adata.obs[ptp_key].values
+        is_significant = ptps < ptp_threshold
         
     # Create direction array
     direction = np.full(len(lfc), 'neutral', dtype=object)

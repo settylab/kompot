@@ -63,7 +63,7 @@ def test_multi_volcano_da_background_plot_kde():
         condition1='A',
         condition2='B',
         log_fold_change_threshold=1.0,
-        pvalue_threshold=0.05
+        ptp_threshold=0.05
     )
     
     # Test with KDE background plot
@@ -97,7 +97,7 @@ def test_multi_volcano_da_background_plot_violin():
         condition1='A',
         condition2='B',
         log_fold_change_threshold=1.0,
-        pvalue_threshold=0.05
+        ptp_threshold=0.05
     )
     
     # Test with violin background plot
@@ -131,7 +131,7 @@ def test_multi_volcano_da_background_plot_with_custom_kwargs():
         condition1='A',
         condition2='B',
         log_fold_change_threshold=1.0,
-        pvalue_threshold=0.05
+        ptp_threshold=0.05
     )
     
     # Test KDE with custom background kwargs
@@ -193,7 +193,7 @@ def test_multi_volcano_da_numeric_color_options():
         condition1='A',
         condition2='B',
         log_fold_change_threshold=1.0,
-        pvalue_threshold=0.05
+        ptp_threshold=0.05
     )
     
     # Add custom numeric column for coloring
@@ -231,7 +231,7 @@ def test_multi_volcano_da_categorical_color_options():
         condition1='A',
         condition2='B',
         log_fold_change_threshold=1.0,
-        pvalue_threshold=0.05
+        ptp_threshold=0.05
     )
     
     # Add custom categorical column for coloring
@@ -272,7 +272,7 @@ def test_multi_volcano_da_custom_layout():
         condition1='A',
         condition2='B',
         log_fold_change_threshold=1.0,
-        pvalue_threshold=0.05
+        ptp_threshold=0.05
     )
     
     # Create a custom layout config
@@ -315,7 +315,7 @@ def test_multi_volcano_da_update_direction_with_custom_thresholds():
         condition1='A',
         condition2='B',
         log_fold_change_threshold=1.0,
-        pvalue_threshold=0.05
+        ptp_threshold=0.05
     )
     
     # Test with direction column update using different thresholds
@@ -325,7 +325,7 @@ def test_multi_volcano_da_update_direction_with_custom_thresholds():
         run_id=-1,
         update_direction=True,
         lfc_threshold=1.5,  # Different from the one used in compute_differential_abundance
-        pval_threshold=0.01,  # Different from the one used in compute_differential_abundance
+        ptp_threshold=0.01,  # Different from the one used in compute_differential_abundance
         return_fig=True
     )
     

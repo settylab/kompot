@@ -146,12 +146,12 @@ def create_test_data_with_multiple_runs():
     
     # Add test DA metric fields if they don't exist
     lfc_key_da = 'da_run2_log_fold_change_A_to_B'
-    pval_key_da = 'da_run2_neg_log10_fold_change_pvalue_A_to_B'
+    ptp_key_da = 'da_run2_neg_log10_fold_change_ptp_A_to_B'
     
     if lfc_key_da not in adata.obs.columns:
         adata.obs[lfc_key_da] = np.random.randn(adata.n_obs)
-    if pval_key_da not in adata.obs.columns:
-        adata.obs[pval_key_da] = np.random.rand(adata.n_obs)
+    if ptp_key_da not in adata.obs.columns:
+        adata.obs[ptp_key_da] = np.random.rand(adata.n_obs)
     
     # Make sure da_run2 has proper run_info
     if 'da_run2' not in adata.uns:
@@ -159,7 +159,7 @@ def create_test_data_with_multiple_runs():
     adata.uns['da_run2']['run_info'] = {
         'field_names': {
             'lfc_key': lfc_key_da,
-            'pval_key': pval_key_da
+            'ptp_key': ptp_key_da
         }
     }
     
@@ -183,7 +183,7 @@ def create_test_data_with_multiple_runs():
         'abundance_key': 'da_run2',
         'field_names': {
             'lfc_key': lfc_key_da,
-            'pval_key': pval_key_da
+            'ptp_key': ptp_key_da
         }
     })
     
@@ -221,7 +221,7 @@ def create_test_data_with_multiple_runs():
             },
             'da': {
                 'lfc_key': lfc_key_da,
-                'pval_key': pval_key_da
+                'ptp_key': ptp_key_da
             }
         }
     })
@@ -285,9 +285,9 @@ class TestKeyInferenceFunctions:
         assert latest_run['abundance_key'] == 'da_run2'
         
         # Test inference with latest run (-1)
-        lfc_key, pval_key, thresholds = _infer_da_keys(self.adata, run_id=-1)
+        lfc_key, ptp_key, thresholds = _infer_da_keys(self.adata, run_id=-1)
         assert 'da_run2' in lfc_key, f"Expected 'da_run2' in inferred key, got {lfc_key}"
-        assert pval_key is not None
+        assert ptp_key is not None
         assert isinstance(thresholds, tuple)
         
         # For this test, we can't easily get the specific run_id for da_run1 or da_run2
@@ -298,7 +298,7 @@ class TestKeyInferenceFunctions:
         # Test direct inference without run_id
         da_keys = [k for k in self.adata.obs.columns if 'da_run1' in k and 'lfc' in k]
         if da_keys:
-            lfc_key, pval_key, thresholds = _infer_da_keys(self.adata, lfc_key=da_keys[0])
+            lfc_key, ptp_key, thresholds = _infer_da_keys(self.adata, lfc_key=da_keys[0])
             assert 'da_run1' in lfc_key, f"Expected 'da_run1' in inferred key, got {lfc_key}"
 
 
@@ -365,13 +365,13 @@ class TestPlotFunctions:
         
         # The variant below should also work by directly providing keys
         da_keys_lfc = [k for k in self.adata.obs.columns if 'da_run1' in k and 'lfc' in k]
-        da_keys_pval = [k for k in self.adata.obs.columns if 'da_run1' in k and 'pval' in k]
+        da_keys_ptp = [k for k in self.adata.obs.columns if 'da_run1' in k and 'ptp' in k]
         
-        if da_keys_lfc and da_keys_pval:
+        if da_keys_lfc and da_keys_ptp:
             fig, ax = volcano_da(
                 self.adata,
                 lfc_key=da_keys_lfc[0],
-                pval_key=da_keys_pval[0],
+                ptp_key=da_keys_ptp[0],
                 return_fig=True
             )
             assert fig is not None
@@ -615,14 +615,14 @@ class TestPlotFunctions:
         
         # Test with direct key specification
         da_keys_lfc = [k for k in self.adata.obs.columns if 'da_run1' in k and 'lfc' in k]
-        da_keys_pval = [k for k in self.adata.obs.columns if 'da_run1' in k and 'pval' in k]
+        da_keys_ptp = [k for k in self.adata.obs.columns if 'da_run1' in k and 'ptp' in k]
         
-        if da_keys_lfc and da_keys_pval:
+        if da_keys_lfc and da_keys_ptp:
             fig, axes = multi_volcano_da(
                 self.adata,
                 groupby='cell_type',
                 lfc_key=da_keys_lfc[0],
-                pval_key=da_keys_pval[0],
+                ptp_key=da_keys_ptp[0],
                 return_fig=True
             )
             assert fig is not None
@@ -738,7 +738,7 @@ class TestPlotFunctions:
             update_direction=True,
             direction_column=direction_col,
             lfc_threshold=1.0,
-            pval_threshold=0.05,
+            ptp_threshold=0.05,
             return_fig=True
         )
         assert fig is not None

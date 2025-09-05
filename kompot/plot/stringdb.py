@@ -282,168 +282,147 @@ class StringDBReport:
             return None
     
     def to_html(self, additional_genes: Optional[List[str]] = None) -> str:
-        """Generate HTML representation of the gene report.
-        
-        Parameters
-        ----------
-        additional_genes : List[str], optional
-            Additional genes to include in the StringDB visualizations
-            
-        Returns
-        -------
-        str
-            HTML representation of the gene report
-        """
         html_parts = []
-        
-        # Report header with species info
+
+        # Header
         species_name = self.get_species_name()
         html_parts.append(f"<h3>Gene Set Report: {len(self.genes)} genes</h3>")
         html_parts.append(f"<p><strong>Species:</strong> {species_name} (Taxonomy ID: {self.species_id})</p>")
-        
-        # StringDB section
+
+        # StringDB Network Section
         if self.include_stringdb:
             stringdb_url = self.get_stringdb_url(additional_genes)
             image_url = self.get_stringdb_image_url(additional_genes)
-            
+
             html_parts.append("<h4>StringDB Network</h4>")
             html_parts.append(f'<p><a href="{stringdb_url}" target="_blank">View interactive network in StringDB</a></p>')
             html_parts.append(f'<a href="{stringdb_url}" target="_blank"><img src="{image_url}" style="max-width:800px; border:1px solid #ddd;" alt="StringDB Network"></a>')
-        
-        # Resource links section
+
+        # ✅ Resource Links Section
         if self.include_resources:
-            # Add collapsible section for resource links
             html_parts.append('<div style="margin-top: 20px;">')
             html_parts.append('<details>')
-            html_parts.append(f'<summary style="cursor: pointer; font-weight: bold; padding: 10px; background-color: #f8f8f8; border: 1px solid #ddd;">Resource Links ({len(self.genes)} genes)</summary>')
-            
-            # Create a table of genes with resource links
+            html_parts.append(
+                f'<summary style="cursor: pointer; font-weight: bold; padding: 10px; background-color: #f8f8f8; border: 1px solid #ddd;">'
+                f'Resource Links ({len(self.genes)} genes)</summary>'
+            )
             html_parts.append('<div style="padding: 10px;">')
             html_parts.append('<table border="1" style="border-collapse:collapse; width:100%; text-align: left;">')
             html_parts.append('<tr><th style="width:15%; text-align:left;">Gene</th><th style="text-align:left;">Resource Links</th></tr>')
-            
+
             for gene in self.genes:
                 links = self.get_resource_links(gene)
                 link_html = " | ".join(f'<a href="{url}" target="_blank">{name}</a>' for name, url in links.items())
                 html_parts.append(f'<tr><td style="text-align:left;">{gene}</td><td style="text-align:left;">{link_html}</td></tr>')
-            
+
             html_parts.append('</table>')
-            html_parts.append('</div>')
+            html_parts.append('</div>')  # close inner div
             html_parts.append('</details>')
-            html_parts.append('</div>')
-            
-        
-        # Functional Enrichment section - moved to the end
+            html_parts.append('</div>')  # close outer div
+
+        # Functional Enrichment Section
         if self.include_enrichment:
             try:
                 html_parts.append('<h4>Functional Enrichment Analysis</h4>')
-                
-                # Add a single link to the StringDB enrichment analysis at the top
-                # StringDB uses URL-encoded newlines to separate genes in the web interface
+
                 gene_string = urllib.parse.quote("\n".join(self.genes))
-                
-                # Build direct URL to StringDB enrichment analysis
-                url = (f"{self.string_db_base_url}/cgi/network.pl"
-                      f"?identifiers={gene_string}"
-                      f"&species={self.species_id}"
-                      f"&network_flavor=evidence"
-                      f"&required_score=400"
-                      f"&caller_identity=kompot"
-                      f"#enrichment")  # Anchor to go to enrichment section
-                
+                url = (
+                    f"{self.string_db_base_url}/cgi/network.pl"
+                    f"?identifiers={gene_string}"
+                    f"&species={self.species_id}"
+                    f"&network_flavor=evidence"
+                    f"&required_score=400"
+                    f"&caller_identity=kompot"
+                    f"#enrichment"
+                )
+
                 html_parts.append(f'<p><a href="{url}" target="_blank" style="font-weight: bold;">View interactive enrichment analysis on StringDB</a></p>')
-                
-                # Categories to try, in order of importance
+
                 categories_to_try = [
-                    ("Process", "Gene Ontology Processes", False),  # (category, label, open_by_default)
+                    ("Process", "Gene Ontology Processes", False),
                     ("KEGG", "KEGG Pathways", False),
                     ("Function", "Gene Ontology Functions", False),
                     ("Component", "Gene Ontology Components", False),
                     ("Reactome", "Reactome Pathways", False)
                 ]
-                
-                # Add tabs for different enrichment categories
+
                 html_parts.append('<div style="margin-top: 20px;">')
-                
-                # Track if any data was successfully retrieved
-                any_data_retrieved = False
-                
-                # Try to get enrichment data for each category
+
                 for category, label, open_by_default in categories_to_try:
                     try:
-                        # Attempt to fetch enrichment data with extra debug logging
-                        logger.debug(f"Attempting to fetch enrichment data for {category}")
+                        logger.debug(f"Fetching enrichment data for {category}")
                         enrichment_df = self.get_functional_enrichment(category=category)
-                        
+
+                        html_parts.append(f'<details {"open" if open_by_default else ""}>')
+                        html_parts.append(
+                            f'<summary style="cursor: pointer; font-weight: bold; padding: 10px; background-color: #f8f8f8; border: 1px solid #ddd;">'
+                            f'{label} ({len(enrichment_df) if enrichment_df is not None else 0} terms)</summary>'
+                        )
+                        html_parts.append('<div style="padding: 10px;">')
+
+                        expected_cols = ['term', 'description', 'fdr', 'number_of_genes', 'inputGenes']
+
                         if enrichment_df is not None and not enrichment_df.empty:
-                            any_data_retrieved = True
-                            logger.debug(f"Successfully retrieved {len(enrichment_df)} {category} enrichment terms")
-                            
-                            html_parts.append(f'<details {"open" if open_by_default else ""}>')
-                            html_parts.append(f'<summary style="cursor: pointer; font-weight: bold; padding: 10px; background-color: #f8f8f8; border: 1px solid #ddd;">{label} ({len(enrichment_df)} terms)</summary>')
-                            html_parts.append('<div style="padding: 10px;">')
-                            
-                            # We don't need category-specific links since we already have a global link above
-                            
-                            # Select columns to display
-                            display_cols = []
-                            if 'term' in enrichment_df.columns:
-                                display_cols.append('term')
-                            if 'description' in enrichment_df.columns:
-                                display_cols.append('description')
-                            if 'fdr' in enrichment_df.columns:
-                                display_cols.append('fdr')
-                            if 'number_of_genes' in enrichment_df.columns:
-                                display_cols.append('number_of_genes')
-                            if 'inputGenes' in enrichment_df.columns:
-                                display_cols.append('inputGenes')
-                                
-                            # If no suitable columns found, use all columns
+                            display_cols = [col for col in expected_cols if col in enrichment_df.columns]
                             if not display_cols:
                                 display_cols = enrichment_df.columns
-                                
-                            # Number of rows to show
+
                             num_rows = min(20, len(enrichment_df))
-                            
-                            # Convert DataFrame to HTML table
                             table_html = enrichment_df.head(num_rows)[display_cols].to_html(
-                                index=False, 
+                                index=False,
                                 escape=False,
                                 classes="enrichment-table",
                                 border=1
                             )
-                            
-                            # Add table styles
                             styled_table = table_html.replace(
-                                '<table ', 
+                                '<table ',
                                 '<table style="border-collapse:collapse; width:100%; text-align:left;" '
                             )
                             html_parts.append(styled_table)
-                            
-                            # If we have more results than we're showing, add a note
+
                             if len(enrichment_df) > num_rows:
-                                html_parts.append(f'<p style="margin-top:10px; font-style:italic;">Showing {num_rows} of {len(enrichment_df)} enriched terms</p>')
-                            
-                            html_parts.append('</div>')
-                            html_parts.append('</details>')
+                                html_parts.append(
+                                    f'<p style="margin-top:10px; font-style:italic;">Showing {num_rows} of {len(enrichment_df)} enriched terms</p>'
+                                )
                         else:
-                            logger.debug(f"No enrichment data retrieved for {category}")
+                            empty_df = pd.DataFrame(columns=expected_cols)
+                            table_html = empty_df.to_html(
+                                index=False,
+                                escape=False,
+                                classes="enrichment-table",
+                                border=1
+                            )
+                            styled_table = table_html.replace(
+                                '<table ',
+                                '<table style="border-collapse:collapse; width:100%; text-align:left;" '
+                            )
+                            html_parts.append(styled_table)
+                            html_parts.append(
+                                f'<p style="margin-top:10px; font-style:italic;">No enriched terms were found in {label}.</p>'
+                            )
+
+                        html_parts.append('</div>')
+                        html_parts.append('</details>')
+
                     except Exception as e:
-                        logger.debug(f"Failed to include enrichment data for category '{category}' in HTML: {e}")
-                
-                # If no data was retrieved, add link to StringDB for all categories
-                if not any_data_retrieved:
-                    html_parts.append('<p>No enrichment data could be retrieved directly. Please use the link above to view enrichment analysis on StringDB.</p>')
-                
+                        logger.debug(f"Failed to render enrichment for {category}: {e}")
+                        html_parts.append(
+                            f'<details><summary>{label}</summary>'
+                            f'<div><p style="font-style: italic;">Error fetching enrichment for {label}.</p></div></details>'
+                        )
+
                 html_parts.append('</div>')
+
             except Exception as e:
-                # Catch any exceptions that might occur during enrichment HTML generation
-                logger.debug(f"Error in enrichment HTML generation: {e}")
-                html_parts.append('<p>An error occurred while generating enrichment information. ' +
-                                  f'<a href="{url}" target="_blank">View enrichment on StringDB</a></p>')
-        
+                logger.debug(f"Enrichment section failed: {e}")
+                html_parts.append(
+                    f'<p>An error occurred while generating enrichment information. '
+                    f'<a href="{url}" target="_blank">View enrichment on StringDB</a></p>'
+                )
+
         return "".join(html_parts)
-    
+
+
     def _repr_html_(self) -> str:
         """HTML representation for display in Jupyter notebooks."""
         return self.to_html()

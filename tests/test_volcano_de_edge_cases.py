@@ -38,7 +38,7 @@ def create_test_anndata_edge_cases(n_cells=100, n_genes=20):
     # Add DE metrics
     var['mean_lfc'] = np.random.normal(0, 2, n_genes)
     var['mahalanobis'] = np.abs(np.random.normal(0, 2, n_genes))
-    var['pval'] = np.random.uniform(0, 1, n_genes)
+    var['ptp'] = np.random.uniform(0, 1, n_genes)
     var['de_run1_mean_lfc_A_to_B'] = np.random.normal(0, 2, n_genes)
     var['de_run1_mahalanobis_A_to_B'] = np.abs(np.random.normal(0, 2, n_genes))
     

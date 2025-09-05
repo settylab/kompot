@@ -61,7 +61,7 @@ class TestAnnDataFieldTracking:
         assert 'obs' in tracking
         assert 'uns' in tracking
         
-        # Check obs fields - should include lfc, zscore, pval, direction, density
+        # Check obs fields - should include lfc, zscore, ptp, direction, density
         obs_fields = tracking['obs']
         assert len(obs_fields) >= 5
         

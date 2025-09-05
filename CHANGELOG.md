@@ -2,7 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [0.4.3]
+
+ - make sure all components are packaged
+
+## [0.4.2]
+
+ - avoid naming conflict on import
+
+## [0.4.1]
+
+ - avoid absolute imports
+
+## [0.4.0]
 
  - StringDBReport class for gene set visualization and reporting
  - make sure da directions categories are always retained and ordered correctly

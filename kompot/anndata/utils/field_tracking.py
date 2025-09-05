@@ -173,13 +173,13 @@ def generate_output_field_names(
     if analysis_type == "da":
         # Define which fields are actually impacted by sample variance
         # Fields like log_fold_change, log_density are not affected by sample variance
-        sample_variance_impacted = ["zscore_key", "pval_key", "direction_key"]
+        sample_variance_impacted = ["zscore_key", "ptp_key", "direction_key"]
         
         # Differential abundance field names
         field_names.update({
             "lfc_key": f"{result_key}_log_fold_change_{cond1_safe}_to_{cond2_safe}",
             "zscore_key": f"{result_key}_log_fold_change_zscore_{cond1_safe}_to_{cond2_safe}{suffix}",
-            "pval_key": f"{result_key}_neg_log10_fold_change_pvalue_{cond1_safe}_to_{cond2_safe}{suffix}",
+            "ptp_key": f"{result_key}_neg_log10_fold_change_ptp_{cond1_safe}_to_{cond2_safe}{suffix}",
             "direction_key": f"{result_key}_log_fold_change_direction_{cond1_safe}_to_{cond2_safe}{suffix}",
             "density_key_1": f"{result_key}_log_density_{cond1_safe}",
             "density_key_2": f"{result_key}_log_density_{cond2_safe}"
@@ -191,7 +191,7 @@ def generate_output_field_names(
             "obs": [
                 field_names["lfc_key"],        # Not impacted by sample variance
                 field_names["zscore_key"],     # Impacted by sample variance
-                field_names["pval_key"],       # Impacted by sample variance
+                field_names["ptp_key"],       # Impacted by sample variance
                 field_names["direction_key"],  # Impacted by sample variance
                 field_names["density_key_1"],  # Not impacted by sample variance
                 field_names["density_key_2"]   # Not impacted by sample variance
@@ -207,7 +207,6 @@ def generate_output_field_names(
         field_names.update({
             "mahalanobis_key": f"{result_key}_mahalanobis_{cond1_safe}_to_{cond2_safe}{suffix}",
             "mean_lfc_key": f"{result_key}_mean_lfc_{cond1_safe}_to_{cond2_safe}",
-            "weighted_lfc_key": f"{result_key}_weighted_lfc_{cond1_safe}_to_{cond2_safe}",
             "imputed_key_1": f"{result_key}_imputed_{cond1_safe}",
             "imputed_key_2": f"{result_key}_imputed_{cond2_safe}",
             "fold_change_key": f"{result_key}_fold_change_{cond1_safe}_to_{cond2_safe}",
@@ -218,7 +217,6 @@ def generate_output_field_names(
             # Add varm field names for group-specific metrics
             "mean_lfc_varm_key": f"{result_key}_mean_lfc_{cond1_safe}_to_{cond2_safe}_groups",
             "mahalanobis_varm_key": f"{result_key}_mahalanobis_{cond1_safe}_to_{cond2_safe}{suffix}_groups",
-            "weighted_lfc_varm_key": f"{result_key}_weighted_lfc_{cond1_safe}_to_{cond2_safe}_groups"
         })
         field_names["sample_variance_impacted_fields"] = sample_variance_impacted
 
@@ -255,8 +253,6 @@ def generate_output_field_names(
             field_names["all_patterns"]["obs"].append(field_names["std_key_1"])
             field_names["all_patterns"]["obs"].append(field_names["std_key_2"])
         
-        # For weighted log fold change (only if differential abundance integration is used)
-        field_names["has_weighted_lfc"] = False  # Initialize flag
         
         # For group-specific metrics
         field_names["has_groups"] = False  # Initialize flag
