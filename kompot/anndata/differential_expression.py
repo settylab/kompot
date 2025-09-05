@@ -30,6 +30,12 @@ from .utils import (
     get_run_history,
     append_to_run_history
 )
+from .fdr_utils import (
+    prepare_null_genes,
+    generate_shuffled_expression,
+    compute_fdr_statistics,
+    annotate_differential_genes
+)
 
 logger = logging.getLogger("kompot")
 
@@ -485,9 +491,11 @@ def compute_differential_expression(
     null_genes : int, List[int], or None, optional
         Specification for generating null distribution to compute FDR-corrected p-values:
         
-        - If int: Number of genes to randomly sample for null distribution (default 1000)
+        - If int: Number of genes to randomly sample for null distribution
         - If List[int]: Specific gene indices to use for null distribution
         - If None or 0: Disable FDR calculation (no p-values computed)
+        
+        Default is 1000 (uses 1000 randomly sampled null genes for FDR estimation).
         
         Null genes have their expression values shuffled between conditions to break the
         association with cell state, creating a background distribution for statistical testing.
@@ -880,16 +888,21 @@ def compute_differential_expression(
     
     # Phase 1: Prepare null genes for FDR calculation if requested
     use_fdr = null_genes is not None and null_genes != 0 and compute_mahalanobis
+    
     null_gene_indices = []
     null_expr1 = np.empty((expr1.shape[0], 0))
     null_expr2 = np.empty((expr2.shape[0], 0))
+    
+    # Show warning if user requested FDR but disabled Mahalanobis
+    if null_genes is not None and null_genes != 0 and not compute_mahalanobis:
+        logger.warning("FDR calculation requires compute_mahalanobis=True. Skipping FDR calculation.")
     
     if use_fdr:
         logger.info(f"Preparing null distribution with null_genes={null_genes}, null_seed={null_seed}")
         
         # Select null genes from available genes (before filtering)
         available_genes = adata.var_names.tolist()
-        null_gene_indices, used_replacement = _prepare_null_genes(
+        null_gene_indices, used_replacement = prepare_null_genes(
             null_genes=null_genes,
             available_genes=available_genes,
             null_seed=null_seed
@@ -907,7 +920,7 @@ def compute_differential_expression(
             if sparse.issparse(orig_expr2):
                 orig_expr2 = orig_expr2.toarray()
             
-            null_expr1, null_expr2 = _generate_shuffled_expression(
+            null_expr1, null_expr2 = generate_shuffled_expression(
                 expr1=orig_expr1,
                 expr2=orig_expr2,
                 null_gene_indices=null_gene_indices,
@@ -1116,14 +1129,14 @@ def compute_differential_expression(
             null_mahalanobis = all_mahalanobis[n_real_genes:]
             
             # Compute FDR statistics
-            pvalues, local_fdr_values, tail_fdr_values, is_significant = _compute_fdr_statistics(
+            pvalues, local_fdr_values, tail_fdr_values, is_significant = compute_fdr_statistics(
                 real_mahalanobis=real_mahalanobis,
                 null_mahalanobis=null_mahalanobis,
                 fdr_threshold=fdr_threshold
             )
             
             # Create boolean DE annotation and summary stats
-            de_annotation, summary_stats = _annotate_differential_genes(
+            de_annotation, summary_stats = annotate_differential_genes(
                 fdr_values=local_fdr_values,
                 mahalanobis_distances=real_mahalanobis,
                 gene_names=selected_genes,
