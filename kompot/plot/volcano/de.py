@@ -43,7 +43,7 @@ def volcano_de(
     figsize: Tuple[float, float] = (10, 8),
     title: Optional[str] = None,
     xlabel: Optional[str] = "Log Fold Change",
-    ylabel: Optional[str] = "Mahalanobis Distance",
+    ylabel: Optional[str] = None,  # Now auto-inferred from y_axis_type
     n_x_ticks: int = 3,
     n_y_ticks: int = 3,
     color_up: str = KOMPOT_COLORS["direction"]["up"],
@@ -67,6 +67,12 @@ def volcano_de(
     run_id: int = -1,
     legend_ncol: Optional[int] = None,
     group: Optional[str] = None,
+    # New FDR-related parameters
+    y_axis_type: str = "mahalanobis",  # "mahalanobis", "local_fdr", or "tail_fdr"
+    fdr_threshold: Optional[float] = None,
+    update_de_classification: bool = False,
+    de_column: Optional[str] = None,
+    show_thresholds: bool = True,
     **kwargs
 ) -> Union[None, Tuple[plt.Figure, plt.Axes]]:
     """
@@ -175,6 +181,20 @@ def volcano_de(
         If provided, use data for a specific group/subset analyzed with the 'groups' parameter
         in compute_differential_expression. Will use the values from adata.varm instead of
         adata.var for Mahalanobis distances, mean fold changes, and weighted mean fold changes.
+    y_axis_type : str, optional
+        Type of values to use for the y-axis: "mahalanobis" (default), "local_fdr", or "tail_fdr".
+        When using FDR values, they are -log10 transformed for display.
+    fdr_threshold : float, optional
+        FDR threshold for significance. If provided, will be shown as a horizontal line.
+        Only applicable when y_axis_type is "local_fdr" or "tail_fdr".
+    update_de_classification : bool, optional
+        Whether to update the differential expression classification column based on the new
+        FDR threshold. Only applicable when y_axis_type is "local_fdr" or "tail_fdr" (default: False).
+    de_column : str, optional
+        Name of the differential expression boolean column to update if update_de_classification=True.
+        If None, tries to infer from the score_key.
+    show_thresholds : bool, optional
+        Whether to show threshold lines on the plot (default: True).
     **kwargs : 
         Additional parameters passed to plt.scatter
         
@@ -189,6 +209,42 @@ def volcano_de(
     
     # Infer keys using helper function - this will get the right keys but won't do any logging
     lfc_key, score_key = _infer_de_keys(adata, run_id, lfc_key, score_key)
+    
+    # Handle FDR-based y-axis options
+    original_score_key = score_key
+    y_transform = None
+    fdr_key = None
+    
+    if y_axis_type in ["local_fdr", "tail_fdr"]:
+        # Try to infer FDR key from the original score key
+        if score_key and "mahalanobis" in score_key:
+            # Replace mahalanobis with the FDR type
+            if y_axis_type == "local_fdr":
+                fdr_key = score_key.replace("mahalanobis", "mahalanobis_local_fdr")
+            else:  # tail_fdr
+                fdr_key = score_key.replace("mahalanobis", "mahalanobis_tail_fdr")
+            
+            # Check if the FDR key exists
+            if fdr_key in adata.var.columns:
+                score_key = fdr_key
+                y_transform = lambda y: -np.log10(np.maximum(y, 1e-300))  # Avoid log(0)
+                logger.info(f"Using {y_axis_type} values for y-axis: {fdr_key}")
+            else:
+                logger.warning(f"FDR key '{fdr_key}' not found in adata.var. Available FDR columns: "
+                             f"{[col for col in adata.var.columns if 'fdr' in col.lower() or 'pvalue' in col.lower()]}")
+                logger.info(f"Falling back to original score key: {original_score_key}")
+                score_key = original_score_key
+        else:
+            logger.warning(f"Cannot infer FDR key from score_key '{score_key}'. Using original score key.")
+    
+    # Auto-infer ylabel if not provided
+    if ylabel is None:
+        if y_axis_type == "local_fdr":
+            ylabel = "-log10(Local FDR)"
+        elif y_axis_type == "tail_fdr":
+            ylabel = "-log10(Tail FDR)"
+        else:
+            ylabel = "Mahalanobis Distance"
     
     # Calculate the actual (positive) run ID for logging - use same logic as volcano_da
     if run_id < 0:
@@ -283,6 +339,17 @@ def volcano_de(
             x = adata.varm[lfc_varm_key][group].values
             y = adata.varm[score_varm_key][group].values
             
+            # Apply y-axis transformation if needed (for FDR values)
+            if y_transform is not None:
+                # Note: Group-specific FDR data might not be available in varm
+                # For now, we'll warn users if they try to use FDR with groups
+                if y_axis_type in ["local_fdr", "tail_fdr"]:
+                    logger.warning(f"FDR y-axis options ({y_axis_type}) with group-specific data may not work as expected. "
+                                 f"Group-specific FDR values are typically not stored in adata.varm.")
+                else:
+                    y = y_transform(y)
+                    logger.info(f"Applied {y_axis_type} transformation to group-specific y-axis data")
+            
             # Log information about weighted mean log fold change
             if weighted_lfc_data_available:
                 logger.info(f"Group-specific weighted mean log fold change data found for '{group}'")
@@ -341,7 +408,55 @@ def volcano_de(
             raise ValueError(f"Cannot create volcano plot: {error_str}")
             
         logger.info(f"Using data columns from var - lfc: '{lfc_key}', score: '{score_key}'")
-        logger.info(f"Using fields for DE plot - lfc_key: '{lfc_key}', score_key: '{score_key}'")
+        
+    # Apply y-axis transformation if needed (for FDR values)
+    if y is not None and y_transform is not None:
+        y = y_transform(y)
+        logger.info(f"Applied {y_axis_type} transformation to y-axis data")
+    
+    # Handle FDR-based coloring and DE classification updates
+    if y_axis_type in ["local_fdr", "tail_fdr"] and background_color_key is None:
+        # Try to auto-detect the DE boolean column for coloring
+        if de_column is None:
+            # Infer DE column name from score_key
+            if fdr_key and "mahalanobis" in fdr_key:
+                de_column = fdr_key.replace("mahalanobis_local_fdr", "is_de").replace("mahalanobis_tail_fdr", "is_de")
+            elif original_score_key and "mahalanobis" in original_score_key:
+                de_column = original_score_key.replace("mahalanobis", "is_de")
+        
+        # Check if DE column exists and use it for background coloring
+        if de_column and de_column in adata.var.columns:
+            background_color_key = de_column
+            logger.info(f"Using DE classification column for coloring: {de_column}")
+            
+            # Set up discrete color mapping for DE status
+            if color_discrete_map is None:
+                color_discrete_map = {
+                    True: color_up,    # Significant genes get highlight color
+                    False: color_background  # Non-significant genes get background color
+                }
+        else:
+            logger.info(f"DE classification column not found. Available columns: "
+                       f"{[col for col in adata.var.columns if 'is_de' in col.lower() or col.endswith('_de')]}")
+    
+    # Update DE classification if requested
+    if update_de_classification and fdr_threshold is not None and y_axis_type in ["local_fdr", "tail_fdr"]:
+        if de_column and de_column in adata.var.columns:
+            # Get FDR values
+            fdr_values = adata.var[fdr_key].values if fdr_key else None
+            if fdr_values is not None:
+                # Update classification based on new threshold
+                new_classification = fdr_values < fdr_threshold
+                old_count = np.sum(adata.var[de_column])
+                new_count = np.sum(new_classification)
+                
+                adata.var[de_column] = new_classification
+                logger.info(f"Updated DE classification: {old_count} → {new_count} significant genes "
+                          f"at FDR < {fdr_threshold}")
+            else:
+                logger.warning(f"Cannot update DE classification: FDR values not found in {fdr_key}")
+        else:
+            logger.warning(f"Cannot update DE classification: DE column '{de_column}' not found")
     
     # Create a DataFrame with all relevant information
     data_dict = {
@@ -371,7 +486,8 @@ def volcano_de(
         bg_values = adata.var[background_color_key]
         if (isinstance(bg_values.dtype, pd.CategoricalDtype) or 
             bg_values.dtype == 'object' or 
-            bg_values.dtype == 'category'):
+            bg_values.dtype == 'category' or
+            bg_values.dtype == 'bool'):
             bg_color_is_categorical = True
             categories = adata.var[background_color_key].unique()
             logger.info(f"Using categorical coloring for background with {len(categories):,} categories")
@@ -820,6 +936,16 @@ def volcano_de(
     
     # Add formatting
     ax.axvline(x=0, color="black", linestyle="--", alpha=0.3)
+    
+    # Add FDR threshold line if applicable
+    if (show_thresholds and fdr_threshold is not None and 
+        y_axis_type in ["local_fdr", "tail_fdr"] and y_transform is not None):
+        # Transform the threshold for display
+        threshold_y = y_transform(np.array([fdr_threshold]))[0]
+        ax.axhline(y=threshold_y, color="red", linestyle="--", alpha=0.7, linewidth=1,
+                   label=f"FDR = {fdr_threshold}")
+        logger.info(f"Added FDR threshold line at y={threshold_y:.2f} (FDR={fdr_threshold})")
+    
     ax.set_xlabel(xlabel, fontsize=12)
     ax.set_ylabel(ylabel, fontsize=12)
     
