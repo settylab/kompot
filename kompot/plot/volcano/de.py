@@ -4,10 +4,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 from matplotlib.colors import Colormap, ListedColormap
-from typing import Optional, Union, List, Tuple, Dict, Any, Callable
+from typing import Optional, Union, List, Tuple, Dict, Any
 from anndata import AnnData
 import pandas as pd
-import warnings
 import logging
 
 from ...utils import KOMPOT_COLORS
@@ -219,9 +218,13 @@ def volcano_de(
 
     # Handle FDR-based y-axis options
     original_score_key = score_key
-    y_transform = None
     fdr_key = None
 
+    def fdr_y_transform(y):
+        """Transform FDR values using -log10."""
+        return -np.log10(np.maximum(y, 1e-300))  # Avoid log(0)
+
+    y_transform = None
     if y_axis_type in ["local_fdr", "tail_fdr"]:
         # Try to infer FDR key from the original score key
         if score_key and "mahalanobis" in score_key:
@@ -234,7 +237,8 @@ def volcano_de(
             # Check if the FDR key exists
             if fdr_key in adata.var.columns:
                 score_key = fdr_key
-                y_transform = lambda y: -np.log10(np.maximum(y, 1e-300))  # Avoid log(0)
+                y_transform = fdr_y_transform
+
                 logger.info(f"Using {y_axis_type} values for y-axis: {fdr_key}")
             else:
                 logger.warning(
@@ -318,14 +322,14 @@ def volcano_de(
 
         if not run_info or "field_names" not in run_info:
             logger.warning(
-                f"Cannot find run information for group-specific data. Make sure you're using the correct run_id."
+                "Cannot find run information for group-specific data. Make sure you're using the correct run_id."
             )
             return
 
         # Get varm keys directly from run information
         if "varm_keys" not in run_info:
             logger.warning(
-                f"No varm keys found in run information. This run may not have used groups."
+                "No varm keys found in run information. This run may not have used groups."
             )
             return
 
@@ -510,7 +514,7 @@ def volcano_de(
         # If group-specific and sort_key appears to be a weighted_lfc column and group-specific weighted_lfc available
         if group is not None and "weighted" in sort_key.lower() and weighted_lfc_data_available:
             data_dict["sort_val"] = adata.varm[weighted_lfc_varm_key][group].values
-            logger.info(f"Using group-specific weighted mean log fold change for sorting")
+            logger.info("Using group-specific weighted mean log fold change for sorting")
         else:
             data_dict["sort_val"] = adata.var[sort_key].values
     else:
@@ -584,7 +588,7 @@ def volcano_de(
         else:
             # Continuous background coloring
             bg_color_is_categorical = False
-            logger.info(f"Using continuous coloring for background")
+            logger.info("Using continuous coloring for background")
 
             # Auto-select appropriate colormap for continuous data if none provided
             if background_cmap is None:
@@ -770,8 +774,8 @@ def volcano_de(
                     logger.warning(
                         f"{len(missing_genes)} genes not found in the dataset: {', '.join(missing_genes)}"
                     )
-                except:
-                    logger.warning(f"Some genes not found in the dataset")
+                except Exception:
+                    logger.warning("Some genes not found in the dataset")
 
             # Create a single group without custom colors
             highlight_groups.append({"genes": valid_genes, "name": "Highlighted genes"})
@@ -1048,7 +1052,7 @@ def volcano_de(
         if has_continuous_colorbar:
             # For continuous colorbar case: place legend in top part of right sidebar
             if legend_loc == "best":
-                legend = ax.legend(
+                ax.legend(
                     bbox_to_anchor=(1.05, 0.7),  # Position in top part of sidebar
                     loc="upper left",
                     fontsize=legend_fontsize,
@@ -1057,13 +1061,13 @@ def volcano_de(
                 )
             else:
                 # If user specified a different location, respect it
-                legend = ax.legend(
+                ax.legend(
                     loc=legend_loc, fontsize=legend_fontsize, frameon=False, ncol=legend_ncol or 1
                 )
         else:
             # Standard legend placement without colorbar competition
             if legend_loc == "best":
-                legend = ax.legend(
+                ax.legend(
                     bbox_to_anchor=(1.05, 1),
                     loc="upper left",
                     fontsize=legend_fontsize,
@@ -1071,7 +1075,7 @@ def volcano_de(
                     ncol=legend_ncol or 1,
                 )
             else:
-                legend = ax.legend(
+                ax.legend(
                     loc=legend_loc, fontsize=legend_fontsize, frameon=False, ncol=legend_ncol or 1
                 )
 

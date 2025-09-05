@@ -1,16 +1,14 @@
 """Tests for FDR functionality in the volcano_de plotting function."""
 
+import matplotlib
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import pytest
-import matplotlib
-
-matplotlib.use("Agg")  # Use non-interactive backend to prevent windows
-import matplotlib.pyplot as plt
-from typing import Dict, Any, List
 
 from kompot.plot.volcano import volcano_de
-from kompot.utils import KOMPOT_COLORS
+
+matplotlib.use("Agg")  # Use non-interactive backend to prevent windows
 
 
 def create_test_anndata_with_fdr(
