@@ -124,7 +124,7 @@ def _infer_de_keys(adata: AnnData, run_id: int = -1, lfc_key: Optional[str] = No
 
 
 def _infer_da_keys(adata: AnnData, run_id: int = -1, lfc_key: Optional[str] = None, 
-                  pval_key: Optional[str] = None):
+                  ptp_key: Optional[str] = None):
     """
     Infer differential abundance keys from AnnData object.
     
@@ -136,29 +136,29 @@ def _infer_da_keys(adata: AnnData, run_id: int = -1, lfc_key: Optional[str] = No
         Run ID to use. Default is -1 (the latest run).
     lfc_key : str, optional
         Log fold change key. If provided, will be returned as is.
-    pval_key : str, optional
-        P-value key. If provided, will be returned as is.
+    ptp_key : str, optional
+        PTP (Posterior Tail Probability) key. If provided, will be returned as is. Posterior Tail Probability is a significance measure score similar to p-value.
         
     Returns
     -------
     tuple
-        (lfc_key, pval_key) with the inferred keys, and a tuple of (lfc_threshold, pval_threshold)
+        (lfc_key, ptp_key) with the inferred keys, and a tuple of (lfc_threshold, ptp_threshold)
     """
     inferred_lfc_key = lfc_key
-    inferred_pval_key = pval_key
+    inferred_ptp_key = ptp_key
     lfc_threshold = None
-    pval_threshold = None
+    ptp_threshold = None
     
     # If both keys already provided, just check for thresholds and return
-    if inferred_lfc_key is not None and inferred_pval_key is not None:
+    if inferred_lfc_key is not None and inferred_ptp_key is not None:
         # Get run info to check for thresholds
         run_info = get_run_from_history(adata, run_id, analysis_type="da")
         if run_info is not None and 'params' in run_info:
             params = run_info['params']
             lfc_threshold = params.get('log_fold_change_threshold')
-            pval_threshold = params.get('pvalue_threshold')
+            ptp_threshold = params.get('ptp_threshold')
             
-        return inferred_lfc_key, inferred_pval_key, (lfc_threshold, pval_threshold)
+        return inferred_lfc_key, inferred_ptp_key, (lfc_threshold, ptp_threshold)
     
     # Get run info from specified run_id - specifically from kompot_da
     from ...anndata.utils import get_run_history
@@ -182,7 +182,7 @@ def _infer_da_keys(adata: AnnData, run_id: int = -1, lfc_key: Optional[str] = No
         if 'params' in run_info:
             params = run_info['params']
             lfc_threshold = params.get('log_fold_change_threshold')
-            pval_threshold = params.get('pvalue_threshold')
+            ptp_threshold = params.get('ptp_threshold')
         
         # Get field names directly from the run_info
         if 'field_names' in run_info:
@@ -200,13 +200,13 @@ def _infer_da_keys(adata: AnnData, run_id: int = -1, lfc_key: Optional[str] = No
                 # In most cases, the run_id/field association is unambiguous
                 pass
             
-            # Get pval_key from field_names
-            if inferred_pval_key is None and 'pval_key' in field_names:
-                inferred_pval_key = field_names['pval_key']
+            # Get ptp_key from field_names
+            if inferred_ptp_key is None and 'ptp_key' in field_names:
+                inferred_ptp_key = field_names['ptp_key']
                 # Check that column exists
-                if inferred_pval_key not in adata.obs.columns:
-                    logger.warning(f"Found pval_key '{inferred_pval_key}' in run info, but column not in adata.obs")
-                    inferred_pval_key = None
+                if inferred_ptp_key not in adata.obs.columns:
+                    logger.warning(f"Found ptp_key '{inferred_ptp_key}' in run info, but column not in adata.obs")
+                    inferred_ptp_key = None
                 # Skip validation for now, can be implemented separately if needed
                 # In most cases, the run_id/field association is unambiguous
                 pass
@@ -215,7 +215,7 @@ def _infer_da_keys(adata: AnnData, run_id: int = -1, lfc_key: Optional[str] = No
     if inferred_lfc_key is None:
         raise ValueError("Could not infer lfc_key from the specified run. Please specify manually.")
     
-    if inferred_pval_key is None:
-        raise ValueError("Could not infer pval_key from the specified run. Please specify manually.")
+    if inferred_ptp_key is None:
+        raise ValueError("Could not infer ptp_key from the specified run. Please specify manually.")
     
-    return inferred_lfc_key, inferred_pval_key, (lfc_threshold, pval_threshold)
+    return inferred_lfc_key, inferred_ptp_key, (lfc_threshold, ptp_threshold)

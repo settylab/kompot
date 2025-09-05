@@ -15,7 +15,7 @@ except ImportError:
         "Please install anndata: pip install anndata"
     )
 
-from ..differential import DifferentialExpression, compute_weighted_mean_fold_change
+from ..differential import DifferentialExpression
 from .utils import (
     _sanitize_name,
     parse_groups,
@@ -45,7 +45,6 @@ def compute_differential_expression(
     n_landmarks: Optional[int] = 5000,
     landmarks: Optional[np.ndarray] = None,
     sample_col: Optional[str] = None,
-    differential_abundance_key: Optional[str] = None,
     sigma: float = 1.0,
     ls: Optional[float] = None,
     ls_factor: float = 10.0,
@@ -111,9 +110,6 @@ def compute_differential_expression(
     allow_single_condition_variance : bool, optional
         If True, allows variance estimation with only one condition having multiple samples.
         By default False, which requires both conditions to have multiple samples.
-    differential_abundance_key : str, optional
-        Key in adata.obs where abundance log-fold changes are stored, by default None.
-        Will be used for weighted mean log-fold change computation.
     sigma : float, optional
         Noise level for function estimator, by default 1.0.
     ls : float, optional
@@ -185,8 +181,7 @@ def compute_differential_expression(
         - If List of vectors/series: Each element is processed as above.
         
         When subsetting is defined, the global comparison is still run first, followed by
-        analyses on each subset. Only the 'mean_log_fold_change', 'weighted_mean_log_fold_change',
-        and 'mahalanobis_distances' metrics are saved for each subset with appropriate name suffixes.
+        analyses on each subset. Only the 'mean_log_fold_change' and 'mahalanobis_distances' metrics are saved for each subset with appropriate name suffixes.
     min_cells : int, optional
         Minimum number of cells required for a condition to be considered adequately represented 
         within each group, by default 10.
@@ -256,7 +251,7 @@ def compute_differential_expression(
     Results are stored in various components of the AnnData object:
     
     - adata.var[f"{result_key}_mahalanobis"]: Mahalanobis distance for each gene
-    - adata.var[f"{result_key}_weighted_lfc"]: Weighted mean log fold change for each gene
+    - adata.var[f"{result_key}_mean_lfc"]: Mean log fold change for each gene
     - adata.layers[f"{result_key}_condition1_imputed"]: Imputed expression for condition 1
     - adata.layers[f"{result_key}_condition2_imputed"]: Imputed expression for condition 2
     - adata.layers[f"{result_key}_fold_change"]: Log fold change for each cell and gene
@@ -290,10 +285,6 @@ def compute_differential_expression(
     # Get all patterns from field_names
     all_patterns = field_names["all_patterns"]
     
-    # Update all_patterns with differential abundance integration if needed
-    if differential_abundance_key is not None:
-        field_names["has_weighted_lfc"] = True
-        all_patterns["var"].append(field_names["weighted_lfc_key"])
     
     # Update all_patterns with group information if needed
     if groups is not None:
@@ -307,10 +298,7 @@ def compute_differential_expression(
         # Only add mahalanobis varm key if compute_mahalanobis is True
         if compute_mahalanobis:
             all_patterns["varm"].append(field_names["mahalanobis_varm_key"])
-            
-        # Only add weighted_lfc varm key if differential_abundance_key is provided
-        if differential_abundance_key is not None:
-            all_patterns["varm"].append(field_names["weighted_lfc_varm_key"])
+
             
         # Filter out None values
         all_patterns["varm"] = [k for k in all_patterns["varm"] if k is not None]
@@ -445,20 +433,6 @@ def compute_differential_expression(
     if groupby not in adata.obs:
         raise ValueError(f"Column '{groupby}' not found in adata.obs. Available columns: {list(adata.obs.columns)}")
 
-    # Check if differential_abundance_key-related columns exist instead of the key itself
-    if differential_abundance_key is not None:
-        # Sanitize condition names for use in column names
-        cond1_safe = _sanitize_name(condition1)
-        cond2_safe = _sanitize_name(condition2)
-        
-        # Check for condition-specific column names
-        specific_cols = [f"{differential_abundance_key}_log_density_{cond1_safe}", 
-                       f"{differential_abundance_key}_log_density_{cond2_safe}"]
-        
-        if not all(col in adata.obs for col in specific_cols):
-            raise ValueError(f"Log density columns not found in adata.obs. "
-                           f"Expected: {specific_cols}. "
-                           f"Available columns: {list(adata.obs.columns)}")
     
     # Make a copy if requested
     if copy:
@@ -614,18 +588,6 @@ def compute_differential_expression(
         else:
             logger.warning(f"Stored landmarks have dimension {landmarks_dim} but data has dimension {data_dim}. Will check for other landmarks.")
     
-    # If we have differential_abundance_key, check if there are landmarks stored there
-    if landmarks is None and differential_abundance_key is not None and differential_abundance_key in adata.uns and 'landmarks' in adata.uns[differential_abundance_key]:
-        stored_abund_landmarks = adata.uns[differential_abundance_key]['landmarks']
-        landmarks_dim = stored_abund_landmarks.shape[1]
-        data_dim = adata.obsm[obsm_key].shape[1]
-        
-        # Only use the stored landmarks if dimensions match
-        if landmarks_dim == data_dim:
-            logger.info(f"Using landmarks from abundance analysis in adata.uns['{differential_abundance_key}']['landmarks'] with shape {stored_abund_landmarks.shape}")
-            landmarks = stored_abund_landmarks
-        else:
-            logger.warning(f"Abundance landmarks have dimension {landmarks_dim} but data has dimension {data_dim}. Will check for other landmarks.")
     
     # If still no landmarks, check for any other landmarks in storage_key
     if landmarks is None:
@@ -643,18 +605,6 @@ def compute_differential_expression(
             else:
                 logger.warning(f"Other stored DE landmarks have dimension {landmarks_dim} but data has dimension {data_dim}. Will check for other landmarks.")
     
-    # As a last resort, check for DA landmarks if not already checked
-    if landmarks is None and "kompot_da" in adata.uns and 'landmarks' in adata.uns["kompot_da"] and (differential_abundance_key != "kompot_da"):
-        da_landmarks = adata.uns["kompot_da"]['landmarks']
-        landmarks_dim = da_landmarks.shape[1]
-        data_dim = adata.obsm[obsm_key].shape[1]
-        
-        # Only use the stored landmarks if dimensions match
-        if landmarks_dim == data_dim:
-            logger.info(f"Reusing differential abundance landmarks from adata.uns['kompot_da']['landmarks'] with shape {da_landmarks.shape}")
-            landmarks = da_landmarks
-        else:
-            logger.warning(f"DA landmarks have dimension {landmarks_dim} but data has dimension {data_dim}. Computing new landmarks.")
     
     # Initialize and fit DifferentialExpression
     use_sample_variance = sample_col is not None
@@ -809,34 +759,6 @@ def compute_differential_expression(
             logger.error("Posterior covariance matrix will not be stored in obsp.")
     
     
-    # Separately compute weighted fold changes if needed
-    if differential_abundance_key is not None:
-        # Sanitize condition names for use in column names
-        cond1_safe = _sanitize_name(condition1)
-        cond2_safe = _sanitize_name(condition2)
-        
-        # Get log densities from adata with descriptive names
-        density_col1 = f"{differential_abundance_key}_log_density_{cond1_safe}"
-        density_col2 = f"{differential_abundance_key}_log_density_{cond2_safe}"
-        
-        if density_col1 in adata.obs and density_col2 in adata.obs:
-            # Apply the filter mask to get only the cells we're predicting for
-            log_density_condition1 = adata.obs[density_col1][filter_mask]
-            log_density_condition2 = adata.obs[density_col2][filter_mask]
-            
-            # Calculate log density difference directly
-            log_density_diff = log_density_condition2 - log_density_condition1
-            
-            # Use the standalone function to compute weighted mean fold change with pre-computed difference
-            # The exp(abs()) is now handled inside the function
-            expression_results['weighted_mean_log_fold_change'] = compute_weighted_mean_fold_change(
-                expression_results['fold_change'],
-                log_density_diff=log_density_diff
-            )
-        else:
-            logger.warning(f"Log density columns not found in adata.obs. Expected: {density_col1}, {density_col2}. "
-                           f"Will not compute weighted mean fold changes.")
-    
     # Create result dictionary
     result_dict = {
         "mean_log_fold_change": expression_results['mean_log_fold_change'],
@@ -857,8 +779,6 @@ def compute_differential_expression(
     if compute_mahalanobis:
         result_dict["mahalanobis_distances"] = expression_results['mahalanobis_distances']
         
-    if 'weighted_mean_log_fold_change' in expression_results:
-        result_dict["weighted_mean_log_fold_change"] = expression_results['weighted_mean_log_fold_change']
         
     # Add landmarks to result dictionary if they were computed
     if hasattr(diff_expression, 'computed_landmarks') and diff_expression.computed_landmarks is not None:
@@ -916,44 +836,6 @@ def compute_differential_expression(
                 new_var_columns[mahalanobis_key] = pd.Series(np.nan, index=adata.var_names)
                 new_var_columns[mahalanobis_key].loc[selected_genes] = mahalanobis_distances
         
-        if differential_abundance_key is not None:
-            # Use the standardized field name from field_names
-            # Weighted mean log fold change is NOT impacted by sample variance
-            column_name = field_names["weighted_lfc_key"]
-            
-            # Extract and verify weighted_mean_log_fold_change
-            weighted_lfc = expression_results['weighted_mean_log_fold_change']
-            # Convert list to numpy array if needed
-            if isinstance(weighted_lfc, list):
-                weighted_lfc = np.array(weighted_lfc)
-                
-            # Ensure weighted_lfc is 1D before reshaping
-            if len(weighted_lfc.shape) > 1:
-                logger.warning(f"weighted_mean_log_fold_change has shape {weighted_lfc.shape}, flattening to 1D.")
-                # Take the first row if it's a 2D array
-                if weighted_lfc.shape[0] < weighted_lfc.shape[1]:
-                    weighted_lfc = weighted_lfc[0]  # Take first row if more columns than rows
-                else:
-                    weighted_lfc = weighted_lfc[:, 0]  # Take first column otherwise
-                
-            if len(weighted_lfc) != len(selected_genes):
-                logger.warning(f"weighted_mean_log_fold_change length {len(weighted_lfc)} doesn't match selected_genes length {len(selected_genes)}. Reshaping.")
-                if len(weighted_lfc) < len(selected_genes):
-                    # Pad with NaNs if the array is too short
-                    padding = np.full(len(selected_genes) - len(weighted_lfc), np.nan)
-                    weighted_lfc = np.concatenate([weighted_lfc, padding])
-                else:
-                    # Truncate if the array is too long
-                    weighted_lfc = weighted_lfc[:len(selected_genes)]
-            
-            # Add to collection for batch addition
-            if column_name in adata.var:
-                # Only create a series for selected genes to avoid overwriting existing values
-                new_var_columns[column_name] = pd.Series(weighted_lfc, index=selected_genes)
-            else:
-                # Initialize with NaN for all genes if column doesn't exist yet
-                new_var_columns[column_name] = pd.Series(np.nan, index=adata.var_names)
-                new_var_columns[column_name].loc[selected_genes] = weighted_lfc
         
         # Add mean log fold change with descriptive name
         # Use the standardized field name from field_names
@@ -1196,7 +1078,6 @@ def compute_differential_expression(
             "landmarks": landmarks is not None,  # Just store if landmarks were provided, not the actual values
             "sample_col": sample_col,  # Keep this for documentation in the AnnData object
             "use_sample_variance": use_sample_variance,  # This is now inferred from sample_col
-            "differential_abundance_key": differential_abundance_key,
             "sigma": sigma,
             "ls": ls,
             "ls_factor": ls_factor,
@@ -1242,7 +1123,6 @@ def compute_differential_expression(
             "result_key": result_key,
             "analysis_type": "de",
             "lfc_key": field_names["mean_lfc_key"],
-            "weighted_lfc_key": field_names["weighted_lfc_key"] if differential_abundance_key is not None else None,
             "mahalanobis_key": field_names["mahalanobis_key"] if compute_mahalanobis else None,
             "imputed_layer_keys": {
                 "condition1": field_names["imputed_key_1"],
@@ -1291,8 +1171,6 @@ def compute_differential_expression(
         if compute_mahalanobis:
             field_mapping[field_names["mahalanobis_key"]] = {"location": "var", "type": "mahalanobis", "description": "Mahalanobis distances"}
             
-        if differential_abundance_key is not None:
-            field_mapping[field_names["weighted_lfc_key"]] = {"location": "var", "type": "weighted_mean_log_fold_change", "description": "Weighted mean log fold change"}
             
         # Add posterior covariance field if it was added to obsp
         if can_store_covariance and "posterior_covariance_key" in field_names:
@@ -1343,9 +1221,6 @@ def compute_differential_expression(
                 if compute_mahalanobis:
                     varm_keys.append(field_names["mahalanobis_varm_key"])
                 
-                # Only include weighted_lfc if differential_abundance_key is provided
-                if differential_abundance_key is not None:
-                    varm_keys.append(field_names["weighted_lfc_varm_key"])
                 
                 # Filter out None values
                 varm_keys = [key for key in varm_keys if key is not None]
@@ -1469,39 +1344,6 @@ def compute_differential_expression(
                                 # Assign the whole column at once
                                 adata.varm[varm_key][subset_name] = full_series
                     
-                    # Handle weighted mean log fold change if needed
-                    if differential_abundance_key is not None and "fold_change" in subset_results:
-                        # Get density values for the subset
-                        cond1_safe = _sanitize_name(condition1)
-                        cond2_safe = _sanitize_name(condition2)
-                        
-                        density_col1 = f"{differential_abundance_key}_log_density_{cond1_safe}"
-                        density_col2 = f"{differential_abundance_key}_log_density_{cond2_safe}"
-                        
-                        if density_col1 in adata.obs and density_col2 in adata.obs:
-                            # Filter density values to the subset
-                            log_density_condition1 = adata.obs[density_col1][subset_mask]
-                            log_density_condition2 = adata.obs[density_col2][subset_mask]
-                            
-                            # Calculate log density difference
-                            log_density_diff = log_density_condition2 - log_density_condition1
-                            
-                            # Compute weighted mean fold change for the subset
-                            weighted_lfc = compute_weighted_mean_fold_change(
-                                subset_results['fold_change'],
-                                log_density_diff=log_density_diff
-                            )
-                            
-                            # Add to adata.varm - DataFrame already initialized with all columns
-                            # Use standardized key from field_names
-                            varm_key = field_names["weighted_lfc_varm_key"]
-                            
-                            # Create a Series with proper index covering all genes, initialize with NaN
-                            full_series = pd.Series(np.nan, index=adata.var_names)
-                            # Assign values only to selected genes
-                            full_series[selected_genes] = weighted_lfc
-                            # Assign the whole column at once
-                            adata.varm[varm_key][subset_name] = full_series
                 
                 # No need to add columns to adata.var anymore as we're using varm exclusively
                 logger.info(f"Group-specific data stored in adata.varm matrices")
@@ -1524,13 +1366,6 @@ def compute_differential_expression(
                         "contains_subsets": subset_names
                     }
                 
-                if differential_abundance_key is not None and field_names["weighted_lfc_varm_key"] in adata.varm:
-                    field_mapping[field_names["weighted_lfc_varm_key"]] = {
-                        "location": "varm",
-                        "type": "weighted_mean_log_fold_change",
-                        "description": "Weighted mean log fold change values for all subsets",
-                        "contains_subsets": subset_names
-                    }
         
         # Add this mapping to run info
         current_run_info["field_mapping"] = field_mapping
@@ -1592,8 +1427,7 @@ def compute_differential_expression(
             # Also store the varm keys used for group-specific metrics
             current_run_info["varm_keys"] = {
                 "mean_lfc": field_names["mean_lfc_varm_key"],
-                "mahalanobis": field_names["mahalanobis_varm_key"],
-                "weighted_lfc": field_names["weighted_lfc_varm_key"] if differential_abundance_key is not None else None
+                "mahalanobis": field_names["mahalanobis_varm_key"]
             }
 
         # Import JSON serialization utilities
@@ -1655,9 +1489,6 @@ def compute_differential_expression(
             if compute_mahalanobis and field_names["mahalanobis_varm_key"] in adata.varm:
                 anndata_field_tracking["varm"][field_names["mahalanobis_varm_key"]] = new_run_id
             
-            # Track weighted_lfc_varm_key only if differential_abundance_key is provided
-            if differential_abundance_key is not None and field_names["weighted_lfc_varm_key"] in adata.varm:
-                anndata_field_tracking["varm"][field_names["weighted_lfc_varm_key"]] = new_run_id
         
         # Add or update tracking information in adata.uns[storage_key]
         if "anndata_fields" not in adata.uns[storage_key]:

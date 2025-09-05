@@ -35,7 +35,7 @@ def compute_differential_abundance(
     landmarks: Optional[np.ndarray] = None,
     sample_col: Optional[str] = None,
     log_fold_change_threshold: float = 1.0,
-    pvalue_threshold: float = 0.05,
+    ptp_threshold: float = 0.05,
     ls_factor: float = 10.0,
     jit_compile: bool = False,
     random_state: Optional[int] = None,
@@ -83,8 +83,9 @@ def compute_differential_abundance(
         By default False, which requires both conditions to have multiple samples.
     log_fold_change_threshold : float, optional
         Threshold for considering a log fold change significant, by default 1.7.
-    pvalue_threshold : float, optional
-        Threshold for considering a p-value significant, by default 1e-3.
+    ptp_threshold : float, optional
+        Threshold for considering a PTP (Posterior Tail Probability) significant, by default 1e-3. 
+        The posterior tail probability is a significance measure similar to p-values.
     ls_factor : float, optional
         Multiplication factor to apply to length scale when it's automatically inferred,
         by default 10.0. Only used when length scale is not explicitly provided.
@@ -146,7 +147,7 @@ def compute_differential_abundance(
     
     - adata.obs[f"{result_key}_log_fold_change"]: Log fold change values for each cell
     - adata.obs[f"{result_key}_log_fold_change_zscore"]: Z-scores for each cell
-    - adata.obs[f"{result_key}_neg_log10_fold_change_pvalue"]: Negative log10 p-values for each cell
+    - adata.obs[f"{result_key}_neg_log10_fold_change_ptp"]: Negative log10 PTPs (Posterior Tail Probabilities) for each cell
     - adata.obs[f"{result_key}_log_fold_change_direction"]: Direction of change ('up', 'neutral', 'down')
     - adata.uns[f"{result_key}_log_fold_change_direction_colors"]: Color mapping for direction categories
     - adata.uns[result_key]: Dictionary with additional information and parameters
@@ -384,7 +385,7 @@ def compute_differential_abundance(
     # Initialize and fit DifferentialAbundance
     diff_abundance = DifferentialAbundance(
         log_fold_change_threshold=log_fold_change_threshold,
-        pvalue_threshold=pvalue_threshold,
+        ptp_threshold=ptp_threshold,
         n_landmarks=n_landmarks,
         jit_compile=jit_compile,
         random_state=random_state,
@@ -408,9 +409,9 @@ def compute_differential_abundance(
     abundance_results = diff_abundance.predict(
         X_for_prediction,
         log_fold_change_threshold=log_fold_change_threshold,
-        pvalue_threshold=pvalue_threshold
+        ptp_threshold=ptp_threshold
     )
-    # Note: mean_log_fold_change is no longer computed by default
+    # Note: weighted_mean_log_fold_change is no longer computed by default
     
     # Handle landmarks for future reference
     if hasattr(diff_abundance, 'computed_landmarks') and diff_abundance.computed_landmarks is not None:
@@ -457,7 +458,7 @@ def compute_differential_abundance(
     # For fields not impacted by sample variance, we don't add the suffix
     adata.obs[field_names["lfc_key"]] = abundance_results['log_fold_change']
     adata.obs[field_names["zscore_key"]] = abundance_results['log_fold_change_zscore']
-    adata.obs[field_names["pval_key"]] = abundance_results['neg_log10_fold_change_pvalue']  # Now using negative log10 p-values (higher = more significant)
+    adata.obs[field_names["ptp_key"]] = abundance_results['neg_log10_fold_change_ptp']  # Now using negative log10 PTPs (Posterior Tail Probabilities) (higher = more significant)
     
     # Add the direction column
     direction_col = field_names["direction_key"]
@@ -500,7 +501,7 @@ def compute_differential_abundance(
         "sample_col": sample_col,
         "use_sample_variance": sample_col is not None,
         "log_fold_change_threshold": log_fold_change_threshold,
-        "pvalue_threshold": pvalue_threshold, 
+        "ptp_threshold": ptp_threshold, 
         "ls_factor": ls_factor,
         "jit_compile": jit_compile,
         "random_state": random_state,
@@ -520,7 +521,7 @@ def compute_differential_abundance(
         "analysis_type": "da",
         "lfc_key": field_names["lfc_key"],
         "zscore_key": field_names["zscore_key"],
-        "pval_key": field_names["pval_key"],
+        "ptp_key": field_names["ptp_key"],
         "direction_key": field_names["direction_key"],
         "density_keys": {
             "condition1": field_names["density_key_1"],
@@ -572,7 +573,7 @@ def compute_differential_abundance(
         # Obs fields
         field_names["lfc_key"]: {"location": "obs", "type": "log_fold_change", "description": "Log fold change values"},
         field_names["zscore_key"]: {"location": "obs", "type": "log_fold_change_zscore", "description": "Z-scores for fold changes"},
-        field_names["pval_key"]: {"location": "obs", "type": "pvalue", "description": "Negative log10 p-values"},
+        field_names["ptp_key"]: {"location": "obs", "type": "ptp", "description": "Negative log10 PTPs (Posterior Tail Probabilities)"},
         field_names["direction_key"]: {"location": "obs", "type": "direction", "description": "Direction classification (up/down/neutral)"},
         field_names["density_key_1"]: {"location": "obs", "type": "density", "description": f"Log density for {condition1}"},
         field_names["density_key_2"]: {"location": "obs", "type": "density", "description": f"Log density for {condition2}"},
@@ -597,7 +598,7 @@ def compute_differential_abundance(
     obs_fields = [
         field_names["lfc_key"],
         field_names["zscore_key"],
-        field_names["pval_key"],
+        field_names["ptp_key"],
         field_names["direction_key"],
         field_names["density_key_1"],
         field_names["density_key_2"]
@@ -639,7 +640,7 @@ def compute_differential_abundance(
     result_dict = {
         "log_fold_change": abundance_results['log_fold_change'],
         "log_fold_change_zscore": abundance_results['log_fold_change_zscore'],
-        "neg_log10_fold_change_pvalue": abundance_results['neg_log10_fold_change_pvalue'],  # Now using negative log10 p-values
+        "neg_log10_fold_change_ptp": abundance_results['neg_log10_fold_change_ptp'],  # Now using negative log10 PTPs (Posterior Tail Probabilities)
         "log_fold_change_direction": abundance_results['log_fold_change_direction'],
         "log_density_condition1": abundance_results['log_density_condition1'],
         "log_density_condition2": abundance_results['log_density_condition2'],

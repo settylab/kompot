@@ -86,7 +86,7 @@ class TestSingleConditionVariance:
         # Should complete successfully
         assert isinstance(results, dict)
         assert 'log_fold_change' in results
-        assert 'neg_log10_fold_change_pvalue' in results
+        assert 'neg_log10_fold_change_ptp' in results
         
     def test_da_single_condition_variance_disabled(self):
         """Test DA with allow_single_condition_variance=False (default)."""

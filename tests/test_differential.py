@@ -2,7 +2,8 @@
 
 import numpy as np
 import pytest
-from kompot.differential import DifferentialAbundance, DifferentialExpression, compute_weighted_mean_fold_change
+from kompot.differential import DifferentialAbundance, DifferentialExpression
+#, compute_weighted_mean_fold_change
 from kompot.utils import compute_mahalanobis_distances, compute_mahalanobis_distance
 
 
@@ -30,8 +31,8 @@ def test_differential_abundance_fit():
     assert 'log_fold_change' in predictions
     assert 'log_fold_change_uncertainty' in predictions
     assert 'log_fold_change_zscore' in predictions
-    # Now using negative log10 p-values instead of raw p-values
-    assert 'neg_log10_fold_change_pvalue' in predictions
+    # Now using negative PTPs (Posterior Tail Probabilities) instead of raw PTPs (Posterior Tail Probabilities)
+    assert 'neg_log10_fold_change_ptp' in predictions
     assert 'log_fold_change_direction' in predictions
     # mean_log_fold_change has been removed from the output
     
@@ -166,7 +167,7 @@ def test_differential_abundance_predict_with_thresholds():
     X_new = np.random.randn(50, 5)
     
     # Fit the model
-    diff_abundance = DifferentialAbundance(log_fold_change_threshold=1.0, pvalue_threshold=0.05)
+    diff_abundance = DifferentialAbundance(log_fold_change_threshold=1.0, ptp_threshold=0.05)
     diff_abundance.fit(X_condition1, X_condition2)
     
     # Predict with default thresholds (from initialization)
@@ -176,14 +177,14 @@ def test_differential_abundance_predict_with_thresholds():
     strict_predictions = diff_abundance.predict(
         X_new, 
         log_fold_change_threshold=2.0,  # Higher threshold means fewer 'up'/'down' calls
-        pvalue_threshold=0.01  # Lower p-value means stricter significance test
+        ptp_threshold=0.01  # Lower PTP (Posterior Tail Probability) means stricter significance test
     )
     
     # Predict with looser thresholds
     loose_predictions = diff_abundance.predict(
         X_new, 
         log_fold_change_threshold=0.5,  # Lower threshold means more 'up'/'down' calls
-        pvalue_threshold=0.1  # Higher p-value means more relaxed significance test
+        ptp_threshold=0.1  # Higher PTP (Posterior Tail Probability) means more relaxed significance test
     )
     
     # Check that the basic metrics are identical across all predictions
@@ -272,14 +273,14 @@ def test_differential_abundance_with_sample_variance():
     assert 'log_density_condition2' in pred_no_variance
     assert 'log_fold_change' in pred_no_variance
     assert 'log_fold_change_zscore' in pred_no_variance
-    assert 'neg_log10_fold_change_pvalue' in pred_no_variance
+    assert 'neg_log10_fold_change_ptp' in pred_no_variance
     assert 'log_fold_change_direction' in pred_no_variance
     
     assert 'log_density_condition1' in pred_with_variance
     assert 'log_density_condition2' in pred_with_variance
     assert 'log_fold_change' in pred_with_variance
     assert 'log_fold_change_zscore' in pred_with_variance
-    assert 'neg_log10_fold_change_pvalue' in pred_with_variance
+    assert 'neg_log10_fold_change_ptp' in pred_with_variance
     assert 'log_fold_change_direction' in pred_with_variance
     
     # The basic log density predictions should be the same
@@ -336,7 +337,7 @@ def test_differential_abundance_with_sample_variance():
     # The predictions should still be valid
     assert np.all(np.isfinite(pred_with_landmarks['log_fold_change']))
     assert np.all(np.isfinite(pred_with_landmarks['log_fold_change_zscore']))
-    assert np.all(np.isfinite(pred_with_landmarks['neg_log10_fold_change_pvalue']))
+    assert np.all(np.isfinite(pred_with_landmarks['neg_log10_fold_change_ptp']))
 
 
 def test_differential_expression_fit():
@@ -514,124 +515,124 @@ def test_use_sample_variance_validation():
     assert diff_expression.use_sample_variance is True
 
 
-def test_compute_weighted_mean_fold_change_standalone():
-    """Test the standalone compute_weighted_mean_fold_change function."""
-    # Generate sample data
-    n_cells, n_genes = 100, 10
-    fold_change = np.random.randn(n_cells, n_genes)
-    log_density_condition1 = np.random.randn(n_cells)
-    log_density_condition2 = np.random.randn(n_cells) + 0.5
+# def test_compute_weighted_mean_fold_change_standalone():
+#     """Test the standalone compute_weighted_mean_fold_change function."""
+#     # Generate sample data
+#     n_cells, n_genes = 100, 10
+#     fold_change = np.random.randn(n_cells, n_genes)
+#     log_density_condition1 = np.random.randn(n_cells)
+#     log_density_condition2 = np.random.randn(n_cells) + 0.5
     
-    # Calculate using log_density_condition1 and log_density_condition2
-    weighted_lfc = compute_weighted_mean_fold_change(
-        fold_change, 
-        log_density_condition1=log_density_condition1,
-        log_density_condition2=log_density_condition2
-    )
+#     # Calculate using log_density_condition1 and log_density_condition2
+#     weighted_lfc = compute_weighted_mean_fold_change(
+#         fold_change, 
+#         log_density_condition1=log_density_condition1,
+#         log_density_condition2=log_density_condition2
+#     )
     
-    # Check results
-    assert weighted_lfc.shape == (n_genes,)
-    assert np.isfinite(weighted_lfc).all()
+#     # Check results
+#     assert weighted_lfc.shape == (n_genes,)
+#     assert np.isfinite(weighted_lfc).all()
     
-    # Calculate log_density_diff manually
-    log_density_diff = log_density_condition2 - log_density_condition1
+#     # Calculate log_density_diff manually
+#     log_density_diff = log_density_condition2 - log_density_condition1
     
-    # Calculate using pre-computed log_density_diff
-    weighted_lfc_precomputed = compute_weighted_mean_fold_change(
-        fold_change,
-        log_density_diff=log_density_diff
-    )
+#     # Calculate using pre-computed log_density_diff
+#     weighted_lfc_precomputed = compute_weighted_mean_fold_change(
+#         fold_change,
+#         log_density_diff=log_density_diff
+#     )
     
-    # Both methods should give identical results
-    np.testing.assert_allclose(weighted_lfc, weighted_lfc_precomputed)
+#     # Both methods should give identical results
+#     np.testing.assert_allclose(weighted_lfc, weighted_lfc_precomputed)
     
-    # Test with pandas Series
-    try:
-        import pandas as pd
-        log_density_condition1_series = pd.Series(log_density_condition1)
-        log_density_condition2_series = pd.Series(log_density_condition2)
+#     # Test with pandas Series
+#     try:
+#         import pandas as pd
+#         log_density_condition1_series = pd.Series(log_density_condition1)
+#         log_density_condition2_series = pd.Series(log_density_condition2)
         
-        # Calculate using pandas Series
-        weighted_lfc_series = compute_weighted_mean_fold_change(
-            fold_change,
-            log_density_condition1=log_density_condition1_series,
-            log_density_condition2=log_density_condition2_series
-        )
+#         # Calculate using pandas Series
+#         weighted_lfc_series = compute_weighted_mean_fold_change(
+#             fold_change,
+#             log_density_condition1=log_density_condition1_series,
+#             log_density_condition2=log_density_condition2_series
+#         )
         
-        # Results should be the same as with numpy arrays
-        np.testing.assert_allclose(weighted_lfc, weighted_lfc_series)
+#         # Results should be the same as with numpy arrays
+#         np.testing.assert_allclose(weighted_lfc, weighted_lfc_series)
         
-        # Test with pandas Series for log_density_diff
-        log_density_diff_series = pd.Series(log_density_diff)
-        weighted_lfc_diff_series = compute_weighted_mean_fold_change(
-            fold_change,
-            log_density_diff=log_density_diff_series
-        )
+#         # Test with pandas Series for log_density_diff
+#         log_density_diff_series = pd.Series(log_density_diff)
+#         weighted_lfc_diff_series = compute_weighted_mean_fold_change(
+#             fold_change,
+#             log_density_diff=log_density_diff_series
+#         )
         
-        # Results should be the same
-        np.testing.assert_allclose(weighted_lfc, weighted_lfc_diff_series)
-    except ImportError:
-        # Skip pandas tests if pandas is not available
-        pass
+#         # Results should be the same
+#         np.testing.assert_allclose(weighted_lfc, weighted_lfc_diff_series)
+#     except ImportError:
+#         # Skip pandas tests if pandas is not available
+#         pass
         
-    # Test error case when neither log_density_diff nor both density conditions are provided
-    with pytest.raises(ValueError):
-        compute_weighted_mean_fold_change(fold_change)
+#     # Test error case when neither log_density_diff nor both density conditions are provided
+#     with pytest.raises(ValueError):
+#         compute_weighted_mean_fold_change(fold_change)
         
-    with pytest.raises(ValueError):
-        compute_weighted_mean_fold_change(
-            fold_change,
-            log_density_condition1=log_density_condition1
-        )
+#     with pytest.raises(ValueError):
+#         compute_weighted_mean_fold_change(
+#             fold_change,
+#             log_density_condition1=log_density_condition1
+#         )
         
-    with pytest.raises(ValueError):
-        compute_weighted_mean_fold_change(
-            fold_change,
-            log_density_condition2=log_density_condition2
-        )
+#     with pytest.raises(ValueError):
+#         compute_weighted_mean_fold_change(
+#             fold_change,
+#             log_density_condition2=log_density_condition2
+#         )
         
 
-def test_weighted_fold_change_standalone_detailed():
-    """
-    Test that the standalone weighted fold change function works correctly with different input formats.
-    """
-    # Create sample data
-    n_cells, n_features, n_genes = 50, 5, 8
-    X_condition1 = np.random.randn(n_cells, n_features)
-    y_condition1 = np.random.randn(n_cells, n_genes)
-    X_condition2 = np.random.randn(n_cells, n_features) + 0.5
-    y_condition2 = np.random.randn(n_cells, n_genes) + 1.0
+# def test_weighted_fold_change_standalone_detailed():
+#     """
+#     Test that the standalone weighted fold change function works correctly with different input formats.
+#     """
+#     # Create sample data
+#     n_cells, n_features, n_genes = 50, 5, 8
+#     X_condition1 = np.random.randn(n_cells, n_features)
+#     y_condition1 = np.random.randn(n_cells, n_genes)
+#     X_condition2 = np.random.randn(n_cells, n_features) + 0.5
+#     y_condition2 = np.random.randn(n_cells, n_genes) + 1.0
     
-    # Compute fold change
-    diff_expression = DifferentialExpression()
-    diff_expression.fit(X_condition1, y_condition1, X_condition2, y_condition2)
+#     # Compute fold change
+#     diff_expression = DifferentialExpression()
+#     diff_expression.fit(X_condition1, y_condition1, X_condition2, y_condition2)
     
-    # Create a full dataset for prediction
-    X_combined = np.vstack([X_condition1, X_condition2])
-    expression_results = diff_expression.predict(X_combined)
-    fold_change = expression_results['fold_change']
+#     # Create a full dataset for prediction
+#     X_combined = np.vstack([X_condition1, X_condition2])
+#     expression_results = diff_expression.predict(X_combined)
+#     fold_change = expression_results['fold_change']
     
-    # Compute log density for both conditions
-    diff_abundance = DifferentialAbundance()
-    diff_abundance.fit(X_condition1, X_condition2)
-    abundance_results = diff_abundance.predict(X_combined)
+#     # Compute log density for both conditions
+#     diff_abundance = DifferentialAbundance()
+#     diff_abundance.fit(X_condition1, X_condition2)
+#     abundance_results = diff_abundance.predict(X_combined)
     
-    # Method 1: Using log_density_condition1 and log_density_condition2
-    method1_weighted_lfc = compute_weighted_mean_fold_change(
-        fold_change,
-        log_density_condition1=abundance_results['log_density_condition1'],
-        log_density_condition2=abundance_results['log_density_condition2']
-    )
+#     # Method 1: Using log_density_condition1 and log_density_condition2
+#     method1_weighted_lfc = compute_weighted_mean_fold_change(
+#         fold_change,
+#         log_density_condition1=abundance_results['log_density_condition1'],
+#         log_density_condition2=abundance_results['log_density_condition2']
+#     )
     
-    # Method 2: Using pre-computed log_density_diff
-    log_density_diff = abundance_results['log_density_condition2'] - abundance_results['log_density_condition1']
-    method2_weighted_lfc = compute_weighted_mean_fold_change(
-        fold_change,
-        log_density_diff=log_density_diff
-    )
+#     # Method 2: Using pre-computed log_density_diff
+#     log_density_diff = abundance_results['log_density_condition2'] - abundance_results['log_density_condition1']
+#     method2_weighted_lfc = compute_weighted_mean_fold_change(
+#         fold_change,
+#         log_density_diff=log_density_diff
+#     )
     
-    # Verify results from both methods are identical
-    np.testing.assert_allclose(method1_weighted_lfc, method2_weighted_lfc)
+#     # Verify results from both methods are identical
+#     np.testing.assert_allclose(method1_weighted_lfc, method2_weighted_lfc)
 
 
 def test_update_direction_column():
@@ -646,8 +647,8 @@ def test_update_direction_column():
         X=np.random.randn(n_cells, 10),
         obs=pd.DataFrame({
             'log_fold_change': np.random.randn(n_cells),
-            'pvalue': np.random.random(n_cells) * 0.1,  # Some values below 0.05
-            'neg_log10_pvalue': -np.log10(np.random.random(n_cells) * 0.1),  # Same but transformed
+            'ptp': np.random.random(n_cells) * 0.1,  # Some values below 0.05
+            'neg_log10_ptp': -np.log10(np.random.random(n_cells) * 0.1),  # Same but transformed
             'original_direction': np.random.choice(['up', 'down', 'neutral'], n_cells)
         })
     )
@@ -658,12 +659,12 @@ def test_update_direction_column():
             'analysis_type': 'da',
             'params': {
                 'log_fold_change_threshold': 0.5,
-                'pvalue_threshold': 0.05,
+                'ptp_threshold': 0.05,
                 'conditions': ['condition1', 'condition2']
             },
             'field_names': {
                 'log_fold_change_key': 'log_fold_change',
-                'pvalue_key': 'pvalue',
+                'ptp_key': 'ptp',
                 'direction_key': 'direction_col'
             }
         }]
@@ -674,10 +675,10 @@ def test_update_direction_column():
     updated = update_direction_column(
         adata_copy,
         lfc_threshold=1.0,
-        pval_threshold=0.01,
+        ptp_threshold=0.01,
         direction_column='new_direction',
         lfc_key='log_fold_change',
-        pval_key='pvalue',
+        ptp_key='ptp',
         inplace=True
     )
     
@@ -698,10 +699,10 @@ def test_update_direction_column():
     updated = update_direction_column(
         adata_copy,
         lfc_threshold=1.0,
-        pval_threshold=0.01,
+        ptp_threshold=0.01,
         direction_column='new_direction',
         lfc_key='log_fold_change',
-        pval_key='pvalue',
+        ptp_key='ptp',
         inplace=False
     )
     
@@ -715,15 +716,15 @@ def test_update_direction_column():
     # Updated copy should have the new column
     assert 'new_direction' in updated.obs.columns
     
-    # Test case 3: Test with -log10 transformed p-values
+    # Test case 3: Test with -log10 transformed PTPs (Posterior Tail Probabilities)
     adata_copy = adata.copy()
     updated = update_direction_column(
         adata_copy,
         lfc_threshold=1.0,
-        pval_threshold=0.01,
+        ptp_threshold=0.01,
         direction_column='log10_direction',
         lfc_key='log_fold_change',
-        pval_key='neg_log10_pvalue',  # Using the -log10 transformed version
+        ptp_key='neg_log10_ptp',  # Using the -log10 transformed version
         inplace=True
     )
     
@@ -736,7 +737,7 @@ def test_update_direction_column():
         adata_copy,
         run_id=0,  # Use first (and only) run in history
         lfc_key='log_fold_change',  # Explicitly provide since _infer_da_keys isn't working in test
-        pval_key='pvalue',
+        ptp_key='ptp',
         inplace=True
     )
     
@@ -750,10 +751,10 @@ def test_update_direction_column():
     update_direction_column(
         adata_copy,
         lfc_threshold=0.5,
-        pval_threshold=0.05,
+        ptp_threshold=0.05,
         direction_column='direction_default',
         lfc_key='log_fold_change',
-        pval_key='pvalue',
+        ptp_key='ptp',
         inplace=True
     )
     
@@ -761,10 +762,10 @@ def test_update_direction_column():
     update_direction_column(
         adata_copy,
         lfc_threshold=1.0,  # Higher threshold = fewer significant changes
-        pval_threshold=0.01,  # Lower p-value = fewer significant changes
+        ptp_threshold=0.01,  # Lower PTP (Posterior Tail Probability) = fewer significant changes
         direction_column='direction_strict',
         lfc_key='log_fold_change',
-        pval_key='pvalue',
+        ptp_key='ptp',
         inplace=True
     )
     

@@ -42,8 +42,8 @@ class DifferentialAbundance:
         Uncertainty in the log fold change estimates.
     log_fold_change_zscore : np.ndarray
         Z-scores for the log fold changes.
-    log_fold_change_pvalue : np.ndarray
-        P-values for the log fold changes.
+    log_fold_change_ptp : np.ndarray
+        PTP (Posterior Tail Probability) for the log fold changes. The PTP is the significance measure similar to p-value.
     log_fold_change_direction : np.ndarray
         Direction of change ('up', 'down', or 'neutral') based on thresholds.
     
@@ -58,7 +58,7 @@ class DifferentialAbundance:
     def __init__(
         self,
         log_fold_change_threshold: float = 1.0,
-        pvalue_threshold: float = 0.05,
+        ptp_threshold: float = 0.05,
         n_landmarks: Optional[int] = None,
         use_sample_variance: Optional[bool] = None,
         eps: float = 1e-12,
@@ -77,8 +77,8 @@ class DifferentialAbundance:
         ----------
         log_fold_change_threshold : float, optional
             Threshold for considering a log fold change significant, by default 1.0.
-        pvalue_threshold : float, optional
-            Threshold for considering a p-value significant, by default 1e-2.
+        ptp_threshold : float, optional
+            Threshold for considering a PTP significant, by default 1e-2.
         n_landmarks : int, optional
             Number of landmarks to use for approximation. If None, use all points, by default None.
         use_sample_variance : bool, optional
@@ -111,7 +111,7 @@ class DifferentialAbundance:
             Default is None.
         """
         self.log_fold_change_threshold = log_fold_change_threshold
-        self.pvalue_threshold = pvalue_threshold
+        self.ptp_threshold = ptp_threshold
         self.n_landmarks = n_landmarks
         self.eps = eps
         self.jit_compile = jit_compile
@@ -138,7 +138,7 @@ class DifferentialAbundance:
         self.log_fold_change = None
         self.log_fold_change_uncertainty = None
         self.log_fold_change_zscore = None
-        self.log_fold_change_pvalue = None
+        self.log_fold_change_ptp = None
         self.log_fold_change_direction = None
         
         # Density estimators or predictors
@@ -392,7 +392,7 @@ class DifferentialAbundance:
         self, 
         X_new: np.ndarray,
         log_fold_change_threshold: Optional[float] = None,
-        pvalue_threshold: Optional[float] = None,
+        ptp_threshold: Optional[float] = None,
         progress: bool = True
     ) -> Dict[str, np.ndarray]:
         """
@@ -408,8 +408,8 @@ class DifferentialAbundance:
         log_fold_change_threshold : float, optional
             Threshold for considering a log fold change significant. If None, uses
             the threshold specified during initialization.
-        pvalue_threshold : float, optional
-            Threshold for considering a p-value significant. If None, uses the
+        ptp_threshold : float, optional
+            Threshold for considering a PTP (Posterior Tail Probability) significant. If None, uses the
             threshold specified during initialization.
         progress : bool, optional
             Whether to show progress bars for operations, by default True.
@@ -423,7 +423,7 @@ class DifferentialAbundance:
             - 'log_fold_change': Log fold change between conditions
             - 'log_fold_change_uncertainty': Uncertainty in the log fold change
             - 'log_fold_change_zscore': Z-scores for the log fold change
-            - 'neg_log10_fold_change_pvalue': Negative log10 p-values for the log fold change
+            - 'neg_log10_fold_change_ptp': Negative log10 PTP (Posterior Tail Probability) for the log fold change
             - 'log_fold_change_direction': Direction of change ('up', 'down', or 'neutral')
         """
         if self.density_predictor1 is None or self.density_predictor2 is None:
@@ -432,8 +432,8 @@ class DifferentialAbundance:
         # Use provided thresholds if specified, otherwise use class defaults
         if log_fold_change_threshold is None:
             log_fold_change_threshold = self.log_fold_change_threshold
-        if pvalue_threshold is None:
-            pvalue_threshold = self.pvalue_threshold
+        if ptp_threshold is None:
+            ptp_threshold = self.ptp_threshold
         
         # Get batch size (from DifferentialAbundance class attribute)
         batch_size = getattr(self, 'batch_size', None)
@@ -532,23 +532,23 @@ class DifferentialAbundance:
         sd = np.sqrt(log_fold_change_uncertainty + self.eps)
         log_fold_change_zscore = log_fold_change / sd
         
-        # Compute p-values in natural log (base e)
-        ln_pvalue = np.minimum(
+        # Compute PTP (Posterior Tail Probability) in natural log (base e)
+        ln_ptp = np.minimum(
             normal.logcdf(log_fold_change_zscore), 
             normal.logcdf(-log_fold_change_zscore)
         ) + np.log(2)
         
         # Convert from natural log to negative log10 (for better volcano plot visualization)
-        # ln_pvalue is a log of a small value (typically < 1), so it's negative
-        # We want -log10(p), which is positive for small p-values
-        neg_log10_fold_change_pvalue = -(ln_pvalue / np.log(10))
+        # ln_ptp is a log of a small value (typically < 1), so it's negative
+        # We want -log10(ptp), which is positive for small PTP (Posterior Tail Probability)
+        neg_log10_fold_change_ptp = -(ln_ptp / np.log(10))
         
         # Determine direction of change based on thresholds
         log_fold_change_direction = np.full(len(log_fold_change), 'neutral', dtype=object)
-        # For negative log10 p-values, we need to check if they are greater than -log10(threshold)
-        # e.g., -log10(0.05) ≈ 1.3, so we check if neg_log10_fold_change_pvalue > 1.3
+        # For negative log10 PTPs (Posterior Tail Probabilities), we need to check if they are greater than -log10(threshold)
+        # e.g., -log10(0.05) ≈ 1.3, so we check if neg_log10_fold_change_ptp > 1.3
         significant = (np.abs(log_fold_change) > log_fold_change_threshold) & \
-                     (neg_log10_fold_change_pvalue > -np.log10(pvalue_threshold))
+                     (neg_log10_fold_change_ptp > -np.log10(ptp_threshold))
         
         log_fold_change_direction[significant & (log_fold_change > 0)] = 'up'
         log_fold_change_direction[significant & (log_fold_change < 0)] = 'down'
@@ -559,6 +559,6 @@ class DifferentialAbundance:
             'log_fold_change': log_fold_change,
             'log_fold_change_uncertainty': log_fold_change_uncertainty,
             'log_fold_change_zscore': log_fold_change_zscore,
-            'neg_log10_fold_change_pvalue': neg_log10_fold_change_pvalue,  # Using negative log10 p-values (higher = more significant)
+            'neg_log10_fold_change_ptp': neg_log10_fold_change_ptp,  # Using negative log10 PTP (Posterior Tail Probability) (higher = more significant)
             'log_fold_change_direction': log_fold_change_direction,
         }
