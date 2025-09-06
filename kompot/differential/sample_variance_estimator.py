@@ -9,17 +9,11 @@ from mellon import FunctionEstimator, DensityEstimator
 
 from ..memory_utils import (
     DiskStorage,
-    analyze_covariance_memory_requirements,
-    DASK_AVAILABLE
+    analyze_covariance_memory_requirements
 )
 
-# Try to import dask if available
-if DASK_AVAILABLE:
-    try:
-        import dask.array as da
-        import dask
-    except ImportError:
-        pass
+# Dask is no longer used in this module - we use direct numpy computation
+# for better performance and to avoid infinite loop bugs
 
 logger = logging.getLogger("kompot")
 
@@ -394,125 +388,101 @@ class SampleVarianceEstimator:
                 else:
                     logger.debug("Skipping memory analysis - already performed")
             
-            # Get predictions from each group predictor
-            group_predictions = []
-            for predictor in predictors_list:
-                # Get predictions for all cells at once
-                if self.estimator_type == 'function':
-                    pred = predictor(X_new)
-                else:  # density estimator
-                    pred = predictor(X_new, normalize=True)
-                    # Reshape to have shape (n_cells, 1) for consistency
-                    pred = np.reshape(pred, (-1, 1))
                 
-                group_predictions.append(jnp.array(pred))
+        # Get predictions from each group predictor
+        group_predictions = []
+        for predictor in predictors_list:
+            # Get predictions for all cells at once
+            if self.estimator_type == 'function':
+                pred = predictor(X_new)
+            else:  # density estimator
+                pred = predictor(X_new, normalize=True)
+                # Reshape to have shape (n_cells, 1) for consistency
+                pred = np.reshape(pred, (-1, 1))
             
-            # Stack predictions across groups - shape (n_groups, n_cells, n_genes)
-            stacked_predictions = jnp.stack(group_predictions, axis=0)
+            group_predictions.append(jnp.array(pred))
+        
+        # Stack predictions across groups - shape (n_groups, n_cells, n_genes)
+        stacked_predictions = jnp.stack(group_predictions, axis=0)
+        
+        # Calculate covariance between each pair of cells across groups
+        # First, center the data for each gene by subtracting the mean across groups
+        means = jnp.mean(stacked_predictions, axis=0, keepdims=True)  # (1, n_cells, n_genes)
+        centered = stacked_predictions - means  # (n_groups, n_cells, n_genes)
+        
+        # Reshape for matrix multiplication
+        centered_reshaped = jnp.moveaxis(centered, 1, 0)  # (n_cells, n_groups, n_genes)
+        
+        if use_disk_storage:
+            # Disk-backed version - use memory-mapped arrays for reduced memory usage
+            logger.info("Using memory-mapped arrays for disk-backed covariance computation")
             
-            # Calculate covariance between each pair of cells across groups
-            # First, center the data for each gene by subtracting the mean across groups
-            means = jnp.mean(stacked_predictions, axis=0, keepdims=True)  # (1, n_cells, n_genes)
-            centered = stacked_predictions - means  # (n_groups, n_cells, n_genes)
+            # Use numpy memory mapping
+            import tempfile
+            import os
+            import gc
             
-            # Reshape for matrix multiplication
-            centered_reshaped = jnp.moveaxis(centered, 1, 0)  # (n_cells, n_groups, n_genes)
+            # Create a memory-mapped array
+            filename = os.path.join(self._disk_storage.storage_dir, 'covariance_matrix.npy')
+            mmap_array = np.lib.format.open_memmap(
+                filename, 
+                mode='w+',
+                dtype=np.float64,
+                shape=covariance_shape
+            )
             
-            # Use the n_groups property set in fit method
-            
-            if use_disk_storage:
-                # Check if dask is available for better performance
-                if DASK_AVAILABLE:
-                    logger.debug(f"Using dask for disk-backed covariance matrix (shape={covariance_shape})")
-                    
-                    # Create dask delayed functions to compute each gene slice
-                    gene_arrays = []
-                    
-                    # Choose the computation function once - we'll use the same exact function
-                    # for all gene slices to ensure consistency with in-memory version
-                    compute_func = self._compute_cov_slice_jit if self._compute_cov_slice_jit is not None else self._compute_cov_slice
-                    
-                    # Process each gene slice
-                    for g in range(n_genes):
-                        # Extract the data for this gene
-                        gene_centered = centered_reshaped[:, :, g]  # (n_cells, n_groups)
-                        
-                        # Define a static function with captured index rather than passing gene_centered directly
-                        # This ensures each delayed task gets the correct gene slice even with dask's delayed execution
-                        @dask.delayed
-                        def compute_gene_slice(g_index):
-                            gene_centered = centered_reshaped[:, :, g_index]
-                            cov_matrix = self._compute_cov_slice(gene_centered, self.n_groups)
-                            return np.asarray(cov_matrix)
-                        
-                        # Create a delayed version of the computation with the gene index
-                        delayed_result = compute_gene_slice(g)
-                        
-                        # Convert the delayed computation to a dask array
-                        gene_array = da.from_delayed(
-                            delayed_result,
-                            shape=(n_cells, n_cells),
-                            dtype=np.float64
-                        )
-                        
-                        # Add to our list of arrays
-                        gene_arrays.append(gene_array)
-                    
-                    # Stack the gene arrays along the last axis
-                    dask_covariance = da.stack(gene_arrays, axis=2)
-                    
-                    logger.debug(f"Created dask array for covariance with shape {dask_covariance.shape}")
-                    return dask_covariance
+            # Process gene-by-gene to minimize memory usage
+            for g in range(n_genes):
+                gene_centered = centered_reshaped[:, :, g]  # (n_cells, n_groups)
                 
+                # Convert JAX array to numpy early and clean up
+                if hasattr(gene_centered, '__array__'):  # Check if it's a JAX array
+                    gene_centered_np = np.asarray(gene_centered)
+                    # Delete the JAX array reference to free memory
+                    del gene_centered
                 else:
-                    # Without dask, warn the user and use numpy memory mapping
-                    logger.warning(
-                        "Dask is not available for disk-backed arrays. "
-                        "Install dask for better performance: pip install dask"
-                    )
-                    
-                    # Use numpy memory mapping as a fallback
-                    import tempfile
-                    import os
-                    
-                    # Create a memory-mapped array
-                    filename = os.path.join(self._disk_storage.storage_dir, 'covariance_matrix.npy')
-                    mmap_array = np.lib.format.open_memmap(
-                        filename, 
-                        mode='w+',
-                        dtype=np.float64,
-                        shape=covariance_shape
-                    )
-                    
-                        
-                    # Process gene-by-gene
-                    for g in range(n_genes):
-                        gene_centered = centered_reshaped[:, :, g]  # (n_cells, n_groups)
-                        
-                        # Compute covariance slice
-                        if self._compute_cov_slice_jit is not None:
-                            gene_cov = self._compute_cov_slice_jit(gene_centered, self.n_groups)
-                        else:
-                            gene_cov = self._compute_cov_slice(gene_centered, self.n_groups)
-                        
-                        # Store in the memory-mapped array
-                        mmap_array[:, :, g] = np.array(gene_cov)
-                    
-                    # Return the memory-mapped array
-                    return mmap_array
-            else:
-                # In-memory version
-                cov_matrix = np.zeros(covariance_shape)
+                    gene_centered_np = gene_centered
                 
-                for g in range(n_genes):
-                    gene_centered = centered_reshaped[:, :, g]  # (n_cells, n_groups)
-                    
-                    # Compute covariance slice using JIT if available
-                    if self._compute_cov_slice_jit is not None:
-                        gene_cov = self._compute_cov_slice_jit(gene_centered, self.n_groups)
-                    else:
-                        gene_cov = self._compute_cov_slice(gene_centered, self.n_groups)
-                    
-                    cov_matrix[:, :, g] = np.array(gene_cov)
+                # Compute covariance directly using optimized numpy operations
+                divisor = self.n_groups - 1
+                gene_cov = np.dot(gene_centered_np, gene_centered_np.T) / divisor
                 
-                return cov_matrix
+                # Store in the memory-mapped array (this doesn't use RAM)
+                mmap_array[:, :, g] = gene_cov
+                
+                # Clean up temporary arrays
+                del gene_centered_np, gene_cov
+                
+                # Periodic garbage collection for large datasets
+                if g % 100 == 0 and g > 0:
+                    gc.collect()
+            
+            # Final cleanup of large JAX arrays
+            del centered_reshaped
+            gc.collect()
+            
+            # Return the memory-mapped array
+            return mmap_array
+        else:
+            # In-memory version - allocate full covariance matrix
+            cov_matrix = np.zeros(covariance_shape)
+            
+            for g in range(n_genes):
+                gene_centered = centered_reshaped[:, :, g]  # (n_cells, n_groups)
+                
+                # Compute covariance slice using JIT if available
+                if self._compute_cov_slice_jit is not None:
+                    gene_cov = self._compute_cov_slice_jit(gene_centered, self.n_groups)
+                else:
+                    gene_cov = self._compute_cov_slice(gene_centered, self.n_groups)
+                
+                # Convert result to numpy if it's a JAX array
+                cov_matrix[:, :, g] = np.asarray(gene_cov)
+                
+                # Clean up temporary references for large datasets
+                del gene_cov
+            
+            # Clean up large JAX arrays after processing
+            del centered_reshaped
+            
+            return cov_matrix
