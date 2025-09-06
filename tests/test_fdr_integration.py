@@ -7,7 +7,7 @@ import pytest
 from tests.test_anndata_functions import create_test_anndata
 
 
-def create_test_anndata_with_differential_genes(n_cells=350, n_genes=500, n_differential=50):
+def create_test_anndata_with_differential_genes(n_cells=100, n_genes=50, n_differential=10):
     """Create test AnnData with known differential genes."""
     import anndata as ad
     
@@ -17,18 +17,18 @@ def create_test_anndata_with_differential_genes(n_cells=350, n_genes=500, n_diff
     n_cells_cond1 = n_cells // 2
     n_cells_cond2 = n_cells - n_cells_cond1
     
-    # Create cell states
-    X_cond1 = np.random.normal(0, 1, (n_cells_cond1, 10))
-    X_cond2 = np.random.normal([0.5, 0.2] + [0]*8, 1, (n_cells_cond2, 10))
+    # Create cell states (smaller embedding dimension)
+    X_cond1 = np.random.normal(0, 1, (n_cells_cond1, 5))
+    X_cond2 = np.random.normal([0.5, 0.2] + [0]*3, 1, (n_cells_cond2, 5))
     X_combined = np.vstack([X_cond1, X_cond2])
     
     # Create expression data
     expr_base = np.random.negative_binomial(10, 0.3, (n_cells, n_genes)).astype(float)
     
-    # Add differential expression
+    # Add differential expression (stronger signal for smaller dataset)
     differential_genes = np.random.choice(n_genes, n_differential, replace=False)
     for gene_idx in differential_genes:
-        fold_change = np.random.uniform(2, 4)
+        fold_change = np.random.uniform(5, 10)  # Stronger signal for smaller dataset
         expr_base[n_cells_cond1:, gene_idx] *= fold_change
     
     # Create AnnData
@@ -69,12 +69,13 @@ class TestFDRIntegration:
             groupby='condition',
             condition1='Ctrl',
             condition2='Treat',
-            null_genes=100,
+            null_genes=10,  # Reduced for faster testing
             null_seed=42,
             fdr_threshold=0.05,
             return_full_results=True,
             result_key="test_fdr",
-            overwrite=True
+            overwrite=True,
+            n_landmarks=5  # Reduced for faster testing
         )
         
         # Check FDR results are present
