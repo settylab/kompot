@@ -84,15 +84,16 @@ class TestSampleVarianceEstimatorDetailed:
         sve = SampleVarianceEstimator(estimator_type='function')
         
         X = np.random.rand(20, 5)
+        Y = np.random.rand(20, 10)  # Expression data
         grouping = np.array([0] * 10 + [1] * 10)
         
-        with patch('kompot.differential.sample_variance_estimator.mellon') as mock_mellon:
+        with patch('kompot.differential.sample_variance_estimator.FunctionEstimator') as mock_function_estimator:
             mock_estimator = MagicMock()
             mock_predictor = MagicMock()
             mock_estimator.predict = mock_predictor
-            mock_mellon.FunctionEstimator.return_value = mock_estimator
+            mock_function_estimator.return_value = mock_estimator
             
-            sve.fit(X, grouping)
+            sve.fit(X, Y, grouping_vector=grouping)
             
             assert len(sve.group_predictors) > 0
             
@@ -133,16 +134,16 @@ class TestSampleVarianceEstimatorDetailed:
         X = np.random.rand(15, 4)
         grouping = np.array([0] * 7 + [1] * 8)
         
-        with patch('kompot.differential.sample_variance_estimator.mellon') as mock_mellon:
+        with patch('kompot.differential.sample_variance_estimator.DensityEstimator') as mock_density_estimator:
             mock_estimator = MagicMock()
             mock_predictor = MagicMock()
             mock_estimator.predict = mock_predictor
-            mock_mellon.DensityEstimator.return_value = mock_estimator
+            mock_density_estimator.return_value = mock_estimator
             
-            sve.fit(X, grouping)
+            sve.fit(X, grouping_vector=grouping)
             
             # Should use DensityEstimator for density type
-            mock_mellon.DensityEstimator.assert_called()
+            mock_density_estimator.assert_called()
 
 
 class TestPlotUtilsDetailed:
@@ -293,13 +294,13 @@ class TestMemoryUtilsAdditional:
             
             # Test storing empty array
             empty_arr = np.array([])
-            storage.store_array('empty', empty_arr)
+            storage.store_array(empty_arr, 'empty')
             loaded = storage.load_array('empty')
             assert loaded.shape == empty_arr.shape
             
             # Test storing scalar
             scalar = np.array(42.0)
-            storage.store_array('scalar', scalar)
+            storage.store_array(scalar, 'scalar')
             loaded_scalar = storage.load_array('scalar')
             assert loaded_scalar == scalar
             
@@ -310,15 +311,15 @@ class TestMemoryUtilsAdditional:
         except ImportError as e:
             pytest.skip(f"Could not import analyze_memory_requirements: {e}")
         
-        # Test with very small arrays
-        tiny_arrays = [np.array([1]), np.array([2, 3])]
-        analysis = analyze_memory_requirements(tiny_arrays)
+        # Test with very small arrays (using shape tuples, not actual arrays)
+        tiny_shapes = [(1,), (2,)]
+        analysis = analyze_memory_requirements(tiny_shapes)
         
         assert 'total_size' in analysis or 'total_memory_required' in analysis
         
-        # Test with single large array
-        large_array = [np.zeros((1000, 1000))]
-        analysis_large = analyze_memory_requirements(large_array)
+        # Test with single large array (using shape tuple, not actual array)
+        large_shape = [(1000, 1000)]
+        analysis_large = analyze_memory_requirements(large_shape)
         assert analysis_large is not None
 
 

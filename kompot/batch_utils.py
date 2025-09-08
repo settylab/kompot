@@ -342,13 +342,19 @@ def apply_batched(
         try:
             return func(X)
         except Exception as e:
-            if is_jax_memory_error(e) and (batch_size is None or batch_size <= 0):
-                # Fall back to a reasonable default batch size
-                logger.warning(f"Memory error encountered with batch_size=None. Falling back to batch_size=500")
-                batch_size = 500
+            if is_jax_memory_error(e):
+                # Fall back to batched processing with smaller batch size
+                if batch_size is None or batch_size <= 0:
+                    logger.warning(f"Memory error encountered with batch_size=None. Falling back to batch_size=500")
+                    batch_size = 500
+                else:
+                    # Reduce the current batch size to enable batching
+                    new_batch_size = max(1, batch_size // 2)
+                    logger.warning(f"Memory error detected with batch_size={batch_size}. Falling back to batch_size={new_batch_size}")
+                    batch_size = new_batch_size
                 # Continue with batched processing below
             else:
-                # If it's not a memory error or batch_size is already set, re-raise
+                # If it's not a memory error, re-raise
                 raise
     
     n_samples = X.shape[axis]
@@ -499,6 +505,7 @@ def apply_batched(
     if batch_results:
         return merge_batch_results(batch_results, concat_axis=concat_axis)
     else:
-        # No results at all
-        logger.error("No successful batch processing. Returning empty result.")
-        return {}
+        # No results at all - this means complete failure
+        error_msg = f"Failed to process any samples. All {n_samples} samples failed."
+        logger.error(error_msg)
+        raise Exception(f"RESOURCE_EXHAUSTED: {error_msg}")

@@ -275,6 +275,8 @@ class TestDifferentialAbundancePrediction:
         mock_predictor2 = MagicMock()
         mock_predictor1.return_value = np.array([1.0, 2.0, 1.5])
         mock_predictor2.return_value = np.array([1.5, 2.5, 2.0])
+        mock_predictor1.covariance.return_value = np.array([0.1, 0.2, 0.15])
+        mock_predictor2.covariance.return_value = np.array([0.12, 0.18, 0.16])
         mock_predictor1.uncertainty.return_value = np.array([0.1, 0.2, 0.15])
         mock_predictor2.uncertainty.return_value = np.array([0.12, 0.18, 0.16])
         
@@ -318,6 +320,8 @@ class TestDifferentialAbundancePrediction:
         
         mock_density_predictor1.return_value = np.array([1.0, 2.0, 1.5])
         mock_density_predictor2.return_value = np.array([1.5, 2.5, 2.0])
+        mock_density_predictor1.covariance.return_value = np.array([0.1, 0.2, 0.15])
+        mock_density_predictor2.covariance.return_value = np.array([0.12, 0.18, 0.16])
         mock_density_predictor1.uncertainty.return_value = np.array([0.1, 0.2, 0.15])
         mock_density_predictor2.uncertainty.return_value = np.array([0.12, 0.18, 0.16])
         mock_variance_predictor1.return_value = np.array([[0.05], [0.08], [0.06]])
@@ -356,6 +360,8 @@ class TestDifferentialAbundancePrediction:
         mock_predictor2 = MagicMock()
         mock_predictor1.return_value = np.array([0.0, 0.0, 0.0])
         mock_predictor2.return_value = np.array([2.0, -2.0, 0.5])  # Strong up/down/weak
+        mock_predictor1.covariance.return_value = np.array([0.01, 0.01, 0.01])
+        mock_predictor2.covariance.return_value = np.array([0.01, 0.01, 0.01])
         mock_predictor1.uncertainty.return_value = np.array([0.01, 0.01, 0.01])
         mock_predictor2.uncertainty.return_value = np.array([0.01, 0.01, 0.01])
         

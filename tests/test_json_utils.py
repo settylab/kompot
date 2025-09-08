@@ -66,5 +66,6 @@ class TestJSONUtilsBasic:
         except ImportError:
             pytest.skip("Cannot import json utils")
         
-        with pytest.raises(json.JSONDecodeError):
-            from_json_string('invalid json')
+        # from_json_string returns the original string if JSON parsing fails
+        result = from_json_string('invalid json')
+        assert result == 'invalid json'

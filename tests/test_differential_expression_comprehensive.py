@@ -124,7 +124,7 @@ class TestDifferentialExpressionCoverage:
         assert shuffled2.shape == (15, 3)  # 15 cells, 3 null genes
         
         # Check that values are not all the same (shuffling happened)
-        combined_orig = np.vstack([expr1[:, 0], expr2[:, 0]])  # Original first gene
+        combined_orig = np.concatenate([expr1[:, 0], expr2[:, 0]])  # Original first gene
         combined_shuffled = np.concatenate([shuffled1[:, 0], shuffled2[:, 0]])  # Shuffled first gene
         
         # Values should be the same set but in different order
@@ -274,9 +274,15 @@ class TestDifferentialExpressionCoverage:
             return_full_results=True
         )
         
+        # When copy=True and return_full_results=True, result is a tuple (results_dict, adata_copy)
+        if isinstance(result, tuple):
+            results_dict, adata_copy = result
+            assert isinstance(results_dict, dict)
+        else:
+            assert isinstance(result, dict)
+            
         # Original should be unchanged
         assert set(basic_adata.obs.columns) == original_obs_cols
-        assert isinstance(result, dict)
 
     def test_compute_differential_expression_fdr_disabled(self, basic_adata):
         """Test compute_differential_expression with FDR disabled."""

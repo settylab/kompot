@@ -480,25 +480,28 @@ def validate_field_run_id(
     """
     # Check if we have tracking information
     if (storage_key in adata.uns and 
-        "anndata_fields" in adata.uns[storage_key] and 
-        location in adata.uns[storage_key]["anndata_fields"]):
+        "anndata_fields" in adata.uns[storage_key]):
         
-        tracking_info = adata.uns[storage_key]["anndata_fields"][location]
+        anndata_fields = adata.uns[storage_key]["anndata_fields"]
         
-        # Check if tracking_info is a string (JSON serialized)
-        if isinstance(tracking_info, str):
-            tracking_info = from_json_string(tracking_info)
+        # Check if anndata_fields is a string (JSON serialized)
+        if isinstance(anndata_fields, str):
+            anndata_fields = from_json_string(anndata_fields)
         
-        # Check if this specific field is being tracked
-        if field_name in tracking_info:
-            actual_run_id = tracking_info[field_name]
+        # Now check if location exists in the deserialized data
+        if location in anndata_fields:
+            tracking_info = anndata_fields[location]
             
-            if actual_run_id != requested_run_id:
-                warning_msg = (f"Field '{field_name}' in {location} was last written by run_id={actual_run_id}, "
-                              f"but you requested run_id={requested_run_id}. The data may be inconsistent.")
-                return False, actual_run_id, warning_msg
-            
-            return True, actual_run_id, None
+            # Check if this specific field is being tracked
+            if field_name in tracking_info:
+                actual_run_id = tracking_info[field_name]
+                
+                if actual_run_id != requested_run_id:
+                    warning_msg = (f"Field '{field_name}' in {location} was last written by run_id={actual_run_id}, "
+                                  f"but you requested run_id={requested_run_id}. The data may be inconsistent.")
+                    return False, actual_run_id, warning_msg
+                
+                return True, actual_run_id, None
         
     # If no tracking information, we can't validate
     return True, None, None
@@ -627,8 +630,8 @@ def get_run_from_history(
     # Make a copy to avoid modifying the original
     run_info = copy.deepcopy(run_info)
     
-    # Add run_id and adjusted_run_id to run_info
-    run_info["run_id"] = run_id
+    # Add adjusted_run_id (the requested index) but preserve original run_id
     run_info["adjusted_run_id"] = run_id
+    # Don't overwrite the original run_id - preserve data integrity
     
     return run_info

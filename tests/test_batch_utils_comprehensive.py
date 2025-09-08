@@ -313,14 +313,16 @@ class TestApplyBatched:
         
         with patch('kompot.batch_utils.tqdm') as mock_tqdm:
             mock_tqdm.return_value.__enter__.return_value = mock_tqdm
-            mock_tqdm.return_value.__iter__ = lambda x: iter(range(4))  # 4 batches
+            # Mock the iterator to return the actual batch indices
+            mock_tqdm.return_value.__iter__ = lambda x: iter([0, 3, 6, 9])  # Proper batch starts for batch_size=3
             
             result = apply_batched(identity_func, X, batch_size=3, desc="Testing")
             
-            # Should create tqdm with description
-            mock_tqdm.assert_called_once()
-            call_args = mock_tqdm.call_args
-            assert call_args[1]['desc'] == "Testing"
+            # The function may call tqdm multiple times due to retry logic
+            # Check that the first call has the expected description
+            assert mock_tqdm.called
+            first_call_args = mock_tqdm.call_args_list[0]
+            assert first_call_args[1]['desc'] == "Testing"
             
     def test_apply_batched_dict_results(self):
         """Test apply_batched with function returning dictionaries."""

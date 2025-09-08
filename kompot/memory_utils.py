@@ -1,12 +1,17 @@
 """Utilities for memory management and estimation."""
 
 import numpy as np
-import psutil
 import os
 import tempfile
 import logging
 import importlib.util
 from typing import Tuple, Union, Optional, Dict, Any, List
+
+# Try to import psutil, but make it optional
+try:
+    import psutil
+except ImportError:
+    psutil = None
 
 logger = logging.getLogger("kompot")
 
@@ -92,30 +97,42 @@ def human_readable_size(size_in_bytes: int) -> str:
     while size >= 1024.0 and unit_index < len(units) - 1:
         size /= 1024.0
         unit_index += 1
-        
-    return f"{size:.2f} {units[unit_index]}"
+    
+    # Format with consistent 2 decimal places
+    if size == 0:
+        return f"0.00 {units[unit_index]}"
+    else:
+        return f"{size:.2f} {units[unit_index]}"
 
 
-def array_size(shape: tuple, dtype=np.float64) -> Tuple[str, int]:
+def array_size(array_or_shape, dtype=None):
     """
-    Compute theoretical size of a NumPy array.
+    Compute size of a NumPy array or theoretical array.
     
     Parameters
     ----------
-    shape : tuple
-        Shape of the array
+    array_or_shape : np.ndarray or tuple
+        NumPy array or shape tuple
     dtype : numpy.dtype, optional
-        Data type of the array elements, by default np.float64
+        Data type (only used if array_or_shape is a shape tuple)
         
     Returns
     -------
-    tuple
-        (human_readable_size_string, size_in_bytes)
+    int or tuple
+        If array_or_shape is an array: size in bytes
+        If array_or_shape is a shape: (human_readable_size_string, size_in_bytes)
     """
-    dtype_size = np.dtype(dtype).itemsize  # Size of one element in bytes
-    num_elements = np.prod(shape)  # Total number of elements
-    total_size = num_elements * dtype_size  # Total size in bytes
-    return human_readable_size(total_size), total_size
+    if isinstance(array_or_shape, np.ndarray):
+        # Handle actual array
+        return array_or_shape.nbytes
+    else:
+        # Handle shape tuple (original behavior)
+        if dtype is None:
+            dtype = np.float64
+        dtype_size = np.dtype(dtype).itemsize
+        num_elements = np.prod(array_or_shape)
+        total_size = num_elements * dtype_size
+        return human_readable_size(total_size), total_size
 
 
 def get_available_memory() -> Tuple[str, int]:
@@ -127,8 +144,47 @@ def get_available_memory() -> Tuple[str, int]:
     tuple
         (human_readable_string, size_in_bytes)
     """
-    available = psutil.virtual_memory().available
-    return human_readable_size(available), available
+    try:
+        # Try using psutil first (most accurate)
+        if psutil is not None:
+            available = psutil.virtual_memory().available
+            return human_readable_size(available), available
+    except (AttributeError, ImportError):
+        pass
+    
+    # Fallback methods when psutil is not available
+    import os
+    import platform
+    
+    try:
+        if platform.system() == 'Linux':
+            # Try reading /proc/meminfo on Linux
+            with open('/proc/meminfo', 'r') as f:
+                for line in f:
+                    if line.startswith('MemAvailable:'):
+                        # MemAvailable is in kB, convert to bytes
+                        available = int(line.split()[1]) * 1024
+                        return human_readable_size(available), available
+                    elif line.startswith('MemFree:'):
+                        # Fallback to MemFree if MemAvailable not present
+                        available = int(line.split()[1]) * 1024
+                        return human_readable_size(available), available
+        elif platform.system() == 'Darwin':  # macOS
+            # Try using sysctl on macOS
+            import subprocess
+            result = subprocess.run(['sysctl', '-n', 'hw.memsize'], 
+                                  capture_output=True, text=True)
+            if result.returncode == 0:
+                total_mem = int(result.stdout.strip())
+                # Estimate available as 50% of total (conservative)
+                available = total_mem // 2
+                return human_readable_size(available), available
+    except (OSError, subprocess.SubprocessError, ValueError):
+        pass
+    
+    # Ultimate fallback - assume 4GB available (conservative estimate)
+    fallback_memory = 4 * 1024 * 1024 * 1024  # 4GB in bytes
+    return human_readable_size(fallback_memory), fallback_memory
 
 
 def memory_requirement_ratio(array_shape: tuple, dtype=np.float64) -> float:

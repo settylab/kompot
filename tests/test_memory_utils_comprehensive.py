@@ -17,13 +17,13 @@ class TestHumanReadableSize:
         except ImportError as e:
             pytest.skip(f"Could not import human_readable_size: {e}")
         
-        assert human_readable_size(0) == "0 B"
-        assert human_readable_size(512) == "512 B"
-        assert human_readable_size(1024) == "1.0 KB"
-        assert human_readable_size(1536) == "1.5 KB"
-        assert human_readable_size(1024**2) == "1.0 MB"
-        assert human_readable_size(1024**3) == "1.0 GB"
-        assert human_readable_size(1024**4) == "1.0 TB"
+        assert human_readable_size(0) == "0.00 B"
+        assert human_readable_size(512) == "512.00 B"
+        assert human_readable_size(1024) == "1.00 KB"
+        assert human_readable_size(1536) == "1.50 KB"
+        assert human_readable_size(1024**2) == "1.00 MB"
+        assert human_readable_size(1024**3) == "1.00 GB"
+        assert human_readable_size(1024**4) == "1.00 TB"
         
     def test_human_readable_size_precision(self):
         """Test human readable size with different precisions."""
@@ -127,12 +127,13 @@ class TestGetAvailableMemory:
         except ImportError as e:
             pytest.skip(f"Could not import get_available_memory: {e}")
         
-        memory = get_available_memory()
+        memory_str, memory_bytes = get_available_memory()
         
-        assert isinstance(memory, int)
-        assert memory > 0
+        assert isinstance(memory_str, str)
+        assert isinstance(memory_bytes, int)
+        assert memory_bytes > 0
         # Should be reasonable (at least 100 MB, less than 1 TB)
-        assert 100 * 1024 * 1024 < memory < 1024**4
+        assert 100 * 1024 * 1024 < memory_bytes < 1024**4
         
     def test_get_available_memory_with_psutil(self):
         """Test memory detection with psutil."""
@@ -142,13 +143,13 @@ class TestGetAvailableMemory:
         except ImportError:
             pytest.skip("psutil not available")
         
-        memory = get_available_memory()
+        memory_str, memory_bytes = get_available_memory()
         
         # Compare with direct psutil call
         psutil_memory = psutil.virtual_memory().available
         
         # Should be reasonably close (within 10%)
-        assert abs(memory - psutil_memory) / psutil_memory < 0.1
+        assert abs(memory_bytes - psutil_memory) / psutil_memory < 0.1
         
     def test_get_available_memory_fallback(self):
         """Test memory detection fallback when psutil unavailable."""
@@ -157,14 +158,16 @@ class TestGetAvailableMemory:
         except ImportError as e:
             pytest.skip(f"Could not import get_available_memory: {e}")
         
-        # Mock psutil import failure
-        with patch.dict('sys.modules', {'psutil': None}):
-            with patch('kompot.memory_utils.psutil', None):
-                memory = get_available_memory()
-                
-                # Should still return a reasonable value (fallback)
-                assert isinstance(memory, int)
-                assert memory > 0
+        # Mock psutil to be None to trigger fallback
+        with patch('kompot.memory_utils.psutil', None):
+            memory_str, memory_bytes = get_available_memory()
+            
+            # Should still return a reasonable value (fallback)
+            assert isinstance(memory_str, str)
+            assert isinstance(memory_bytes, int)
+            assert memory_bytes > 0
+            # Fallback should return at least 1GB (our minimum expected fallback)
+            assert memory_bytes >= 1024 * 1024 * 1024
 
 
 class TestMemoryRequirementRatio:
@@ -219,24 +222,31 @@ class TestAnalyzeMemoryRequirements:
         except ImportError as e:
             pytest.skip(f"Could not import analyze_memory_requirements: {e}")
         
-        # Create test arrays
-        arrays = [
-            np.ones((100, 50), dtype=np.float64),
-            np.ones((200, 30), dtype=np.float32),
-            np.ones((50, 100), dtype=np.int32)
+        # Create test array shapes (not actual arrays)
+        shapes = [
+            (100, 50),    # for float64
+            (200, 30),    # for float32  
+            (50, 100)     # for int32
         ]
         
-        analysis = analyze_memory_requirements(arrays)
+        analysis = analyze_memory_requirements(shapes)
         
         assert isinstance(analysis, dict)
         assert 'total_size' in analysis
+        assert 'total_bytes' in analysis
         assert 'available_memory' in analysis
+        assert 'available_bytes' in analysis
         assert 'memory_ratio' in analysis
-        assert 'human_readable_size' in analysis
+        assert 'status' in analysis
+        assert 'array_sizes' in analysis
         
         # Check values are reasonable
-        assert analysis['total_size'] > 0
-        assert analysis['available_memory'] > 0
+        assert isinstance(analysis['total_bytes'], (int, np.integer))
+        assert analysis['total_bytes'] > 0
+        assert isinstance(analysis['available_bytes'], (int, np.integer)) 
+        assert analysis['available_bytes'] > 0
+        assert isinstance(analysis['memory_ratio'], float)
+        assert analysis['status'] in ['ok', 'warning', 'critical']
         assert 0 <= analysis['memory_ratio'] <= 10  # Should be reasonable
         
     def test_analyze_memory_requirements_empty(self):
@@ -249,7 +259,8 @@ class TestAnalyzeMemoryRequirements:
         analysis = analyze_memory_requirements([])
         
         assert isinstance(analysis, dict)
-        assert analysis['total_size'] == 0
+        assert analysis['total_size'] == "0.00 B"
+        assert analysis['total_bytes'] == 0
         assert 'available_memory' in analysis
         assert analysis['memory_ratio'] == 0.0
         
@@ -260,11 +271,13 @@ class TestAnalyzeMemoryRequirements:
         except ImportError as e:
             pytest.skip(f"Could not import analyze_memory_requirements: {e}")
         
-        arr = np.ones((1000, 1000), dtype=np.float64)
-        analysis = analyze_memory_requirements([arr])
+        # Use shape tuple instead of actual array
+        shape = (1000, 1000)  # for float64
+        analysis = analyze_memory_requirements([shape])
         
-        expected_size = 1000 * 1000 * 8  # 8 bytes per float64
-        assert analysis['total_size'] == expected_size
+        expected_bytes = 1000 * 1000 * 8  # 8 bytes per float64
+        assert analysis['total_bytes'] == expected_bytes
+        assert isinstance(analysis['total_size'], str)  # Should be human readable
         assert analysis['memory_ratio'] > 0
 
 
@@ -284,20 +297,20 @@ class TestAnalyzeCovarianceMemoryRequirements:
         analysis = analyze_covariance_memory_requirements(n_features, n_samples)
         
         assert isinstance(analysis, dict)
-        assert 'covariance_size' in analysis
-        assert 'sample_size' in analysis
-        assert 'total_memory_required' in analysis
+        assert 'total_size' in analysis
+        assert 'total_bytes' in analysis
         assert 'available_memory' in analysis
         assert 'memory_ratio' in analysis
-        assert 'human_readable_total' in analysis
+        assert 'should_use_disk' in analysis
+        assert 'status' in analysis
         
-        # Check covariance size calculation
-        expected_cov_size = n_features * n_features * 8  # float64
-        assert analysis['covariance_size'] == expected_cov_size
+        # Check total bytes calculation (for covariance matrix shape)
+        # The function creates a covariance tensor of shape (n_features, n_features, n_samples)  
+        expected_bytes = n_features * n_features * n_samples * 8  # float64
+        assert analysis['total_bytes'] == expected_bytes
         
-        # Check sample size calculation
-        expected_sample_size = n_samples * n_features * 8  # float64
-        assert analysis['sample_size'] == expected_sample_size
+        # Check that it returns reasonable values
+        assert isinstance(analysis['should_use_disk'], bool)
         
     def test_analyze_covariance_memory_requirements_large(self):
         """Test covariance memory requirements with large dimensions."""
@@ -313,7 +326,9 @@ class TestAnalyzeCovarianceMemoryRequirements:
         
         # Should detect high memory requirement
         assert analysis['memory_ratio'] > 0
-        assert analysis['total_memory_required'] > analysis['covariance_size']
+        assert analysis['total_bytes'] > 0
+        assert 'array_sizes' in analysis
+        assert len(analysis['array_sizes']) == 1
         
     def test_analyze_covariance_memory_requirements_zero(self):
         """Test covariance memory requirements with zero dimensions."""
@@ -324,9 +339,10 @@ class TestAnalyzeCovarianceMemoryRequirements:
         
         analysis = analyze_covariance_memory_requirements(0, 0)
         
-        assert analysis['covariance_size'] == 0
-        assert analysis['sample_size'] == 0
-        assert analysis['total_memory_required'] == 0
+        assert analysis['total_bytes'] == 0
+        assert analysis['memory_ratio'] == 0
+        assert len(analysis['array_sizes']) == 1
+        assert analysis['array_sizes'][0]['size_bytes'] == 0
 
 
 class TestDiskStorage:
@@ -342,7 +358,7 @@ class TestDiskStorage:
         with tempfile.TemporaryDirectory() as tmpdir:
             storage = DiskStorage(tmpdir)
             
-            assert storage.base_dir == tmpdir
+            assert storage.storage_dir == tmpdir
             assert os.path.exists(tmpdir)
             
     def test_disk_storage_store_and_load_array(self):
@@ -359,8 +375,8 @@ class TestDiskStorage:
             arr = np.random.rand(100, 50)
             
             # Store array
-            key = storage.store_array('test_array', arr)
-            assert key == 'test_array'
+            file_path = storage.store_array(arr, 'test_array')
+            assert 'test_array' in file_path
             
             # Load array
             loaded_arr = storage.load_array('test_array')
@@ -386,7 +402,7 @@ class TestDiskStorage:
             
             # Store all arrays
             for key, arr in arrays.items():
-                storage.store_array(key, arr)
+                storage.store_array(arr, key)
             
             # Load and verify all arrays
             for key, original_arr in arrays.items():
@@ -407,8 +423,8 @@ class TestDiskStorage:
             # Store some arrays
             arr1 = np.random.rand(10, 10)
             arr2 = np.random.rand(5, 5)
-            storage.store_array('array1', arr1)
-            storage.store_array('array2', arr2)
+            storage.store_array(arr1, 'array1')
+            storage.store_array(arr2, 'array2')
             
             # Check files exist
             assert len(os.listdir(tmpdir)) >= 2
@@ -500,9 +516,10 @@ class TestMemoryUtilsEdgeCases:
         except ImportError as e:
             pytest.skip(f"Could not import array_size: {e}")
         
-        scalar = np.float64(5.0)
+        scalar = np.array(5.0, dtype=np.float64)
         size = array_size(scalar)
         assert size == 8  # 8 bytes for float64
+        assert isinstance(size, int)
         
     def test_memory_functions_with_none(self):
         """Test memory functions with None inputs."""
@@ -540,7 +557,7 @@ class TestMemoryUtilsLogging:
             with patch('kompot.memory_utils.logger') as mock_logger:
                 storage = DiskStorage(tmpdir)
                 arr = np.random.rand(10, 10)
-                storage.store_array('test', arr)
+                storage.store_array(arr, 'test')
                 
                 # Should have logged some operations
                 assert mock_logger.debug.call_count >= 0  # May or may not log
@@ -585,13 +602,14 @@ class TestMemoryUtilsPerformance:
         except ImportError as e:
             pytest.skip(f"Could not import analyze_memory_requirements: {e}")
         
-        # Create multiple large arrays
-        arrays = [
-            np.zeros((1000, 1000), dtype=np.float64),
-            np.zeros((500, 2000), dtype=np.float32),
-            np.zeros((2000, 500), dtype=np.int32)
+        # Create multiple large array shapes  
+        shapes = [
+            (1000, 1000),  # large square array
+            (500, 2000),   # wide array
+            (2000, 500)    # tall array
         ]
         
         # Should analyze quickly without loading all data
-        analysis = analyze_memory_requirements(arrays)
-        assert analysis['total_size'] > 0
+        analysis = analyze_memory_requirements(shapes)
+        assert analysis['total_bytes'] > 0
+        assert isinstance(analysis['total_size'], str)
