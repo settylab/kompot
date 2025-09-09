@@ -11,10 +11,7 @@ from kompot.anndata import compute_differential_expression, check_underrepresent
 
 def create_test_anndata_with_underrepresentation(n_cells=100, n_genes=20):
     """Create a test AnnData object with deliberate underrepresentation."""
-    try:
-        import anndata
-    except ImportError:
-        pytest.skip("anndata not installed, skipping test")
+    import anndata
         
     np.random.seed(42)
     

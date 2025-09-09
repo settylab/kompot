@@ -10,10 +10,7 @@ import matplotlib as mpl
 
 def create_plot_test_adata(n_cells=50, n_genes=20):
     """Create test AnnData object for plot testing."""
-    try:
-        import anndata
-    except ImportError:
-        pytest.skip("anndata not installed, skipping test")
+    import anndata
         
     np.random.seed(42)
     
@@ -292,10 +289,7 @@ class TestPlotUtilsCoverage:
         from kompot.plot.volcano.utils import _infer_de_keys
         
         # Create empty AnnData
-        try:
-            import anndata
-        except ImportError:
-            pytest.skip("anndata not installed")
+        import anndata
         
         empty_adata = anndata.AnnData(np.zeros((10, 5)))
         
@@ -308,10 +302,7 @@ class TestPlotUtilsCoverage:
         from kompot.plot.volcano.utils import _infer_da_keys
         
         # Create empty AnnData
-        try:
-            import anndata
-        except ImportError:
-            pytest.skip("anndata not installed")
+        import anndata
         
         empty_adata = anndata.AnnData(np.zeros((10, 5)))
         

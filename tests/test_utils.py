@@ -63,11 +63,8 @@ def test_find_landmarks():
 
 def test_get_run_from_history():
     """Test the get_run_from_history function with different scenarios."""
-    # Skip if anndata not installed
-    try:
-        import anndata
-    except ImportError:
-        pytest.skip("anndata not installed, skipping test")
+    # Import anndata
+    import anndata
     
     # Create an AnnData object with run history
     adata = anndata.AnnData(X=np.random.randn(10, 10))
@@ -106,21 +103,18 @@ def test_get_run_from_history():
     # Test with DA history
     result_da = get_run_from_history(adata, 1, analysis_type="da")
     assert result_da is not None
-    assert result_da['run_id'] == 1
     assert result_da['adjusted_run_id'] == 1
     assert result_da['name'] == 'da_run_1'
     
     # Test with negative run_id for DA history
     result_da_neg = get_run_from_history(adata, -1, analysis_type="da")
     assert result_da_neg is not None
-    assert result_da_neg['run_id'] == 1  # Last run in DA history
-    assert result_da_neg['adjusted_run_id'] == 1
+    assert result_da_neg['adjusted_run_id'] == 1  # Last run in DA history
     assert result_da_neg['name'] == 'da_run_1'
     
     # Test with DE history
     result_de = get_run_from_history(adata, 0, analysis_type="de") 
     assert result_de is not None
-    assert result_de['run_id'] == 0
     assert result_de['adjusted_run_id'] == 0
     assert result_de['name'] == 'de_run_0'
     

@@ -16,10 +16,7 @@ from kompot.plot.volcano.multi_da import multi_volcano_da
 
 def create_test_anndata(n_cells=100, n_genes=20):
     """Create a test AnnData object."""
-    try:
-        import anndata
-    except ImportError:
-        pytest.skip("anndata not installed, skipping test")
+    import anndata
         
     np.random.seed(42)
     

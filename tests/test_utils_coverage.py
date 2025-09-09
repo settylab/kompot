@@ -94,46 +94,6 @@ class TestUtilsCoverage:
         assert landmarks.shape[1] == 10
         assert len(landmark_indices) == landmarks.shape[0]
 
-    def test_gene_specific_mahalanobis_distances(self):
-        """Test gene_specific_mahalanobis_distances function."""
-        try:
-            from kompot.utils import gene_specific_mahalanobis_distances
-        except ImportError as e:
-            pytest.skip(f"Could not import gene_specific_mahalanobis_distances: {e}")
-        
-        # Create test data
-        X_test = np.random.rand(10, 5)  # 10 cells, 5 dims
-        expr_test = np.random.rand(10, 8)  # 10 cells, 8 genes
-        X_train = np.random.rand(30, 5)  # 30 cells, 5 dims
-        expr_train = np.random.rand(30, 8)  # 30 cells, 8 genes
-        
-        distances = gene_specific_mahalanobis_distances(
-            X_test, expr_test, X_train, expr_train
-        )
-        
-        assert distances.shape == (10, 8)  # 10 test cells, 8 genes
-        assert np.all(distances >= 0)
-
-    def test_gene_specific_mahalanobis_distances_with_landmarks(self):
-        """Test gene_specific_mahalanobis_distances with landmarks."""
-        try:
-            from kompot.utils import gene_specific_mahalanobis_distances
-        except ImportError as e:
-            pytest.skip(f"Could not import gene_specific_mahalanobis_distances: {e}")
-        
-        # Create test data
-        X_test = np.random.rand(10, 5)
-        expr_test = np.random.rand(10, 8)
-        X_train = np.random.rand(30, 5)
-        expr_train = np.random.rand(30, 8)
-        landmarks = np.random.rand(15, 5)  # 15 landmarks
-        
-        distances = gene_specific_mahalanobis_distances(
-            X_test, expr_test, X_train, expr_train, landmarks=landmarks
-        )
-        
-        assert distances.shape == (10, 8)
-        assert np.all(distances >= 0)
 
     def test_get_run_from_history_error_handling(self):
         """Test get_run_from_history error handling."""

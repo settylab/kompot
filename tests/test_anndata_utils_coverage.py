@@ -10,10 +10,7 @@ from unittest.mock import patch, MagicMock
 
 def create_utils_test_adata(n_cells=40, n_genes=15):
     """Create test AnnData object for utils testing."""
-    try:
-        import anndata
-    except ImportError:
-        pytest.skip("anndata not installed, skipping test")
+    import anndata
         
     np.random.seed(42)
     

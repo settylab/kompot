@@ -9,10 +9,7 @@ import matplotlib as mpl
 
 def create_comprehensive_test_adata(n_cells=50, n_genes=20):
     """Create comprehensive test AnnData object for plot testing."""
-    try:
-        import anndata
-    except ImportError:
-        pytest.skip("anndata not installed, skipping test")
+    import anndata
         
     np.random.seed(42)
     
@@ -622,9 +619,9 @@ class TestPlotErrorHandling:
         """Test embedding plot with missing obsm key."""
         try:
             from kompot.plot.embedding import embedding
-            import anndata
         except ImportError as e:
             pytest.skip(f"Could not import required modules: {e}")
+        import anndata
         
         adata = anndata.AnnData(np.random.rand(10, 5))
         adata.obs['group'] = ['A'] * 5 + ['B'] * 5
@@ -636,9 +633,9 @@ class TestPlotErrorHandling:
         """Test volcano plots with missing keys."""
         try:
             from kompot.plot.volcano.de import volcano_de
-            import anndata
         except ImportError as e:
             pytest.skip(f"Could not import required modules: {e}")
+        import anndata
         
         adata = anndata.AnnData(np.random.rand(10, 5))
         
@@ -649,9 +646,9 @@ class TestPlotErrorHandling:
         """Test heatmap with empty gene list."""
         try:
             from kompot.plot.heatmap.core import heatmap
-            import anndata
         except ImportError as e:
             pytest.skip(f"Could not import required modules: {e}")
+        import anndata
         
         adata = anndata.AnnData(np.random.rand(10, 5))
         adata.obs['group'] = ['A'] * 5 + ['B'] * 5

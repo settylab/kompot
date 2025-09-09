@@ -42,10 +42,7 @@ def check_group_metrics_varm(adata, result_key):
 
 def create_test_anndata(n_cells=100, n_genes=20, with_sample_col=False, with_multiple_groups=False):
     """Create a test AnnData object."""
-    try:
-        import anndata
-    except ImportError:
-        pytest.skip("anndata not installed, skipping test")
+    import anndata
         
     np.random.seed(42)
     

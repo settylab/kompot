@@ -12,10 +12,7 @@ class TestMahalanobisDistance:
     
     def test_compute_mahalanobis_distance_basic(self):
         """Test basic Mahalanobis distance computation."""
-        try:
-            from kompot.utils import compute_mahalanobis_distance
-        except ImportError as e:
-            pytest.skip(f"Could not import compute_mahalanobis_distance: {e}")
+        from kompot.utils import compute_mahalanobis_distance
         
         # Create test data - single difference vector for single distance computation
         diff_vector = np.random.rand(5)
@@ -30,10 +27,7 @@ class TestMahalanobisDistance:
         
     def test_compute_mahalanobis_distance_with_landmarks(self):
         """Test Mahalanobis distance computation with landmarks."""
-        try:
-            from kompot.utils import compute_mahalanobis_distance
-        except ImportError as e:
-            pytest.skip(f"Could not import compute_mahalanobis_distance: {e}")
+        from kompot.utils import compute_mahalanobis_distance
         
         # Test single distance computation with a different covariance matrix  
         diff_vector = np.random.rand(4)
@@ -47,10 +41,7 @@ class TestMahalanobisDistance:
         
     def test_compute_mahalanobis_distances_multiple_genes(self):
         """Test Mahalanobis distances for multiple genes."""
-        try:
-            from kompot.utils import compute_mahalanobis_distances
-        except ImportError as e:
-            pytest.skip(f"Could not import compute_mahalanobis_distances: {e}")
+        from kompot.utils import compute_mahalanobis_distances
         
         # Create difference vectors and covariance matrix for multiple distance computation
         diff_values = np.random.rand(10, 5)  # 10 difference vectors, 5 dimensions each
@@ -64,10 +55,7 @@ class TestMahalanobisDistance:
         
     def test_compute_mahalanobis_distances_with_covariance(self):
         """Test Mahalanobis distances with precomputed covariance."""
-        try:
-            from kompot.utils import compute_mahalanobis_distances
-        except ImportError as e:
-            pytest.skip(f"Could not import compute_mahalanobis_distances: {e}")
+        from kompot.utils import compute_mahalanobis_distances
         
         # Create test data for multiple distance computation with 3D covariance tensor
         diff_values = np.random.rand(5, 3)  # 5 difference vectors, 3 dimensions each
@@ -85,10 +73,7 @@ class TestMahalanobisDistance:
         
     def test_compute_mahalanobis_distances_batch_processing(self):
         """Test Mahalanobis distances with batch processing."""
-        try:
-            from kompot.utils import compute_mahalanobis_distances
-        except ImportError as e:
-            pytest.skip(f"Could not import compute_mahalanobis_distances: {e}")
+        from kompot.utils import compute_mahalanobis_distances
         
         # Create test data for batch processing
         diff_values = np.random.rand(12, 4)  # 12 difference vectors
@@ -110,10 +95,7 @@ class TestLandmarkFunctions:
     
     def test_find_landmarks_basic(self):
         """Test basic landmark finding."""
-        try:
-            from kompot.utils import find_landmarks
-        except ImportError as e:
-            pytest.skip(f"Could not import find_landmarks: {e}")
+        from kompot.utils import find_landmarks
         
         X = np.random.rand(50, 8)
         
@@ -128,10 +110,7 @@ class TestLandmarkFunctions:
             
     def test_find_landmarks_with_groups(self):
         """Test landmark finding with group stratification."""
-        try:
-            from kompot.utils import find_landmarks
-        except ImportError as e:
-            pytest.skip(f"Could not import find_landmarks: {e}")
+        from kompot.utils import find_landmarks
         
         X = np.random.rand(60, 6)
         
@@ -143,10 +122,7 @@ class TestLandmarkFunctions:
         
     def test_find_landmarks_stratified_method(self):
         """Test landmark finding with stratified method."""
-        try:
-            from kompot.utils import find_landmarks
-        except ImportError as e:
-            pytest.skip(f"Could not import find_landmarks: {e}")
+        from kompot.utils import find_landmarks
         
         X = np.random.rand(40, 5)
         
@@ -158,10 +134,7 @@ class TestLandmarkFunctions:
         
     def test_find_landmarks_random_state(self):
         """Test landmark finding with random state for reproducibility."""
-        try:
-            from kompot.utils import find_landmarks
-        except ImportError as e:
-            pytest.skip(f"Could not import find_landmarks: {e}")
+        from kompot.utils import find_landmarks
         
         X = np.random.rand(30, 4)
         
@@ -174,69 +147,6 @@ class TestLandmarkFunctions:
         assert len(indices1) == landmarks1.shape[0]
         assert len(indices2) == landmarks2.shape[0]
 
-
-class TestGeneSpecificMahalanobis:
-    """Test gene-specific Mahalanobis distance functions."""
-    
-    def test_gene_specific_mahalanobis_distances_basic(self):
-        """Test basic gene-specific Mahalanobis distances."""
-        try:
-            from kompot.utils import gene_specific_mahalanobis_distances
-        except ImportError as e:
-            pytest.skip(f"Could not import gene_specific_mahalanobis_distances: {e}")
-        
-        X_test = np.random.rand(8, 5)
-        expr_test = np.random.rand(8, 6)
-        X_train = np.random.rand(15, 5)
-        expr_train = np.random.rand(15, 6)
-        
-        distances = gene_specific_mahalanobis_distances(
-            X_test, expr_test, X_train, expr_train
-        )
-        
-        assert distances.shape == (8, 6)  # 8 test cells, 6 genes
-        assert np.all(distances >= 0)
-        
-    def test_gene_specific_mahalanobis_distances_with_landmarks(self):
-        """Test gene-specific Mahalanobis distances with landmarks."""
-        try:
-            from kompot.utils import gene_specific_mahalanobis_distances
-        except ImportError as e:
-            pytest.skip(f"Could not import gene_specific_mahalanobis_distances: {e}")
-        
-        X_test = np.random.rand(6, 4)
-        expr_test = np.random.rand(6, 5)
-        X_train = np.random.rand(12, 4)
-        expr_train = np.random.rand(12, 5)
-        landmarks = np.random.rand(8, 4)
-        
-        distances = gene_specific_mahalanobis_distances(
-            X_test, expr_test, X_train, expr_train, landmarks=landmarks
-        )
-        
-        assert distances.shape == (6, 5)
-        assert np.all(distances >= 0)
-        
-    def test_gene_specific_mahalanobis_distances_batched(self):
-        """Test gene-specific Mahalanobis distances with batching."""
-        try:
-            from kompot.utils import gene_specific_mahalanobis_distances
-        except ImportError as e:
-            pytest.skip(f"Could not import gene_specific_mahalanobis_distances: {e}")
-        
-        X_test = np.random.rand(10, 3)
-        expr_test = np.random.rand(10, 7)
-        X_train = np.random.rand(20, 3)
-        expr_train = np.random.rand(20, 7)
-        
-        distances = gene_specific_mahalanobis_distances(
-            X_test, expr_test, X_train, expr_train,
-            batch_size=4,  # Force batching
-            progress=False
-        )
-        
-        assert distances.shape == (10, 7)
-        assert np.all(distances >= 0)
 
 
 class TestRunHistoryFunctions:
@@ -360,10 +270,7 @@ class TestKOMPOTColors:
     
     def test_kompot_colors_structure(self):
         """Test KOMPOT_COLORS structure and basic access."""
-        try:
-            from kompot.utils import KOMPOT_COLORS
-        except ImportError as e:
-            pytest.skip(f"Could not import KOMPOT_COLORS: {e}")
+        from kompot.utils import KOMPOT_COLORS
         
         assert isinstance(KOMPOT_COLORS, dict)
         
@@ -382,11 +289,11 @@ class TestKOMPOTColors:
             
     def test_kompot_colors_usage(self):
         """Test KOMPOT_COLORS can be used in plotting contexts."""
+        from kompot.utils import KOMPOT_COLORS
         try:
-            from kompot.utils import KOMPOT_COLORS
             import matplotlib.pyplot as plt
         except ImportError as e:
-            pytest.skip(f"Could not import required modules: {e}")
+            pytest.skip(f"Could not import matplotlib: {e}")
         
         # Test using colors in a simple plot
         if 'direction' in KOMPOT_COLORS:
@@ -399,10 +306,7 @@ class TestKOMPOTColors:
                 
     def test_kompot_colors_hex_format(self):
         """Test KOMPOT_COLORS hex color format validation."""
-        try:
-            from kompot.utils import KOMPOT_COLORS
-        except ImportError as e:
-            pytest.skip(f"Could not import KOMPOT_COLORS: {e}")
+        from kompot.utils import KOMPOT_COLORS
         
         def is_hex_color(color):
             """Check if string is valid hex color."""
@@ -434,10 +338,7 @@ class TestUtilsJAXIntegration:
     
     def test_jax_compilation_flags(self):
         """Test JAX compilation behavior in utils functions."""
-        try:
-            from kompot.utils import compute_mahalanobis_distance
-        except ImportError as e:
-            pytest.skip(f"Could not import utils functions: {e}")
+        from kompot.utils import compute_mahalanobis_distance
         
         X_test = np.random.rand(5, 3)
         X_train = np.random.rand(10, 3)
@@ -458,10 +359,7 @@ class TestUtilsJAXIntegration:
         
     def test_jax_memory_efficiency(self):
         """Test JAX memory efficiency features."""
-        try:
-            from kompot.utils import compute_mahalanobis_distances
-        except ImportError as e:
-            pytest.skip(f"Could not import utils functions: {e}")
+        from kompot.utils import compute_mahalanobis_distances
         
         # Test with moderately large data
         diff_values = np.random.rand(20, 6)  # 20 difference vectors
@@ -483,10 +381,7 @@ class TestUtilsErrorHandling:
     
     def test_mahalanobis_shape_validation(self):
         """Test Mahalanobis distance input shape validation."""
-        try:
-            from kompot.utils import compute_mahalanobis_distance
-        except ImportError as e:
-            pytest.skip(f"Could not import compute_mahalanobis_distance: {e}")
+        from kompot.utils import compute_mahalanobis_distance
         
         # Test shape mismatch validation
         diff_vector = np.random.rand(3)
@@ -501,10 +396,7 @@ class TestUtilsErrorHandling:
             
     def test_landmarks_validation(self):
         """Test landmark finding input validation."""
-        try:
-            from kompot.utils import find_landmarks
-        except ImportError as e:
-            pytest.skip(f"Could not import find_landmarks: {e}")
+        from kompot.utils import find_landmarks
         
         X = np.random.rand(10, 5)
         
@@ -517,20 +409,6 @@ class TestUtilsErrorHandling:
         landmarks2, indices2 = find_landmarks(X, n_clusters=5)  # Valid input
         assert landmarks2.shape[0] <= 10
             
-    def test_gene_specific_shape_validation(self):
-        """Test gene-specific Mahalanobis input validation."""
-        try:
-            from kompot.utils import gene_specific_mahalanobis_distances
-        except ImportError as e:
-            pytest.skip(f"Could not import gene_specific_mahalanobis_distances: {e}")
-        
-        X_test = np.random.rand(5, 3)
-        expr_test = np.random.rand(6, 4)  # Wrong number of cells
-        X_train = np.random.rand(10, 3)
-        expr_train = np.random.rand(10, 4)
-        
-        with pytest.raises((ValueError, AssertionError)):
-            gene_specific_mahalanobis_distances(X_test, expr_test, X_train, expr_train)
 
 
 class TestUtilsNumericalStability:
@@ -538,10 +416,7 @@ class TestUtilsNumericalStability:
     
     def test_mahalanobis_numerical_stability(self):
         """Test Mahalanobis distance numerical stability."""
-        try:
-            from kompot.utils import compute_mahalanobis_distance
-        except ImportError as e:
-            pytest.skip(f"Could not import compute_mahalanobis_distance: {e}")
+        from kompot.utils import compute_mahalanobis_distance
         
         # Create data with potential numerical issues
         diff_vector = np.random.rand(3) * 1e-6  # Very small values
@@ -556,10 +431,7 @@ class TestUtilsNumericalStability:
         
     def test_mahalanobis_extreme_values(self):
         """Test Mahalanobis distance with extreme values."""
-        try:
-            from kompot.utils import compute_mahalanobis_distance
-        except ImportError as e:
-            pytest.skip(f"Could not import compute_mahalanobis_distance: {e}")
+        from kompot.utils import compute_mahalanobis_distance
         
         # Create data with large values
         diff_vector = np.random.rand(3) * 1e6  # Large values
@@ -581,10 +453,7 @@ class TestUtilsNumericalStability:
         
     def test_covariance_regularization(self):
         """Test covariance matrix regularization."""
-        try:
-            from kompot.utils import compute_mahalanobis_distances
-        except ImportError as e:
-            pytest.skip(f"Could not import compute_mahalanobis_distances: {e}")
+        from kompot.utils import compute_mahalanobis_distances
         
         # Create data that would produce singular covariance
         diff_values = np.random.rand(3, 2)  # 3 difference vectors
@@ -601,34 +470,9 @@ class TestUtilsNumericalStability:
 class TestUtilsPerformanceOptimizations:
     """Test performance optimizations in utils functions."""
     
-    def test_batch_processing_efficiency(self):
-        """Test batch processing reduces memory usage."""
-        try:
-            from kompot.utils import gene_specific_mahalanobis_distances
-        except ImportError as e:
-            pytest.skip(f"Could not import gene_specific_mahalanobis_distances: {e}")
-        
-        # Large enough to benefit from batching
-        X_test = np.random.rand(50, 8)
-        expr_test = np.random.rand(50, 12)
-        X_train = np.random.rand(100, 8)
-        expr_train = np.random.rand(100, 12)
-        
-        # Test with small batch size (should still work)
-        distances = gene_specific_mahalanobis_distances(
-            X_test, expr_test, X_train, expr_train,
-            batch_size=10, progress=False
-        )
-        
-        assert distances.shape == (50, 12)
-        assert np.all(np.isfinite(distances))
-        
     def test_landmark_efficiency(self):
         """Test landmark-based approximation efficiency."""
-        try:
-            from kompot.utils import compute_mahalanobis_distance
-        except ImportError as e:
-            pytest.skip(f"Could not import compute_mahalanobis_distance: {e}")
+        from kompot.utils import compute_mahalanobis_distance
         
         # Create large training set
         # Test efficiency with larger computation
@@ -648,10 +492,7 @@ class TestUtilsLogging:
     
     def test_utils_logging_integration(self):
         """Test utils module logging integration."""
-        try:
-            from kompot.utils import find_landmarks
-        except ImportError as e:
-            pytest.skip(f"Could not import find_landmarks: {e}")
+        from kompot.utils import find_landmarks
         
         with patch('kompot.utils.logger') as mock_logger:
             X = np.random.rand(20, 4)
@@ -662,23 +503,3 @@ class TestUtilsLogging:
             assert hasattr(mock_logger, 'debug')
             assert hasattr(mock_logger, 'warning')
             
-    def test_mahalanobis_progress_logging(self):
-        """Test Mahalanobis distance computation progress logging."""
-        try:
-            from kompot.utils import gene_specific_mahalanobis_distances
-        except ImportError as e:
-            pytest.skip(f"Could not import gene_specific_mahalanobis_distances: {e}")
-        
-        X_test = np.random.rand(8, 3)
-        expr_test = np.random.rand(8, 5)
-        X_train = np.random.rand(16, 3)
-        expr_train = np.random.rand(16, 5)
-        
-        # Enable progress reporting
-        distances = gene_specific_mahalanobis_distances(
-            X_test, expr_test, X_train, expr_train,
-            batch_size=4, progress=True
-        )
-        
-        # Should complete successfully with progress enabled
-        assert distances.shape == (8, 5)

@@ -12,10 +12,7 @@ from kompot.anndata import compute_differential_abundance, compute_differential_
 
 def create_test_anndata(n_cells=50, n_genes=10, with_sample_col=False):
     """Create a test AnnData object."""
-    try:
-        import anndata
-    except ImportError:
-        pytest.skip("anndata not installed, skipping test")
+    import anndata
         
     np.random.seed(42)
     
@@ -984,10 +981,7 @@ class TestRunInfo:
 def test_gene_subset_order_preservation():
     """Test that gene order is preserved correctly when using gene subsets."""
     # Create a test AnnData object with specific gene names in a known order
-    try:
-        import anndata
-    except ImportError:
-        pytest.skip("anndata not installed, skipping test")
+    import anndata
         
     np.random.seed(42)
     

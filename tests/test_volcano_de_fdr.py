@@ -15,10 +15,7 @@ def create_test_anndata_with_fdr(
     n_cells=100, n_genes=500, n_differential=50, result_key="kompot_de"
 ):
     """Create a test AnnData object with comprehensive FDR data."""
-    try:
-        import anndata
-    except ImportError:
-        pytest.skip("anndata not installed, skipping test")
+    import anndata
 
     np.random.seed(42)
 

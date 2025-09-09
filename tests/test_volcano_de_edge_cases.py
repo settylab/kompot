@@ -16,10 +16,7 @@ from kompot.utils import KOMPOT_COLORS
 
 def create_test_anndata_edge_cases(n_cells=100, n_genes=20):
     """Create a test AnnData object with edge cases for testing volcano_de."""
-    try:
-        import anndata
-    except ImportError:
-        pytest.skip("anndata not installed, skipping test")
+    import anndata
         
     np.random.seed(42)
     

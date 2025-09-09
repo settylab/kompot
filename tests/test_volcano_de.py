@@ -16,10 +16,7 @@ from kompot.utils import KOMPOT_COLORS
 
 def create_test_anndata(n_cells=100, n_genes=20, with_categorical=False, with_continuous=False):
     """Create a test AnnData object with various data types for testing volcano_de."""
-    try:
-        import anndata
-    except ImportError:
-        pytest.skip("anndata not installed, skipping test")
+    import anndata
         
     np.random.seed(42)
     
