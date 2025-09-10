@@ -312,8 +312,8 @@ def compute_differential_expression(
     store_posterior_covariance: bool = False,
     allow_single_condition_variance: bool = False,
     progress: bool = True,
-    null_genes: Union[int, List[int], None] = 1000,
-    null_seed: Optional[int] = None,
+    null_genes: Union[int, List[int], None] = 2000,
+    null_seed: Optional[int] = 42,
     fdr_threshold: float = 0.05,
     **function_kwargs,
 ) -> Union[Dict[str, np.ndarray], Any]:
@@ -486,14 +486,14 @@ def compute_differential_expression(
         - If List[int]: Specific gene indices to use for null distribution
         - If None or 0: Disable FDR calculation (no p-values computed)
 
-        Default is 1000 (uses 1000 randomly sampled null genes for FDR estimation).
+        Default is 2000 (uses 2000 randomly sampled null genes for FDR estimation).
 
         Null genes have their expression values shuffled between conditions to break the
         association with cell state, creating a background distribution for statistical testing.
     null_seed : int, optional
         Random seed for reproducible null gene selection and expression shuffling.
         Ensures consistent results across runs when using random null gene sampling.
-        If None, results will vary between runs. Default is None.
+        If None, results will vary between runs. Default is 42.
     fdr_threshold : float, optional
         FDR threshold for identifying significantly differentially expressed genes.
         Genes with FDR < fdr_threshold will be marked as significantly DE in a boolean
