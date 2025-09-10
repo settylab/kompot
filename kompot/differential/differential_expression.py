@@ -3,6 +3,7 @@
 import numpy as np
 import jax
 import jax.numpy as jnp
+import jax.scipy.stats as jax_stats
 from functools import partial
 from typing import Tuple, List, Optional, Union, Dict, Any, Callable
 import logging
@@ -642,6 +643,16 @@ class DifferentialExpression:
             logger.error(error_msg)
             raise RuntimeError(error_msg) from e
 
+        # Determine degrees of freedom for chi2 distribution
+        # This is the dimension of the vector used to compute Mahalanobis distance
+        if has_landmarks and landmarks is not None:
+            degrees_of_freedom = landmarks.shape[1]  # Number of features/landmarks
+        else:
+            degrees_of_freedom = X.shape[1]  # Number of features
+        
+        # Store degrees of freedom as instance variable for use in predict method
+        self._last_mahalanobis_dof = degrees_of_freedom
+        
         return mahalanobis_distances
     
     def predict(
@@ -837,5 +848,20 @@ class DifferentialExpression:
                 progress=progress  # Use the progress parameter here
             )            
             result['mahalanobis_distances'] = mahalanobis_distances
+            
+            # Compute log10 posterior tail probability (log10-ptp)
+            # using chi2.logsf where x is the square of the Mahalanobis distance
+            # and df is the degrees of freedom (dimension of the vector)
+            if hasattr(self, '_last_mahalanobis_dof'):
+                logger.debug(f"Computing log10-ptp with {self._last_mahalanobis_dof} degrees of freedom...")
+                
+                # Square the Mahalanobis distances for chi2 distribution
+                mahalanobis_squared = jnp.array(mahalanobis_distances) ** 2
+                
+                # Compute log10 posterior tail probability
+                # jax_stats.chi2.logsf gives log(1 - CDF), convert to log10
+                log10_ptp = jax_stats.chi2.logsf(mahalanobis_squared, df=self._last_mahalanobis_dof) / jnp.log(10.0)
+                
+                result['log10_ptp'] = np.array(log10_ptp)
         
         return result
