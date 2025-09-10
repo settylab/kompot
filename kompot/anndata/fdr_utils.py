@@ -153,8 +153,11 @@ def compute_fdr_statistics(
     # Only add pseudocount for truly zero p-values
     zero_pvalues = pvalues == 0.0
     if np.any(zero_pvalues):
-        min_pvalue = 1.0 / (2 * len(null_mahalanobis))  # Conservative minimum for zeros
+        # Use a much smaller minimum to allow very small FDR values
+        # Conservative approach: use 1/(10*len(null_mahalanobis)) to allow more precision
+        min_pvalue = 1.0 / (10 * len(null_mahalanobis))
         pvalues[zero_pvalues] = min_pvalue
+        logger.debug(f"Set minimum p-value to {min_pvalue} for {np.sum(zero_pvalues)} zero p-values")
 
     # Step 2: Compute tail-based FDR using Benjamini-Hochberg
     _, tail_fdr_values, _, _ = multipletests(pvalues, method="fdr_bh")
@@ -164,8 +167,9 @@ def compute_fdr_statistics(
     # Since larger Mahalanobis = smaller p-value = larger |z-score|
     zscores = -stats.norm.ppf(pvalues)  # One-tailed conversion
 
-    # Handle potential infinite z-scores by clipping
-    zscores = np.clip(zscores, -10, 10)
+    # Handle potential infinite z-scores by clipping, but use a larger range
+    # to allow for very small p-values and correspondingly small FDR values
+    zscores = np.clip(zscores, -20, 20)
 
     # Step 4: Apply local FDR estimation (similar to fdrtool approach)
     try:

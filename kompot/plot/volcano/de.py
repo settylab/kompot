@@ -33,6 +33,7 @@ def volcano_de(
     condition1: Optional[str] = None,
     condition2: Optional[str] = None,
     n_top_genes: int = 10,
+    use_top_genes: bool = False,
     highlight_genes: Optional[Union[List[str], Dict[str, str], List[Dict[str, Any]]]] = None,
     background_color_key: Optional[str] = None,
     background_cmap: Union[str, Colormap] = None,  # Will be auto-selected based on data type
@@ -40,7 +41,7 @@ def volcano_de(
     vmin: Optional[Union[float, str]] = None,
     vmax: Optional[Union[float, str]] = None,
     vcenter: Optional[float] = None,
-    show_names: Union[bool, List[str]] = True,
+    gene_labels: Union[bool, int, List[str], Dict[str, str]] = 10,
     figsize: Tuple[float, float] = (10, 8),
     title: Optional[str] = None,
     xlabel: Optional[str] = "Log Fold Change",
@@ -94,7 +95,10 @@ def volcano_de(
     condition2 : str, optional
         Name of condition 2 (positive log fold change)
     n_top_genes : int, optional
-        Total number of top genes to highlight and label, selected by highest Mahalanobis distance (default: 10).
+        Total number of top genes to highlight when use_top_genes=True, selected by highest Mahalanobis distance (default: 10).
+        Ignored if `highlight_genes` is provided.
+    use_top_genes : bool, optional
+        If True, highlight top n_top_genes by score. If False (default), use is_de column to determine highlighted genes.
         Ignored if `highlight_genes` is provided.
     highlight_genes : list of str, dict of {str: str}, or list of dict, optional
         Can be:
@@ -120,10 +124,13 @@ def volcano_de(
         uses that percentile (e.g., 'p95' for 95th percentile).
     vcenter : float, optional
         Center value for diverging colormaps. If provided with vmin/vmax, ensures proper ordering.
-    show_names : bool or list of str, optional
-        Whether to display gene names, or a list of specific gene names to annotate.
-        If True, shows names for all highlighted genes. If False, shows no names.
-        If a list, shows names only for genes in the list (default: True)
+    gene_labels : bool, int, list of str, or dict, optional
+        Controls which genes get labeled with their names:
+        - True: label all highlighted genes  
+        - False: label no genes
+        - int: label top N genes by score (default: 10)
+        - list of str: label specific genes by name
+        - dict: label genes with custom labels (gene_name -> custom_label)
     figsize : tuple, optional
         Figure size as (width, height) in inches
     title : str, optional
@@ -216,6 +223,9 @@ def volcano_de(
     # Infer keys using helper function - this will get the right keys but won't do any logging
     lfc_key, score_key = _infer_de_keys(adata, run_id, lfc_key, score_key)
 
+    # Get run info early since we'll need it for multiple purposes
+    run_info = get_run_from_history(adata, run_id, analysis_type="de")
+    
     # Handle FDR-based y-axis options
     original_score_key = score_key
     fdr_key = None
@@ -226,31 +236,51 @@ def volcano_de(
 
     y_transform = None
     if y_axis_type in ["local_fdr", "tail_fdr"]:
-        # Try to infer FDR key from the original score key
-        if score_key and "mahalanobis" in score_key:
-            # Replace mahalanobis with the FDR type
+        # Try to get FDR keys from run info instead of string manipulation
+        fdr_key = None
+        
+        if run_info and "fdr_keys" in run_info and run_info["fdr_keys"]:
+            # Get the appropriate FDR key from run info
             if y_axis_type == "local_fdr":
-                fdr_key = score_key.replace("mahalanobis", "mahalanobis_local_fdr")
+                fdr_key = run_info["fdr_keys"].get("local_fdr_key")
             else:  # tail_fdr
-                fdr_key = score_key.replace("mahalanobis", "mahalanobis_tail_fdr")
-
-            # Check if the FDR key exists
-            if fdr_key in adata.var.columns:
+                fdr_key = run_info["fdr_keys"].get("tail_fdr_key")
+            
+            # Check if the FDR key exists in the data
+            if fdr_key and fdr_key in adata.var.columns:
                 score_key = fdr_key
                 y_transform = fdr_y_transform
-
                 logger.info(f"Using {y_axis_type} values for y-axis: {fdr_key}")
-            else:
+            elif fdr_key:
                 logger.warning(
-                    f"FDR key '{fdr_key}' not found in adata.var. Available FDR columns: "
-                    f"{[col for col in adata.var.columns if 'fdr' in col.lower() or 'pvalue' in col.lower()]}"
+                    f"FDR key '{fdr_key}' from run info not found in adata.var. "
+                    f"Available FDR columns: {[col for col in adata.var.columns if 'fdr' in col.lower() or 'pvalue' in col.lower()]}"
                 )
-                logger.info(f"Falling back to original score key: {original_score_key}")
-                score_key = original_score_key
+                fdr_key = None
+            else:
+                logger.warning(f"No {y_axis_type} key found in run info fdr_keys")
         else:
-            logger.warning(
-                f"Cannot infer FDR key from score_key '{score_key}'. Using original score key."
-            )
+            logger.warning("No FDR keys found in run info or FDR was not computed for this run")
+        
+        # Fallback to string replacement if run info approach fails
+        if fdr_key is None and score_key and "mahalanobis" in score_key:
+            logger.info("Attempting fallback FDR key inference from score key...")
+            if y_axis_type == "local_fdr":
+                fallback_fdr_key = score_key.replace("mahalanobis", "mahalanobis_local_fdr")
+            else:  # tail_fdr  
+                fallback_fdr_key = score_key.replace("mahalanobis", "mahalanobis_tail_fdr")
+            
+            if fallback_fdr_key in adata.var.columns:
+                score_key = fallback_fdr_key
+                y_transform = fdr_y_transform
+                logger.info(f"Using fallback {y_axis_type} key: {fallback_fdr_key}")
+            else:
+                logger.warning(f"Fallback FDR key '{fallback_fdr_key}' not found either")
+        
+        # Final fallback to original score key if nothing worked
+        if fdr_key is None and y_transform is None:
+            logger.info(f"Using original score key: {original_score_key}")
+            score_key = original_score_key
 
     # Auto-infer ylabel if not provided
     if ylabel is None:
@@ -281,8 +311,7 @@ def volcano_de(
         if conditions:
             condition1, condition2 = conditions
         else:
-            # If not in key, try getting from run info
-            run_info = get_run_from_history(adata, run_id, analysis_type="de")
+            # If not in key, try getting from run info (already retrieved above)
             if run_info is not None and "params" in run_info:
                 params = run_info["params"]
                 if "condition1" in params and "condition2" in params:
@@ -317,9 +346,7 @@ def volcano_de(
     y = None
 
     if group is not None:
-        # Get run information to access field names
-        run_info = get_run_from_history(adata, run_id, analysis_type="de")
-
+        # Use run information already retrieved above to access field names
         if not run_info or "field_names" not in run_info:
             logger.warning(
                 "Cannot find run information for group-specific data. Make sure you're using the correct run_id."
@@ -438,13 +465,19 @@ def volcano_de(
     if y_axis_type in ["local_fdr", "tail_fdr"] and background_color_key is None:
         # Try to auto-detect the DE boolean column for coloring
         if de_column is None:
-            # Infer DE column name from score_key
-            if fdr_key and "mahalanobis" in fdr_key:
-                de_column = fdr_key.replace("mahalanobis_local_fdr", "is_de").replace(
-                    "mahalanobis_tail_fdr", "is_de"
-                )
-            elif original_score_key and "mahalanobis" in original_score_key:
-                de_column = original_score_key.replace("mahalanobis", "is_de")
+            # First try to get DE column from run info
+            if run_info and "fdr_keys" in run_info and run_info["fdr_keys"]:
+                de_column = run_info["fdr_keys"].get("is_de_key")
+                logger.info(f"Found is_de key from run info: {de_column}")
+            
+            # Fallback to string manipulation if run info doesn't have it
+            if de_column is None:
+                if fdr_key and "mahalanobis" in fdr_key:
+                    de_column = fdr_key.replace("mahalanobis_local_fdr", "is_de").replace(
+                        "mahalanobis_tail_fdr", "is_de"
+                    )
+                elif original_score_key and "mahalanobis" in original_score_key:
+                    de_column = original_score_key.replace("mahalanobis", "is_de")
 
         # Check if DE column exists and use it for background coloring
         if de_column and de_column in adata.var.columns:
@@ -773,12 +806,137 @@ def volcano_de(
             highlight_groups.append({"genes": valid_genes, "name": "Highlighted genes"})
             logger.info(f"Highlighting {len(valid_genes)} user-specified genes")
     else:
-        # No highlight_genes provided, use top n_top_genes by score
-        top_genes = de_data.sort_values("sort_val", ascending=False).head(n_top_genes)
-        highlight_groups.append(
-            {"genes": top_genes["gene"].tolist(), "name": f"Top {n_top_genes} genes"}
-        )
-        logger.info(f"Highlighting top {n_top_genes:,} genes by {sort_key or score_key}")
+        # No highlight_genes provided - choose highlighting strategy
+        if use_top_genes:
+            # Use traditional top N genes by score approach
+            top_genes = de_data.sort_values("sort_val", ascending=False).head(n_top_genes)
+            highlight_groups.append(
+                {"genes": top_genes["gene"].tolist(), "name": f"Top {n_top_genes} genes"}
+            )
+            logger.info(f"Highlighting top {n_top_genes:,} genes by {sort_key or score_key}")
+        else:
+            # Use is_de column to determine highlighted genes (default behavior)
+            de_column = None
+            
+            # Try to get DE column from run info first
+            if run_info and "fdr_keys" in run_info and run_info["fdr_keys"]:
+                de_column = run_info["fdr_keys"].get("is_de_key")
+            
+            # Check if we should use FDR threshold for gene selection
+            # FDR threshold should work regardless of y_axis_type if FDR data is available
+            if fdr_threshold is not None:
+                # Use FDR threshold to select genes to highlight
+                fdr_values_key = None
+                if y_axis_type == "local_fdr":
+                    fdr_values_key = run_info["fdr_keys"].get("local_fdr_key") if run_info and "fdr_keys" in run_info and run_info["fdr_keys"] else None
+                elif y_axis_type == "tail_fdr":
+                    fdr_values_key = run_info["fdr_keys"].get("tail_fdr_key") if run_info and "fdr_keys" in run_info and run_info["fdr_keys"] else None
+                else:
+                    # Default to local FDR when fdr_threshold is specified but y_axis_type is not FDR-based
+                    if run_info and "fdr_keys" in run_info and run_info["fdr_keys"]:
+                        fdr_values_key = run_info["fdr_keys"].get("local_fdr_key")
+                        if fdr_values_key:
+                            logger.info(f"Using local FDR values for gene selection (fdr_threshold={fdr_threshold} specified)")
+                
+                if fdr_values_key and fdr_values_key in adata.var.columns:
+                    # Select genes based on FDR threshold
+                    fdr_values = adata.var[fdr_values_key]
+                    logger.info(f"FDR threshold selection: using column '{fdr_values_key}' with threshold {fdr_threshold}")
+                    logger.info(f"FDR values range: {fdr_values.min():.6f} - {fdr_values.max():.6f}")
+                    
+                    fdr_significant_mask = fdr_values < fdr_threshold
+                    fdr_significant_genes = adata.var_names[fdr_significant_mask].tolist()
+                    logger.info(f"Found {len(fdr_significant_genes)} genes with FDR < {fdr_threshold}")
+                    
+                    # Update is_de column if requested
+                    if update_de_classification and de_column and de_column in adata.var.columns:
+                        old_count = np.sum(adata.var[de_column])
+                        adata.var[de_column] = fdr_significant_mask
+                        new_count = np.sum(adata.var[de_column])
+                        logger.info(f"Updated DE classification: {old_count} → {new_count} significant genes at FDR < {fdr_threshold}")
+                    
+                    # Filter de_data for significant genes
+                    fdr_de_genes_df = de_data[de_data["gene"].isin(fdr_significant_genes)]
+                    
+                    if len(fdr_significant_genes) > 0:
+                        # Count up and down regulated significant genes
+                        up_fdr_genes = fdr_de_genes_df[fdr_de_genes_df["lfc"] > 0]["gene"].tolist()
+                        down_fdr_genes = fdr_de_genes_df[fdr_de_genes_df["lfc"] < 0]["gene"].tolist()
+                        
+                        if up_fdr_genes:
+                            highlight_groups.append({
+                                "genes": up_fdr_genes, 
+                                "name": f"Higher in {condition2} ({len(up_fdr_genes)})" if condition2 else f"Up-regulated ({len(up_fdr_genes)})"
+                            })
+                        if down_fdr_genes:
+                            highlight_groups.append({
+                                "genes": down_fdr_genes, 
+                                "name": f"Higher in {condition1} ({len(down_fdr_genes)})" if condition1 else f"Down-regulated ({len(down_fdr_genes)})"
+                            })
+                        
+                        logger.info(f"Highlighting {len(fdr_significant_genes):,} genes at {y_axis_type} < {fdr_threshold} ({len(up_fdr_genes)} up, {len(down_fdr_genes)} down)")
+                    else:
+                        logger.info(f"No genes found at {y_axis_type} < {fdr_threshold} - falling back to top genes highlighting")
+                        # Fallback to top genes when no significant genes are found
+                        top_genes = de_data.sort_values("sort_val", ascending=False).head(n_top_genes)
+                        highlight_groups.append(
+                            {"genes": top_genes["gene"].tolist(), "name": f"Top {n_top_genes} genes (no genes at FDR<{fdr_threshold})"}
+                        )
+                        logger.info(f"Highlighting top {n_top_genes:,} genes by score as fallback")
+                else:
+                    # Debug what went wrong
+                    if not fdr_values_key:
+                        logger.warning(f"Cannot use FDR threshold: no FDR key found for y_axis_type='{y_axis_type}'")
+                        if run_info and "fdr_keys" in run_info:
+                            available_fdr_keys = list(run_info["fdr_keys"].keys())
+                            logger.info(f"Available FDR keys in run info: {available_fdr_keys}")
+                        else:
+                            logger.warning("No FDR keys found in run info")
+                    elif fdr_values_key not in adata.var.columns:
+                        logger.warning(f"Cannot use FDR threshold: column '{fdr_values_key}' not found in adata.var")
+                        logger.info(f"Available var columns with 'fdr': {[col for col in adata.var.columns if 'fdr' in col.lower()]}")
+                    # Fall through to regular is_de logic below
+            
+            # Regular is_de column logic (when no FDR threshold specified or FDR approach failed)
+            elif de_column and de_column in adata.var.columns:
+                # Get genes marked as DE by filtering de_data using gene names
+                is_de_mask = de_data["gene"].isin(adata.var_names[adata.var[de_column]])
+                de_genes_df = de_data[is_de_mask]
+                de_genes = de_genes_df["gene"].tolist()
+                
+                if de_genes:
+                    # Count up and down regulated DE genes for the legend
+                    up_de_genes = de_genes_df[de_genes_df["lfc"] > 0]["gene"].tolist()
+                    down_de_genes = de_genes_df[de_genes_df["lfc"] < 0]["gene"].tolist()
+                    
+                    if up_de_genes:
+                        highlight_groups.append({
+                            "genes": up_de_genes, 
+                            "name": f"Higher in {condition2} ({len(up_de_genes)})" if condition2 else f"Up-regulated ({len(up_de_genes)})"
+                        })
+                    if down_de_genes:
+                        highlight_groups.append({
+                            "genes": down_de_genes, 
+                            "name": f"Higher in {condition1} ({len(down_de_genes)})" if condition1 else f"Down-regulated ({len(down_de_genes)})"
+                        })
+                    
+                    logger.info(f"Highlighting {len(de_genes):,} genes marked as DE ({len(up_de_genes)} up, {len(down_de_genes)} down)")
+                else:
+                    logger.info("No genes marked as DE found - falling back to top genes highlighting")
+                    # Fallback to top genes when no DE genes are found
+                    top_genes = de_data.sort_values("sort_val", ascending=False).head(n_top_genes)
+                    highlight_groups.append(
+                        {"genes": top_genes["gene"].tolist(), "name": f"Top {n_top_genes} genes (no DE genes found)"}
+                    )
+                    logger.info(f"Highlighting top {n_top_genes:,} genes by {sort_key or score_key} as fallback")
+            else:
+                # Fallback to top genes approach if DE column not found
+                logger.warning(f"DE column '{de_column}' not found. Falling back to top {n_top_genes} genes by score.")
+                top_genes = de_data.sort_values("sort_val", ascending=False).head(n_top_genes)
+                highlight_groups.append(
+                    {"genes": top_genes["gene"].tolist(), "name": f"Top {n_top_genes} genes"}
+                )
+                logger.info(f"Highlighting top {n_top_genes:,} genes by {sort_key or score_key}")
 
     # Plot background genes
     if background_color_key is not None:
@@ -872,14 +1030,8 @@ def volcano_de(
                 # Plot this gene
                 ax.scatter(gene_row["lfc"], gene_row["score"], alpha=1, s=point_size * 3, c=color)
 
-                # Add label if requested
-                if show_names is True:
-                    ax.annotate(
-                        gene_name,
-                        (gene_row["lfc"], gene_row["score"]),
-                        fontsize=font_size,
-                        **text_kwargs,
-                    )
+                # Add label if requested - will be handled by centralized labeling logic below
+                pass
         else:
             # Single color for the whole group (or split by direction)
             group_color = group.get("color")
@@ -895,15 +1047,7 @@ def volcano_de(
                     label=group["name"],
                 )
 
-                # Add labels if requested
-                if show_names is True:
-                    for _, gene_row in group_df.iterrows():
-                        ax.annotate(
-                            gene_row["gene"],
-                            (gene_row["lfc"], gene_row["score"]),
-                            fontsize=font_size,
-                            **text_kwargs,
-                        )
+                # Labels will be handled by centralized labeling logic below
             else:
                 # Split by direction (up/down regulated)
                 up_genes = group_df[group_df["lfc"] > 0]
@@ -918,21 +1062,13 @@ def volcano_de(
                         s=point_size * 3,
                         c=color_up,
                         label=(
-                            f"{group['name']} - Higher in {condition2}"
+                            f"Higher in {condition2} ({len(up_genes)})"
                             if condition2
-                            else f"{group['name']} - Up-regulated"
+                            else f"Up-regulated ({len(up_genes)})"
                         ),
                     )
 
-                    # Add labels if requested
-                    if show_names is True:
-                        for _, gene_row in up_genes.iterrows():
-                            ax.annotate(
-                                gene_row["gene"],
-                                (gene_row["lfc"], gene_row["score"]),
-                                fontsize=font_size,
-                                **text_kwargs,
-                            )
+                    # Labels will be handled by centralized labeling logic below
 
                 # Plot down-regulated genes
                 if len(down_genes) > 0:
@@ -943,36 +1079,61 @@ def volcano_de(
                         s=point_size * 3,
                         c=color_down,
                         label=(
-                            f"{group['name']} - Higher in {condition1}"
+                            f"Higher in {condition1} ({len(down_genes)})"
                             if condition1
-                            else f"{group['name']} - Down-regulated"
+                            else f"Down-regulated ({len(down_genes)})"
                         ),
                     )
 
-                    # Add labels if requested
-                    if show_names is True:
-                        for _, gene_row in down_genes.iterrows():
-                            ax.annotate(
-                                gene_row["gene"],
-                                (gene_row["lfc"], gene_row["score"]),
-                                fontsize=font_size,
-                                **text_kwargs,
-                            )
+                    # Labels will be handled by centralized labeling logic below
 
-    # If show_names is a list, label those specific genes
-    if isinstance(show_names, list):
-        genes_to_label = [g for g in show_names if g in adata.var_names]
+    # Centralized gene labeling logic
+    genes_to_label = []
+    custom_labels = {}
+    
+    if gene_labels is not False:
+        if gene_labels is True:
+            # Label all highlighted genes
+            for group in highlight_groups:
+                genes_to_label.extend(group["genes"])
+            logger.info(f"Labeling all {len(genes_to_label)} highlighted genes")
+            
+        elif isinstance(gene_labels, int):
+            # Label top N genes by score
+            top_genes_for_labels = de_data.sort_values("sort_val", ascending=False).head(gene_labels)
+            genes_to_label = top_genes_for_labels["gene"].tolist()
+            logger.info(f"Labeling top {gene_labels} genes by score")
+            
+        elif isinstance(gene_labels, list):
+            # Label specific genes
+            genes_to_label = [g for g in gene_labels if g in adata.var_names]
+            if len(genes_to_label) < len(gene_labels):
+                missing = set(gene_labels) - set(genes_to_label)
+                logger.warning(f"Gene labeling: {len(missing)} genes not found: {', '.join(missing)}")
+            logger.info(f"Labeling {len(genes_to_label)} specific genes")
+            
+        elif isinstance(gene_labels, dict):
+            # Label genes with custom labels
+            genes_to_label = [g for g in gene_labels.keys() if g in adata.var_names]
+            custom_labels = {g: gene_labels[g] for g in genes_to_label}
+            if len(genes_to_label) < len(gene_labels):
+                missing = set(gene_labels.keys()) - set(genes_to_label)
+                logger.warning(f"Gene labeling: {len(missing)} genes not found: {', '.join(missing)}")
+            logger.info(f"Labeling {len(genes_to_label)} genes with custom labels")
 
-        if genes_to_label:
-            # Get data for these genes and add labels
-            genes_df = de_data[de_data["gene"].isin(genes_to_label)]
-            for _, gene_row in genes_df.iterrows():
-                ax.annotate(
-                    gene_row["gene"],
-                    (gene_row["lfc"], gene_row["score"]),
-                    fontsize=font_size,
-                    **text_kwargs,
-                )
+    # Apply the labels
+    if genes_to_label:
+        genes_df = de_data[de_data["gene"].isin(genes_to_label)]
+        for _, gene_row in genes_df.iterrows():
+            gene_name = gene_row["gene"]
+            # Use custom label if provided, otherwise use gene name
+            label_text = custom_labels.get(gene_name, gene_name)
+            ax.annotate(
+                label_text,
+                (gene_row["lfc"], gene_row["score"]),
+                fontsize=font_size,
+                **text_kwargs,
+            )
 
     # Create dummy entries for the legend if no highlighted genes
     if len(highlight_groups) == 0 and show_legend:
@@ -982,7 +1143,7 @@ def volcano_de(
             alpha=1,
             s=point_size * 3,
             c=color_up,
-            label=f"Higher in {condition2}" if condition2 else "Up-regulated",
+            label=f"Higher in {condition2} (0)" if condition2 else "Up-regulated (0)",
         )
         ax.scatter(
             [],
@@ -990,7 +1151,7 @@ def volcano_de(
             alpha=1,
             s=point_size * 3,
             c=color_down,
-            label=f"Higher in {condition1}" if condition1 else "Down-regulated",
+            label=f"Higher in {condition1} (0)" if condition1 else "Down-regulated (0)",
         )
 
     # Add formatting

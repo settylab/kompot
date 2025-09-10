@@ -214,6 +214,12 @@ def generate_output_field_names(
             "std_key_1": f"{result_key}_{cond1_safe}_std",
             "std_key_2": f"{result_key}_{cond2_safe}_std",
             
+            # FDR-related field names with condition names
+            "mahalanobis_pvalue_key": f"{result_key}_mahalanobis_pvalue_{cond1_safe}_to_{cond2_safe}{suffix}",
+            "mahalanobis_local_fdr_key": f"{result_key}_mahalanobis_local_fdr_{cond1_safe}_to_{cond2_safe}{suffix}",
+            "mahalanobis_tail_fdr_key": f"{result_key}_mahalanobis_tail_fdr_{cond1_safe}_to_{cond2_safe}{suffix}",
+            "is_de_key": f"{result_key}_is_de_{cond1_safe}_to_{cond2_safe}{suffix}",
+            
             # Add varm field names for group-specific metrics
             "mean_lfc_varm_key": f"{result_key}_mean_lfc_{cond1_safe}_to_{cond2_safe}_groups",
             "mahalanobis_varm_key": f"{result_key}_mahalanobis_{cond1_safe}_to_{cond2_safe}{suffix}_groups",
@@ -228,6 +234,7 @@ def generate_output_field_names(
             "var": [
                 field_names["mahalanobis_key"],      # Impacted by sample variance
                 field_names["mean_lfc_key"],         # Not impacted by sample variance
+                # FDR fields will be added conditionally below when null genes are used
             ],
             "layers": [
                 field_names["imputed_key_1"],        # Not impacted by sample variance

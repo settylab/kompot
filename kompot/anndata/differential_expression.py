@@ -554,17 +554,7 @@ def compute_differential_expression(
         sample_suffix="_sample_var" if sample_col is not None else "",
     )
 
-    # Add FDR-related field names if null_genes is specified
-    if null_genes is not None and null_genes != 0:
-        sample_suffix = "_sample_var" if sample_col is not None else ""
-        field_names.update(
-            {
-                "mahalanobis_pvalue_key": f"{result_key}_mahalanobis_pvalue{sample_suffix}",
-                "mahalanobis_local_fdr_key": f"{result_key}_mahalanobis_local_fdr{sample_suffix}",
-                "mahalanobis_tail_fdr_key": f"{result_key}_mahalanobis_tail_fdr{sample_suffix}",
-                "is_de_key": f"{result_key}_is_de{sample_suffix}",
-            }
-        )
+    # FDR field names are now generated in generate_output_field_names() with proper condition naming
 
     # Get all patterns from field_names
     all_patterns = field_names["all_patterns"]
