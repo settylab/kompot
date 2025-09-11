@@ -69,9 +69,9 @@ def volcano_de(
     run_id: int = -1,
     legend_ncol: Optional[int] = None,
     group: Optional[str] = None,
-    # New FDR-related parameters
-    y_axis_type: str = "mahalanobis",  # "mahalanobis", "local_fdr", or "tail_fdr"
-    fdr_threshold: Optional[float] = None,
+    # New significance-related parameters
+    y_axis_type: str = "mahalanobis",  # "mahalanobis", "local_fdr", "tail_fdr", "log10_ptp", or custom column name
+    significance_threshold: Optional[float] = None,
     update_de_classification: bool = False,
     de_column: Optional[str] = None,
     show_thresholds: bool = True,
@@ -190,14 +190,19 @@ def volcano_de(
         in compute_differential_expression. Will use the values from adata.varm instead of
         adata.var for Mahalanobis distances, and mean fold changes.
     y_axis_type : str, optional
-        Type of values to use for the y-axis: "mahalanobis" (default), "local_fdr", or "tail_fdr".
-        When using FDR values, they are -log10 transformed for display.
-    fdr_threshold : float, optional
-        FDR threshold for significance. If provided, will be shown as a horizontal line.
-        Only applicable when y_axis_type is "local_fdr" or "tail_fdr".
+        Type of values to use for the y-axis: "mahalanobis" (default), "local_fdr", "tail_fdr", 
+        "ptp", or a custom column name from adata.var. When using FDR or ptp values, they are 
+        -log10 transformed for display.
+    significance_threshold : float, optional
+        Significance threshold for the y-axis values. If provided, will be shown as a horizontal line.
+        The interpretation depends on y_axis_type:
+        - "mahalanobis": minimum distance for significance
+        - "local_fdr"/"tail_fdr": maximum FDR for significance (e.g., 0.05)
+        - "ptp": maximum p-value for significance (e.g., 0.01)
+        - custom column: threshold applied to the raw column values
     update_de_classification : bool, optional
         Whether to update the differential expression classification column based on the new
-        FDR threshold. Only applicable when y_axis_type is "local_fdr" or "tail_fdr" (default: False).
+        significance threshold. Applicable for FDR and ptp y_axis_types (default: False).
     de_column : str, optional
         Name of the differential expression boolean column to update if update_de_classification=True.
         If None, tries to infer from the score_key.
@@ -226,61 +231,105 @@ def volcano_de(
     # Get run info early since we'll need it for multiple purposes
     run_info = get_run_from_history(adata, run_id, analysis_type="de")
     
-    # Handle FDR-based y-axis options
+    # Handle various y-axis options
     original_score_key = score_key
-    fdr_key = None
+    significance_key = None
 
     def fdr_y_transform(y):
         """Transform FDR values using -log10."""
         return -np.log10(np.maximum(y, 1e-300))  # Avoid log(0)
 
     y_transform = None
+    
     if y_axis_type in ["local_fdr", "tail_fdr"]:
-        # Try to get FDR keys from run info instead of string manipulation
-        fdr_key = None
-        
+        # FDR-based y-axis
         if run_info and "fdr_keys" in run_info and run_info["fdr_keys"]:
             # Get the appropriate FDR key from run info
             if y_axis_type == "local_fdr":
-                fdr_key = run_info["fdr_keys"].get("local_fdr_key")
+                significance_key = run_info["fdr_keys"].get("local_fdr_key")
             else:  # tail_fdr
-                fdr_key = run_info["fdr_keys"].get("tail_fdr_key")
+                significance_key = run_info["fdr_keys"].get("tail_fdr_key")
             
             # Check if the FDR key exists in the data
-            if fdr_key and fdr_key in adata.var.columns:
-                score_key = fdr_key
+            if significance_key and significance_key in adata.var.columns:
+                score_key = significance_key
                 y_transform = fdr_y_transform
-                logger.info(f"Using {y_axis_type} values for y-axis: {fdr_key}")
-            elif fdr_key:
+                logger.info(f"Using {y_axis_type} values for y-axis: {significance_key}")
+            elif significance_key:
                 logger.warning(
-                    f"FDR key '{fdr_key}' from run info not found in adata.var. "
+                    f"FDR key '{significance_key}' from run info not found in adata.var. "
                     f"Available FDR columns: {[col for col in adata.var.columns if 'fdr' in col.lower() or 'pvalue' in col.lower()]}"
                 )
-                fdr_key = None
+                significance_key = None
             else:
                 logger.warning(f"No {y_axis_type} key found in run info fdr_keys")
         else:
             logger.warning("No FDR keys found in run info or FDR was not computed for this run")
         
         # Fallback to string replacement if run info approach fails
-        if fdr_key is None and score_key and "mahalanobis" in score_key:
+        if significance_key is None and score_key and "mahalanobis" in score_key:
             logger.info("Attempting fallback FDR key inference from score key...")
             if y_axis_type == "local_fdr":
-                fallback_fdr_key = score_key.replace("mahalanobis", "mahalanobis_local_fdr")
+                fallback_key = score_key.replace("mahalanobis", "mahalanobis_local_fdr")
             else:  # tail_fdr  
-                fallback_fdr_key = score_key.replace("mahalanobis", "mahalanobis_tail_fdr")
+                fallback_key = score_key.replace("mahalanobis", "mahalanobis_tail_fdr")
             
-            if fallback_fdr_key in adata.var.columns:
-                score_key = fallback_fdr_key
+            if fallback_key in adata.var.columns:
+                score_key = fallback_key
+                significance_key = fallback_key
                 y_transform = fdr_y_transform
-                logger.info(f"Using fallback {y_axis_type} key: {fallback_fdr_key}")
+                logger.info(f"Using fallback {y_axis_type} key: {fallback_key}")
             else:
-                logger.warning(f"Fallback FDR key '{fallback_fdr_key}' not found either")
+                logger.warning(f"Fallback FDR key '{fallback_key}' not found either")
         
         # Final fallback to original score key if nothing worked
-        if fdr_key is None and y_transform is None:
+        if significance_key is None and y_transform is None:
             logger.info(f"Using original score key: {original_score_key}")
             score_key = original_score_key
+            
+    elif y_axis_type == "ptp":
+        # Posterior tail probability (will be -log10 transformed for display)
+        if run_info and "ptp_key" in run_info and run_info["ptp_key"]:
+            significance_key = run_info["ptp_key"]
+            
+            if significance_key and significance_key in adata.var.columns:
+                score_key = significance_key
+                y_transform = fdr_y_transform  # Same -log10 transform as FDR
+                logger.info(f"Using ptp values for y-axis: {significance_key}")
+            else:
+                logger.warning(f"ptp key '{significance_key}' from run info not found in adata.var")
+                significance_key = None
+        
+        # Fallback to string replacement if run info approach fails
+        if significance_key is None and score_key and "mahalanobis" in score_key:
+            logger.info("Attempting fallback ptp key inference from score key...")
+            fallback_key = score_key.replace("mahalanobis", "ptp")
+            
+            if fallback_key in adata.var.columns:
+                score_key = fallback_key
+                significance_key = fallback_key
+                y_transform = fdr_y_transform  # Same -log10 transform as FDR
+                logger.info(f"Using fallback ptp key: {fallback_key}")
+            else:
+                logger.warning(f"Fallback ptp key '{fallback_key}' not found either")
+        
+        # Final fallback to original score key if nothing worked
+        if significance_key is None:
+            logger.info(f"Using original score key: {original_score_key}")
+            score_key = original_score_key
+            
+    elif y_axis_type not in ["mahalanobis"]:
+        # Custom column name - check if it exists directly in adata.var
+        if y_axis_type in adata.var.columns:
+            score_key = y_axis_type
+            significance_key = y_axis_type
+            logger.info(f"Using custom column '{y_axis_type}' for y-axis")
+        else:
+            logger.error(
+                f"Custom y_axis_type '{y_axis_type}' not found in adata.var.columns. "
+                f"Available columns: {list(adata.var.columns)}"
+            )
+            raise ValueError(f"Column '{y_axis_type}' not found in adata.var")
 
     # Auto-infer ylabel if not provided
     if ylabel is None:
@@ -288,6 +337,8 @@ def volcano_de(
             ylabel = "-log10(Local FDR)"
         elif y_axis_type == "tail_fdr":
             ylabel = "-log10(Tail FDR)"
+        elif y_axis_type == "ptp":
+            ylabel = "-log10(Posterior Tail Probability)"
         else:
             ylabel = "Mahalanobis Distance"
 
@@ -499,22 +550,25 @@ def volcano_de(
     # Update DE classification if requested
     if (
         update_de_classification
-        and fdr_threshold is not None
-        and y_axis_type in ["local_fdr", "tail_fdr"]
+        and significance_threshold is not None
+        and y_axis_type in ["local_fdr", "tail_fdr", "ptp"]
     ):
         if de_column and de_column in adata.var.columns:
             # Get FDR values
             fdr_values = adata.var[fdr_key].values if fdr_key else None
             if fdr_values is not None:
                 # Update classification based on new threshold
-                new_classification = fdr_values < fdr_threshold
+                if y_axis_type in ["local_fdr", "tail_fdr"]:
+                    new_classification = fdr_values < significance_threshold
+                elif y_axis_type == "ptp":
+                    new_classification = fdr_values < significance_threshold  # ptp values are p-values
                 old_count = np.sum(adata.var[de_column])
                 new_count = np.sum(new_classification)
 
                 adata.var[de_column] = new_classification
                 logger.info(
                     f"Updated DE classification: {old_count} → {new_count} significant genes "
-                    f"at FDR < {fdr_threshold}"
+                    f"at {y_axis_type} < {significance_threshold}"
                 )
             else:
                 logger.warning(
@@ -822,9 +876,9 @@ def volcano_de(
             if run_info and "fdr_keys" in run_info and run_info["fdr_keys"]:
                 de_column = run_info["fdr_keys"].get("is_de_key")
             
-            # Check if we should use FDR threshold for gene selection
-            # FDR threshold should work regardless of y_axis_type if FDR data is available
-            if fdr_threshold is not None:
+            # Check if we should use significance threshold for gene selection
+            # Significance threshold should work for FDR and ptp data
+            if significance_threshold is not None:
                 # Use FDR threshold to select genes to highlight
                 fdr_values_key = None
                 if y_axis_type == "local_fdr":
@@ -836,64 +890,73 @@ def volcano_de(
                     if run_info and "fdr_keys" in run_info and run_info["fdr_keys"]:
                         fdr_values_key = run_info["fdr_keys"].get("local_fdr_key")
                         if fdr_values_key:
-                            logger.info(f"Using local FDR values for gene selection (fdr_threshold={fdr_threshold} specified)")
+                            logger.info(f"Using local FDR values for gene selection (significance_threshold={significance_threshold} specified)")
                 
                 if fdr_values_key and fdr_values_key in adata.var.columns:
                     # Select genes based on FDR threshold
                     fdr_values = adata.var[fdr_values_key]
-                    logger.info(f"FDR threshold selection: using column '{fdr_values_key}' with threshold {fdr_threshold}")
+                    logger.info(f"Significance threshold selection: using column '{fdr_values_key}' with threshold {significance_threshold}")
                     logger.info(f"FDR values range: {fdr_values.min():.6f} - {fdr_values.max():.6f}")
                     
-                    fdr_significant_mask = fdr_values < fdr_threshold
-                    fdr_significant_genes = adata.var_names[fdr_significant_mask].tolist()
-                    logger.info(f"Found {len(fdr_significant_genes)} genes with FDR < {fdr_threshold}")
+                    if y_axis_type in ["local_fdr", "tail_fdr"]:
+                        significant_mask = fdr_values < significance_threshold
+                    elif y_axis_type == "ptp":
+                        significant_mask = fdr_values < significance_threshold  # ptp values are p-values
+                    else:
+                        # For other types, assume higher values are more significant
+                        significant_mask = fdr_values > significance_threshold
+                    
+                    significant_genes = adata.var_names[significant_mask].tolist()
+                    logger.info(f"Found {len(significant_genes)} genes with {y_axis_type} {'<' if y_axis_type in ['local_fdr', 'tail_fdr', 'ptp'] else '>'} {significance_threshold}")
                     
                     # Update is_de column if requested
                     if update_de_classification and de_column and de_column in adata.var.columns:
                         old_count = np.sum(adata.var[de_column])
-                        adata.var[de_column] = fdr_significant_mask
+                        adata.var[de_column] = significant_mask
                         new_count = np.sum(adata.var[de_column])
-                        logger.info(f"Updated DE classification: {old_count} → {new_count} significant genes at FDR < {fdr_threshold}")
+                        logger.info(f"Updated DE classification: {old_count} → {new_count} significant genes at {y_axis_type} {'<' if y_axis_type in ['local_fdr', 'tail_fdr', 'ptp'] else '>'} {significance_threshold}")
                     
                     # Filter de_data for significant genes
-                    fdr_de_genes_df = de_data[de_data["gene"].isin(fdr_significant_genes)]
+                    sig_de_genes_df = de_data[de_data["gene"].isin(significant_genes)]
                     
-                    if len(fdr_significant_genes) > 0:
+                    if len(significant_genes) > 0:
                         # Count up and down regulated significant genes
-                        up_fdr_genes = fdr_de_genes_df[fdr_de_genes_df["lfc"] > 0]["gene"].tolist()
-                        down_fdr_genes = fdr_de_genes_df[fdr_de_genes_df["lfc"] < 0]["gene"].tolist()
+                        up_sig_genes = sig_de_genes_df[sig_de_genes_df["lfc"] > 0]["gene"].tolist()
+                        down_sig_genes = sig_de_genes_df[sig_de_genes_df["lfc"] < 0]["gene"].tolist()
                         
-                        if up_fdr_genes:
+                        if up_sig_genes:
                             highlight_groups.append({
-                                "genes": up_fdr_genes, 
-                                "name": f"Higher in {condition2} ({len(up_fdr_genes)})" if condition2 else f"Up-regulated ({len(up_fdr_genes)})"
+                                "genes": up_sig_genes, 
+                                "name": f"Higher in {condition2} ({len(up_sig_genes)})" if condition2 else f"Up-regulated ({len(up_sig_genes)})"
                             })
-                        if down_fdr_genes:
+                        if down_sig_genes:
                             highlight_groups.append({
-                                "genes": down_fdr_genes, 
-                                "name": f"Higher in {condition1} ({len(down_fdr_genes)})" if condition1 else f"Down-regulated ({len(down_fdr_genes)})"
+                                "genes": down_sig_genes, 
+                                "name": f"Higher in {condition1} ({len(down_sig_genes)})" if condition1 else f"Down-regulated ({len(down_sig_genes)})"
                             })
                         
-                        logger.info(f"Highlighting {len(fdr_significant_genes):,} genes at {y_axis_type} < {fdr_threshold} ({len(up_fdr_genes)} up, {len(down_fdr_genes)} down)")
+                        threshold_op = '<' if y_axis_type in ['local_fdr', 'tail_fdr', 'ptp'] else '>'
+                        logger.info(f"Highlighting {len(significant_genes):,} genes at {y_axis_type} {threshold_op} {significance_threshold} ({len(up_sig_genes)} up, {len(down_sig_genes)} down)")
                     else:
-                        logger.info(f"No genes found at {y_axis_type} < {fdr_threshold} - falling back to top genes highlighting")
+                        threshold_op = '<' if y_axis_type in ['local_fdr', 'tail_fdr', 'ptp'] else '>'
+                        logger.info(f"No genes found at {y_axis_type} {threshold_op} {significance_threshold} - falling back to top genes highlighting")
                         # Fallback to top genes when no significant genes are found
                         top_genes = de_data.sort_values("sort_val", ascending=False).head(n_top_genes)
                         highlight_groups.append(
-                            {"genes": top_genes["gene"].tolist(), "name": f"Top {n_top_genes} genes (no genes at FDR<{fdr_threshold})"}
+                            {"genes": top_genes["gene"].tolist(), "name": f"Top {n_top_genes} genes (no genes at threshold)"}
                         )
                         logger.info(f"Highlighting top {n_top_genes:,} genes by score as fallback")
                 else:
                     # Debug what went wrong
                     if not fdr_values_key:
-                        logger.warning(f"Cannot use FDR threshold: no FDR key found for y_axis_type='{y_axis_type}'")
+                        logger.warning(f"Cannot use significance threshold: no key found for y_axis_type='{y_axis_type}'")
                         if run_info and "fdr_keys" in run_info:
                             available_fdr_keys = list(run_info["fdr_keys"].keys())
                             logger.info(f"Available FDR keys in run info: {available_fdr_keys}")
                         else:
                             logger.warning("No FDR keys found in run info")
                     elif fdr_values_key not in adata.var.columns:
-                        logger.warning(f"Cannot use FDR threshold: column '{fdr_values_key}' not found in adata.var")
+                        logger.warning(f"Cannot use significance threshold: column '{fdr_values_key}' not found in adata.var")
                         logger.info(f"Available var columns with 'fdr': {[col for col in adata.var.columns if 'fdr' in col.lower()]}")
                     # Fall through to regular is_de logic below
             
@@ -1157,24 +1220,54 @@ def volcano_de(
     # Add formatting
     ax.axvline(x=0, color="black", linestyle="--", alpha=0.3)
 
-    # Add FDR threshold line if applicable
+    # Add significance threshold line if applicable
     if (
         show_thresholds
-        and fdr_threshold is not None
-        and y_axis_type in ["local_fdr", "tail_fdr"]
+        and significance_threshold is not None
+        and y_axis_type in ["local_fdr", "tail_fdr", "ptp"]
         and y_transform is not None
     ):
         # Transform the threshold for display
-        threshold_y = y_transform(np.array([fdr_threshold]))[0]
+        threshold_y = y_transform(np.array([significance_threshold]))[0]
         ax.axhline(
             y=threshold_y,
             color="red",
             linestyle="--",
             alpha=0.7,
             linewidth=1,
-            label=f"FDR = {fdr_threshold}",
+            label=f"{y_axis_type} = {significance_threshold}",
         )
-        logger.info(f"Added FDR threshold line at y={threshold_y:.2f} (FDR={fdr_threshold})")
+        logger.info(f"Added {y_axis_type} threshold line at y={threshold_y:.2f} ({y_axis_type}={significance_threshold})")
+    elif (
+        show_thresholds
+        and significance_threshold is not None
+        and y_axis_type == "mahalanobis"
+    ):
+        # For Mahalanobis distance, threshold is used directly
+        ax.axhline(
+            y=significance_threshold,
+            color="red",
+            linestyle="--",
+            alpha=0.7,
+            linewidth=1,
+            label=f"Mahalanobis = {significance_threshold}",
+        )
+        logger.info(f"Added Mahalanobis threshold line at y={significance_threshold}")
+    elif (
+        show_thresholds
+        and significance_threshold is not None
+        and y_axis_type not in ["local_fdr", "tail_fdr", "ptp", "mahalanobis"]
+    ):
+        # For custom columns, use threshold directly
+        ax.axhline(
+            y=significance_threshold,
+            color="red",
+            linestyle="--",
+            alpha=0.7,
+            linewidth=1,
+            label=f"{y_axis_type} = {significance_threshold}",
+        )
+        logger.info(f"Added {y_axis_type} threshold line at y={significance_threshold}")
 
     ax.set_xlabel(xlabel, fontsize=12)
     ax.set_ylabel(ylabel, fontsize=12)

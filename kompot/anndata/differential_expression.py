@@ -516,7 +516,7 @@ def compute_differential_expression(
     Results are stored in various components of the AnnData object:
 
     - adata.var[f"{result_key}_mahalanobis"]: Mahalanobis distance for each gene
-    - adata.var[f"{result_key}_log10_ptp"]: Log10 posterior tail probability from chi-squared distribution (if compute_mahalanobis is True)
+    - adata.var[f"{result_key}_ptp"]: Posterior tail probability from chi-squared distribution (if compute_mahalanobis is True)
     - adata.var[f"{result_key}_mean_lfc"]: Mean log fold change for each gene
     - adata.var[f"{result_key}_mahalanobis_pvalue"]: P-values from empirical null distribution (if null_genes is not None)
     - adata.var[f"{result_key}_mahalanobis_local_fdr"]: Local FDR values using empirical null estimation similar to R's fdrtool (if null_genes is not None)
@@ -1341,6 +1341,12 @@ def compute_differential_expression(
             # Update mahalanobis_distances to only include real genes
             if "mahalanobis_distances" in expression_results:
                 expression_results["mahalanobis_distances"] = real_mahalanobis
+            
+            # Update ptp to only include real genes
+            if "ptp" in expression_results:
+                all_ptp = expression_results["ptp"]
+                real_ptp = all_ptp[:n_real_genes]
+                expression_results["ptp"] = real_ptp
         else:
             logger.warning("Mahalanobis distances not computed - cannot perform FDR calculation")
 
@@ -1491,8 +1497,8 @@ def compute_differential_expression(
         result_dict["mahalanobis_distances"] = expression_results['mahalanobis_distances']
     
     # Add log10-ptp if available
-    if 'log10_ptp' in expression_results:
-        result_dict["log10_ptp"] = expression_results['log10_ptp']
+    if 'ptp' in expression_results:
+        result_dict["ptp"] = expression_results['ptp']
         
         
     # Add landmarks to result dictionary if they were computed
@@ -1564,54 +1570,48 @@ def compute_differential_expression(
                 new_var_columns[mahalanobis_key] = pd.Series(np.nan, index=adata.var_names)
                 new_var_columns[mahalanobis_key].loc[selected_genes] = mahalanobis_distances
 
-        # Handle log10_ptp if available (always computed when mahalanobis is computed)
-        if compute_mahalanobis and "log10_ptp" in expression_results:
-            log10_ptp_values = expression_results["log10_ptp"]
+        # Handle ptp if available (always computed when mahalanobis is computed)
+        if compute_mahalanobis and "ptp" in expression_results:
+            ptp_values = expression_results["ptp"]
             
             # Convert list to numpy array if needed
-            if isinstance(log10_ptp_values, list):
-                log10_ptp_values = np.array(log10_ptp_values)
+            if isinstance(ptp_values, list):
+                ptp_values = np.array(ptp_values)
             
-            # Ensure log10_ptp_values is 1D before reshaping
-            if len(log10_ptp_values.shape) > 1:
+            # Ensure ptp_values is 1D before reshaping
+            if len(ptp_values.shape) > 1:
                 logger.debug(
-                    f"log10_ptp has shape {log10_ptp_values.shape}, flattening to 1D."
+                    f"ptp has shape {ptp_values.shape}, flattening to 1D."
                 )
-                if log10_ptp_values.shape[0] < log10_ptp_values.shape[1]:
-                    log10_ptp_values = log10_ptp_values[
+                if ptp_values.shape[0] < ptp_values.shape[1]:
+                    ptp_values = ptp_values[
                         0, :
                     ]  # Take the first row if fewer rows than columns
                 else:
-                    log10_ptp_values = log10_ptp_values[
+                    ptp_values = ptp_values[
                         :, 0
                     ]  # Take the first column if fewer columns than rows
             
-            if len(log10_ptp_values) != len(selected_genes):
+            if len(ptp_values) != len(selected_genes):
                 logger.warning(
-                    f"log10_ptp length {len(log10_ptp_values)} doesn't match selected_genes length {len(selected_genes)}. Reshaping."
+                    f"ptp length {len(ptp_values)} doesn't match selected_genes length {len(selected_genes)}. This should not happen with proper gene subsetting."
                 )
-                
-                if len(log10_ptp_values) < len(selected_genes):
-                    # Pad with NaN values if the array is too short
-                    padding = np.full(len(selected_genes) - len(log10_ptp_values), np.nan)
-                    log10_ptp_values = np.concatenate([log10_ptp_values, padding])
-                else:
-                    # Truncate if the array is too long
-                    log10_ptp_values = log10_ptp_values[: len(selected_genes)]
+                # Truncate if the array is too long (no padding to avoid assigning to wrong genes)
+                ptp_values = ptp_values[: len(selected_genes)]
             
-            # Use the proper log10_ptp key from field naming
-            log10_ptp_key = field_names["log10_ptp_key"]
+            # Use the proper ptp key from field naming
+            ptp_key = field_names["ptp_key"]
             
             # Add to collection for batch addition
-            if log10_ptp_key in adata.var:
+            if ptp_key in adata.var:
                 # Only create a series for selected genes to avoid overwriting existing values
-                new_var_columns[log10_ptp_key] = pd.Series(
-                    log10_ptp_values, index=selected_genes
+                new_var_columns[ptp_key] = pd.Series(
+                    ptp_values, index=selected_genes
                 )
             else:
                 # Initialize with NaN for all genes if column doesn't exist yet
-                new_var_columns[log10_ptp_key] = pd.Series(np.nan, index=adata.var_names)
-                new_var_columns[log10_ptp_key].loc[selected_genes] = log10_ptp_values
+                new_var_columns[ptp_key] = pd.Series(np.nan, index=adata.var_names)
+                new_var_columns[ptp_key].loc[selected_genes] = ptp_values
 
         if differential_abundance_key is not None:
             # Use the standardized field name from field_names
@@ -2045,7 +2045,7 @@ def compute_differential_expression(
             "lfc_key": field_names["mean_lfc_key"],
             
             "mahalanobis_key": field_names["mahalanobis_key"] if compute_mahalanobis else None,
-            "log10_ptp_key": field_names["log10_ptp_key"] if compute_mahalanobis else None,
+            "ptp_key": field_names["ptp_key"] if compute_mahalanobis else None,
             "fdr_keys": (
                 {
                     "pvalue_key": field_names.get("mahalanobis_pvalue_key") if use_fdr else None,
@@ -2145,10 +2145,10 @@ def compute_differential_expression(
                 "type": "mahalanobis",
                 "description": "Mahalanobis distances",
             }
-            field_mapping[field_names["log10_ptp_key"]] = {
+            field_mapping[field_names["ptp_key"]] = {
                 "location": "var",
-                "type": "log10_ptp",
-                "description": "Log10 posterior tail probability from chi-squared distribution",
+                "type": "ptp",
+                "description": "Posterior tail probability from chi-squared distribution",
             }
 
         # Add FDR fields if they were computed
@@ -2183,7 +2183,7 @@ def compute_differential_expression(
 
         if compute_mahalanobis:
             field_mapping[field_names["mahalanobis_key"]] = {"location": "var", "type": "mahalanobis", "description": "Mahalanobis distances"}
-            field_mapping[field_names["log10_ptp_key"]] = {"location": "var", "type": "log10_ptp", "description": "Log10 posterior tail probability from chi-squared distribution"}
+            field_mapping[field_names["ptp_key"]] = {"location": "var", "type": "ptp", "description": "Posterior tail probability from chi-squared distribution"}
             
             
         # Add posterior covariance field if it was added to obsp

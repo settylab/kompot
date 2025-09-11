@@ -201,12 +201,12 @@ def generate_output_field_names(
     elif analysis_type == "de":
         # Define which fields are actually impacted by sample variance
         # Fields like mean_lfc, imputed data, fold_change are not affected by sample variance
-        sample_variance_impacted = ["mahalanobis_key", "log10_ptp_key", "lfc_std_key", "mahalanobis_varm_key", "std_key_1", "std_key_2", "fold_change_zscores_key"]
+        sample_variance_impacted = ["mahalanobis_key", "ptp_key", "lfc_std_key", "mahalanobis_varm_key", "std_key_1", "std_key_2", "fold_change_zscores_key"]
         
         # Differential expression field names
         field_names.update({
             "mahalanobis_key": f"{result_key}_mahalanobis_{cond1_safe}_to_{cond2_safe}{suffix}",
-            "log10_ptp_key": f"{result_key}_log10_ptp_{cond1_safe}_to_{cond2_safe}{suffix}",
+            "ptp_key": f"{result_key}_ptp_{cond1_safe}_to_{cond2_safe}{suffix}",
             "mean_lfc_key": f"{result_key}_mean_lfc_{cond1_safe}_to_{cond2_safe}",
             "imputed_key_1": f"{result_key}_imputed_{cond1_safe}",
             "imputed_key_2": f"{result_key}_imputed_{cond2_safe}",
@@ -234,7 +234,7 @@ def generate_output_field_names(
         field_names["all_patterns"] = {
             "var": [
                 field_names["mahalanobis_key"],      # Impacted by sample variance
-                field_names["log10_ptp_key"],        # Impacted by sample variance
+                field_names["ptp_key"],        # Impacted by sample variance
                 field_names["mean_lfc_key"],         # Not impacted by sample variance
                 # FDR fields will be added conditionally below when null genes are used
             ],

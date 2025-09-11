@@ -849,19 +849,19 @@ class DifferentialExpression:
             )            
             result['mahalanobis_distances'] = mahalanobis_distances
             
-            # Compute log10 posterior tail probability (log10-ptp)
-            # using chi2.logsf where x is the square of the Mahalanobis distance
+            # Compute posterior tail probability (ptp)
+            # using chi2.sf where x is the square of the Mahalanobis distance
             # and df is the degrees of freedom (dimension of the vector)
             if hasattr(self, '_last_mahalanobis_dof'):
-                logger.debug(f"Computing log10-ptp with {self._last_mahalanobis_dof} degrees of freedom...")
+                logger.debug(f"Computing ptp with {self._last_mahalanobis_dof} degrees of freedom...")
                 
                 # Square the Mahalanobis distances for chi2 distribution
                 mahalanobis_squared = jnp.array(mahalanobis_distances) ** 2
                 
-                # Compute log10 posterior tail probability
-                # jax_stats.chi2.logsf gives log(1 - CDF), convert to log10
-                log10_ptp = jax_stats.chi2.logsf(mahalanobis_squared, df=self._last_mahalanobis_dof) / jnp.log(10.0)
+                # Compute posterior tail probability
+                # jax_stats.chi2.sf gives (1 - CDF) = tail probability
+                ptp = jax_stats.chi2.sf(mahalanobis_squared, df=self._last_mahalanobis_dof)
                 
-                result['log10_ptp'] = np.array(log10_ptp)
+                result['ptp'] = np.array(ptp)
         
         return result

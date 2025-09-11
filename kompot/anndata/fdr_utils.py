@@ -154,8 +154,7 @@ def compute_fdr_statistics(
     zero_pvalues = pvalues == 0.0
     if np.any(zero_pvalues):
         # Use a much smaller minimum to allow very small FDR values
-        # Conservative approach: use 1/(10*len(null_mahalanobis)) to allow more precision
-        min_pvalue = 1.0 / (10 * len(null_mahalanobis))
+        min_pvalue = np.min(pvalues[~zero_pvalues])
         pvalues[zero_pvalues] = min_pvalue
         logger.debug(f"Set minimum p-value to {min_pvalue} for {np.sum(zero_pvalues)} zero p-values")
 
@@ -179,7 +178,7 @@ def compute_fdr_statistics(
             null_proportion=1.0,  # Assume theoretical null proportion
             null_pdf=None,  # Let it estimate empirical null distribution
             deg=7,  # Polynomial degree for spline fitting (fdrtool default)
-            nbins=30,  # Number of bins for density estimation
+            nbins=500,  # Number of bins for density estimation
             alpha=0,  # No higher criticism threshold
         )
 
