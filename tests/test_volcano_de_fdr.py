@@ -306,7 +306,7 @@ class TestVolcanoFDRThresholds:
             lfc_key="kompot_de_mean_log_fold_change",
             score_key="kompot_de_mahalanobis",
             y_axis_type="local_fdr",
-            fdr_threshold=0.05,
+            significance_threshold=0.05,
             show_thresholds=True,
             ax=ax,
             show_legend=False,
@@ -329,7 +329,7 @@ class TestVolcanoFDRThresholds:
             lfc_key="kompot_de_mean_log_fold_change",
             score_key="kompot_de_mahalanobis",
             y_axis_type="local_fdr",
-            fdr_threshold=0.05,
+            significance_threshold=0.05,
             show_thresholds=False,
             ax=ax,
             show_legend=False,
@@ -352,7 +352,7 @@ class TestVolcanoFDRThresholds:
             lfc_key="kompot_de_mean_log_fold_change",
             score_key="kompot_de_mahalanobis",
             y_axis_type="local_fdr",
-            fdr_threshold=threshold_val,
+            significance_threshold=threshold_val,
             show_thresholds=True,
             ax=ax,
             show_legend=False,
@@ -391,7 +391,7 @@ class TestVolcanoFDRClassificationUpdates:
             lfc_key="kompot_de_mean_log_fold_change",
             score_key="kompot_de_mahalanobis",
             y_axis_type="local_fdr",
-            fdr_threshold=0.2,  # More lenient threshold
+            significance_threshold=0.2,  # More lenient threshold
             update_de_classification=True,
             ax=ax,
             show_legend=False,
@@ -417,7 +417,7 @@ class TestVolcanoFDRClassificationUpdates:
             lfc_key="kompot_de_mean_log_fold_change",
             score_key="kompot_de_mahalanobis",
             y_axis_type="local_fdr",
-            fdr_threshold=0.2,  # More lenient threshold
+            significance_threshold=0.2,  # More lenient threshold
             update_de_classification=False,  # Explicitly disabled
             ax=ax,
             show_legend=False,
@@ -441,7 +441,7 @@ class TestVolcanoFDRClassificationUpdates:
             lfc_key="kompot_de_mean_log_fold_change",
             score_key="kompot_de_mahalanobis",
             y_axis_type="local_fdr",
-            fdr_threshold=0.001,  # Very strict threshold
+            significance_threshold=0.001,  # Very strict threshold
             update_de_classification=True,
             ax=ax,
             show_legend=False,
@@ -496,7 +496,7 @@ class TestVolcanoFDRErrorHandling:
             lfc_key="kompot_de_mean_log_fold_change",
             score_key="kompot_de_mahalanobis",
             y_axis_type="local_fdr",
-            fdr_threshold=0.05,
+            significance_threshold=0.05,
             update_de_classification=True,  # This should be ignored
             ax=ax,
             show_legend=False,
@@ -611,7 +611,7 @@ class TestVolcanoFDRIntegration:
                 lfc_key="kompot_de_mean_log_fold_change",
                 score_key="kompot_de_mahalanobis",
                 y_axis_type="local_fdr",
-                fdr_threshold=0.05,
+                significance_threshold=0.05,
                 save=tmp.name,
                 show_legend=False,
             )

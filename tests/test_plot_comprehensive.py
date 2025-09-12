@@ -241,7 +241,7 @@ class TestVolcanoPlots:
                 score_key='zscore_A_to_B',
                 condition1='A',
                 condition2='B',
-                show_names=False
+                gene_labels=False
             )
         
         if result is not None:
@@ -265,7 +265,7 @@ class TestVolcanoPlots:
                 lfc_key='log_fold_change_A_to_B',
                 score_key='zscore_A_to_B',
                 highlight_genes=highlight_genes,
-                show_names=True,
+                gene_labels=True,
                 n_top_genes=3
             )
         
@@ -286,7 +286,7 @@ class TestVolcanoPlots:
                 test_adata,
                 lfc_key='log_fold_change_A_to_B',
                 score_key='zscore_A_to_B',
-                show_names=False
+                gene_labels=False
             )
         
         if result is not None:

@@ -325,22 +325,24 @@ def volcano_de(
             significance_key = y_axis_type
             logger.info(f"Using custom column '{y_axis_type}' for y-axis")
         else:
-            logger.error(
+            logger.warning(
                 f"Custom y_axis_type '{y_axis_type}' not found in adata.var.columns. "
-                f"Available columns: {list(adata.var.columns)}"
+                f"Falling back to original score_key: {original_score_key}"
             )
-            raise ValueError(f"Column '{y_axis_type}' not found in adata.var")
+            score_key = original_score_key
 
     # Auto-infer ylabel if not provided
     if ylabel is None:
-        if y_axis_type == "local_fdr":
+        if y_axis_type == "local_fdr" and y_transform is not None:
             ylabel = "-log10(Local FDR)"
-        elif y_axis_type == "tail_fdr":
+        elif y_axis_type == "tail_fdr" and y_transform is not None:
             ylabel = "-log10(Tail FDR)"
-        elif y_axis_type == "ptp":
+        elif y_axis_type == "ptp" and y_transform is not None:
             ylabel = "-log10(Posterior Tail Probability)"
-        else:
+        elif y_axis_type == "mahalanobis" or (score_key and "mahalanobis" in score_key.lower()):
             ylabel = "Mahalanobis Distance"
+        else:
+            ylabel = score_key
 
     # Calculate the actual (positive) run ID for logging - use same logic as volcano_da
     if run_id < 0:
@@ -512,28 +514,37 @@ def volcano_de(
         y = y_transform(y)
         logger.info(f"Applied {y_axis_type} transformation to y-axis data")
 
-    # Handle FDR-based coloring and DE classification updates
-    if y_axis_type in ["local_fdr", "tail_fdr"] and background_color_key is None:
-        # Try to auto-detect the DE boolean column for coloring
-        if de_column is None:
-            # First try to get DE column from run info
-            if run_info and "fdr_keys" in run_info and run_info["fdr_keys"]:
-                de_column = run_info["fdr_keys"].get("is_de_key")
-                logger.info(f"Found is_de key from run info: {de_column}")
-            
-            # Fallback to string manipulation if run info doesn't have it
-            if de_column is None:
-                if fdr_key and "mahalanobis" in fdr_key:
-                    de_column = fdr_key.replace("mahalanobis_local_fdr", "is_de").replace(
-                        "mahalanobis_tail_fdr", "is_de"
-                    )
-                elif original_score_key and "mahalanobis" in original_score_key:
-                    de_column = original_score_key.replace("mahalanobis", "is_de")
+    # Determine DE column for potential use
+    inferred_de_column = None
+    if de_column is None:
+        # First try to get DE column from run info
+        if run_info and "fdr_keys" in run_info and run_info["fdr_keys"]:
+            inferred_de_column = run_info["fdr_keys"].get("is_de_key")
+            logger.debug(f"Found is_de key from run info: {inferred_de_column}")
+        
+        # Fallback to string manipulation if run info doesn't have it
+        if inferred_de_column is None:
+            if significance_key and "mahalanobis" in significance_key:
+                inferred_de_column = significance_key.replace("mahalanobis_local_fdr", "is_de").replace(
+                    "mahalanobis_tail_fdr", "is_de"
+                )
+            elif original_score_key and "mahalanobis" in original_score_key:
+                inferred_de_column = original_score_key.replace("mahalanobis", "is_de")
+    else:
+        inferred_de_column = de_column
 
+    # Handle FDR-based coloring (but don't update DE classification yet)
+    # Only use DE column for background coloring if no other highlighting mechanism is provided
+    if (
+        y_axis_type in ["local_fdr", "tail_fdr", "ptp"]
+        and background_color_key is None
+        and significance_threshold is None  # Don't use DE column coloring when threshold is specified
+        and highlight_genes is None  # Don't use DE column coloring when specific genes are highlighted
+    ):
         # Check if DE column exists and use it for background coloring
-        if de_column and de_column in adata.var.columns:
-            background_color_key = de_column
-            logger.info(f"Using DE classification column for coloring: {de_column}")
+        if inferred_de_column and inferred_de_column in adata.var.columns:
+            background_color_key = inferred_de_column
+            logger.info(f"Using DE classification column for coloring: {inferred_de_column}")
 
             # Set up discrete color mapping for DE status
             if color_discrete_map is None:
@@ -546,36 +557,6 @@ def volcano_de(
                 f"DE classification column not found. Available columns: "
                 f"{[col for col in adata.var.columns if 'is_de' in col.lower() or col.endswith('_de')]}"
             )
-
-    # Update DE classification if requested
-    if (
-        update_de_classification
-        and significance_threshold is not None
-        and y_axis_type in ["local_fdr", "tail_fdr", "ptp"]
-    ):
-        if de_column and de_column in adata.var.columns:
-            # Get FDR values
-            fdr_values = adata.var[fdr_key].values if fdr_key else None
-            if fdr_values is not None:
-                # Update classification based on new threshold
-                if y_axis_type in ["local_fdr", "tail_fdr"]:
-                    new_classification = fdr_values < significance_threshold
-                elif y_axis_type == "ptp":
-                    new_classification = fdr_values < significance_threshold  # ptp values are p-values
-                old_count = np.sum(adata.var[de_column])
-                new_count = np.sum(new_classification)
-
-                adata.var[de_column] = new_classification
-                logger.info(
-                    f"Updated DE classification: {old_count} → {new_count} significant genes "
-                    f"at {y_axis_type} < {significance_threshold}"
-                )
-            else:
-                logger.warning(
-                    f"Cannot update DE classification: FDR values not found in {fdr_key}"
-                )
-        else:
-            logger.warning(f"Cannot update DE classification: DE column '{de_column}' not found")
 
     # Create a DataFrame with all relevant information
     data_dict = {"gene": adata.var_names, "lfc": x, "score": y}
@@ -869,52 +850,57 @@ def volcano_de(
             )
             logger.info(f"Highlighting top {n_top_genes:,} genes by {sort_key or score_key}")
         else:
-            # Use is_de column to determine highlighted genes (default behavior)
-            de_column = None
+            # Use significance threshold or is_de column to determine highlighted genes (default behavior)
             
-            # Try to get DE column from run info first
-            if run_info and "fdr_keys" in run_info and run_info["fdr_keys"]:
-                de_column = run_info["fdr_keys"].get("is_de_key")
-            
-            # Check if we should use significance threshold for gene selection
-            # Significance threshold should work for FDR and ptp data
+            # Use significance threshold for gene selection if provided
             if significance_threshold is not None:
-                # Use FDR threshold to select genes to highlight
-                fdr_values_key = None
-                if y_axis_type == "local_fdr":
-                    fdr_values_key = run_info["fdr_keys"].get("local_fdr_key") if run_info and "fdr_keys" in run_info and run_info["fdr_keys"] else None
-                elif y_axis_type == "tail_fdr":
-                    fdr_values_key = run_info["fdr_keys"].get("tail_fdr_key") if run_info and "fdr_keys" in run_info and run_info["fdr_keys"] else None
-                else:
-                    # Default to local FDR when fdr_threshold is specified but y_axis_type is not FDR-based
-                    if run_info and "fdr_keys" in run_info and run_info["fdr_keys"]:
-                        fdr_values_key = run_info["fdr_keys"].get("local_fdr_key")
-                        if fdr_values_key:
-                            logger.info(f"Using local FDR values for gene selection (significance_threshold={significance_threshold} specified)")
+                significance_values_key = None
+                threshold_comparison = None  # '<' for FDR/ptp, '>' for mahalanobis
                 
-                if fdr_values_key and fdr_values_key in adata.var.columns:
-                    # Select genes based on FDR threshold
-                    fdr_values = adata.var[fdr_values_key]
-                    logger.info(f"Significance threshold selection: using column '{fdr_values_key}' with threshold {significance_threshold}")
-                    logger.info(f"FDR values range: {fdr_values.min():.6f} - {fdr_values.max():.6f}")
+                # Determine which column to use for significance values
+                if y_axis_type == "local_fdr":
+                    significance_values_key = run_info["fdr_keys"].get("local_fdr_key") if run_info and "fdr_keys" in run_info and run_info["fdr_keys"] else None
+                    threshold_comparison = '<'
+                elif y_axis_type == "tail_fdr":
+                    significance_values_key = run_info["fdr_keys"].get("tail_fdr_key") if run_info and "fdr_keys" in run_info and run_info["fdr_keys"] else None
+                    threshold_comparison = '<'
+                elif y_axis_type == "ptp":
+                    significance_values_key = run_info.get("ptp_key") if run_info else None
+                    threshold_comparison = '<'
+                elif y_axis_type == "mahalanobis":
+                    significance_values_key = score_key  # Use the current score key
+                    threshold_comparison = '>'
+                else:
+                    # For custom columns, use the current score key and assume higher is more significant
+                    significance_values_key = score_key
+                    threshold_comparison = '>'
+                
+                # Fallback to score_key if no specific key found
+                if not significance_values_key:
+                    significance_values_key = score_key
+                    threshold_comparison = '>' if y_axis_type in ['mahalanobis'] else '<'
+                    logger.info(f"Using score key '{score_key}' for significance threshold (threshold={significance_threshold})")
+                
+                if significance_values_key and significance_values_key in adata.var.columns:
+                    # Select genes based on significance threshold
+                    sig_values = adata.var[significance_values_key]
+                    logger.info(f"Significance threshold selection: using column '{significance_values_key}' with threshold {threshold_comparison} {significance_threshold}")
+                    logger.info(f"Values range: {sig_values.min():.6f} - {sig_values.max():.6f}")
                     
-                    if y_axis_type in ["local_fdr", "tail_fdr"]:
-                        significant_mask = fdr_values < significance_threshold
-                    elif y_axis_type == "ptp":
-                        significant_mask = fdr_values < significance_threshold  # ptp values are p-values
-                    else:
-                        # For other types, assume higher values are more significant
-                        significant_mask = fdr_values > significance_threshold
+                    if threshold_comparison == '<':
+                        significant_mask = sig_values < significance_threshold
+                    else:  # '>'
+                        significant_mask = sig_values > significance_threshold
                     
                     significant_genes = adata.var_names[significant_mask].tolist()
-                    logger.info(f"Found {len(significant_genes)} genes with {y_axis_type} {'<' if y_axis_type in ['local_fdr', 'tail_fdr', 'ptp'] else '>'} {significance_threshold}")
+                    logger.info(f"Found {len(significant_genes)} genes with {y_axis_type} {threshold_comparison} {significance_threshold}")
                     
-                    # Update is_de column if requested
-                    if update_de_classification and de_column and de_column in adata.var.columns:
-                        old_count = np.sum(adata.var[de_column])
-                        adata.var[de_column] = significant_mask
-                        new_count = np.sum(adata.var[de_column])
-                        logger.info(f"Updated DE classification: {old_count} → {new_count} significant genes at {y_axis_type} {'<' if y_axis_type in ['local_fdr', 'tail_fdr', 'ptp'] else '>'} {significance_threshold}")
+                    # Update DE classification if requested and we have a DE column
+                    if update_de_classification and inferred_de_column and inferred_de_column in adata.var.columns:
+                        old_count = np.sum(adata.var[inferred_de_column])
+                        adata.var[inferred_de_column] = significant_mask
+                        new_count = np.sum(adata.var[inferred_de_column])
+                        logger.info(f"Updated DE classification: {old_count} → {new_count} significant genes at {y_axis_type} {threshold_comparison} {significance_threshold}")
                     
                     # Filter de_data for significant genes
                     sig_de_genes_df = de_data[de_data["gene"].isin(significant_genes)]
@@ -935,11 +921,9 @@ def volcano_de(
                                 "name": f"Higher in {condition1} ({len(down_sig_genes)})" if condition1 else f"Down-regulated ({len(down_sig_genes)})"
                             })
                         
-                        threshold_op = '<' if y_axis_type in ['local_fdr', 'tail_fdr', 'ptp'] else '>'
-                        logger.info(f"Highlighting {len(significant_genes):,} genes at {y_axis_type} {threshold_op} {significance_threshold} ({len(up_sig_genes)} up, {len(down_sig_genes)} down)")
+                        logger.info(f"Highlighting {len(significant_genes):,} genes at {y_axis_type} {threshold_comparison} {significance_threshold} ({len(up_sig_genes)} up, {len(down_sig_genes)} down)")
                     else:
-                        threshold_op = '<' if y_axis_type in ['local_fdr', 'tail_fdr', 'ptp'] else '>'
-                        logger.info(f"No genes found at {y_axis_type} {threshold_op} {significance_threshold} - falling back to top genes highlighting")
+                        logger.info(f"No genes found at {y_axis_type} {threshold_comparison} {significance_threshold} - falling back to top genes highlighting")
                         # Fallback to top genes when no significant genes are found
                         top_genes = de_data.sort_values("sort_val", ascending=False).head(n_top_genes)
                         highlight_groups.append(
@@ -947,23 +931,20 @@ def volcano_de(
                         )
                         logger.info(f"Highlighting top {n_top_genes:,} genes by score as fallback")
                 else:
-                    # Debug what went wrong
-                    if not fdr_values_key:
-                        logger.warning(f"Cannot use significance threshold: no key found for y_axis_type='{y_axis_type}'")
-                        if run_info and "fdr_keys" in run_info:
-                            available_fdr_keys = list(run_info["fdr_keys"].keys())
-                            logger.info(f"Available FDR keys in run info: {available_fdr_keys}")
-                        else:
-                            logger.warning("No FDR keys found in run info")
-                    elif fdr_values_key not in adata.var.columns:
-                        logger.warning(f"Cannot use significance threshold: column '{fdr_values_key}' not found in adata.var")
-                        logger.info(f"Available var columns with 'fdr': {[col for col in adata.var.columns if 'fdr' in col.lower()]}")
-                    # Fall through to regular is_de logic below
+                    logger.warning(f"Cannot use significance threshold: column '{significance_values_key}' not found in adata.var")
+                    logger.info(f"Available var columns: {[col for col in adata.var.columns if any(term in col.lower() for term in ['fdr', 'pvalue', 'mahalanobis', 'ptp'])]}")
+                    # Fall through to regular DE column logic below
             
-            # Regular is_de column logic (when no FDR threshold specified or FDR approach failed)
-            elif de_column and de_column in adata.var.columns:
+            # Regular DE column logic (when no other highlighting mechanism is specified or failed)
+            # But only if we haven't set up background coloring based on DE column already
+            elif (
+                inferred_de_column 
+                and inferred_de_column in adata.var.columns 
+                and background_color_key != inferred_de_column  # Avoid double-highlighting
+                and highlight_genes is None  # Only use DE column if no specific genes highlighted
+            ):
                 # Get genes marked as DE by filtering de_data using gene names
-                is_de_mask = de_data["gene"].isin(adata.var_names[adata.var[de_column]])
+                is_de_mask = de_data["gene"].isin(adata.var_names[adata.var[inferred_de_column]])
                 de_genes_df = de_data[is_de_mask]
                 de_genes = de_genes_df["gene"].tolist()
                 
@@ -994,7 +975,7 @@ def volcano_de(
                     logger.info(f"Highlighting top {n_top_genes:,} genes by {sort_key or score_key} as fallback")
             else:
                 # Fallback to top genes approach if DE column not found
-                logger.warning(f"DE column '{de_column}' not found. Falling back to top {n_top_genes} genes by score.")
+                logger.info(f"DE column '{inferred_de_column}' not found. Falling back to top {n_top_genes} genes by score.")
                 top_genes = de_data.sort_values("sort_val", ascending=False).head(n_top_genes)
                 highlight_groups.append(
                     {"genes": top_genes["gene"].tolist(), "name": f"Top {n_top_genes} genes"}
@@ -1221,53 +1202,30 @@ def volcano_de(
     ax.axvline(x=0, color="black", linestyle="--", alpha=0.3)
 
     # Add significance threshold line if applicable
-    if (
-        show_thresholds
-        and significance_threshold is not None
-        and y_axis_type in ["local_fdr", "tail_fdr", "ptp"]
-        and y_transform is not None
-    ):
-        # Transform the threshold for display
-        threshold_y = y_transform(np.array([significance_threshold]))[0]
-        ax.axhline(
-            y=threshold_y,
-            color="red",
-            linestyle="--",
-            alpha=0.7,
-            linewidth=1,
-            label=f"{y_axis_type} = {significance_threshold}",
-        )
-        logger.info(f"Added {y_axis_type} threshold line at y={threshold_y:.2f} ({y_axis_type}={significance_threshold})")
-    elif (
-        show_thresholds
-        and significance_threshold is not None
-        and y_axis_type == "mahalanobis"
-    ):
-        # For Mahalanobis distance, threshold is used directly
-        ax.axhline(
-            y=significance_threshold,
-            color="red",
-            linestyle="--",
-            alpha=0.7,
-            linewidth=1,
-            label=f"Mahalanobis = {significance_threshold}",
-        )
-        logger.info(f"Added Mahalanobis threshold line at y={significance_threshold}")
-    elif (
-        show_thresholds
-        and significance_threshold is not None
-        and y_axis_type not in ["local_fdr", "tail_fdr", "ptp", "mahalanobis"]
-    ):
-        # For custom columns, use threshold directly
-        ax.axhline(
-            y=significance_threshold,
-            color="red",
-            linestyle="--",
-            alpha=0.7,
-            linewidth=1,
-            label=f"{y_axis_type} = {significance_threshold}",
-        )
-        logger.info(f"Added {y_axis_type} threshold line at y={significance_threshold}")
+    if show_thresholds and significance_threshold is not None:
+        if y_axis_type in ["local_fdr", "tail_fdr", "ptp"] and y_transform is not None:
+            # Transform the threshold for display  
+            threshold_y = y_transform(np.array([significance_threshold]))[0]
+            ax.axhline(
+                y=threshold_y,
+                color="red",
+                linestyle="--",
+                alpha=0.7,
+                linewidth=1,
+                label=f"{y_axis_type} = {significance_threshold}",
+            )
+            logger.info(f"Added {y_axis_type} threshold line at y={threshold_y:.2f} ({y_axis_type}={significance_threshold})")
+        else:
+            # For Mahalanobis distance and custom columns, threshold is used directly
+            ax.axhline(
+                y=significance_threshold,
+                color="red",
+                linestyle="--",
+                alpha=0.7,
+                linewidth=1,
+                label=f"{y_axis_type} = {significance_threshold}",
+            )
+            logger.info(f"Added {y_axis_type} threshold line at y={significance_threshold}")
 
     ax.set_xlabel(xlabel, fontsize=12)
     ax.set_ylabel(ylabel, fontsize=12)

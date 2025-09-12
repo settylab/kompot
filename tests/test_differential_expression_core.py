@@ -302,23 +302,27 @@ class TestDifferentialExpressionPredict:
         
         with patch('kompot.differential.differential_expression.apply_batched') as mock_batch:
             with patch('kompot.differential.differential_expression.compute_mahalanobis_distances') as mock_mahal:
-                mock_batch.side_effect = lambda func, X, **kwargs: func(X)
-                mock_mahal.return_value = np.array([0.5, 0.8])  # 2 genes
-                
-                results = de.predict(X_test, compute_mahalanobis=True)
-                
-                assert 'condition1_imputed' in results
-                assert 'condition2_imputed' in results
-                assert 'condition1_std' in results
-                assert 'condition2_std' in results
-                assert 'fold_change' in results
-                assert 'fold_change_zscores' in results
-                assert 'mean_log_fold_change' in results
-                assert 'mahalanobis_distances' in results
-                
-                # Check shapes
-                assert results['fold_change'].shape == (3, 2)  # 3 cells, 2 genes
-                assert results['mahalanobis_distances'].shape == (2,)  # 2 genes
+                with patch('kompot.differential.differential_expression.jax_stats.chi2.sf') as mock_chi2:
+                    mock_batch.side_effect = lambda func, X, **kwargs: func(X)
+                    mock_mahal.return_value = np.array([0.5, 0.8])  # 2 genes
+                    mock_chi2.return_value = np.array([0.3, 0.1])  # Mock PTP values
+                    
+                    results = de.predict(X_test, compute_mahalanobis=True)
+                    
+                    assert 'condition1_imputed' in results
+                    assert 'condition2_imputed' in results
+                    assert 'condition1_std' in results
+                    assert 'condition2_std' in results
+                    assert 'fold_change' in results
+                    assert 'fold_change_zscores' in results
+                    assert 'mean_log_fold_change' in results
+                    assert 'mahalanobis_distances' in results
+                    assert 'ptp' in results  # New PTP column
+                    
+                    # Check shapes
+                    assert results['fold_change'].shape == (3, 2)  # 3 cells, 2 genes
+                    assert results['mahalanobis_distances'].shape == (2,)  # 2 genes
+                    assert results['ptp'].shape == (2,)  # 2 genes
                 
     def test_differential_expression_predict_with_sample_variance(self):
         """Test DifferentialExpression prediction with sample variance."""
@@ -585,18 +589,23 @@ class TestDifferentialExpressionBatching:
         
         with patch('kompot.differential.differential_expression.apply_batched') as mock_batch:
             with patch('kompot.differential.differential_expression.compute_mahalanobis_distances') as mock_mahal:
-                mock_batch.side_effect = lambda func, X, **kwargs: func(X)
-                mock_mahal.return_value = np.array([0.2, 0.4, 0.6])  # 3 genes
-                
-                results = de.predict(X_test, progress=False)
-                
-                # Check basic results
-                assert results['fold_change'].shape == (5, 3)  # 5 cells, 3 genes
-                assert results['condition1_imputed'].shape == (5, 3)  # 5 cells, 3 genes
-                assert results['condition2_imputed'].shape == (5, 3)  # 5 cells, 3 genes
-                assert 'mahalanobis_distances' not in results  # Should not be present when compute_mahalanobis=False
-                
-                # Test with mahalanobis computation enabled
-                results_with_mahal = de.predict(X_test, compute_mahalanobis=True, progress=False)
-                assert 'mahalanobis_distances' in results_with_mahal
-                assert results_with_mahal['mahalanobis_distances'].shape == (3,)  # 3 genes
+                with patch('kompot.differential.differential_expression.jax_stats.chi2.sf') as mock_chi2:
+                    mock_batch.side_effect = lambda func, X, **kwargs: func(X)
+                    mock_mahal.return_value = np.array([0.2, 0.4, 0.6])  # 3 genes
+                    mock_chi2.return_value = np.array([0.4, 0.2, 0.1])  # Mock PTP values
+                    
+                    results = de.predict(X_test, progress=False)
+                    
+                    # Check basic results
+                    assert results['fold_change'].shape == (5, 3)  # 5 cells, 3 genes
+                    assert results['condition1_imputed'].shape == (5, 3)  # 5 cells, 3 genes
+                    assert results['condition2_imputed'].shape == (5, 3)  # 5 cells, 3 genes
+                    assert 'mahalanobis_distances' not in results  # Should not be present when compute_mahalanobis=False
+                    assert 'ptp' not in results  # Should not be present when compute_mahalanobis=False
+                    
+                    # Test with mahalanobis computation enabled
+                    results_with_mahal = de.predict(X_test, compute_mahalanobis=True, progress=False)
+                    assert 'mahalanobis_distances' in results_with_mahal
+                    assert 'ptp' in results_with_mahal  # PTP should be present
+                    assert results_with_mahal['mahalanobis_distances'].shape == (3,)  # 3 genes
+                    assert results_with_mahal['ptp'].shape == (3,)  # 3 genes

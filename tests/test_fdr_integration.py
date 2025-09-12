@@ -85,21 +85,25 @@ class TestFDRIntegration:
             assert key in results, f"Missing key: {key}"
             assert len(results[key]) == adata.n_vars
         
-        # Check AnnData columns
-        fdr_columns = ['test_fdr_mahalanobis_pvalue', 'test_fdr_mahalanobis_local_fdr',
-                      'test_fdr_mahalanobis_tail_fdr', 'test_fdr_is_de']
+        # Check AnnData columns (including new ptp column)
+        fdr_columns = ['test_fdr_mahalanobis_pvalue_Ctrl_to_Treat', 'test_fdr_mahalanobis_local_fdr_Ctrl_to_Treat',
+                      'test_fdr_mahalanobis_tail_fdr_Ctrl_to_Treat', 'test_fdr_is_de_Ctrl_to_Treat', 'test_fdr_ptp_Ctrl_to_Treat']
         for col in fdr_columns:
             assert col in adata.var.columns, f"Missing column: {col}"
         
         # Check value ranges
-        assert np.all(adata.var['test_fdr_mahalanobis_pvalue'] >= 0)
-        assert np.all(adata.var['test_fdr_mahalanobis_pvalue'] <= 1)
-        assert np.all(adata.var['test_fdr_mahalanobis_local_fdr'] >= 0)
-        assert np.all(adata.var['test_fdr_mahalanobis_local_fdr'] <= 1)
-        assert adata.var['test_fdr_is_de'].dtype == bool
+        assert np.all(adata.var['test_fdr_mahalanobis_pvalue_Ctrl_to_Treat'] >= 0)
+        assert np.all(adata.var['test_fdr_mahalanobis_pvalue_Ctrl_to_Treat'] <= 1)
+        assert np.all(adata.var['test_fdr_mahalanobis_local_fdr_Ctrl_to_Treat'] >= 0)
+        assert np.all(adata.var['test_fdr_mahalanobis_local_fdr_Ctrl_to_Treat'] <= 1)
+        assert adata.var['test_fdr_is_de_Ctrl_to_Treat'].dtype == bool
+        
+        # Check ptp values (should be probabilities between 0 and 1)
+        assert np.all(adata.var['test_fdr_ptp_Ctrl_to_Treat'] >= 0)
+        assert np.all(adata.var['test_fdr_ptp_Ctrl_to_Treat'] <= 1)
         
         # FDR pipeline should run without error and produce valid results
-        n_significant = np.sum(adata.var['test_fdr_is_de'])
+        n_significant = np.sum(adata.var['test_fdr_is_de_Ctrl_to_Treat'])
         # Note: With fallback FDR methods, we may detect 0 significant genes - this is valid behavior
         assert n_significant >= 0, "Number of significant genes should be non-negative"
         assert n_significant <= adata.n_vars, "Significant genes should not exceed total genes"

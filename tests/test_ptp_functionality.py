@@ -98,6 +98,8 @@ class TestPTPFunctionality:
         # Test ptp y-axis
         fig, ax = volcano_de(
             adata,
+            lfc_key="kompot_de_mean_lfc_A_to_B",
+            score_key="kompot_de_mahalanobis_A_to_B",
             y_axis_type="ptp",
             significance_threshold=0.05,
             return_fig=True
@@ -114,6 +116,8 @@ class TestPTPFunctionality:
         
         fig, ax = volcano_de(
             adata,
+            lfc_key="kompot_de_mean_lfc_A_to_B",
+            score_key="kompot_de_mahalanobis_A_to_B",
             y_axis_type="ptp",
             significance_threshold=0.01,
             show_thresholds=True,
@@ -139,6 +143,8 @@ class TestPTPFunctionality:
         
         fig, ax = volcano_de(
             adata,
+            lfc_key="kompot_de_mean_lfc_A_to_B",
+            score_key="kompot_de_mahalanobis_A_to_B",
             y_axis_type="ptp",
             significance_threshold=0.01,
             return_fig=True
@@ -176,6 +182,8 @@ class TestPTPFunctionality:
         # Test both ptp and local_fdr
         fig1, ax1 = volcano_de(
             adata,
+            lfc_key="kompot_de_mean_lfc_A_to_B",
+            score_key="kompot_de_mahalanobis_A_to_B",
             y_axis_type="ptp",
             significance_threshold=0.05,
             return_fig=True
@@ -183,6 +191,8 @@ class TestPTPFunctionality:
         
         fig2, ax2 = volcano_de(
             adata,
+            lfc_key="kompot_de_mean_lfc_A_to_B",
+            score_key="kompot_de_mahalanobis_A_to_B",
             y_axis_type="local_fdr",
             significance_threshold=0.05,
             return_fig=True
@@ -204,6 +214,8 @@ class TestPTPFunctionality:
         # Test using ptp column directly
         fig, ax = volcano_de(
             adata,
+            lfc_key="kompot_de_mean_lfc_A_to_B",
+            score_key="kompot_de_mahalanobis_A_to_B",
             y_axis_type="kompot_de_ptp_A_to_B",  # Custom column name
             return_fig=True
         )
@@ -223,6 +235,8 @@ class TestPTPFunctionality:
         # Should fall back to mahalanobis when ptp not found
         fig, ax = volcano_de(
             adata,
+            lfc_key="kompot_de_mean_lfc_A_to_B",
+            score_key="kompot_de_mahalanobis_A_to_B",
             y_axis_type="ptp",
             return_fig=True
         )
@@ -239,6 +253,8 @@ class TestPTPFunctionality:
         # Test with significance_threshold
         fig, ax = volcano_de(
             adata,
+            lfc_key="kompot_de_mean_lfc_A_to_B",
+            score_key="kompot_de_mahalanobis_A_to_B",
             y_axis_type="ptp",
             significance_threshold=0.01,
             return_fig=True
@@ -249,6 +265,8 @@ class TestPTPFunctionality:
         # Test with mahalanobis threshold
         fig, ax = volcano_de(
             adata,
+            lfc_key="kompot_de_mean_lfc_A_to_B",
+            score_key="kompot_de_mahalanobis_A_to_B",
             y_axis_type="mahalanobis",
             significance_threshold=2.0,
             return_fig=True

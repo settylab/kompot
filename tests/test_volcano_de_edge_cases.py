@@ -290,14 +290,14 @@ class TestVolcanoDEEdgeCases:
         assert fig is not None
         assert ax is not None
         
-    def test_no_show_names(self):
-        """Test volcano_de with show_names=False."""
-        # With show_names=False, no gene names should be shown
+    def test_no_gene_labels(self):
+        """Test volcano_de with gene_labels=False."""
+        # With gene_labels=False, no gene names should be shown
         fig, ax = volcano_de(
             self.adata,
             lfc_key='de_run1_mean_lfc_A_to_B',
             score_key='de_run1_mahalanobis_A_to_B',
-            show_names=False,
+            gene_labels=False,
             return_fig=True
         )
         assert fig is not None

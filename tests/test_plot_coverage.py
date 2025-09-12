@@ -76,7 +76,7 @@ class TestVolcanoPlotsCoverage:
                 condition1='A',
                 condition2='B',
                 n_top_genes=3,
-                show_names=False  # Disable gene names for simpler testing
+                gene_labels=False  # Disable gene names for simpler testing
             )
         
         if result is not None:
@@ -98,7 +98,7 @@ class TestVolcanoPlotsCoverage:
                 lfc_key='log_fold_change_A_to_B',
                 score_key='zscore_A_to_B',
                 highlight_genes=highlight_genes,
-                show_names=False
+                gene_labels=False
             )
         
         if result is not None:
@@ -116,7 +116,7 @@ class TestVolcanoPlotsCoverage:
                 lfc_key='log_fold_change_A_to_B',
                 score_key='zscore_A_to_B',
                 background_color_key='pvalue_A_to_B',
-                show_names=False,
+                gene_labels=False,
                 return_fig=True
             )
         
@@ -140,7 +140,7 @@ class TestVolcanoPlotsCoverage:
                 ylabel='Custom Y Label',
                 n_x_ticks=5,
                 n_y_ticks=4,
-                show_names=False,
+                gene_labels=False,
                 return_fig=True
             )
         

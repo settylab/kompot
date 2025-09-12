@@ -446,25 +446,25 @@ class TestVolcanoDE:
         assert fig is not None
         assert ax is not None
         
-        # Test with show_names=False
+        # Test with gene_labels=False
         fig, ax = volcano_de(
             self.adata,
             lfc_key='de_run1_mean_lfc_A_to_B',
             score_key='de_run1_mahalanobis_A_to_B',
-            show_names=False,
+            gene_labels=False,
             return_fig=True
         )
         assert fig is not None
         assert ax is not None
     
-    def test_show_names_parameter(self):
-        """Test the show_names parameter with different input types."""
-        # Test with show_names=True (default behavior - shows highlighted gene names)
+    def test_gene_labels_parameter(self):
+        """Test the gene_labels parameter with different input types."""
+        # Test with gene_labels=True (default behavior - shows highlighted gene names)
         fig, ax = volcano_de(
             self.adata,
             lfc_key='de_run1_mean_lfc_A_to_B',
             score_key='de_run1_mahalanobis_A_to_B',
-            show_names=True,
+            gene_labels=True,
             n_top_genes=5,
             return_fig=True
         )
@@ -473,15 +473,15 @@ class TestVolcanoDE:
         
         # Check that text annotations were added (for highlighted genes)
         annotations = [child for child in ax.get_children() if hasattr(child, 'get_text')]
-        # Should have some annotations since show_names=True and we have highlighted genes
+        # Should have some annotations since gene_labels=True and we have highlighted genes
         assert len(annotations) > 0
         
-        # Test with show_names=False (no gene names shown)
+        # Test with gene_labels=False (no gene names shown)
         fig, ax = volcano_de(
             self.adata,
             lfc_key='de_run1_mean_lfc_A_to_B',
             score_key='de_run1_mahalanobis_A_to_B',
-            show_names=False,
+            gene_labels=False,
             n_top_genes=5,
             return_fig=True
         )
@@ -490,17 +490,17 @@ class TestVolcanoDE:
         
         # Check that no text annotations were added
         annotations = [child for child in ax.get_children() if hasattr(child, 'get_text')]
-        # Should have no gene name annotations when show_names=False
+        # Should have no gene name annotations when gene_labels=False
         gene_annotations = [ann for ann in annotations if hasattr(ann, 'get_text') and ann.get_text() in self.adata.var_names]
         assert len(gene_annotations) == 0
         
-        # Test with show_names as list of specific gene names
+        # Test with gene_labels as list of specific gene names
         genes_to_show = ['gene_0', 'gene_5', 'gene_10']
         fig, ax = volcano_de(
             self.adata,
             lfc_key='de_run1_mean_lfc_A_to_B',
             score_key='de_run1_mahalanobis_A_to_B',
-            show_names=genes_to_show,
+            gene_labels=genes_to_show,
             n_top_genes=3,  # Different from genes_to_show to test independence
             return_fig=True
         )
@@ -515,13 +515,13 @@ class TestVolcanoDE:
         for gene in genes_to_show:
             assert gene in annotation_texts
         
-        # Test with show_names as list containing non-existent genes
+        # Test with gene_labels as list containing non-existent genes
         genes_with_invalid = ['gene_0', 'nonexistent_gene', 'gene_5']
         fig, ax = volcano_de(
             self.adata,
             lfc_key='de_run1_mean_lfc_A_to_B',
             score_key='de_run1_mahalanobis_A_to_B',
-            show_names=genes_with_invalid,
+            gene_labels=genes_with_invalid,
             return_fig=True
         )
         assert fig is not None
@@ -535,35 +535,35 @@ class TestVolcanoDE:
         assert 'gene_5' in annotation_texts
         assert 'nonexistent_gene' not in annotation_texts
         
-        # Test show_names list with highlight_genes - should show both
+        # Test gene_labels list with highlight_genes - should show both
         highlight_genes_list = ['gene_1', 'gene_2', 'gene_3']
-        show_names_list = ['gene_0', 'gene_4', 'gene_8']  # Different genes
+        gene_labels_list = ['gene_0', 'gene_4', 'gene_8']  # Different genes
         
         fig, ax = volcano_de(
             self.adata,
             lfc_key='de_run1_mean_lfc_A_to_B',
             score_key='de_run1_mahalanobis_A_to_B',
             highlight_genes=highlight_genes_list,
-            show_names=show_names_list,
+            gene_labels=gene_labels_list,
             return_fig=True
         )
         assert fig is not None
         assert ax is not None
         
-        # Check that genes from show_names list are annotated (regardless of highlighting)
+        # Check that genes from gene_labels list are annotated (regardless of highlighting)
         annotations = [child for child in ax.get_children() if hasattr(child, 'get_text')]
         annotation_texts = [ann.get_text() for ann in annotations if hasattr(ann, 'get_text')]
         
-        # All genes in show_names should be annotated
-        for gene in show_names_list:
+        # All genes in gene_labels should be annotated
+        for gene in gene_labels_list:
             assert gene in annotation_texts
         
-        # Test with empty show_names list
+        # Test with empty gene_labels list
         fig, ax = volcano_de(
             self.adata,
             lfc_key='de_run1_mean_lfc_A_to_B',
             score_key='de_run1_mahalanobis_A_to_B',
-            show_names=[],
+            gene_labels=[],
             n_top_genes=5,
             return_fig=True
         )
@@ -575,26 +575,26 @@ class TestVolcanoDE:
         gene_annotations = [ann for ann in annotations if hasattr(ann, 'get_text') and ann.get_text() in self.adata.var_names]
         assert len(gene_annotations) == 0
         
-        # Test show_names list with custom highlight_genes (dict format)
+        # Test gene_labels list with custom highlight_genes (dict format)
         highlight_dict = {'gene_1': '#FF0000', 'gene_2': '#00FF00'}
-        show_names_list = ['gene_0', 'gene_1', 'gene_9']  # gene_1 overlaps with highlight
+        gene_labels_list = ['gene_0', 'gene_1', 'gene_9']  # gene_1 overlaps with highlight
         
         fig, ax = volcano_de(
             self.adata,
             lfc_key='de_run1_mean_lfc_A_to_B',
             score_key='de_run1_mahalanobis_A_to_B',
             highlight_genes=highlight_dict,
-            show_names=show_names_list,
+            gene_labels=gene_labels_list,
             return_fig=True
         )
         assert fig is not None
         assert ax is not None
         
-        # All genes in show_names should be annotated
+        # All genes in gene_labels should be annotated
         annotations = [child for child in ax.get_children() if hasattr(child, 'get_text')]
         annotation_texts = [ann.get_text() for ann in annotations if hasattr(ann, 'get_text')]
         
-        for gene in show_names_list:
+        for gene in gene_labels_list:
             assert gene in annotation_texts
     
     def test_key_inference(self):
