@@ -30,7 +30,6 @@ from .utils import compute_mahalanobis_distance, find_landmarks
 from .batch_utils import batch_process, apply_batched
 
 # Now import submodules - after the classes are imported
-from . import differential_compat as differential
 from . import plot
 from . import anndata
 
@@ -91,6 +90,6 @@ __all__ = [
     "check_underrepresentation", "RunInfo", "RunComparison",
     
     # Submodules
-    "plot", "anndata", "differential"
+    "plot", "anndata"
 ]
 

@@ -447,26 +447,29 @@ class TestCoverageBoostMiscellaneous:
         assert isinstance(__version__, str)
         assert len(__version__) > 0
         
-    def test_differential_compat(self):
-        """Test differential compatibility module."""
+    def test_differential_module(self):
+        """Test differential module."""
         try:
-            from kompot import differential_compat
+            from kompot import differential
         except ImportError as e:
-            pytest.skip(f"Could not import differential_compat: {e}")
-        
-        # Test module exists and has expected structure
-        assert differential_compat is not None
+            pytest.skip(f"Could not import differential: {e}")
+
+        # Test module exists and has expected classes
+        assert differential is not None
+        assert hasattr(differential, 'DifferentialExpression')
+        assert hasattr(differential, 'DifferentialAbundance')
+        assert hasattr(differential, 'SampleVarianceEstimator')
         
     def test_init_imports(self):
         """Test main __init__ imports."""
         try:
             import kompot
-            from kompot import differential, plot, utils, memory_utils
+            from kompot import plot, utils, memory_utils
         except ImportError as e:
             pytest.skip(f"Could not import kompot modules: {e}")
         
         # Test that main modules are accessible
-        assert hasattr(kompot, 'differential')
+        assert hasattr(kompot, 'DifferentialExpression')
         assert hasattr(kompot, 'plot') 
         assert hasattr(kompot, 'utils')
         
