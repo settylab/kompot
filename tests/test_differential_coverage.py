@@ -3,6 +3,7 @@
 import numpy as np
 import pandas as pd
 import pytest
+import sys
 from unittest.mock import patch, MagicMock
 import logging
 
@@ -526,7 +527,9 @@ class TestDifferentialUtils:
         # Mock the utility functions to avoid complex dependencies
         with patch('kompot.anndata.utils.get_run_from_history') as mock_get_run:
             with patch('kompot.plot.volcano._infer_da_keys') as mock_infer_keys:
-                with patch('kompot.plot.heatmap.direction_plot._infer_direction_key') as mock_infer_dir:
+                # Import the function first, then patch it
+                from kompot.plot.heatmap.direction_plot import _infer_direction_key
+                with patch.object(sys.modules['kompot.plot.heatmap.direction_plot'], '_infer_direction_key') as mock_infer_dir:
                     
                     mock_infer_keys.return_value = ('lfc_A_to_B', 'ptp_A_to_B', (1.0, 0.05))
                     mock_infer_dir.return_value = ('direction_A_to_B', None, None)
@@ -563,7 +566,9 @@ class TestDifferentialUtils:
         
         with patch('kompot.anndata.utils.get_run_from_history'):
             with patch('kompot.plot.volcano._infer_da_keys'):
-                with patch('kompot.plot.heatmap.direction_plot._infer_direction_key') as mock_infer_dir:
+                # Import the function first, then patch it
+                from kompot.plot.heatmap.direction_plot import _infer_direction_key
+                with patch.object(sys.modules['kompot.plot.heatmap.direction_plot'], '_infer_direction_key') as mock_infer_dir:
                     
                     mock_infer_dir.return_value = ('direction_A_to_B', None, None)
                     
@@ -597,7 +602,9 @@ class TestDifferentialUtils:
         
         with patch('kompot.anndata.utils.get_run_from_history'):
             with patch('kompot.plot.volcano._infer_da_keys') as mock_infer:
-                with patch('kompot.plot.heatmap.direction_plot._infer_direction_key') as mock_infer_dir:
+                # Import the function first, then patch it
+                from kompot.plot.heatmap.direction_plot import _infer_direction_key
+                with patch.object(sys.modules['kompot.plot.heatmap.direction_plot'], '_infer_direction_key') as mock_infer_dir:
                     
                     mock_infer.return_value = ('lfc_A_to_B', 'ptp_A_to_B', (1.0, 0.05))
                     mock_infer_dir.return_value = ('direction_A_to_B', None, None)
