@@ -77,7 +77,7 @@ Kompot is particularly useful for:
 - Creating visualizations of differential analysis results
 
 Installation
------------
+------------
 
 To install the base package:
 

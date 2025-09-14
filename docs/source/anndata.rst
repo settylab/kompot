@@ -26,6 +26,6 @@ Utilities
    :show-inheritance:
 
 Representation Analysis
-----------------------
+-----------------------
 
 .. autofunction:: kompot.check_underrepresentation
