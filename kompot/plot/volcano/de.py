@@ -71,7 +71,7 @@ def volcano_de(
     group: Optional[str] = None,
     # New significance-related parameters
     y_axis_type: str = "mahalanobis",  # "mahalanobis", "local_fdr", "tail_fdr", "log10_ptp", or custom column name
-    significance_threshold: Optional[float] = None,
+    significance_threshold: Optional[Union[float, Dict[str, float]]] = None,
     update_de_classification: bool = False,
     de_column: Optional[str] = None,
     show_thresholds: bool = True,
@@ -193,9 +193,13 @@ def volcano_de(
         Type of values to use for the y-axis: "mahalanobis" (default), "local_fdr", "tail_fdr", 
         "ptp", or a custom column name from adata.var. When using FDR or ptp values, they are 
         -log10 transformed for display.
-    significance_threshold : float, optional
-        Significance threshold for the y-axis values. If provided, will be shown as a horizontal line.
-        The interpretation depends on y_axis_type:
+    significance_threshold : float or dict, optional
+        Significance threshold for the y-axis values. Can be:
+        - float: Single threshold for the current y_axis_type, shown as horizontal line
+        - dict: Multiple thresholds with keys corresponding to y_axis_type values
+                (e.g., {"local_fdr": 0.05, "ptp": 0.01}). Cells must pass ALL thresholds.
+                No threshold line is drawn when using dict format.
+        The interpretation depends on y_axis_type (or dict keys):
         - "mahalanobis": minimum distance for significance
         - "local_fdr"/"tail_fdr": maximum FDR for significance (e.g., 0.05)
         - "ptp": maximum p-value for significance (e.g., 0.01)
@@ -854,86 +858,146 @@ def volcano_de(
             
             # Use significance threshold for gene selection if provided
             if significance_threshold is not None:
-                significance_values_key = None
-                threshold_comparison = None  # '<' for FDR/ptp, '>' for mahalanobis
-                
-                # Determine which column to use for significance values
-                if y_axis_type == "local_fdr":
-                    significance_values_key = run_info["fdr_keys"].get("local_fdr_key") if run_info and "fdr_keys" in run_info and run_info["fdr_keys"] else None
-                    threshold_comparison = '<'
-                elif y_axis_type == "tail_fdr":
-                    significance_values_key = run_info["fdr_keys"].get("tail_fdr_key") if run_info and "fdr_keys" in run_info and run_info["fdr_keys"] else None
-                    threshold_comparison = '<'
-                elif y_axis_type == "ptp":
-                    significance_values_key = run_info.get("ptp_key") if run_info else None
-                    threshold_comparison = '<'
-                elif y_axis_type == "mahalanobis":
-                    significance_values_key = score_key  # Use the current score key
-                    threshold_comparison = '>'
-                else:
-                    # For custom columns, use the current score key and assume higher is more significant
-                    significance_values_key = score_key
-                    threshold_comparison = '>'
-                
-                # Fallback to score_key if no specific key found
-                if not significance_values_key:
-                    significance_values_key = score_key
-                    threshold_comparison = '>' if y_axis_type in ['mahalanobis'] else '<'
-                    logger.info(f"Using score key '{score_key}' for significance threshold (threshold={significance_threshold})")
-                
-                if significance_values_key and significance_values_key in adata.var.columns:
-                    # Select genes based on significance threshold
-                    sig_values = adata.var[significance_values_key]
-                    logger.info(f"Significance threshold selection: using column '{significance_values_key}' with threshold {threshold_comparison} {significance_threshold}")
-                    logger.info(f"Values range: {sig_values.min():.6f} - {sig_values.max():.6f}")
-                    
-                    if threshold_comparison == '<':
-                        significant_mask = sig_values < significance_threshold
-                    else:  # '>'
-                        significant_mask = sig_values > significance_threshold
-                    
+                # Initialize variables
+                significant_genes = []
+                significant_mask = None
+
+                # Handle both float and dictionary threshold formats
+                if isinstance(significance_threshold, dict):
+                    # Dictionary format: apply multiple thresholds, genes must pass ALL
+                    significant_mask = pd.Series(True, index=adata.var_names)
+                    threshold_descriptions = []
+
+                    for axis_type, threshold_val in significance_threshold.items():
+                        # Get the appropriate column for this axis type
+                        if axis_type == "local_fdr":
+                            col_key = run_info["fdr_keys"].get("local_fdr_key") if run_info and "fdr_keys" in run_info and run_info["fdr_keys"] else None
+                            comparison = '<'
+                        elif axis_type == "tail_fdr":
+                            col_key = run_info["fdr_keys"].get("tail_fdr_key") if run_info and "fdr_keys" in run_info and run_info["fdr_keys"] else None
+                            comparison = '<'
+                        elif axis_type == "ptp":
+                            col_key = run_info.get("ptp_key") if run_info else None
+                            comparison = '<'
+                        elif axis_type == "mahalanobis":
+                            col_key = score_key if "mahalanobis" in (score_key or "").lower() else None
+                            comparison = '>'
+                        else:
+                            # Custom column
+                            col_key = axis_type if axis_type in adata.var.columns else None
+                            comparison = '>'  # Assume higher is more significant for custom columns
+
+                        if col_key and col_key in adata.var.columns:
+                            col_values = adata.var[col_key]
+                            if comparison == '<':
+                                axis_mask = col_values < threshold_val
+                            else:
+                                axis_mask = col_values > threshold_val
+
+                            significant_mask = significant_mask & axis_mask
+                            threshold_descriptions.append(f"{axis_type} {comparison} {threshold_val}")
+                            logger.info(f"Applied threshold: {axis_type} {comparison} {threshold_val} ({axis_mask.sum()} genes pass)")
+                        else:
+                            logger.warning(f"Column for axis type '{axis_type}' not found, skipping this threshold")
+
                     significant_genes = adata.var_names[significant_mask].tolist()
-                    logger.info(f"Found {len(significant_genes)} genes with {y_axis_type} {threshold_comparison} {significance_threshold}")
-                    
+                    threshold_desc = " AND ".join(threshold_descriptions)
+                    logger.info(f"Found {len(significant_genes)} genes passing all thresholds: {threshold_desc}")
+
+                else:
+                    # Float format: single threshold (original behavior)
+                    significance_values_key = None
+                    threshold_comparison = None  # '<' for FDR/ptp, '>' for mahalanobis
+
+                    # Determine which column to use for significance values
+                    if y_axis_type == "local_fdr":
+                        significance_values_key = run_info["fdr_keys"].get("local_fdr_key") if run_info and "fdr_keys" in run_info and run_info["fdr_keys"] else None
+                        threshold_comparison = '<'
+                    elif y_axis_type == "tail_fdr":
+                        significance_values_key = run_info["fdr_keys"].get("tail_fdr_key") if run_info and "fdr_keys" in run_info and run_info["fdr_keys"] else None
+                        threshold_comparison = '<'
+                    elif y_axis_type == "ptp":
+                        significance_values_key = run_info.get("ptp_key") if run_info else None
+                        threshold_comparison = '<'
+                    elif y_axis_type == "mahalanobis":
+                        significance_values_key = score_key  # Use the current score key
+                        threshold_comparison = '>'
+                    else:
+                        # For custom columns, use the current score key and assume higher is more significant
+                        significance_values_key = score_key
+                        threshold_comparison = '>'
+
+                    # Fallback to score_key if no specific key found
+                    if not significance_values_key:
+                        significance_values_key = score_key
+                        threshold_comparison = '>' if y_axis_type in ['mahalanobis'] else '<'
+                        logger.info(f"Using score key '{score_key}' for significance threshold (threshold={significance_threshold})")
+
+                    if significance_values_key and significance_values_key in adata.var.columns:
+                        # Select genes based on significance threshold
+                        sig_values = adata.var[significance_values_key]
+                        logger.info(f"Significance threshold selection: using column '{significance_values_key}' with threshold {threshold_comparison} {significance_threshold}")
+                        logger.info(f"Values range: {sig_values.min():.6f} - {sig_values.max():.6f}")
+
+                        if threshold_comparison == '<':
+                            significant_mask = sig_values < significance_threshold
+                        else:  # '>'
+                            significant_mask = sig_values > significance_threshold
+
+                        significant_genes = adata.var_names[significant_mask].tolist()
+                        logger.info(f"Found {len(significant_genes)} genes with {y_axis_type} {threshold_comparison} {significance_threshold}")
+                    else:
+                        logger.warning(f"Cannot use significance threshold: column '{significance_values_key}' not found in adata.var")
+                        logger.info(f"Available var columns: {[col for col in adata.var.columns if any(term in col.lower() for term in ['fdr', 'pvalue', 'mahalanobis', 'ptp'])]}")
+                        # significant_genes remains empty list from initialization
+
+                # Common logic for both float and dict formats
+                if len(significant_genes) > 0:
                     # Update DE classification if requested and we have a DE column
                     if update_de_classification and inferred_de_column and inferred_de_column in adata.var.columns:
                         old_count = np.sum(adata.var[inferred_de_column])
                         adata.var[inferred_de_column] = significant_mask
                         new_count = np.sum(adata.var[inferred_de_column])
-                        logger.info(f"Updated DE classification: {old_count} → {new_count} significant genes at {y_axis_type} {threshold_comparison} {significance_threshold}")
-                    
+                        if isinstance(significance_threshold, dict):
+                            logger.info(f"Updated DE classification: {old_count} → {new_count} significant genes with multiple thresholds")
+                        else:
+                            logger.info(f"Updated DE classification: {old_count} → {new_count} significant genes at {y_axis_type} {threshold_comparison} {significance_threshold}")
+
                     # Filter de_data for significant genes
                     sig_de_genes_df = de_data[de_data["gene"].isin(significant_genes)]
-                    
-                    if len(significant_genes) > 0:
-                        # Count up and down regulated significant genes
-                        up_sig_genes = sig_de_genes_df[sig_de_genes_df["lfc"] > 0]["gene"].tolist()
-                        down_sig_genes = sig_de_genes_df[sig_de_genes_df["lfc"] < 0]["gene"].tolist()
-                        
-                        if up_sig_genes:
-                            highlight_groups.append({
-                                "genes": up_sig_genes, 
-                                "name": f"Higher in {condition2} ({len(up_sig_genes)})" if condition2 else f"Up-regulated ({len(up_sig_genes)})"
-                            })
-                        if down_sig_genes:
-                            highlight_groups.append({
-                                "genes": down_sig_genes, 
-                                "name": f"Higher in {condition1} ({len(down_sig_genes)})" if condition1 else f"Down-regulated ({len(down_sig_genes)})"
-                            })
-                        
+
+                    # Count up and down regulated significant genes
+                    up_sig_genes = sig_de_genes_df[sig_de_genes_df["lfc"] > 0]["gene"].tolist()
+                    down_sig_genes = sig_de_genes_df[sig_de_genes_df["lfc"] < 0]["gene"].tolist()
+
+                    if up_sig_genes:
+                        highlight_groups.append({
+                            "genes": up_sig_genes,
+                            "name": f"Higher in {condition2} ({len(up_sig_genes)})" if condition2 else f"Up-regulated ({len(up_sig_genes)})"
+                        })
+                    if down_sig_genes:
+                        highlight_groups.append({
+                            "genes": down_sig_genes,
+                            "name": f"Higher in {condition1} ({len(down_sig_genes)})" if condition1 else f"Down-regulated ({len(down_sig_genes)})"
+                        })
+
+                    if isinstance(significance_threshold, dict):
+                        logger.info(f"Highlighting {len(significant_genes):,} genes with multiple thresholds ({len(up_sig_genes)} up, {len(down_sig_genes)} down)")
+                    else:
                         logger.info(f"Highlighting {len(significant_genes):,} genes at {y_axis_type} {threshold_comparison} {significance_threshold} ({len(up_sig_genes)} up, {len(down_sig_genes)} down)")
+                else:
+                    # No significant genes found - fallback to top genes
+                    if isinstance(significance_threshold, dict):
+                        logger.info("No genes found with multiple thresholds - falling back to top genes highlighting")
                     else:
                         logger.info(f"No genes found at {y_axis_type} {threshold_comparison} {significance_threshold} - falling back to top genes highlighting")
-                        # Fallback to top genes when no significant genes are found
-                        top_genes = de_data.sort_values("sort_val", ascending=False).head(n_top_genes)
-                        highlight_groups.append(
-                            {"genes": top_genes["gene"].tolist(), "name": f"Top {n_top_genes} genes (no genes at threshold)"}
-                        )
-                        logger.info(f"Highlighting top {n_top_genes:,} genes by score as fallback")
-                else:
-                    logger.warning(f"Cannot use significance threshold: column '{significance_values_key}' not found in adata.var")
-                    logger.info(f"Available var columns: {[col for col in adata.var.columns if any(term in col.lower() for term in ['fdr', 'pvalue', 'mahalanobis', 'ptp'])]}")
-                    # Fall through to regular DE column logic below
+
+                    # Fallback to top genes when no significant genes are found
+                    top_genes = de_data.sort_values("sort_val", ascending=False).head(n_top_genes)
+                    highlight_groups.append(
+                        {"genes": top_genes["gene"].tolist(), "name": f"Top {n_top_genes} genes (no genes at threshold)"}
+                    )
+                    logger.info(f"Highlighting top {n_top_genes:,} genes by score as fallback")
             
             # Regular DE column logic (when no other highlighting mechanism is specified or failed)
             # But only if we haven't set up background coloring based on DE column already
@@ -1201,10 +1265,10 @@ def volcano_de(
     # Add formatting
     ax.axvline(x=0, color="black", linestyle="--", alpha=0.3)
 
-    # Add significance threshold line if applicable
-    if show_thresholds and significance_threshold is not None:
+    # Add significance threshold line if applicable (only for single float thresholds, not dictionaries)
+    if show_thresholds and significance_threshold is not None and not isinstance(significance_threshold, dict):
         if y_axis_type in ["local_fdr", "tail_fdr", "ptp"] and y_transform is not None:
-            # Transform the threshold for display  
+            # Transform the threshold for display
             threshold_y = y_transform(np.array([significance_threshold]))[0]
             ax.axhline(
                 y=threshold_y,
@@ -1226,6 +1290,8 @@ def volcano_de(
                 label=f"{y_axis_type} = {significance_threshold}",
             )
             logger.info(f"Added {y_axis_type} threshold line at y={significance_threshold}")
+    elif show_thresholds and isinstance(significance_threshold, dict):
+        logger.info("Skipping threshold line drawing for dictionary-format significance_threshold")
 
     ax.set_xlabel(xlabel, fontsize=12)
     ax.set_ylabel(ylabel, fontsize=12)

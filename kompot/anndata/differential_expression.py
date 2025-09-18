@@ -437,7 +437,6 @@ def compute_differential_expression(
         Controls checking for underrepresentation when groups are specified, by default None.
         - If None: Checks and warns about underrepresentation but does not filter automatically
         - If True: Checks for underrepresentation and automatically applies the filter
-          (informs the user what was excluded)
         - If False: Skips the underrepresentation check entirely
     copy : bool, optional
         If True, return a copy of the AnnData object with results added,
