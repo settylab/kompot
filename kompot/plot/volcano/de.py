@@ -32,8 +32,7 @@ def volcano_de(
     score_key: str = None,
     condition1: Optional[str] = None,
     condition2: Optional[str] = None,
-    n_top_genes: int = 10,
-    use_top_genes: bool = False,
+    n_top_genes: Optional[int] = None,
     highlight_genes: Optional[Union[List[str], Dict[str, str], List[Dict[str, Any]]]] = None,
     background_color_key: Optional[str] = None,
     background_cmap: Union[str, Colormap] = None,  # Will be auto-selected based on data type
@@ -95,11 +94,9 @@ def volcano_de(
     condition2 : str, optional
         Name of condition 2 (positive log fold change)
     n_top_genes : int, optional
-        Total number of top genes to highlight when use_top_genes=True, selected by highest Mahalanobis distance (default: 10).
-        Ignored if `highlight_genes` is provided.
-    use_top_genes : bool, optional
-        If True, highlight top n_top_genes by score. If False (default), use is_de column to determine highlighted genes.
-        Ignored if `highlight_genes` is provided.
+        If specified, highlight this number of top genes by score instead of using DE classification.
+        Cannot be used together with significance_threshold. If not specified (None), will use
+        DE classification from is_de column when available. Ignored if `highlight_genes` is provided.
     highlight_genes : list of str, dict of {str: str}, or list of dict, optional
         Can be:
         - A list of specific gene names to highlight on the plot
@@ -234,7 +231,14 @@ def volcano_de(
 
     # Get run info early since we'll need it for multiple purposes
     run_info = get_run_from_history(adata, run_id, analysis_type="de")
-    
+
+    # Parameter validation
+    if n_top_genes is not None and significance_threshold is not None:
+        raise ValueError(
+            "Cannot specify both 'n_top_genes' and 'significance_threshold'. "
+            "Use 'n_top_genes' for top gene highlighting or 'significance_threshold' for threshold-based highlighting."
+        )
+
     # Handle various y-axis options
     original_score_key = score_key
     significance_key = None
@@ -537,30 +541,8 @@ def volcano_de(
     else:
         inferred_de_column = de_column
 
-    # Handle FDR-based coloring (but don't update DE classification yet)
-    # Only use DE column for background coloring if no other highlighting mechanism is provided
-    if (
-        y_axis_type in ["local_fdr", "tail_fdr", "ptp"]
-        and background_color_key is None
-        and significance_threshold is None  # Don't use DE column coloring when threshold is specified
-        and highlight_genes is None  # Don't use DE column coloring when specific genes are highlighted
-    ):
-        # Check if DE column exists and use it for background coloring
-        if inferred_de_column and inferred_de_column in adata.var.columns:
-            background_color_key = inferred_de_column
-            logger.info(f"Using DE classification column for coloring: {inferred_de_column}")
-
-            # Set up discrete color mapping for DE status
-            if color_discrete_map is None:
-                color_discrete_map = {
-                    True: color_up,  # Significant genes get highlight color
-                    False: color_background,  # Non-significant genes get background color
-                }
-        else:
-            logger.info(
-                f"DE classification column not found. Available columns: "
-                f"{[col for col in adata.var.columns if 'is_de' in col.lower() or col.endswith('_de')]}"
-            )
+    # Note: Removed automatic background coloring for DE columns
+    # DE highlighting is now handled consistently through the highlight_groups system below
 
     # Create a DataFrame with all relevant information
     data_dict = {"gene": adata.var_names, "lfc": x, "score": y}
@@ -846,8 +828,8 @@ def volcano_de(
             logger.info(f"Highlighting {len(valid_genes)} user-specified genes")
     else:
         # No highlight_genes provided - choose highlighting strategy
-        if use_top_genes:
-            # Use traditional top N genes by score approach
+        if n_top_genes is not None:
+            # Use top N genes by score approach
             top_genes = de_data.sort_values("sort_val", ascending=False).head(n_top_genes)
             highlight_groups.append(
                 {"genes": top_genes["gene"].tolist(), "name": f"Top {n_top_genes} genes"}
@@ -992,19 +974,19 @@ def volcano_de(
                     else:
                         logger.info(f"No genes found at {y_axis_type} {threshold_comparison} {significance_threshold} - falling back to top genes highlighting")
 
-                    # Fallback to top genes when no significant genes are found
-                    top_genes = de_data.sort_values("sort_val", ascending=False).head(n_top_genes)
+                    # Fallback to top genes when no significant genes are found (if n_top_genes specified)
+                    fallback_n = n_top_genes or 10  # Use 10 as fallback if n_top_genes is None
+                    top_genes = de_data.sort_values("sort_val", ascending=False).head(fallback_n)
                     highlight_groups.append(
-                        {"genes": top_genes["gene"].tolist(), "name": f"Top {n_top_genes} genes (no genes at threshold)"}
+                        {"genes": top_genes["gene"].tolist(), "name": f"Top {fallback_n} genes (no genes at threshold)"}
                     )
-                    logger.info(f"Highlighting top {n_top_genes:,} genes by score as fallback")
+                    logger.info(f"Highlighting top {fallback_n:,} genes by score as fallback")
             
             # Regular DE column logic (when no other highlighting mechanism is specified or failed)
-            # But only if we haven't set up background coloring based on DE column already
+            # Use DE column for highlighting when no threshold is specified, regardless of background coloring
             elif (
-                inferred_de_column 
-                and inferred_de_column in adata.var.columns 
-                and background_color_key != inferred_de_column  # Avoid double-highlighting
+                inferred_de_column
+                and inferred_de_column in adata.var.columns
                 and highlight_genes is None  # Only use DE column if no specific genes highlighted
             ):
                 # Get genes marked as DE by filtering de_data using gene names
@@ -1013,38 +995,41 @@ def volcano_de(
                 de_genes = de_genes_df["gene"].tolist()
                 
                 if de_genes:
-                    # Count up and down regulated DE genes for the legend
+                    # Count up and down regulated DE genes
                     up_de_genes = de_genes_df[de_genes_df["lfc"] > 0]["gene"].tolist()
                     down_de_genes = de_genes_df[de_genes_df["lfc"] < 0]["gene"].tolist()
-                    
+
+                    # Always add separate highlight groups for up/down DE genes
                     if up_de_genes:
                         highlight_groups.append({
-                            "genes": up_de_genes, 
+                            "genes": up_de_genes,
                             "name": f"Higher in {condition2} ({len(up_de_genes)})" if condition2 else f"Up-regulated ({len(up_de_genes)})"
                         })
                     if down_de_genes:
                         highlight_groups.append({
-                            "genes": down_de_genes, 
+                            "genes": down_de_genes,
                             "name": f"Higher in {condition1} ({len(down_de_genes)})" if condition1 else f"Down-regulated ({len(down_de_genes)})"
                         })
-                    
+
                     logger.info(f"Highlighting {len(de_genes):,} genes marked as DE ({len(up_de_genes)} up, {len(down_de_genes)} down)")
                 else:
                     logger.info("No genes marked as DE found - falling back to top genes highlighting")
                     # Fallback to top genes when no DE genes are found
-                    top_genes = de_data.sort_values("sort_val", ascending=False).head(n_top_genes)
+                    fallback_n = n_top_genes or 10  # Use 10 as fallback if n_top_genes is None
+                    top_genes = de_data.sort_values("sort_val", ascending=False).head(fallback_n)
                     highlight_groups.append(
-                        {"genes": top_genes["gene"].tolist(), "name": f"Top {n_top_genes} genes (no DE genes found)"}
+                        {"genes": top_genes["gene"].tolist(), "name": f"Top {fallback_n} genes (no DE genes found)"}
                     )
-                    logger.info(f"Highlighting top {n_top_genes:,} genes by {sort_key or score_key} as fallback")
+                    logger.info(f"Highlighting top {fallback_n:,} genes by {sort_key or score_key} as fallback")
             else:
                 # Fallback to top genes approach if DE column not found
-                logger.info(f"DE column '{inferred_de_column}' not found. Falling back to top {n_top_genes} genes by score.")
-                top_genes = de_data.sort_values("sort_val", ascending=False).head(n_top_genes)
+                fallback_n = n_top_genes or 10  # Use 10 as fallback if n_top_genes is None
+                logger.info(f"DE column '{inferred_de_column}' not found. Falling back to top {fallback_n} genes by score.")
+                top_genes = de_data.sort_values("sort_val", ascending=False).head(fallback_n)
                 highlight_groups.append(
-                    {"genes": top_genes["gene"].tolist(), "name": f"Top {n_top_genes} genes"}
+                    {"genes": top_genes["gene"].tolist(), "name": f"Top {fallback_n} genes"}
                 )
-                logger.info(f"Highlighting top {n_top_genes:,} genes by {sort_key or score_key}")
+                logger.info(f"Highlighting top {fallback_n:,} genes by {sort_key or score_key}")
 
     # Plot background genes
     if background_color_key is not None:
