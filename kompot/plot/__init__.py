@@ -103,10 +103,20 @@ try:
     __all__.append("StringDBReport")
 except ImportError as e:
     logger.warning(f"Could not import StringDBReport due to: {e}")
-    
+
     class StringDBReport:
         """Stub class when actual implementation is not available."""
-        
+
         def __init__(self, *args, **kwargs):
             raise ImportError("StringDBReport is unavailable due to missing dependencies. "
                              "Make sure 'requests' and other required packages are installed.")
+
+# Import field inference utilities (these are always available)
+try:
+    from .field_inference import (
+        infer_fields_from_run_info,
+        get_comparison_specific_fields
+    )
+    __all__.extend(["infer_fields_from_run_info", "get_comparison_specific_fields"])
+except ImportError as e:
+    logger.warning(f"Could not import field inference utilities due to: {e}")

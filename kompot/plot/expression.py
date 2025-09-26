@@ -15,11 +15,14 @@ from .volcano import _extract_conditions_from_key
 logger = logging.getLogger("kompot")
 
 
-def _infer_expression_keys(adata: AnnData, run_id: int = -1, lfc_key: Optional[str] = None, 
+def _infer_expression_keys(adata: AnnData, run_id: int = -1, lfc_key: Optional[str] = None,
                            score_key: Optional[str] = None, strict: bool = False):
     """
     Infer expression-related keys from AnnData object for gene expression visualization.
-    
+
+    This function uses robust field inference that relies on run info and provides
+    proper warnings for overwrites and fallbacks.
+
     Parameters
     ----------
     adata : AnnData
@@ -32,121 +35,43 @@ def _infer_expression_keys(adata: AnnData, run_id: int = -1, lfc_key: Optional[s
         Score key. If provided, will be returned as is unless the default
         value needs to be replaced with a run-specific key.
     strict : bool, optional
-        If True, raises errors when keys can't be inferred. If False, returns 
+        If True, raises errors when keys can't be inferred. If False, returns
         None for missing keys. Default is False.
-        
+
     Returns
     -------
     tuple
         (lfc_key, score_key) with the inferred keys
     """
-    inferred_lfc_key = lfc_key
-    inferred_score_key = score_key
-    
-    # If keys already provided, just return them
-    if inferred_lfc_key is not None and inferred_score_key is not None:
-        return inferred_lfc_key, inferred_score_key
-    
-    # Get run info from specified run_id - specifically from kompot_de
-    run_info = get_run_from_history(adata, run_id, analysis_type="de")
-    
-    # If the run_info is None but a run_id was specified, log this
-    if run_info is None and run_id is not None:
-        logger.warning(f"Could not find run information for run_id={run_id}, analysis_type=de")
-    
-    if run_info is not None and 'field_names' in run_info:
-        field_names = run_info['field_names']
-        
-        # Get lfc_key from field_names
-        if inferred_lfc_key is None and 'mean_lfc_key' in field_names:
-            inferred_lfc_key = field_names['mean_lfc_key']
-            # Check that column exists
-            if inferred_lfc_key not in adata.var.columns:
-                inferred_lfc_key = None
-                logger.warning(f"Found mean_lfc_key '{inferred_lfc_key}' in run info, but column not in adata.var")
-        
-        # Get score_key from field_names
-        if inferred_score_key is None and 'mahalanobis_key' in field_names:
-            inferred_score_key = field_names['mahalanobis_key']
-            # Check that column exists
-            if inferred_score_key not in adata.var.columns:
-                logger.warning(f"Found mahalanobis_key '{inferred_score_key}' in run info, but column not in adata.var")
-                inferred_score_key = None
-    
-    # If lfc_key still not found, try to find a reasonable candidate in adata.var
-    if inferred_lfc_key is None:
-        # Look for columns with 'lfc' or 'fold_change' in the name
-        lfc_candidates = [col for col in adata.var.columns if 'lfc' in col.lower()
-                         or 'fold_change' in col.lower() or 'log_fold_change' in col.lower()]
-        if lfc_candidates:
-            # Prefer columns with 'kompot' in the name
-            kompot_lfc = [col for col in lfc_candidates if 'kompot' in col.lower()]
-            if kompot_lfc:
-                if len(kompot_lfc) == 1:
-                    inferred_lfc_key = kompot_lfc[0]
-                    logger.info(f"Inferred lfc_key as '{inferred_lfc_key}' from column names")
-                else:
-                    # Multiple kompot LFC columns found - this is ambiguous
-                    logger.warning(f"Multiple kompot LFC columns found: {kompot_lfc}")
-                    if strict:
-                        raise ValueError(f"Multiple LFC columns found: {kompot_lfc}. Please specify lfc_key explicitly.")
-                    else:
-                        # Try to extract conditions and provide more informative selection
-                        conditions_info = []
-                        for col in kompot_lfc:
-                            conditions = _extract_conditions_from_key(col)
-                            if conditions:
-                                conditions_info.append(f"{col} ({conditions[0]} → {conditions[1]})")
-                            else:
-                                conditions_info.append(col)
+    from .field_inference import infer_fields_from_run_info
 
-                        inferred_lfc_key = kompot_lfc[0]
-                        logger.warning(f"Multiple LFC columns available: {conditions_info}. Using: {inferred_lfc_key}")
-            else:
-                inferred_lfc_key = lfc_candidates[0]
-                logger.info(f"Inferred lfc_key as '{inferred_lfc_key}' from column names")
-                
-    # If score_key still not found, try to find a reasonable candidate
-    if inferred_score_key is None:
-        # Look for columns with 'mahalanobis' or 'score' in the name
-        score_candidates = [col for col in adata.var.columns if 'mahalanobis' in col.lower()
-                           or 'score' in col.lower() or 'significance' in col.lower()]
-        if score_candidates:
-            # Prefer columns with 'kompot' in the name
-            kompot_score = [col for col in score_candidates if 'kompot' in col.lower()]
-            if kompot_score:
-                if len(kompot_score) == 1:
-                    inferred_score_key = kompot_score[0]
-                    logger.info(f"Inferred score_key as '{inferred_score_key}' from column names")
-                else:
-                    # Multiple kompot score columns found - this is ambiguous
-                    logger.warning(f"Multiple kompot score columns found: {kompot_score}")
-                    if strict:
-                        raise ValueError(f"Multiple score columns found: {kompot_score}. Please specify score_key explicitly.")
-                    else:
-                        # Try to extract conditions and provide more informative selection
-                        conditions_info = []
-                        for col in kompot_score:
-                            conditions = _extract_conditions_from_key(col)
-                            if conditions:
-                                conditions_info.append(f"{col} ({conditions[0]} → {conditions[1]})")
-                            else:
-                                conditions_info.append(col)
+    # If both keys already provided, just return them
+    if lfc_key is not None and score_key is not None:
+        return lfc_key, score_key
 
-                        inferred_score_key = kompot_score[0]
-                        logger.warning(f"Multiple score columns available: {conditions_info}. Using: {inferred_score_key}")
-            else:
-                inferred_score_key = score_candidates[0]
-                logger.info(f"Inferred score_key as '{inferred_score_key}' from column names")
-    
-    # If keys still not found, raise errors if strict mode or just return None
-    if inferred_lfc_key is None and strict:
-        raise ValueError("Could not infer lfc_key from the specified run. Please specify manually.")
-    
-    if inferred_score_key is None and strict:
-        raise ValueError("Could not infer score_key from the specified run. Please specify manually.")
-    
-    return inferred_lfc_key, inferred_score_key
+    # Use robust field inference
+    required_fields = []
+    if lfc_key is None:
+        required_fields.append("mean_lfc_key")
+    if score_key is None:
+        required_fields.append("mahalanobis_key")
+
+    if required_fields:
+        inferred_fields = infer_fields_from_run_info(
+            adata=adata,
+            analysis_type="de",
+            run_id=run_id,
+            required_fields=required_fields,
+            strict=strict
+        )
+
+        # Use inferred fields if not provided by user
+        if lfc_key is None:
+            lfc_key = inferred_fields.get("mean_lfc_key")
+        if score_key is None:
+            score_key = inferred_fields.get("mahalanobis_key")
+
+    return lfc_key, score_key
 
 try:
     import scanpy as sc

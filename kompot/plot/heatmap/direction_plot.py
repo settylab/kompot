@@ -20,6 +20,9 @@ def _infer_direction_key(
     """
     Infer direction column for direction barplots from AnnData object.
 
+    This function uses robust field inference that relies on run info and provides
+    proper warnings for overwrites and fallbacks.
+
     Parameters
     ----------
     adata : AnnData
@@ -34,113 +37,54 @@ def _infer_direction_key(
     tuple
         (direction_column, condition1, condition2) with the inferred values
     """
-    inferred_direction_column = direction_column
-    condition1 = None
-    condition2 = None
-    
-    # If direction column already provided, just check if it exists
-    if inferred_direction_column is not None:
-        if inferred_direction_column in adata.obs.columns:
+    from ...plot.field_inference import infer_fields_from_run_info
+
+    # If direction column already provided, validate it and extract conditions
+    if direction_column is not None:
+        if direction_column in adata.obs.columns:
             # Try to extract conditions from the column name
-            conditions = _extract_conditions_from_key(inferred_direction_column)
-            if conditions:
-                condition1, condition2 = conditions
-            return inferred_direction_column, condition1, condition2
+            conditions = _extract_conditions_from_key(direction_column)
+            condition1, condition2 = conditions if conditions else (None, None)
+            return direction_column, condition1, condition2
         else:
             logger.warning(
-                f"Provided direction_column '{inferred_direction_column}' not found in adata.obs"
+                f"Provided direction_column '{direction_column}' not found in adata.obs"
             )
-            inferred_direction_column = None
+            # Fall through to inference
 
-    # Get run info from specified run_id - specifically from kompot_da
-    run_info = get_run_from_history(adata, run_id, analysis_type="da")
-    
-    # If the run_info is None but a run_id was specified, log this
-    if run_info is None and run_id is not None:
-        logger.warning(f"Could not find run information for run_id={run_id}, analysis_type=da")
-    
-    if run_info is not None:
-        # Get condition information from the run parameters
-        if 'params' in run_info:
+    # Use robust field inference
+    try:
+        inferred_fields = infer_fields_from_run_info(
+            adata=adata,
+            analysis_type="da",
+            run_id=run_id,
+            required_fields=["direction_key"],
+            strict=False
+        )
+
+        direction_column = inferred_fields.get("direction_key")
+
+        # Extract conditions from run info
+        from ...anndata.utils import get_run_from_history
+        run_info = get_run_from_history(adata, run_id, analysis_type="da")
+        condition1, condition2 = None, None
+
+        if run_info is not None and 'params' in run_info:
             params = run_info['params']
-            if 'condition1' in params and 'condition2' in params:
-                condition1 = params['condition1']
-                condition2 = params['condition2']
-        
-        # First try to get direction column from run info field_names
-        if "field_names" in run_info:
-            field_names = run_info["field_names"]
-            if "direction_key" in field_names:
-                inferred_direction_column = field_names["direction_key"]
-                # Check that column exists
-                if inferred_direction_column not in adata.obs.columns:
-                    logger.warning(f"Found direction_key '{inferred_direction_column}' in run info, but column not in adata.obs")
-                    inferred_direction_column = None
-        
-        # If not found in field_names, try the older method with abundance_key
-        if inferred_direction_column is None and "abundance_key" in run_info:
-            result_key = run_info["abundance_key"]
-            if result_key in adata.uns and "run_info" in adata.uns[result_key]:
-                key_run_info = adata.uns[result_key]["run_info"]
-                if "direction_key" in key_run_info:
-                    inferred_direction_column = key_run_info["direction_key"]
-                    # Check that column exists
-                    if inferred_direction_column not in adata.obs.columns:
-                        logger.warning(f"Found direction_key '{inferred_direction_column}' from abundance_key, but column not in adata.obs")
-                        inferred_direction_column = None
+            condition1 = params.get('condition1')
+            condition2 = params.get('condition2')
 
-    # If still not found, look for columns matching pattern
-    if inferred_direction_column is None:
-        direction_cols = [
-            col
-            for col in adata.obs.columns
-            if ("_lfc_direction" in col or "_log_fold_change_direction" in col) and col.startswith("kompot_da")
-        ]
-        if not direction_cols:
-            return None, condition1, condition2
-        elif len(direction_cols) == 1:
-            # Only use single column if we can extract conditions from it
-            # or if no specific conditions were requested
-            single_col = direction_cols[0]
-            extracted_conditions = _extract_conditions_from_key(single_col)
-            if extracted_conditions:
-                condition1, condition2 = extracted_conditions
-                inferred_direction_column = single_col
-            else:
-                logger.warning(f"Could not extract conditions from direction column: {single_col}")
-                return None, condition1, condition2
-        else:
-            # Multiple columns found - need to be more specific
-            logger.warning(f"Multiple direction columns found: {direction_cols}")
+        # If conditions not in run info, try to extract from column name
+        if direction_column and (condition1 is None or condition2 is None):
+            conditions = _extract_conditions_from_key(direction_column)
+            if conditions:
+                condition1, condition2 = conditions
 
-            # If conditions provided from run_info, try to find matching column
-            if condition1 and condition2:
-                for col in direction_cols:
-                    if f"{condition1}_to_{condition2}" in col:
-                        inferred_direction_column = col
-                        break
+        return direction_column, condition1, condition2
 
-            # If still not found, try to extract conditions from each column and pick the first valid one
-            if inferred_direction_column is None:
-                for col in direction_cols:
-                    extracted_conditions = _extract_conditions_from_key(col)
-                    if extracted_conditions:
-                        condition1, condition2 = extracted_conditions
-                        inferred_direction_column = col
-                        logger.info(f"Selected direction column: {col} (conditions: {condition1} → {condition2})")
-                        break
-
-                if inferred_direction_column is None:
-                    logger.error(f"Could not determine which direction column to use from: {direction_cols}")
-                    return None, condition1, condition2
-
-    # If we found a direction column but not conditions, try to extract them from the column name
-    if inferred_direction_column is not None and (condition1 is None or condition2 is None):
-        conditions = _extract_conditions_from_key(inferred_direction_column)
-        if conditions:
-            condition1, condition2 = conditions
-
-    return inferred_direction_column, condition1, condition2
+    except Exception as e:
+        logger.error(f"Field inference failed: {e}")
+        return None, None, None
 
 
 def direction_barplot(
