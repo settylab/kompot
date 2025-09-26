@@ -191,8 +191,8 @@ class TestMemoryValidation:
         logger.info(f"  Disk-backed: {memory_usage_disk_backed:.2f} MB")
         
         # Validate that both approaches produce results
-        memory_key = "memory_test_mahalanobis_A_to_B_sample_var"
-        disk_key = "disk_test_mahalanobis_A_to_B_sample_var"
+        memory_key = "memory_test_A_to_B_mahalanobis_sample_var"
+        disk_key = "disk_test_A_to_B_mahalanobis_sample_var"
         
         assert memory_key in adata_memory.var, f"Memory result not found: {memory_key}"
         assert disk_key in adata_disk.var, f"Disk result not found: {disk_key}"

@@ -172,17 +172,17 @@ def generate_output_field_names(
     
     if analysis_type == "da":
         # Define which fields are actually impacted by sample variance
-        # Fields like log_fold_change, log_density are not affected by sample variance
+        # Fields like lfc, log_density are not affected by sample variance
         sample_variance_impacted = ["zscore_key", "ptp_key", "direction_key"]
         
         # Differential abundance field names
         field_names.update({
-            "lfc_key": f"{result_key}_log_fold_change_{cond1_safe}_to_{cond2_safe}",
-            "zscore_key": f"{result_key}_log_fold_change_zscore_{cond1_safe}_to_{cond2_safe}{suffix}",
-            "ptp_key": f"{result_key}_neg_log10_fold_change_ptp_{cond1_safe}_to_{cond2_safe}{suffix}",
-            "direction_key": f"{result_key}_log_fold_change_direction_{cond1_safe}_to_{cond2_safe}{suffix}",
-            "density_key_1": f"{result_key}_log_density_{cond1_safe}",
-            "density_key_2": f"{result_key}_log_density_{cond2_safe}"
+            "lfc_key": f"{result_key}_{cond1_safe}_to_{cond2_safe}_lfc",
+            "zscore_key": f"{result_key}_{cond1_safe}_to_{cond2_safe}_lfc_zscore{suffix}",
+            "ptp_key": f"{result_key}_{cond1_safe}_to_{cond2_safe}_neg_log10_lfc_ptp{suffix}",
+            "direction_key": f"{result_key}_{cond1_safe}_to_{cond2_safe}_lfc_direction{suffix}",
+            "density_key_1": f"{result_key}_{cond1_safe}_log_density",
+            "density_key_2": f"{result_key}_{cond2_safe}_log_density"
         })
         field_names["sample_variance_impacted_fields"] = sample_variance_impacted
 
@@ -205,30 +205,30 @@ def generate_output_field_names(
         
         # Differential expression field names
         field_names.update({
-            "mahalanobis_key": f"{result_key}_mahalanobis_{cond1_safe}_to_{cond2_safe}{suffix}",
-            "ptp_key": f"{result_key}_ptp_{cond1_safe}_to_{cond2_safe}{suffix}",
-            "mean_lfc_key": f"{result_key}_mean_lfc_{cond1_safe}_to_{cond2_safe}",
-            "imputed_key_1": f"{result_key}_imputed_{cond1_safe}",
-            "imputed_key_2": f"{result_key}_imputed_{cond2_safe}",
-            "fold_change_key": f"{result_key}_fold_change_{cond1_safe}_to_{cond2_safe}",
-            "fold_change_zscores_key": f"{result_key}_fold_change_zscores_{cond1_safe}_to_{cond2_safe}{suffix}",
+            "mahalanobis_key": f"{result_key}_{cond1_safe}_to_{cond2_safe}_mahalanobis{suffix}",
+            "ptp_key": f"{result_key}_{cond1_safe}_to_{cond2_safe}_ptp{suffix}",
+            "mean_lfc_key": f"{result_key}_{cond1_safe}_to_{cond2_safe}_mean_lfc",
+            "imputed_key_1": f"{result_key}_{cond1_safe}_imputed",
+            "imputed_key_2": f"{result_key}_{cond2_safe}_imputed",
+            "fold_change_key": f"{result_key}_{cond1_safe}_to_{cond2_safe}_fold_change",
+            "fold_change_zscores_key": f"{result_key}_{cond1_safe}_to_{cond2_safe}_fold_change_zscores{suffix}",
             "std_key_1": f"{result_key}_{cond1_safe}_std",
             "std_key_2": f"{result_key}_{cond2_safe}_std",
-            
+
             # FDR-related field names with condition names
-            "mahalanobis_pvalue_key": f"{result_key}_mahalanobis_pvalue_{cond1_safe}_to_{cond2_safe}{suffix}",
-            "mahalanobis_local_fdr_key": f"{result_key}_mahalanobis_local_fdr_{cond1_safe}_to_{cond2_safe}{suffix}",
-            "mahalanobis_tail_fdr_key": f"{result_key}_mahalanobis_tail_fdr_{cond1_safe}_to_{cond2_safe}{suffix}",
-            "is_de_key": f"{result_key}_is_de_{cond1_safe}_to_{cond2_safe}{suffix}",
-            
+            "mahalanobis_pvalue_key": f"{result_key}_{cond1_safe}_to_{cond2_safe}_mahalanobis_pvalue{suffix}",
+            "mahalanobis_local_fdr_key": f"{result_key}_{cond1_safe}_to_{cond2_safe}_mahalanobis_local_fdr{suffix}",
+            "mahalanobis_tail_fdr_key": f"{result_key}_{cond1_safe}_to_{cond2_safe}_mahalanobis_tail_fdr{suffix}",
+            "is_de_key": f"{result_key}_{cond1_safe}_to_{cond2_safe}_is_de{suffix}",
+
             # Add varm field names for group-specific metrics
-            "mean_lfc_varm_key": f"{result_key}_mean_lfc_{cond1_safe}_to_{cond2_safe}_groups",
-            "mahalanobis_varm_key": f"{result_key}_mahalanobis_{cond1_safe}_to_{cond2_safe}{suffix}_groups",
+            "mean_lfc_varm_key": f"{result_key}_{cond1_safe}_to_{cond2_safe}_mean_lfc_groups",
+            "mahalanobis_varm_key": f"{result_key}_{cond1_safe}_to_{cond2_safe}_mahalanobis{suffix}_groups",
         })
         field_names["sample_variance_impacted_fields"] = sample_variance_impacted
 
         # Add posterior covariance key - specific to the condition pair
-        field_names["posterior_covariance_key"] = f"{result_key}_posterior_covariance_{cond1_safe}_to_{cond2_safe}"
+        field_names["posterior_covariance_key"] = f"{result_key}_{cond1_safe}_to_{cond2_safe}_posterior_covariance"
         
         # Generate all_patterns for DE
         field_names["all_patterns"] = {

@@ -144,12 +144,12 @@ def compute_differential_abundance(
     Notes
     -----
     Results are stored in various components of the AnnData object:
-    
-    - adata.obs[f"{result_key}_log_fold_change"]: Log fold change values for each cell
-    - adata.obs[f"{result_key}_log_fold_change_zscore"]: Z-scores for each cell
-    - adata.obs[f"{result_key}_neg_log10_fold_change_ptp"]: Negative log10 PTPs (Posterior Tail Probabilities) for each cell
-    - adata.obs[f"{result_key}_log_fold_change_direction"]: Direction of change ('up', 'neutral', 'down')
-    - adata.uns[f"{result_key}_log_fold_change_direction_colors"]: Color mapping for direction categories
+
+    - adata.obs[f"{result_key}_{condition1}_to_{condition2}_lfc"]: Log fold change values for each cell
+    - adata.obs[f"{result_key}_{condition1}_to_{condition2}_lfc_zscore"]: Z-scores for each cell
+    - adata.obs[f"{result_key}_{condition1}_to_{condition2}_neg_log10_lfc_ptp"]: Negative log10 PTPs (Posterior Tail Probabilities) for each cell
+    - adata.obs[f"{result_key}_{condition1}_to_{condition2}_lfc_direction"]: Direction of change ('up', 'neutral', 'down')
+    - adata.uns[f"{result_key}_lfc_direction_colors"]: Color mapping for direction categories
     - adata.uns[result_key]: Dictionary with additional information and parameters
     - If landmarks are computed, they are stored in adata.uns[result_key]['landmarks']
       for potential reuse in other analyses.
@@ -223,7 +223,7 @@ def compute_differential_abundance(
                 if prev_sample_var != current_sample_var:
                     if current_sample_var:
                         message += (f" Fields that will be overwritten: {field_list}. "
-                                   f"Note: Only fields NOT affected by sample variance (like log_fold_change, log_density) "
+                                   f"Note: Only fields NOT affected by sample variance (like lfc, log_density) "
                                    f"will be overwritten since they don't use the sample variance suffix. "
                                    f"These results will likely be identical if other parameters haven't changed.")
                     else:
@@ -411,7 +411,7 @@ def compute_differential_abundance(
         log_fold_change_threshold=log_fold_change_threshold,
         ptp_threshold=ptp_threshold
     )
-    # Note: weighted_mean_log_fold_change is no longer computed by default
+    # Note: weighted_mean_lfc is no longer computed by default
     
     # Handle landmarks for future reference
     if hasattr(diff_abundance, 'computed_landmarks') and diff_abundance.computed_landmarks is not None:

@@ -94,38 +94,45 @@ def _infer_direction_key(
         direction_cols = [
             col
             for col in adata.obs.columns
-            if "kompot_da_log_fold_change_direction" in col
+            if ("_lfc_direction" in col or "_log_fold_change_direction" in col) and col.startswith("kompot_da")
         ]
         if not direction_cols:
             return None, condition1, condition2
         elif len(direction_cols) == 1:
-            inferred_direction_column = direction_cols[0]
+            # Only use single column if we can extract conditions from it
+            # or if no specific conditions were requested
+            single_col = direction_cols[0]
+            extracted_conditions = _extract_conditions_from_key(single_col)
+            if extracted_conditions:
+                condition1, condition2 = extracted_conditions
+                inferred_direction_column = single_col
+            else:
+                logger.warning(f"Could not extract conditions from direction column: {single_col}")
+                return None, condition1, condition2
         else:
-            # If conditions provided, try to find matching column
+            # Multiple columns found - need to be more specific
+            logger.warning(f"Multiple direction columns found: {direction_cols}")
+
+            # If conditions provided from run_info, try to find matching column
             if condition1 and condition2:
                 for col in direction_cols:
                     if f"{condition1}_to_{condition2}" in col:
                         inferred_direction_column = col
                         break
-                    elif f"{condition2}_to_{condition1}" in col:
+
+            # If still not found, try to extract conditions from each column and pick the first valid one
+            if inferred_direction_column is None:
+                for col in direction_cols:
+                    extracted_conditions = _extract_conditions_from_key(col)
+                    if extracted_conditions:
+                        condition1, condition2 = extracted_conditions
                         inferred_direction_column = col
-                        # Keep this warning as it's informative about reversed condition order
-                        logger.warning(
-                            f"Found direction column with reversed conditions: {col}"
-                        )
+                        logger.info(f"Selected direction column: {col} (conditions: {condition1} → {condition2})")
                         break
+
                 if inferred_direction_column is None:
-                    inferred_direction_column = direction_cols[0]
-                    # Keep this warning as it's important information about ambiguity
-                    logger.warning(
-                        f"Multiple direction columns found, using the first one: {inferred_direction_column}"
-                    )
-            else:
-                inferred_direction_column = direction_cols[0]
-                # Keep this warning as it's important information about ambiguity
-                logger.warning(
-                    f"Multiple direction columns found, using the first one: {inferred_direction_column}"
-                )
+                    logger.error(f"Could not determine which direction column to use from: {direction_cols}")
+                    return None, condition1, condition2
 
     # If we found a direction column but not conditions, try to extract them from the column name
     if inferred_direction_column is not None and (condition1 is None or condition2 is None):

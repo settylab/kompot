@@ -76,14 +76,32 @@ def _infer_expression_keys(adata: AnnData, run_id: int = -1, lfc_key: Optional[s
     # If lfc_key still not found, try to find a reasonable candidate in adata.var
     if inferred_lfc_key is None:
         # Look for columns with 'lfc' or 'fold_change' in the name
-        lfc_candidates = [col for col in adata.var.columns if 'lfc' in col.lower() 
+        lfc_candidates = [col for col in adata.var.columns if 'lfc' in col.lower()
                          or 'fold_change' in col.lower() or 'log_fold_change' in col.lower()]
         if lfc_candidates:
             # Prefer columns with 'kompot' in the name
             kompot_lfc = [col for col in lfc_candidates if 'kompot' in col.lower()]
             if kompot_lfc:
-                inferred_lfc_key = kompot_lfc[0]
-                logger.info(f"Inferred lfc_key as '{inferred_lfc_key}' from column names")
+                if len(kompot_lfc) == 1:
+                    inferred_lfc_key = kompot_lfc[0]
+                    logger.info(f"Inferred lfc_key as '{inferred_lfc_key}' from column names")
+                else:
+                    # Multiple kompot LFC columns found - this is ambiguous
+                    logger.warning(f"Multiple kompot LFC columns found: {kompot_lfc}")
+                    if strict:
+                        raise ValueError(f"Multiple LFC columns found: {kompot_lfc}. Please specify lfc_key explicitly.")
+                    else:
+                        # Try to extract conditions and provide more informative selection
+                        conditions_info = []
+                        for col in kompot_lfc:
+                            conditions = _extract_conditions_from_key(col)
+                            if conditions:
+                                conditions_info.append(f"{col} ({conditions[0]} → {conditions[1]})")
+                            else:
+                                conditions_info.append(col)
+
+                        inferred_lfc_key = kompot_lfc[0]
+                        logger.warning(f"Multiple LFC columns available: {conditions_info}. Using: {inferred_lfc_key}")
             else:
                 inferred_lfc_key = lfc_candidates[0]
                 logger.info(f"Inferred lfc_key as '{inferred_lfc_key}' from column names")
@@ -91,14 +109,32 @@ def _infer_expression_keys(adata: AnnData, run_id: int = -1, lfc_key: Optional[s
     # If score_key still not found, try to find a reasonable candidate
     if inferred_score_key is None:
         # Look for columns with 'mahalanobis' or 'score' in the name
-        score_candidates = [col for col in adata.var.columns if 'mahalanobis' in col.lower() 
+        score_candidates = [col for col in adata.var.columns if 'mahalanobis' in col.lower()
                            or 'score' in col.lower() or 'significance' in col.lower()]
         if score_candidates:
             # Prefer columns with 'kompot' in the name
             kompot_score = [col for col in score_candidates if 'kompot' in col.lower()]
             if kompot_score:
-                inferred_score_key = kompot_score[0]
-                logger.info(f"Inferred score_key as '{inferred_score_key}' from column names")
+                if len(kompot_score) == 1:
+                    inferred_score_key = kompot_score[0]
+                    logger.info(f"Inferred score_key as '{inferred_score_key}' from column names")
+                else:
+                    # Multiple kompot score columns found - this is ambiguous
+                    logger.warning(f"Multiple kompot score columns found: {kompot_score}")
+                    if strict:
+                        raise ValueError(f"Multiple score columns found: {kompot_score}. Please specify score_key explicitly.")
+                    else:
+                        # Try to extract conditions and provide more informative selection
+                        conditions_info = []
+                        for col in kompot_score:
+                            conditions = _extract_conditions_from_key(col)
+                            if conditions:
+                                conditions_info.append(f"{col} ({conditions[0]} → {conditions[1]})")
+                            else:
+                                conditions_info.append(col)
+
+                        inferred_score_key = kompot_score[0]
+                        logger.warning(f"Multiple score columns available: {conditions_info}. Using: {inferred_score_key}")
             else:
                 inferred_score_key = score_candidates[0]
                 logger.info(f"Inferred score_key as '{inferred_score_key}' from column names")

@@ -223,10 +223,10 @@ def test_compute_differential_abundance_with_copy():
     
     # Check that results are in the copy
     expected_obs_patterns = [
-        'kompot_da_log_fold_change',
-        'kompot_da_log_fold_change_zscore',
-        'kompot_da_neg_log10_fold_change_ptp',
-        'kompot_da_log_fold_change_direction'
+        'kompot_da_A_to_B_lfc',
+        'kompot_da_A_to_B_lfc_zscore',
+        'kompot_da_A_to_B_neg_log10_lfc_ptp',
+        'kompot_da_A_to_B_lfc_direction'
     ]
     
     for pattern in expected_obs_patterns:
@@ -260,10 +260,10 @@ def test_compute_differential_abundance_with_result_key():
     
     # Check that fields with custom prefix were added to the AnnData object
     expected_obs_patterns = [
-        'custom_da_log_fold_change',
-        'custom_da_log_fold_change_zscore',
-        'custom_da_neg_log10_fold_change_ptp',
-        'custom_da_log_fold_change_direction'
+        'custom_da_A_to_B_lfc',
+        'custom_da_A_to_B_lfc_zscore',
+        'custom_da_A_to_B_neg_log10_lfc_ptp',
+        'custom_da_A_to_B_lfc_direction'
     ]
     
     for pattern in expected_obs_patterns:
@@ -329,7 +329,7 @@ def test_compute_differential_abundance_overwrite_behavior():
     updated_field_tracking = get_json_metadata(adata, 'kompot_da.anndata_fields')
     assert updated_field_tracking is not None
     assert 'obs' in updated_field_tracking
-    assert 'test_da_log_fold_change_A_to_B' in updated_field_tracking['obs']
+    assert 'test_da_A_to_B_lfc' in updated_field_tracking['obs']
     
     # Run again with overwrite=False - should raise a ValueError
     with pytest.raises(ValueError):

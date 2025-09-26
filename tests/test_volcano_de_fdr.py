@@ -60,12 +60,12 @@ def create_test_anndata_with_fdr(
     p_values[diff_indices] = np.random.beta(1, 50, n_differential)
 
     # Add columns to adata.var
-    adata.var[f"{result_key}_mean_log_fold_change"] = lfc
-    adata.var[f"{result_key}_mahalanobis"] = mahal_dist
-    adata.var[f"{result_key}_mahalanobis_pvalue"] = p_values
-    adata.var[f"{result_key}_mahalanobis_local_fdr"] = local_fdr
-    adata.var[f"{result_key}_mahalanobis_tail_fdr"] = tail_fdr
-    adata.var[f"{result_key}_is_de"] = local_fdr < 0.05
+    adata.var[f"{result_key}_A_to_B_mean_lfc"] = lfc
+    adata.var[f"{result_key}_A_to_B_mahalanobis"] = mahal_dist
+    adata.var[f"{result_key}_A_to_B_mahalanobis_pvalue"] = p_values
+    adata.var[f"{result_key}_A_to_B_mahalanobis_local_fdr"] = local_fdr
+    adata.var[f"{result_key}_A_to_B_mahalanobis_tail_fdr"] = tail_fdr
+    adata.var[f"{result_key}_A_to_B_is_de"] = local_fdr < 0.05
 
     return adata, diff_indices
 
@@ -80,8 +80,8 @@ class TestVolcanoFDRBasicFunctionality:
         fig, ax = plt.subplots()
         volcano_de(
             adata,
-            lfc_key="kompot_de_mean_log_fold_change",
-            score_key="kompot_de_mahalanobis",
+            lfc_key="kompot_de_A_to_B_mean_lfc",
+            score_key="kompot_de_A_to_B_mahalanobis",
             y_axis_type="mahalanobis",
             ax=ax,
             show_legend=False,
@@ -98,8 +98,8 @@ class TestVolcanoFDRBasicFunctionality:
         fig, ax = plt.subplots()
         volcano_de(
             adata,
-            lfc_key="kompot_de_mean_log_fold_change",
-            score_key="kompot_de_mahalanobis",
+            lfc_key="kompot_de_A_to_B_mean_lfc",
+            score_key="kompot_de_A_to_B_mahalanobis",
             y_axis_type="local_fdr",
             ax=ax,
             show_legend=False,
@@ -116,8 +116,8 @@ class TestVolcanoFDRBasicFunctionality:
         fig, ax = plt.subplots()
         volcano_de(
             adata,
-            lfc_key="kompot_de_mean_log_fold_change",
-            score_key="kompot_de_mahalanobis",
+            lfc_key="kompot_de_A_to_B_mean_lfc",
+            score_key="kompot_de_A_to_B_mahalanobis",
             y_axis_type="tail_fdr",
             ax=ax,
             show_legend=False,
@@ -135,8 +135,8 @@ class TestVolcanoFDRBasicFunctionality:
         fig, ax = plt.subplots()
         volcano_de(
             adata,
-            lfc_key="kompot_de_mean_log_fold_change",
-            score_key="kompot_de_mahalanobis",
+            lfc_key="kompot_de_A_to_B_mean_lfc",
+            score_key="kompot_de_A_to_B_mahalanobis",
             y_axis_type="local_fdr",
             ax=ax,
             show_legend=False,
@@ -151,13 +151,13 @@ class TestVolcanoFDRBasicFunctionality:
         adata, _ = create_test_anndata_with_fdr()
 
         # Get original FDR values
-        original_fdr = adata.var["kompot_de_mahalanobis_local_fdr"].values
+        original_fdr = adata.var["kompot_de_A_to_B_mahalanobis_local_fdr"].values
 
         fig, ax = plt.subplots()
         volcano_de(
             adata,
-            lfc_key="kompot_de_mean_log_fold_change",
-            score_key="kompot_de_mahalanobis",
+            lfc_key="kompot_de_A_to_B_mean_lfc",
+            score_key="kompot_de_A_to_B_mahalanobis",
             y_axis_type="local_fdr",
             n_top_genes=0,  # Don't highlight any genes
             background_color_key=None,  # Disable automatic coloring to get single scatter
@@ -196,15 +196,15 @@ class TestVolcanoFDRColoring:
         adata, _ = create_test_anndata_with_fdr()
 
         # Ensure we have both True and False values in the DE column
-        de_values = adata.var["kompot_de_is_de"].values
+        de_values = adata.var["kompot_de_A_to_B_is_de"].values
         n_true = np.sum(de_values)
         n_false = len(de_values) - n_true
 
         fig, ax = plt.subplots()
         volcano_de(
             adata,
-            lfc_key="kompot_de_mean_log_fold_change",
-            score_key="kompot_de_mahalanobis",
+            lfc_key="kompot_de_A_to_B_mean_lfc",
+            score_key="kompot_de_A_to_B_mahalanobis",
             y_axis_type="local_fdr",
             ax=ax,
             show_legend=False,
@@ -247,8 +247,8 @@ class TestVolcanoFDRColoring:
         fig, ax = plt.subplots()
         volcano_de(
             adata,
-            lfc_key="kompot_de_mean_log_fold_change",
-            score_key="kompot_de_mahalanobis",
+            lfc_key="kompot_de_A_to_B_mean_lfc",
+            score_key="kompot_de_A_to_B_mahalanobis",
             y_axis_type="local_fdr",
             background_color_key="custom_category",
             ax=ax,
@@ -273,20 +273,20 @@ class TestVolcanoFDRColoring:
         adata, _ = create_test_anndata_with_fdr()
 
         # Count initial significant genes
-        initial_count = np.sum(adata.var["kompot_de_is_de"])
+        initial_count = np.sum(adata.var["kompot_de_A_to_B_is_de"])
 
         fig, ax = plt.subplots()
         volcano_de(
             adata,
-            lfc_key="kompot_de_mean_log_fold_change",
-            score_key="kompot_de_mahalanobis",
+            lfc_key="kompot_de_A_to_B_mean_lfc",
+            score_key="kompot_de_A_to_B_mahalanobis",
             y_axis_type="local_fdr",
             ax=ax,
             show_legend=False,
         )
 
         # DE column should still exist and be unchanged
-        final_count = np.sum(adata.var["kompot_de_is_de"])
+        final_count = np.sum(adata.var["kompot_de_A_to_B_is_de"])
         assert (
             final_count == initial_count
         ), "DE column should be unchanged without update_de_classification"
@@ -303,8 +303,8 @@ class TestVolcanoFDRThresholds:
         fig, ax = plt.subplots()
         volcano_de(
             adata,
-            lfc_key="kompot_de_mean_log_fold_change",
-            score_key="kompot_de_mahalanobis",
+            lfc_key="kompot_de_A_to_B_mean_lfc",
+            score_key="kompot_de_A_to_B_mahalanobis",
             y_axis_type="local_fdr",
             significance_threshold=0.05,
             show_thresholds=True,
@@ -326,8 +326,8 @@ class TestVolcanoFDRThresholds:
         fig, ax = plt.subplots()
         volcano_de(
             adata,
-            lfc_key="kompot_de_mean_log_fold_change",
-            score_key="kompot_de_mahalanobis",
+            lfc_key="kompot_de_A_to_B_mean_lfc",
+            score_key="kompot_de_A_to_B_mahalanobis",
             y_axis_type="local_fdr",
             significance_threshold=0.05,
             show_thresholds=False,
@@ -349,8 +349,8 @@ class TestVolcanoFDRThresholds:
         fig, ax = plt.subplots()
         volcano_de(
             adata,
-            lfc_key="kompot_de_mean_log_fold_change",
-            score_key="kompot_de_mahalanobis",
+            lfc_key="kompot_de_A_to_B_mean_lfc",
+            score_key="kompot_de_A_to_B_mahalanobis",
             y_axis_type="local_fdr",
             significance_threshold=threshold_val,
             show_thresholds=True,
@@ -383,13 +383,13 @@ class TestVolcanoFDRClassificationUpdates:
         adata, _ = create_test_anndata_with_fdr()
 
         # Count initial significant genes
-        initial_count = np.sum(adata.var["kompot_de_is_de"])
+        initial_count = np.sum(adata.var["kompot_de_A_to_B_is_de"])
 
         fig, ax = plt.subplots()
         volcano_de(
             adata,
-            lfc_key="kompot_de_mean_log_fold_change",
-            score_key="kompot_de_mahalanobis",
+            lfc_key="kompot_de_A_to_B_mean_lfc",
+            score_key="kompot_de_A_to_B_mahalanobis",
             y_axis_type="local_fdr",
             significance_threshold=0.2,  # More lenient threshold
             update_de_classification=True,
@@ -398,7 +398,7 @@ class TestVolcanoFDRClassificationUpdates:
         )
 
         # Should have more significant genes with lenient threshold
-        final_count = np.sum(adata.var["kompot_de_is_de"])
+        final_count = np.sum(adata.var["kompot_de_A_to_B_is_de"])
         assert (
             final_count >= initial_count
         ), "Should have at least as many significant genes with lenient threshold"
@@ -409,13 +409,13 @@ class TestVolcanoFDRClassificationUpdates:
         adata, _ = create_test_anndata_with_fdr()
 
         # Count initial significant genes
-        initial_count = np.sum(adata.var["kompot_de_is_de"])
+        initial_count = np.sum(adata.var["kompot_de_A_to_B_is_de"])
 
         fig, ax = plt.subplots()
         volcano_de(
             adata,
-            lfc_key="kompot_de_mean_log_fold_change",
-            score_key="kompot_de_mahalanobis",
+            lfc_key="kompot_de_A_to_B_mean_lfc",
+            score_key="kompot_de_A_to_B_mahalanobis",
             y_axis_type="local_fdr",
             significance_threshold=0.2,  # More lenient threshold
             update_de_classification=False,  # Explicitly disabled
@@ -424,7 +424,7 @@ class TestVolcanoFDRClassificationUpdates:
         )
 
         # Should be unchanged
-        final_count = np.sum(adata.var["kompot_de_is_de"])
+        final_count = np.sum(adata.var["kompot_de_A_to_B_is_de"])
         assert final_count == initial_count, "Should not update classification when disabled"
         plt.close(fig)
 
@@ -433,13 +433,13 @@ class TestVolcanoFDRClassificationUpdates:
         adata, _ = create_test_anndata_with_fdr()
 
         # Count initial significant genes
-        initial_count = np.sum(adata.var["kompot_de_is_de"])
+        initial_count = np.sum(adata.var["kompot_de_A_to_B_is_de"])
 
         fig, ax = plt.subplots()
         volcano_de(
             adata,
-            lfc_key="kompot_de_mean_log_fold_change",
-            score_key="kompot_de_mahalanobis",
+            lfc_key="kompot_de_A_to_B_mean_lfc",
+            score_key="kompot_de_A_to_B_mahalanobis",
             y_axis_type="local_fdr",
             significance_threshold=0.001,  # Very strict threshold
             update_de_classification=True,
@@ -448,7 +448,7 @@ class TestVolcanoFDRClassificationUpdates:
         )
 
         # Should have fewer significant genes with strict threshold
-        final_count = np.sum(adata.var["kompot_de_is_de"])
+        final_count = np.sum(adata.var["kompot_de_A_to_B_is_de"])
         assert (
             final_count <= initial_count
         ), "Should have fewer or equal significant genes with strict threshold"
@@ -464,15 +464,15 @@ class TestVolcanoFDRErrorHandling:
 
         # Remove FDR columns
         adata.var = adata.var.drop(
-            columns=["kompot_de_mahalanobis_local_fdr", "kompot_de_mahalanobis_tail_fdr"]
+            columns=["kompot_de_A_to_B_mahalanobis_local_fdr", "kompot_de_A_to_B_mahalanobis_tail_fdr"]
         )
 
         fig, ax = plt.subplots()
         # Should not raise an error, should fall back to mahalanobis
         volcano_de(
             adata,
-            lfc_key="kompot_de_mean_log_fold_change",
-            score_key="kompot_de_mahalanobis",
+            lfc_key="kompot_de_A_to_B_mean_lfc",
+            score_key="kompot_de_A_to_B_mahalanobis",
             y_axis_type="local_fdr",
             ax=ax,
             show_legend=False,
@@ -487,14 +487,14 @@ class TestVolcanoFDRErrorHandling:
         adata, _ = create_test_anndata_with_fdr()
 
         # Remove DE column
-        adata.var = adata.var.drop(columns=["kompot_de_is_de"])
+        adata.var = adata.var.drop(columns=["kompot_de_A_to_B_is_de"])
 
         fig, ax = plt.subplots()
         # Should not raise an error
         volcano_de(
             adata,
-            lfc_key="kompot_de_mean_log_fold_change",
-            score_key="kompot_de_mahalanobis",
+            lfc_key="kompot_de_A_to_B_mean_lfc",
+            score_key="kompot_de_A_to_B_mahalanobis",
             y_axis_type="local_fdr",
             significance_threshold=0.05,
             update_de_classification=True,  # This should be ignored
@@ -522,8 +522,8 @@ class TestVolcanoFDRErrorHandling:
         # Should show warning but not error
         volcano_de(
             adata,
-            lfc_key="kompot_de_mean_log_fold_change",
-            score_key="kompot_de_mahalanobis",
+            lfc_key="kompot_de_A_to_B_mean_lfc",
+            score_key="kompot_de_A_to_B_mahalanobis",
             group="group1",  # Use group-specific data
             y_axis_type="local_fdr",
             ax=ax,
@@ -540,8 +540,8 @@ class TestVolcanoFDRErrorHandling:
         # Should work with invalid type by falling back to default
         volcano_de(
             adata,
-            lfc_key="kompot_de_mean_log_fold_change",
-            score_key="kompot_de_mahalanobis",
+            lfc_key="kompot_de_A_to_B_mean_lfc",
+            score_key="kompot_de_A_to_B_mahalanobis",
             y_axis_type="invalid_type",  # Invalid type
             ax=ax,
             show_legend=False,
@@ -565,8 +565,8 @@ class TestVolcanoFDRIntegration:
         fig, ax = plt.subplots()
         volcano_de(
             adata,
-            lfc_key="kompot_de_mean_log_fold_change",
-            score_key="kompot_de_mahalanobis",
+            lfc_key="kompot_de_A_to_B_mean_lfc",
+            score_key="kompot_de_A_to_B_mahalanobis",
             y_axis_type="local_fdr",
             highlight_genes=highlight_genes,
             ax=ax,
@@ -584,8 +584,8 @@ class TestVolcanoFDRIntegration:
         fig, ax = plt.subplots()
         volcano_de(
             adata,
-            lfc_key="kompot_de_mean_log_fold_change",
-            score_key="kompot_de_mahalanobis",
+            lfc_key="kompot_de_A_to_B_mean_lfc",
+            score_key="kompot_de_A_to_B_mahalanobis",
             y_axis_type="local_fdr",
             color_up="#FF0000",
             color_down="#0000FF",
@@ -608,8 +608,8 @@ class TestVolcanoFDRIntegration:
         with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
             volcano_de(
                 adata,
-                lfc_key="kompot_de_mean_log_fold_change",
-                score_key="kompot_de_mahalanobis",
+                lfc_key="kompot_de_A_to_B_mean_lfc",
+                score_key="kompot_de_A_to_B_mahalanobis",
                 y_axis_type="local_fdr",
                 significance_threshold=0.05,
                 save=tmp.name,

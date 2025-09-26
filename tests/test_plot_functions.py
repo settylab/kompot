@@ -482,7 +482,7 @@ class TestPlotFunctions:
         """Test direction_barplot function."""
         # Create the direction column with updated "_to_" format
         directions = np.random.choice(['up', 'down', 'neutral'], size=self.adata.n_obs)
-        self.adata.obs['kompot_da_log_fold_change_direction_A_to_B'] = directions
+        self.adata.obs['kompot_da_A_to_B_lfc_direction'] = directions
         
         # Add categories for grouping
         categories = np.random.choice(['Type1', 'Type2', 'Type3'], size=self.adata.n_obs)
@@ -509,7 +509,7 @@ class TestPlotFunctions:
                 'conditions': ['A', 'B']
             },
             'field_names': {
-                'direction_key': 'kompot_da_log_fold_change_direction_A_to_B'
+                'direction_key': 'kompot_da_A_to_B_lfc_direction'
             }
         })
         
@@ -520,7 +520,7 @@ class TestPlotFunctions:
         fig, ax = direction_barplot(
             self.adata,
             category_column='cell_type',
-            direction_column='kompot_da_log_fold_change_direction_A_to_B',
+            direction_column='kompot_da_A_to_B_lfc_direction',
             condition1='A',
             condition2='B',
             return_fig=True
@@ -542,7 +542,7 @@ class TestPlotFunctions:
         """Test _infer_direction_key helper function."""
         # Create the direction column with updated "_to_" format
         directions = np.random.choice(['up', 'down', 'neutral'], size=self.adata.n_obs)
-        self.adata.obs['kompot_da_log_fold_change_direction_A_to_B'] = directions
+        self.adata.obs['kompot_da_A_to_B_lfc_direction'] = directions
         
         # Add run info for DA if not already present
         if 'kompot_da' not in self.adata.uns:
@@ -565,7 +565,7 @@ class TestPlotFunctions:
                 'conditions': ['A', 'B']
             },
             'field_names': {
-                'direction_key': 'kompot_da_log_fold_change_direction_A_to_B'
+                'direction_key': 'kompot_da_A_to_B_lfc_direction'
             }
         })
         
@@ -575,9 +575,9 @@ class TestPlotFunctions:
         # Test with explicit key
         dir_key, cond1, cond2 = _infer_direction_key(
             self.adata, 
-            direction_column='kompot_da_log_fold_change_direction_A_to_B'
+            direction_column='kompot_da_A_to_B_lfc_direction'
         )
-        assert dir_key == 'kompot_da_log_fold_change_direction_A_to_B'
+        assert dir_key == 'kompot_da_A_to_B_lfc_direction'
         assert cond1 == 'A'
         assert cond2 == 'B'
         
@@ -699,7 +699,7 @@ class TestPlotFunctions:
         self.adata.obs['cell_type'] = categories
         
         # Create a predefined direction column
-        direction_col = 'kompot_da_log_fold_change_direction_A_to_B'
+        direction_col = 'kompot_da_A_to_B_lfc_direction'
         if direction_col not in self.adata.obs:
             self.adata.obs[direction_col] = np.random.choice(['up', 'down', 'neutral'], size=self.adata.n_obs)
         

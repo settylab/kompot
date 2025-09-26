@@ -113,7 +113,7 @@ def test_sample_col_parameter():
     # Find a field related to log fold change
     lfc_field = None
     for field in field_mapping['obs'].keys():
-        if 'log_fold_change' in field:
+        if 'lfc' in field and not 'lfc_direction' in field:
             lfc_field = field
             break
             
@@ -172,8 +172,8 @@ def test_sample_col_parameter():
     
     # In the DE case, check for fold change z-scores in layers - this would only be for DE
     # For DA, the zscores are stored in obs as "log_fold_change_zscore"
-    zscore_key_with_samples = f"test_sample_col_log_fold_change_zscore_A_to_B_sample_var"
-    zscore_key_no_samples = f"test_no_sample_col_log_fold_change_zscore_A_to_B"
+    zscore_key_with_samples = f"test_sample_col_A_to_B_lfc_zscore_sample_var"
+    zscore_key_no_samples = f"test_no_sample_col_A_to_B_lfc_zscore"
     
     # For DA, these should be in obs columns
     assert zscore_key_with_samples in adata.obs
@@ -827,11 +827,11 @@ class TestRunInfo:
         # Verify at least one key we expect to see based on field content
         has_lfc_field = False
         for field in obs_fields:
-            if 'log_fold_change' in field:
+            if 'lfc' in field and not 'lfc_direction' in field:
                 has_lfc_field = True
                 break
-                
-        assert has_lfc_field, "Expected to find a log_fold_change field in obs columns"
+
+        assert has_lfc_field, "Expected to find a lfc field in obs columns"
             
         # Check that result_key-related fields are in uns - directly from the keys
         assert len(uns_fields) > 0 or 'test_field_tracking' in adata.uns, "No uns fields were created"
@@ -884,8 +884,8 @@ class TestRunInfo:
         assert len(run2_fields) > 0, "No observation fields created for run2"
         
         # Check that direction colors are set for both runs
-        assert 'compare_run1_log_fold_change_direction_A_to_B_colors' in adata.uns
-        assert 'compare_run2_log_fold_change_direction_A_to_B_colors' in adata.uns
+        assert 'compare_run1_A_to_B_lfc_direction_colors' in adata.uns
+        assert 'compare_run2_A_to_B_lfc_direction_colors' in adata.uns
         
         # Note: Skipping detailed RunInfo and RunComparison tests due to serialization issues
     
@@ -971,8 +971,8 @@ class TestRunInfo:
         assert len(de1_fields) > 0, "No var fields created for DE run"
         
         # Check that direction colors for DA runs and parameters for DE run are stored
-        assert 'list_test_da1_log_fold_change_direction_A_to_B_colors' in adata.uns
-        assert 'list_test_da2_log_fold_change_direction_A_to_B_colors' in adata.uns
+        assert 'list_test_da1_A_to_B_lfc_direction_colors' in adata.uns
+        assert 'list_test_da2_A_to_B_lfc_direction_colors' in adata.uns
         assert 'kompot_de' in adata.uns
         
         # Note: Skipping detailed RunInfo tests due to serialization issues
@@ -1032,7 +1032,7 @@ def test_gene_subset_order_preservation():
     # Verify that mean log fold change values follow the original AnnData gene order
     # not the order in the shuffled gene list
     assert list(adata.var_names) == original_gene_order
-    mean_lfc_column = f"test_all_genes_shuffled_mean_lfc_A_to_B"
+    mean_lfc_column = f"test_all_genes_shuffled_A_to_B_mean_lfc"
     assert mean_lfc_column in adata.var.columns
     
     # All genes should have non-NaN values
@@ -1057,7 +1057,7 @@ def test_gene_subset_order_preservation():
     
     # Verify that results are only computed for the subset of genes
     # but follow the original AnnData gene order
-    mean_lfc_column_subset = f"test_gene_subset_mean_lfc_A_to_B"
+    mean_lfc_column_subset = f"test_gene_subset_A_to_B_mean_lfc"
     assert mean_lfc_column_subset in adata.var.columns
     
     # Check that only the genes in the subset have non-NaN values
@@ -1117,10 +1117,10 @@ def test_gene_subset_order_preservation():
     )
     
     # Get the imputed layers for both conditions
-    imputed_key_1 = f"test_patterned_imputed_A"
-    imputed_key_2 = f"test_patterned_imputed_B"
+    imputed_key_1 = f"test_patterned_A_imputed"
+    imputed_key_2 = f"test_patterned_B_imputed"
     # Verify fold change z-scores layer is created
-    fold_change_zscores_key = f"test_patterned_fold_change_zscores_A_to_B"
+    fold_change_zscores_key = f"test_patterned_A_to_B_fold_change_zscores"
     assert fold_change_zscores_key in adata_patterned.layers
     
     # Check that the imputed values for the selected genes match the expected pattern

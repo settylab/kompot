@@ -401,8 +401,8 @@ def test_anndata_differential_expression_disk_backed():
         )
         
         # Basic verification that results were generated
-        memory_mahalanobis_key = "memory_mahalanobis_A_to_B"
-        disk_mahalanobis_key = "disk_mahalanobis_A_to_B"
+        memory_mahalanobis_key = "memory_A_to_B_mahalanobis"
+        disk_mahalanobis_key = "disk_A_to_B_mahalanobis"
         assert memory_mahalanobis_key in adata.var, f"Column {memory_mahalanobis_key} not found in {list(adata.var.columns)}"
         assert disk_mahalanobis_key in adata.var, f"Column {disk_mahalanobis_key} not found in {list(adata.var.columns)}"
         
@@ -547,8 +547,8 @@ def test_anndata_differential_expression_sample_variance_with_disk():
         )
         
         # Verify results were generated
-        memory_mahalanobis_key = "memory_var_mahalanobis_A_to_B_sample_var"
-        disk_mahalanobis_key = "disk_var_mahalanobis_A_to_B_sample_var"
+        memory_mahalanobis_key = "memory_var_A_to_B_mahalanobis_sample_var"
+        disk_mahalanobis_key = "disk_var_A_to_B_mahalanobis_sample_var"
         
         assert memory_mahalanobis_key in adata.var, f"Column {memory_mahalanobis_key} not found in {list(adata.var.columns)}"
         assert disk_mahalanobis_key in adata.var, f"Column {disk_mahalanobis_key} not found in {list(adata.var.columns)}"
@@ -633,8 +633,8 @@ def test_anndata_differential_expression_sample_variance_with_disk():
                 
         # Fold changes should be very close - allow for small numerical differences
         # due to different computation paths (direct numpy vs previous dask implementation)
-        memory_lfc_key = "memory_var_mean_lfc_A_to_B"
-        disk_lfc_key = "disk_var_mean_lfc_A_to_B"
+        memory_lfc_key = "memory_var_A_to_B_mean_lfc"
+        disk_lfc_key = "disk_var_A_to_B_mean_lfc"
         np.testing.assert_allclose(
             adata.var[memory_lfc_key],
             adata.var[disk_lfc_key],
@@ -718,8 +718,8 @@ def test_consistency_across_disk_backed_runs():
             )
             
             # Verify results were generated
-            var1_key = "disk_var1_mahalanobis_A_to_B_sample_var"
-            var2_key = "disk_var2_mahalanobis_A_to_B_sample_var"
+            var1_key = "disk_var1_A_to_B_mahalanobis_sample_var"
+            var2_key = "disk_var2_A_to_B_mahalanobis_sample_var"
             
             assert var1_key in adata.var, f"Column {var1_key} not found. Available columns: {list(adata.var.columns)}"
             assert var2_key in adata.var, f"Column {var2_key} not found. Available columns: {list(adata.var.columns)}"
@@ -733,8 +733,8 @@ def test_consistency_across_disk_backed_runs():
             )
             
             # Fold changes should also be identical between runs
-            lfc1_key = "disk_var1_mean_lfc_A_to_B"
-            lfc2_key = "disk_var2_mean_lfc_A_to_B"
+            lfc1_key = "disk_var1_A_to_B_mean_lfc"
+            lfc2_key = "disk_var2_A_to_B_mean_lfc"
             
             np.testing.assert_allclose(
                 adata.var[lfc1_key],
