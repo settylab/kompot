@@ -289,34 +289,109 @@ def _check_for_overwrites(
     inferred_fields: Dict[str, Optional[str]],
     warnings_issued: List[str]
 ) -> None:
-    """Check for potential data overwrites and issue warnings."""
-    from ..anndata.utils import get_run_history
+    """
+    Check for potential data overwrites using the robust field tracking system.
 
-    # Get all runs of this analysis type
-    run_history = get_run_history(adata, analysis_type)
+    This function is consistent with the RunInfo._check_overwritten_fields() approach
+    and uses the same field tracking mechanism for detecting overwrites.
+    """
+    from ..anndata.utils.field_tracking import validate_field_run_id, get_run_from_history
+    from ..anndata.utils.json_utils import from_json_string
 
-    if run_history is None or len(run_history) <= 1:
-        return  # No overwrites possible
+    storage_key = f"kompot_{analysis_type}"
 
-    # Check if any of the inferred fields might have been overwritten
-    data_section = adata.obs if analysis_type == "da" else adata.var
+    # Check if we have field tracking information
+    if (storage_key not in adata.uns or
+        'anndata_fields' not in adata.uns[storage_key]):
+        return  # No tracking information available
 
+    # Get field tracking data
+    try:
+        tracking = adata.uns[storage_key]['anndata_fields']
+        if isinstance(tracking, str):
+            tracking = from_json_string(tracking)
+    except Exception as e:
+        logger.warning(f"Error accessing field tracking data: {e}")
+        return
+
+    # Determine the data location for this analysis type
+    location = "obs" if analysis_type == "da" else "var"
+
+    if location not in tracking:
+        return  # No fields tracked for this location
+
+    location_tracking = tracking[location]
+    if isinstance(location_tracking, str):
+        try:
+            location_tracking = from_json_string(location_tracking)
+        except Exception:
+            return
+
+    # Check each inferred field for overwrites
     for field_type, field_name in inferred_fields.items():
-        if field_name is None:
+        if field_name is None or field_name not in location_tracking:
             continue
 
-        # Count how many runs could have written to this field
-        potential_writers = 0
-        for run_info in run_history:
-            if "field_names" in run_info:
-                field_names = run_info["field_names"]
-                if field_names.get(field_type) == field_name:
-                    potential_writers += 1
+        # Get the run that currently owns this field
+        current_owner_run = location_tracking[field_name]
 
-        if potential_writers > 1:
-            warning = f"Field '{field_name}' may have been overwritten by multiple runs"
+        # Try to get the latest run to compare
+        try:
+            latest_run_info = get_run_from_history(adata, run_id=-1, analysis_type=analysis_type)
+            if latest_run_info and 'adjusted_run_id' in latest_run_info:
+                latest_run_id = latest_run_info['adjusted_run_id']
+            else:
+                continue  # Can't determine latest run
+        except Exception:
+            continue
+
+        # Check if the field was written by a different run than the latest
+        if current_owner_run != latest_run_id:
+            warning = (f"Field '{field_name}' was last written by run {current_owner_run}, "
+                      f"but current context expects run {latest_run_id}. "
+                      f"The field may have been overwritten.")
             logger.warning(warning)
             warnings_issued.append(warning)
+
+        # Additional check: Count potential writers from run history to detect multiple runs
+        # that could have written to the same field (indicating overwrite potential)
+        potential_writers = _count_potential_field_writers(
+            adata, analysis_type, field_type, field_name
+        )
+
+        if potential_writers > 1:
+            warning = (f"Field '{field_name}' has been written by {potential_writers} different runs, "
+                      f"indicating potential overwrites")
+            logger.warning(warning)
+            warnings_issued.append(warning)
+
+
+def _count_potential_field_writers(
+    adata: AnnData,
+    analysis_type: str,
+    field_type: str,
+    field_name: str
+) -> int:
+    """
+    Count how many runs could have written to a specific field.
+
+    This provides compatibility with the original detection logic while
+    using the robust field tracking system.
+    """
+    from ..anndata.utils import get_run_history
+
+    run_history = get_run_history(adata, analysis_type)
+    if not run_history:
+        return 0
+
+    potential_writers = 0
+    for run_info in run_history:
+        if "field_names" in run_info:
+            field_names = run_info["field_names"]
+            if field_names.get(field_type) == field_name:
+                potential_writers += 1
+
+    return potential_writers
 
 
 def get_comparison_specific_fields(

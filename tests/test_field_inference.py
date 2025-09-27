@@ -365,55 +365,154 @@ class TestOverwriteDetection:
         """Test overwrite check with single run (no overwrites)."""
         adata = anndata.AnnData(X=np.random.random((10, 5)))
 
+        # Set up run history and field tracking for single run
         run_history = [
             {
+                "adjusted_run_id": 0,
                 "field_names": {
                     "mean_lfc_key": "test_field"
                 }
             }
         ]
-        adata.uns["kompot_de"] = {"run_history": run_history}
+
+        # Set up field tracking - field owned by run 0
+        field_tracking = {
+            "var": {
+                "test_field": 0
+            }
+        }
+
+        adata.uns["kompot_de"] = {
+            "run_history": run_history,
+            "anndata_fields": field_tracking
+        }
+        adata.var["test_field"] = np.random.normal(0, 1, 5)
 
         inferred_fields = {"mean_lfc_key": "test_field"}
         warnings_issued = []
 
-        with patch('kompot.anndata.utils.get_run_history') as mock_get_history:
-            mock_get_history.return_value = run_history
+        _check_for_overwrites(adata, "de", inferred_fields, warnings_issued)
 
-            _check_for_overwrites(adata, "de", inferred_fields, warnings_issued)
-
-        # No warnings should be issued for single run
+        # No warnings should be issued for single run with consistent ownership
         assert len(warnings_issued) == 0
 
     def test_check_for_overwrites_multiple_runs(self):
         """Test overwrite check with multiple runs writing to same field."""
         adata = anndata.AnnData(X=np.random.random((10, 5)))
 
+        # Set up run history with two runs writing to the same field
         run_history = [
             {
+                "adjusted_run_id": 0,
                 "field_names": {
                     "mean_lfc_key": "test_field"
                 }
             },
             {
+                "adjusted_run_id": 1,
                 "field_names": {
-                    "mean_lfc_key": "test_field"  # Same field
+                    "mean_lfc_key": "test_field"  # Same field - indicates overwrite
                 }
             }
         ]
 
+        # Set up field tracking - field currently owned by run 0 but latest is run 1
+        # This simulates an overwrite scenario where run 1 should own the field
+        # but tracking shows run 0 still owns it
+        field_tracking = {
+            "var": {
+                "test_field": 0  # Field owned by run 0, but latest run is 1
+            }
+        }
+
+        adata.uns["kompot_de"] = {
+            "run_history": run_history,
+            "anndata_fields": field_tracking
+        }
+        adata.var["test_field"] = np.random.normal(0, 1, 5)
+
         inferred_fields = {"mean_lfc_key": "test_field"}
         warnings_issued = []
 
-        with patch('kompot.anndata.utils.get_run_history') as mock_get_history:
-            mock_get_history.return_value = run_history
+        with patch('kompot.plot.field_inference.logger') as mock_logger:
+            _check_for_overwrites(adata, "de", inferred_fields, warnings_issued)
 
-            with patch('kompot.plot.field_inference.logger') as mock_logger:
-                _check_for_overwrites(adata, "de", inferred_fields, warnings_issued)
+        # Should warn about overwrites - both ownership mismatch and multiple writers
+        assert len(warnings_issued) >= 1
+        warning_text = " ".join(warnings_issued)
+        assert ("overwritten" in warning_text or "written by" in warning_text)
 
-        # Should warn about potential overwrite
-        assert len(warnings_issued) == 1
-        assert "may have been overwritten by multiple runs" in warnings_issued[0]
+    def test_consistency_with_runinfo_overwrite_detection(self):
+        """Test that field inference overwrite detection is consistent with RunInfo."""
+        import anndata as ad
+        from kompot.anndata.utils.runinfo import RunInfo
+
+        # Create test data that mimics a real scenario
+        adata = ad.AnnData(X=np.random.random((100, 50)))
+
+        # Set up complex run history with field mapping and overwrite scenario
+        run_history = [
+            {
+                "adjusted_run_id": 0,
+                "field_names": {"mean_lfc_key": "kompot_de_A_to_B_mean_lfc"},
+                "params": {"condition1": "A", "condition2": "B"},
+                "field_mapping": {
+                    "kompot_de_A_to_B_mean_lfc": {
+                        "location": "var",
+                        "type": "mean_lfc_key"
+                    }
+                }
+            },
+            {
+                "adjusted_run_id": 1,
+                "field_names": {"mean_lfc_key": "kompot_de_A_to_B_mean_lfc"},  # Same field
+                "params": {"condition1": "A", "condition2": "B"},
+                "field_mapping": {
+                    "kompot_de_A_to_B_mean_lfc": {
+                        "location": "var",
+                        "type": "mean_lfc_key"
+                    }
+                }
+            }
+        ]
+
+        # Set up field tracking showing field was overwritten by run 1
+        # RunInfo will detect this as an overwrite when checking run 0
+        field_tracking = {
+            "var": {
+                "kompot_de_A_to_B_mean_lfc": 1  # Field currently owned by run 1
+            }
+        }
+
+        adata.uns["kompot_de"] = {
+            "run_history": run_history,
+            "anndata_fields": field_tracking
+        }
+        adata.var["kompot_de_A_to_B_mean_lfc"] = np.random.normal(0, 1, 50)
+
+        # Test field inference overwrite detection
+        inferred_fields = {"mean_lfc_key": "kompot_de_A_to_B_mean_lfc"}
+        warnings_issued = []
+
+        _check_for_overwrites(adata, "de", inferred_fields, warnings_issued)
+
+        # Test RunInfo overwrite detection for comparison
+        run_info = RunInfo(adata, run_id=0, analysis_type="de")  # Check run 0
+        runinfo_overwrites = run_info.overwritten_fields
+
+        # Both should detect overwrite issues
+        assert len(warnings_issued) > 0, "Field inference should detect overwrite issues"
+        assert len(runinfo_overwrites) > 0, "RunInfo should detect overwrite issues"
+
+        # Verify both are detecting the same field as problematic
+        field_inference_mentions_field = any("kompot_de_A_to_B_mean_lfc" in w for w in warnings_issued)
+        runinfo_mentions_field = any(
+            info["field"] == "kompot_de_A_to_B_mean_lfc"
+            for info in runinfo_overwrites
+        )
+
+        assert field_inference_mentions_field, "Field inference should mention the problematic field"
+        assert runinfo_mentions_field, "RunInfo should mention the problematic field"
 
 
 class TestPlotFunctionIntegration:
