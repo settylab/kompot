@@ -20,7 +20,10 @@ def _infer_score_key(
     score_key: Optional[str] = None,
 ) -> Optional[str]:
     """
-    Infer score key from AnnData object.
+    Infer score key from AnnData object using robust field inference.
+
+    This function uses the robust field inference system with overwrite detection
+    and comprehensive warnings for safer field inference.
 
     Parameters
     ----------
@@ -40,25 +43,34 @@ def _infer_score_key(
     if score_key is not None:
         return score_key
 
-    # Get run info from kompot_de for the specified run_id
+    # Use the robust field inference system
+    from ..field_inference import infer_fields_from_run_info
+
     effective_run_id = -1 if run_id is None else run_id
-    run_info = get_run_from_history(adata, effective_run_id, analysis_type="de")
-    
-    if run_info is None:
-        logger.warning(f"No valid run found with run_id={effective_run_id}")
+
+    try:
+        # Use robust field inference with overwrite detection and warnings
+        inferred_fields = infer_fields_from_run_info(
+            adata=adata,
+            analysis_type="de",
+            run_id=effective_run_id,
+            required_fields=["mahalanobis_key"],
+            strict=False  # Allow fallback inference with warnings
+        )
+
+        inferred_score_key = inferred_fields.get("mahalanobis_key")
+
+        if inferred_score_key is None:
+            logger.warning(
+                f"Could not infer mahalanobis_key from run_id={effective_run_id}. "
+                f"Score-based heatmap functionality may be limited."
+            )
+
+        return inferred_score_key
+
+    except Exception as e:
+        logger.warning(f"Failed to infer score key from run_id={effective_run_id}: {e}")
         return None
-        
-    # Extract score_key from field_names if present
-    inferred_score_key = None
-    
-    if "field_names" in run_info:
-        field_names = run_info["field_names"]
-        
-        # Get score_key from field_names
-        if "mahalanobis_key" in field_names:
-            inferred_score_key = field_names["mahalanobis_key"]
-    
-    return inferred_score_key
 
 
 def _prepare_gene_list(

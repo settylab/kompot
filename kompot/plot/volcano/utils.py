@@ -41,11 +41,14 @@ def _extract_conditions_from_key(key: str) -> Optional[Tuple[str, str]]:
     return None
 
 
-def _infer_de_keys(adata: AnnData, run_id: int = -1, lfc_key: Optional[str] = None, 
+def _infer_de_keys(adata: AnnData, run_id: int = -1, lfc_key: Optional[str] = None,
                    score_key: Optional[str] = None):
     """
-    Infer differential expression keys from AnnData object.
-    
+    Infer differential expression keys from AnnData object using robust field inference.
+
+    This function uses the robust field inference system with overwrite detection
+    and comprehensive warnings for safer field inference.
+
     Parameters
     ----------
     adata : AnnData
@@ -55,80 +58,75 @@ def _infer_de_keys(adata: AnnData, run_id: int = -1, lfc_key: Optional[str] = No
     lfc_key : str, optional
         Log fold change key. If provided, will be returned as is.
     score_key : str, optional
-        Score key. If provided, will be returned as is unless the default
-        value needs to be replaced with a run-specific key.
-        
+        Score key. If provided, will be returned as is.
+
     Returns
     -------
     tuple
         (lfc_key, score_key) with the inferred keys
     """
-    inferred_lfc_key = lfc_key
-    inferred_score_key = score_key
-    
-    # If keys already provided, just return them
-    if inferred_lfc_key is not None and inferred_score_key is not None:
+    # If both keys already provided, just return them
+    if lfc_key is not None and score_key is not None:
+        return lfc_key, score_key
+
+    # Use the robust field inference system
+    from ..field_inference import infer_fields_from_run_info
+
+    # Define required fields for DE analysis
+    required_fields = []
+    if lfc_key is None:
+        required_fields.append("mean_lfc_key")
+    if score_key is None:
+        required_fields.append("mahalanobis_key")
+
+    # If no inference needed, return provided values
+    if not required_fields:
+        return lfc_key, score_key
+
+    try:
+        # Use robust field inference with overwrite detection and warnings
+        inferred_fields = infer_fields_from_run_info(
+            adata=adata,
+            analysis_type="de",
+            run_id=run_id,
+            required_fields=required_fields,
+            strict=False  # Allow fallback inference with warnings
+        )
+
+        # Extract the inferred fields
+        inferred_lfc_key = lfc_key if lfc_key is not None else inferred_fields.get("mean_lfc_key")
+        inferred_score_key = score_key if score_key is not None else inferred_fields.get("mahalanobis_key")
+
+        # Validate that required fields were found
+        if inferred_lfc_key is None:
+            raise ValueError(
+                f"Could not infer mean_lfc_key from run_id={run_id}. "
+                f"Please specify lfc_key manually or check run history."
+            )
+
+        if inferred_score_key is None:
+            logger.warning(
+                f"Could not infer mahalanobis_key from run_id={run_id}. "
+                f"Score-based functionality may be limited."
+            )
+
         return inferred_lfc_key, inferred_score_key
-    
-    # Get run info from specified run_id - specifically from kompot_de
-    from ...anndata.utils import get_run_history
-    
-    # Get run history, which will handle JSON deserialization
-    run_history = get_run_history(adata, "de")
-    
-    # Get specific run from the history
-    adjusted_run_id = run_id
-    if run_id < 0 and len(run_history) >= abs(run_id):
-        adjusted_run_id = len(run_history) + run_id
-    
-    if 0 <= adjusted_run_id < len(run_history):
-        run_info = run_history[adjusted_run_id]
-        run_info["adjusted_run_id"] = adjusted_run_id  # Add this for compatibility
-    else:
-        run_info = None
-    
-    # If the run_info is None but a run_id was specified, log this
-    if run_info is None and run_id is not None:
-        logger.warning(f"Could not find run information for run_id={run_id}, analysis_type=de")
-    
-    if run_info is not None and 'field_names' in run_info:
-        field_names = run_info['field_names']
-        adjusted_run_id = run_info.get("adjusted_run_id")
-        
-        # Get lfc_key from field_names
-        if inferred_lfc_key is None and 'mean_lfc_key' in field_names:
-            inferred_lfc_key = field_names['mean_lfc_key']
-            # Check that column exists
-            if inferred_lfc_key not in adata.var.columns:
-                inferred_lfc_key = None
-                logger.warning(f"Found mean_lfc_key '{inferred_lfc_key}' in run info, but column not in adata.var")
-            # Skip validation for now, can be implemented separately if needed
-            # In most cases, the run_id/field association is unambiguous
-            pass
-        
-        # Get score_key from field_names
-        if inferred_score_key is None and 'mahalanobis_key' in field_names:
-            inferred_score_key = field_names['mahalanobis_key']
-            # Check that column exists
-            if inferred_score_key not in adata.var.columns:
-                logger.warning(f"Found mahalanobis_key '{inferred_score_key}' in run info, but column not in adata.var")
-                inferred_score_key = None
-            # Skip validation for now, can be implemented separately if needed
-            # In most cases, the run_id/field association is unambiguous
-            pass
-    
-    # If lfc_key still not found, raise error
-    if inferred_lfc_key is None:
-        raise ValueError("Could not infer lfc_key from the specified run. Please specify manually.")
-    
-    return inferred_lfc_key, inferred_score_key
+
+    except Exception as e:
+        # Fallback to manual error with helpful message
+        error_msg = (f"Failed to infer DE keys from run_id={run_id}: {e}. "
+                    f"Please check run history or specify keys manually.")
+        raise ValueError(error_msg) from e
 
 
-def _infer_da_keys(adata: AnnData, run_id: int = -1, lfc_key: Optional[str] = None, 
+def _infer_da_keys(adata: AnnData, run_id: int = -1, lfc_key: Optional[str] = None,
                   ptp_key: Optional[str] = None):
     """
-    Infer differential abundance keys from AnnData object.
-    
+    Infer differential abundance keys from AnnData object using robust field inference.
+
+    This function uses the robust field inference system with overwrite detection
+    and comprehensive warnings for safer field inference.
+
     Parameters
     ----------
     adata : AnnData
@@ -138,85 +136,78 @@ def _infer_da_keys(adata: AnnData, run_id: int = -1, lfc_key: Optional[str] = No
     lfc_key : str, optional
         Log fold change key. If provided, will be returned as is.
     ptp_key : str, optional
-        PTP (Posterior Tail Probability) key. If provided, will be returned as is. Posterior Tail Probability is a significance measure score similar to p-value.
-        
+        PTP (Posterior Tail Probability) key. If provided, will be returned as is.
+        Posterior Tail Probability is a significance measure score similar to p-value.
+
     Returns
     -------
     tuple
         (lfc_key, ptp_key) with the inferred keys, and a tuple of (lfc_threshold, ptp_threshold)
     """
-    inferred_lfc_key = lfc_key
-    inferred_ptp_key = ptp_key
+    # Initialize thresholds
     lfc_threshold = None
     ptp_threshold = None
-    
-    # If both keys already provided, just check for thresholds and return
-    if inferred_lfc_key is not None and inferred_ptp_key is not None:
-        # Get run info to check for thresholds
+
+    # Get run info for thresholds (always needed)
+    try:
         run_info = get_run_from_history(adata, run_id, analysis_type="da")
         if run_info is not None and 'params' in run_info:
             params = run_info['params']
             lfc_threshold = params.get('log_fold_change_threshold')
             ptp_threshold = params.get('ptp_threshold')
-            
+    except Exception:
+        # Continue without thresholds if run info access fails
+        pass
+
+    # If both keys already provided, just return with thresholds
+    if lfc_key is not None and ptp_key is not None:
+        return lfc_key, ptp_key, (lfc_threshold, ptp_threshold)
+
+    # Use the robust field inference system
+    from ..field_inference import infer_fields_from_run_info
+
+    # Define required fields for DA analysis
+    required_fields = []
+    if lfc_key is None:
+        required_fields.append("lfc_key")
+    if ptp_key is None:
+        required_fields.append("ptp_key")
+
+    # If no inference needed, return provided values
+    if not required_fields:
+        return lfc_key, ptp_key, (lfc_threshold, ptp_threshold)
+
+    try:
+        # Use robust field inference with overwrite detection and warnings
+        inferred_fields = infer_fields_from_run_info(
+            adata=adata,
+            analysis_type="da",
+            run_id=run_id,
+            required_fields=required_fields,
+            strict=False  # Allow fallback inference with warnings
+        )
+
+        # Extract the inferred fields
+        inferred_lfc_key = lfc_key if lfc_key is not None else inferred_fields.get("lfc_key")
+        inferred_ptp_key = ptp_key if ptp_key is not None else inferred_fields.get("ptp_key")
+
+        # Validate that required fields were found
+        if inferred_lfc_key is None:
+            raise ValueError(
+                f"Could not infer lfc_key from run_id={run_id}. "
+                f"Please specify lfc_key manually or check run history."
+            )
+
+        if inferred_ptp_key is None:
+            logger.warning(
+                f"Could not infer ptp_key from run_id={run_id}. "
+                f"Significance-based functionality may be limited."
+            )
+
         return inferred_lfc_key, inferred_ptp_key, (lfc_threshold, ptp_threshold)
-    
-    # Get run info from specified run_id - specifically from kompot_da
-    from ...anndata.utils import get_run_history
-    
-    # Get run history, which will handle JSON deserialization
-    run_history = get_run_history(adata, "da")
-    
-    # Get specific run from the history
-    adjusted_run_id = run_id
-    if run_id < 0 and len(run_history) >= abs(run_id):
-        adjusted_run_id = len(run_history) + run_id
-    
-    if 0 <= adjusted_run_id < len(run_history):
-        run_info = run_history[adjusted_run_id]
-        run_info["adjusted_run_id"] = adjusted_run_id  # Add this for compatibility
-    else:
-        run_info = None
-    
-    if run_info is not None:
-        # Check for thresholds in params
-        if 'params' in run_info:
-            params = run_info['params']
-            lfc_threshold = params.get('log_fold_change_threshold')
-            ptp_threshold = params.get('ptp_threshold')
-        
-        # Get field names directly from the run_info
-        if 'field_names' in run_info:
-            field_names = run_info['field_names']
-            adjusted_run_id = run_info.get("adjusted_run_id")
-            
-            # Get lfc_key from field_names
-            if inferred_lfc_key is None and 'lfc_key' in field_names:
-                inferred_lfc_key = field_names['lfc_key']
-                # Check that column exists
-                if inferred_lfc_key not in adata.obs.columns:
-                    logger.warning(f"Found lfc_key '{inferred_lfc_key}' in run info, but column not in adata.obs")
-                    inferred_lfc_key = None
-                # Skip validation for now, can be implemented separately if needed
-                # In most cases, the run_id/field association is unambiguous
-                pass
-            
-            # Get ptp_key from field_names
-            if inferred_ptp_key is None and 'ptp_key' in field_names:
-                inferred_ptp_key = field_names['ptp_key']
-                # Check that column exists
-                if inferred_ptp_key not in adata.obs.columns:
-                    logger.warning(f"Found ptp_key '{inferred_ptp_key}' in run info, but column not in adata.obs")
-                    inferred_ptp_key = None
-                # Skip validation for now, can be implemented separately if needed
-                # In most cases, the run_id/field association is unambiguous
-                pass
-    
-    # If keys still not found, raise error
-    if inferred_lfc_key is None:
-        raise ValueError("Could not infer lfc_key from the specified run. Please specify manually.")
-    
-    if inferred_ptp_key is None:
-        raise ValueError("Could not infer ptp_key from the specified run. Please specify manually.")
-    
-    return inferred_lfc_key, inferred_ptp_key, (lfc_threshold, ptp_threshold)
+
+    except Exception as e:
+        # Fallback to manual error with helpful message
+        error_msg = (f"Failed to infer DA keys from run_id={run_id}: {e}. "
+                    f"Please check run history or specify keys manually.")
+        raise ValueError(error_msg) from e
