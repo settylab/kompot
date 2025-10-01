@@ -11,6 +11,9 @@ All notable changes to this project will be documented in this file.
  - more flexible `volcano_de` plot with FDR/PTP-based thresholding and y-axis options
  - "signal" and "strength" columns in stringDB gene-set enrichment analysis
  - expand testing
+ - rename fileds to include comparison, e.g., "A\_to\_B", before statistic name
+ - make de significnace measures tail fdr, ptp, and zscore optional
+ - implement cleanup function
 
 ## [0.4.3]
 
