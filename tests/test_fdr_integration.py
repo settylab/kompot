@@ -63,7 +63,7 @@ class TestFDRIntegration:
         
         adata, true_differential_genes = create_test_anndata_with_differential_genes()
         
-        # Run with FDR
+        # Run with FDR and store_additional_stats=True to get all FDR measures
         results = compute_differential_expression(
             adata,
             groupby='condition',
@@ -75,7 +75,8 @@ class TestFDRIntegration:
             return_full_results=True,
             result_key="test_fdr",
             overwrite=True,
-            n_landmarks=5  # Reduced for faster testing
+            n_landmarks=5,  # Reduced for faster testing
+            store_additional_stats=True  # Store all statistical measures
         )
         
         # Check FDR results are present
@@ -168,9 +169,10 @@ class TestFDRIntegration:
             null_seed=123,
             random_state=456,
             return_full_results=True,
-            overwrite=True
+            overwrite=True,
+            store_additional_stats=True  # Store all statistical measures
         )
-        
+
         results1 = compute_differential_expression(adata1, result_key="repro1", **params)
         results2 = compute_differential_expression(adata2, result_key="repro2", **params)
         
@@ -210,9 +212,10 @@ class TestFDRIntegration:
             null_seed=42,
             return_full_results=True,
             result_key="specific_null",
-            overwrite=True
+            overwrite=True,
+            store_additional_stats=True  # Store all statistical measures
         )
-        
+
         # Should work with specific indices
         assert 'mahalanobis_pvalues' in results
         assert len(results['mahalanobis_pvalues']) == adata.n_vars
@@ -232,13 +235,15 @@ class TestFDRIntegration:
         results_strict = compute_differential_expression(
             adata1, groupby='condition', condition1='Ctrl', condition2='Treat',
             null_genes=100, fdr_threshold=0.01, return_full_results=True,
-            result_key="strict", overwrite=True
+            result_key="strict", overwrite=True,
+            store_additional_stats=True  # Store all statistical measures
         )
-        
+
         results_lenient = compute_differential_expression(
             adata2, groupby='condition', condition1='Ctrl', condition2='Treat',
             null_genes=100, fdr_threshold=0.1, return_full_results=True,
-            result_key="lenient", overwrite=True
+            result_key="lenient", overwrite=True,
+            store_additional_stats=True  # Store all statistical measures
         )
         
         n_strict = np.sum(results_strict['is_differentially_expressed'])

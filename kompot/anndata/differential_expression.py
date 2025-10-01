@@ -315,6 +315,7 @@ def compute_differential_expression(
     null_genes: Union[int, List[int], None] = 2000,
     null_seed: Optional[int] = 42,
     fdr_threshold: float = 0.05,
+    store_additional_stats: bool = False,
     **function_kwargs,
 ) -> Union[Dict[str, np.ndarray], Any]:
     """
@@ -498,6 +499,19 @@ def compute_differential_expression(
         Genes with FDR < fdr_threshold will be marked as significantly DE in a boolean
         column. Also used for reporting the Mahalanobis distance threshold in logs.
         Default is 0.05.
+    store_additional_stats : bool, optional
+        Whether to store additional statistical measures as .var columns beyond the
+        default local FDR and is_de boolean. When True, stores:
+
+        - Raw p-values from empirical null distribution
+        - Tail-based FDR (Benjamini-Hochberg correction)
+        - PTP (posterior tail probability from chi-squared)
+        - Fold change z-scores
+
+        When False (default), only stores local FDR and is_de boolean, which are the
+        primary significance measures. All fields follow the same naming and field
+        tracking logic as other results.
+        Default is False.
     **function_kwargs : dict
         Additional arguments to pass to the FunctionEstimator.
 
@@ -514,19 +528,24 @@ def compute_differential_expression(
     -----
     Results are stored in various components of the AnnData object:
 
-    - adata.var[f"{result_key}_mahalanobis"]: Mahalanobis distance for each gene
-    - adata.var[f"{result_key}_ptp"]: Posterior tail probability from chi-squared distribution (if compute_mahalanobis is True)
+    **Always stored:**
+    - adata.var[f"{result_key}_mahalanobis"]: Mahalanobis distance for each gene (if compute_mahalanobis is True)
     - adata.var[f"{result_key}_mean_lfc"]: Mean log fold change for each gene
-    - adata.var[f"{result_key}_mahalanobis_pvalue"]: P-values from empirical null distribution (if null_genes is not None)
     - adata.var[f"{result_key}_mahalanobis_local_fdr"]: Local FDR values using empirical null estimation similar to R's fdrtool (if null_genes is not None)
-    - adata.var[f"{result_key}_mahalanobis_tail_fdr"]: Tail-based FDR values using Benjamini-Hochberg correction (if null_genes is not None)
     - adata.var[f"{result_key}_is_de"]: Boolean indicator of differential expression at specified local FDR threshold (if null_genes is not None)
     - adata.layers[f"{result_key}_condition1_imputed"]: Imputed expression for condition 1
     - adata.layers[f"{result_key}_condition2_imputed"]: Imputed expression for condition 2
     - adata.layers[f"{result_key}_fold_change"]: Log fold change for each cell and gene
+
+    **Stored only when store_additional_stats=True:**
+    - adata.var[f"{result_key}_ptp"]: Posterior tail probability from chi-squared distribution (if compute_mahalanobis is True)
+    - adata.var[f"{result_key}_mahalanobis_pvalue"]: P-values from empirical null distribution (if null_genes is not None)
+    - adata.var[f"{result_key}_mahalanobis_tail_fdr"]: Tail-based FDR values using Benjamini-Hochberg correction (if null_genes is not None)
+    - adata.layers[f"{result_key}_fold_change_zscores"]: Z-scores of log fold changes accounting for uncertainty (and sample variance if sample_col is provided)
+
+    **Optional:**
     - adata.obsp["posterior_covariance"]: If store_posterior_covariance=True and conditions are met,
       the posterior covariance matrix. Shape (n_cells, n_cells).
-    - adata.layers[f"{result_key}_fold_change_zscores"]: Z-scores of log fold changes accounting for uncertainty (and sample variance if sample_col is provided)
     - adata.uns[result_key]: Dictionary with additional information and parameters
 
     Posterior standard deviations of imputed expression values are stored in:
@@ -561,14 +580,21 @@ def compute_differential_expression(
 
     # Update all_patterns with FDR fields if needed
     if null_genes is not None and null_genes != 0:
+        # Always add local FDR and is_de (primary significance measures)
         all_patterns["var"].extend(
             [
-                field_names["mahalanobis_pvalue_key"],
                 field_names["mahalanobis_local_fdr_key"],
-                field_names["mahalanobis_tail_fdr_key"],
                 field_names["is_de_key"],
             ]
         )
+        # Only add p-values and tail FDR if user requested additional stats
+        if store_additional_stats:
+            all_patterns["var"].extend(
+                [
+                    field_names["mahalanobis_pvalue_key"],
+                    field_names["mahalanobis_tail_fdr_key"],
+                ]
+            )
 
     # Update all_patterns with differential abundance integration if needed
     if differential_abundance_key is not None:
@@ -1569,8 +1595,8 @@ def compute_differential_expression(
                 new_var_columns[mahalanobis_key] = pd.Series(np.nan, index=adata.var_names)
                 new_var_columns[mahalanobis_key].loc[selected_genes] = mahalanobis_distances
 
-        # Handle ptp if available (always computed when mahalanobis is computed)
-        if compute_mahalanobis and "ptp" in expression_results:
+        # Handle ptp if available (only store if user requested additional stats)
+        if compute_mahalanobis and "ptp" in expression_results and store_additional_stats:
             ptp_values = expression_results["ptp"]
             
             # Convert list to numpy array if needed
@@ -1739,17 +1765,18 @@ def compute_differential_expression(
 
         # Add FDR-related columns if they were computed
         if fdr_results and use_fdr:
-            # Add p-values
-            pvalue_column = field_names["mahalanobis_pvalue_key"]
-            if pvalue_column in adata.var:
-                new_var_columns[pvalue_column] = pd.Series(
-                    fdr_results["pvalues"], index=selected_genes
-                )
-            else:
-                new_var_columns[pvalue_column] = pd.Series(np.nan, index=adata.var_names)
-                new_var_columns[pvalue_column].loc[selected_genes] = fdr_results["pvalues"]
+            # Add p-values (only if user requested additional stats)
+            if store_additional_stats:
+                pvalue_column = field_names["mahalanobis_pvalue_key"]
+                if pvalue_column in adata.var:
+                    new_var_columns[pvalue_column] = pd.Series(
+                        fdr_results["pvalues"], index=selected_genes
+                    )
+                else:
+                    new_var_columns[pvalue_column] = pd.Series(np.nan, index=adata.var_names)
+                    new_var_columns[pvalue_column].loc[selected_genes] = fdr_results["pvalues"]
 
-            # Add local FDR values
+            # Add local FDR values (always stored when FDR is computed)
             local_fdr_column = field_names["mahalanobis_local_fdr_key"]
             if local_fdr_column in adata.var:
                 new_var_columns[local_fdr_column] = pd.Series(
@@ -1761,19 +1788,20 @@ def compute_differential_expression(
                     "local_fdr_values"
                 ]
 
-            # Add tail-based FDR values
-            tail_fdr_column = field_names["mahalanobis_tail_fdr_key"]
-            if tail_fdr_column in adata.var:
-                new_var_columns[tail_fdr_column] = pd.Series(
-                    fdr_results["tail_fdr_values"], index=selected_genes
-                )
-            else:
-                new_var_columns[tail_fdr_column] = pd.Series(np.nan, index=adata.var_names)
-                new_var_columns[tail_fdr_column].loc[selected_genes] = fdr_results[
-                    "tail_fdr_values"
-                ]
+            # Add tail-based FDR values (only if user requested additional stats)
+            if store_additional_stats:
+                tail_fdr_column = field_names["mahalanobis_tail_fdr_key"]
+                if tail_fdr_column in adata.var:
+                    new_var_columns[tail_fdr_column] = pd.Series(
+                        fdr_results["tail_fdr_values"], index=selected_genes
+                    )
+                else:
+                    new_var_columns[tail_fdr_column] = pd.Series(np.nan, index=adata.var_names)
+                    new_var_columns[tail_fdr_column].loc[selected_genes] = fdr_results[
+                        "tail_fdr_values"
+                    ]
 
-            # Add boolean DE annotation (based on local FDR)
+            # Add boolean DE annotation (always stored when FDR is computed, based on local FDR)
             de_column = field_names["is_de_key"]
             if de_column in adata.var:
                 new_var_columns[de_column] = pd.Series(
@@ -1845,7 +1873,8 @@ def compute_differential_expression(
                     adata.layers[fold_change_key] = sparse.csr_matrix(adata.shape)
                 else:
                     adata.layers[fold_change_key] = np.zeros(adata.shape)
-            if field_names["fold_change_zscores_key"] not in adata.layers:
+            # Only initialize fold_change_zscores if user requested additional stats
+            if store_additional_stats and field_names["fold_change_zscores_key"] not in adata.layers:
                 # Only use sparse if working with a subset of genes
                 if len(selected_genes) < len(adata.var_names):
                     adata.layers[field_names["fold_change_zscores_key"]] = sparse.csr_matrix(
@@ -1916,9 +1945,11 @@ def compute_differential_expression(
                     adata.layers[imputed1_key][:, gene_idx] = condition1_imputed[:, i]
                     adata.layers[imputed2_key][:, gene_idx] = condition2_imputed[:, i]
                     adata.layers[fold_change_key][:, gene_idx] = fold_change[:, i]
-                    adata.layers[field_names["fold_change_zscores_key"]][:, gene_idx] = (
-                        fold_change_zscores[:, i]
-                    )
+                    # Only store fold_change_zscores if user requested additional stats
+                    if store_additional_stats:
+                        adata.layers[field_names["fold_change_zscores_key"]][:, gene_idx] = (
+                            fold_change_zscores[:, i]
+                        )
         else:
             # Convert JAX arrays to NumPy arrays if needed
             condition1_imputed = np.array(expression_results["condition1_imputed"])
@@ -1939,7 +1970,9 @@ def compute_differential_expression(
                 adata.layers[imputed1_key] = condition1_imputed
                 adata.layers[imputed2_key] = condition2_imputed
                 adata.layers[fold_change_key] = fold_change
-                adata.layers[field_names["fold_change_zscores_key"]] = fold_change_zscores
+                # Only store fold_change_zscores if user requested additional stats
+                if store_additional_stats:
+                    adata.layers[field_names["fold_change_zscores_key"]] = fold_change_zscores
                 adata.layers[field_names["std_key_1"]] = condition1_std
                 adata.layers[field_names["std_key_2"]] = condition2_std
             else:
@@ -1972,7 +2005,9 @@ def compute_differential_expression(
                 adata.layers[imputed1_key] = imputed1_layer
                 adata.layers[imputed2_key] = imputed2_layer
                 adata.layers[fold_change_key] = fold_change_layer
-                adata.layers[field_names["fold_change_zscores_key"]] = fold_change_zscores_layer
+                # Only store fold_change_zscores if user requested additional stats
+                if store_additional_stats:
+                    adata.layers[field_names["fold_change_zscores_key"]] = fold_change_zscores_layer
 
         # Prepare parameters, run timestamp, and field metadata
         current_timestamp = datetime.datetime.now().isoformat()
@@ -2104,12 +2139,15 @@ def compute_differential_expression(
                 "type": "fold_change",
                 "description": "Log fold change for each cell and gene",
             },
-            field_names["fold_change_zscores_key"]: {
+        }
+
+        # Only add fold_change_zscores to field mapping if user requested additional stats
+        if store_additional_stats:
+            field_mapping[field_names["fold_change_zscores_key"]] = {
                 "location": "layers",
                 "type": "fold_change_zscores",
                 "description": f"Z-scores of log fold changes accounting for uncertainty{' and sample variance' if sample_col is not None else ''}",
-            },
-        }
+            }
 
         # Add standard deviation fields to field_mapping
         if sample_col is not None:
@@ -2144,29 +2182,37 @@ def compute_differential_expression(
                 "type": "mahalanobis",
                 "description": "Mahalanobis distances",
             }
-            field_mapping[field_names["ptp_key"]] = {
-                "location": "var",
-                "type": "ptp",
-                "description": "Posterior tail probability from chi-squared distribution",
-            }
+            # Only add PTP to field mapping if user requested additional stats
+            if store_additional_stats:
+                field_mapping[field_names["ptp_key"]] = {
+                    "location": "var",
+                    "type": "ptp",
+                    "description": "Posterior tail probability from chi-squared distribution",
+                }
 
         # Add FDR fields if they were computed
         if fdr_results and use_fdr:
-            field_mapping[field_names["mahalanobis_pvalue_key"]] = {
-                "location": "var",
-                "type": "mahalanobis_pvalue",
-                "description": "P-values from empirical null distribution",
-            }
+            # Only add p-values if user requested additional stats
+            if store_additional_stats:
+                field_mapping[field_names["mahalanobis_pvalue_key"]] = {
+                    "location": "var",
+                    "type": "mahalanobis_pvalue",
+                    "description": "P-values from empirical null distribution",
+                }
+            # Always add local FDR (primary significance measure)
             field_mapping[field_names["mahalanobis_local_fdr_key"]] = {
                 "location": "var",
                 "type": "mahalanobis_local_fdr",
                 "description": "Local FDR values using empirical null estimation similar to R's fdrtool",
             }
-            field_mapping[field_names["mahalanobis_tail_fdr_key"]] = {
-                "location": "var",
-                "type": "mahalanobis_tail_fdr",
-                "description": "Tail-based FDR values using Benjamini-Hochberg correction",
-            }
+            # Only add tail-based FDR if user requested additional stats
+            if store_additional_stats:
+                field_mapping[field_names["mahalanobis_tail_fdr_key"]] = {
+                    "location": "var",
+                    "type": "mahalanobis_tail_fdr",
+                    "description": "Tail-based FDR values using Benjamini-Hochberg correction",
+                }
+            # Always add is_de boolean (primary significance indicator)
             field_mapping[field_names["is_de_key"]] = {
                 "location": "var",
                 "type": "is_de",
