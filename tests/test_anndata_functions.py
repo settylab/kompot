@@ -1113,6 +1113,7 @@ def test_gene_subset_order_preservation():
         genes=gene_subset_patterned,
         result_key='test_patterned',
         compute_mahalanobis=False,
+        store_additional_stats=True,  # Need this to get fold_change_zscores
         return_full_results=True
     )
     

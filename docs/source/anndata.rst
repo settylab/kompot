@@ -38,6 +38,13 @@ Utilities
    :members: __init__, get_summary, get_data, compare_with
    :show-inheritance:
 
+Cleanup Utilities
+-----------------
+
+.. autofunction:: kompot.cleanup
+
+.. autofunction:: kompot.get_field_status
+
 Representation Analysis
 -----------------------
 

@@ -41,6 +41,8 @@ class RunInfo:
         Information about the environment where the analysis was run
     overwritten_fields : list
         List of fields that were overwritten by newer runs
+    missing_fields : list
+        List of fields that are missing/deleted from the AnnData object
     """
     
     def __init__(self, 
@@ -109,9 +111,12 @@ class RunInfo:
         
         # Get all fields modified by this run
         self.adata_fields = self._get_fields_for_run()
-        
+
         # Check for fields that have been overwritten by newer runs
         self.overwritten_fields = self._check_overwritten_fields()
+
+        # Check for fields that are missing/deleted
+        self.missing_fields = self._check_missing_fields()
         
     def _get_fields_for_run(self) -> Dict[str, List[str]]:
         """
@@ -247,9 +252,81 @@ class RunInfo:
                     'current_run_id': current_run_id,
                     'expected_run_id': self.adjusted_run_id
                 })
-                    
+
         return overwritten
-    
+
+    def _check_missing_fields(self) -> List[Dict[str, Any]]:
+        """
+        Check if any fields from this run are missing/deleted from the AnnData object.
+
+        Returns
+        -------
+        List[Dict[str, Any]]
+            List of dictionaries with missing field information, each containing:
+            - field: The field name
+            - location: The location in AnnData (obs, var, layers, obsp, varm)
+            - type: The field type (e.g., 'imputed', 'fold_change', etc.)
+            - description: Description of the field
+        """
+        missing = []
+
+        # Get fields from field_mapping as the source of truth
+        field_mapping = self.get_raw_data().get('field_mapping', {})
+
+        # If field_mapping is a string, try to parse it as JSON
+        if isinstance(field_mapping, str):
+            try:
+                field_mapping = from_json_string(field_mapping)
+            except Exception as e:
+                logger.warning(f"Error parsing field_mapping as JSON: {e}")
+                field_mapping = {}
+
+        # If no field_mapping, we don't know what fields to check
+        if not field_mapping:
+            return []
+
+        # Check each field from field_mapping
+        for field, mapping in field_mapping.items():
+            # Handle case where mapping might be a JSON string
+            if isinstance(mapping, str):
+                try:
+                    mapping = from_json_string(mapping)
+                except Exception:
+                    continue
+
+            # Only process dictionary mappings
+            if not isinstance(mapping, dict):
+                continue
+
+            location = mapping.get('location')
+            if not location:
+                continue
+
+            # Check if field exists in the AnnData object
+            field_exists = False
+            if location == 'var':
+                field_exists = field in self.adata.var.columns
+            elif location == 'obs':
+                field_exists = field in self.adata.obs.columns
+            elif location == 'layers':
+                field_exists = field in self.adata.layers
+            elif location == 'obsp':
+                field_exists = field in self.adata.obsp
+            elif location == 'varm':
+                field_exists = field in self.adata.varm
+            elif location == 'uns':
+                field_exists = field in self.adata.uns
+
+            if not field_exists:
+                missing.append({
+                    'field': field,
+                    'location': location,
+                    'type': mapping.get('type', 'unknown'),
+                    'description': mapping.get('description', '')
+                })
+
+        return missing
+
     def compare_with(self, other_run_id: int) -> 'RunComparison':
         """
         Compare this run with another run.
@@ -335,7 +412,9 @@ class RunInfo:
             'uses_sample_variance': self.params.get('use_sample_variance', False),
             'field_count': sum(len(fields) for fields in self.adata_fields.values()) if self.adata_fields else 0,
             'overwritten_field_count': len(self.overwritten_fields) if hasattr(self, 'overwritten_fields') else 0,
-            'overwritten_fields': self.overwritten_fields if hasattr(self, 'overwritten_fields') else []
+            'overwritten_fields': self.overwritten_fields if hasattr(self, 'overwritten_fields') else [],
+            'missing_field_count': len(self.missing_fields) if hasattr(self, 'missing_fields') else 0,
+            'missing_fields': self.missing_fields if hasattr(self, 'missing_fields') else []
         }
         
         # Add group information if available
@@ -571,12 +650,14 @@ class RunInfo:
             f"<strong>Conditions:</strong> {summary['conditions']}",
         ]
         
-        # Add badge for field overwrite status
+        # Add badges for field status
+        if summary.get('missing_field_count', 0) > 0:
+            html.append(f"<span class='badge badge-danger'>Fields Missing: {summary['missing_field_count']}</span>")
         if summary.get('overwritten_field_count', 0) > 0:
             html.append(f"<span class='badge badge-warning'>Fields Overwritten: {summary['overwritten_field_count']}</span>")
-        else:
-            html.append("<span class='badge badge-success'>All Fields Active</span>")
-            
+        if summary.get('overwritten_field_count', 0) == 0 and summary.get('missing_field_count', 0) == 0:
+            html.append("<span class='badge badge-success'>All Fields Present</span>")
+
         html.append("</div>")  # Close summary box
         
         # Add basic parameter table
@@ -637,17 +718,19 @@ class RunInfo:
         if self.adata_fields:
             # Calculate statistics for the fields section
             total_fields = sum(len(fields) for fields in self.adata_fields.values())
-            active_fields = total_fields - len(self.overwritten_fields)
+            missing_count = len(self.missing_fields)
             overwritten_count = len(self.overwritten_fields)
-            
+            active_fields = total_fields - overwritten_count - missing_count
+
             # Add section header with stats
             html.append("<h4>Fields Created by This Run</h4>")
             html.append("<div class='section-content field-section'>")
-            
+
             # Show field statistics
             html.append("<div class='summary-box'>")
             html.append(f"<strong>Total Fields:</strong> {total_fields} &nbsp;|&nbsp; ")
-            html.append(f"<strong>Active:</strong> {active_fields} &nbsp;|&nbsp; ")
+            html.append(f"<strong>Present:</strong> {active_fields} &nbsp;|&nbsp; ")
+            html.append(f"<strong>Missing:</strong> {missing_count} &nbsp;|&nbsp; ")
             html.append(f"<strong>Overwritten:</strong> {overwritten_count}")
             html.append("</div>")
             
@@ -687,10 +770,15 @@ class RunInfo:
                     }
                     
                     # Check if field was overwritten
-                    overwritten_info = next((info for info in self.overwritten_fields if 
+                    overwritten_info = next((info for info in self.overwritten_fields if
                                         info['location'] == location and info['field'] == field), None)
                     if overwritten_info:
                         field_info['overwritten'] = overwritten_info['current_run_id']
+
+                    # Check if field is missing
+                    missing_info = next((info for info in self.missing_fields if
+                                        info['location'] == location and info['field'] == field), None)
+                    field_info['missing'] = missing_info is not None
                     
                     # Get additional info from field_mapping
                     if field in field_mapping:
@@ -734,15 +822,20 @@ class RunInfo:
                         description = f"<small>[{field_type}]</small> {description}"
                     
                     overwritten = field_info['overwritten']
-                    
+                    missing = field_info.get('missing', False)
+
                     row_class = "field-row"
                     status_class = "active"
-                    status_text = "Active"
-                    
-                    if overwritten:
+                    status_text = "Present"
+
+                    # Priority: missing > overwritten > present
+                    if missing:
+                        status_class = "overwritten"  # Use red styling
+                        status_text = "Missing/Deleted"
+                    elif overwritten:
                         status_class = "overwritten"
                         status_text = f"Overwritten by Run {overwritten}"
-                    
+
                     html.append(f"<tr class='{row_class}'>")
                     html.append(f"<td>{name}</td>")
                     html.append(f"<td>{location}</td>")

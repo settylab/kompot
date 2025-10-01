@@ -2226,11 +2226,9 @@ def compute_differential_expression(
                 "description": "Weighted mean log fold change",
             }
 
-        if compute_mahalanobis:
-            field_mapping[field_names["mahalanobis_key"]] = {"location": "var", "type": "mahalanobis", "description": "Mahalanobis distances"}
-            field_mapping[field_names["ptp_key"]] = {"location": "var", "type": "ptp", "description": "Posterior tail probability from chi-squared distribution"}
-            
-            
+        # Note: mahalanobis and ptp field mappings are already added above around lines 2180-2191
+        # No need to add them again here
+
         # Add posterior covariance field if it was added to obsp
         if can_store_covariance and "posterior_covariance_key" in field_names:
             posterior_cov_key = field_names["posterior_covariance_key"]

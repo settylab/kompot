@@ -39,7 +39,9 @@ from .anndata import (
     compute_differential_expression,
     check_underrepresentation,
     RunInfo,
-    RunComparison
+    RunComparison,
+    cleanup,
+    get_field_status
 )
 
 # Configure logging
@@ -86,9 +88,10 @@ __all__ = [
     "batch_process", "apply_batched",
     
     # AnnData functionality
-    "compute_differential_abundance", "compute_differential_expression", 
+    "compute_differential_abundance", "compute_differential_expression",
     "check_underrepresentation", "RunInfo", "RunComparison",
-    
+    "cleanup", "get_field_status",
+
     # Submodules
     "plot", "anndata"
 ]
