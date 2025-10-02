@@ -14,6 +14,9 @@ All notable changes to this project will be documented in this file.
  - rename fileds to include comparison, e.g., "A\_to\_B", before statistic name
  - make de significnace measures tail fdr, ptp, and zscore optional
  - implement cleanup function
+ - bugfix: Prevent silent failure of `compute_differential_abundance` with sample variance
+   by making sure enough space is available on disk for covariance tensor.
+   
 
 ## [0.4.3]
 

@@ -138,7 +138,7 @@ def array_size(array_or_shape, dtype=None):
 def get_available_memory() -> Tuple[str, int]:
     """
     Get the available system memory.
-    
+
     Returns
     -------
     tuple
@@ -151,11 +151,11 @@ def get_available_memory() -> Tuple[str, int]:
             return human_readable_size(available), available
     except (AttributeError, ImportError):
         pass
-    
+
     # Fallback methods when psutil is not available
     import os
     import platform
-    
+
     try:
         if platform.system() == 'Linux':
             # Try reading /proc/meminfo on Linux
@@ -172,7 +172,7 @@ def get_available_memory() -> Tuple[str, int]:
         elif platform.system() == 'Darwin':  # macOS
             # Try using sysctl on macOS
             import subprocess
-            result = subprocess.run(['sysctl', '-n', 'hw.memsize'], 
+            result = subprocess.run(['sysctl', '-n', 'hw.memsize'],
                                   capture_output=True, text=True)
             if result.returncode == 0:
                 total_mem = int(result.stdout.strip())
@@ -181,10 +181,79 @@ def get_available_memory() -> Tuple[str, int]:
                 return human_readable_size(available), available
     except (OSError, subprocess.SubprocessError, ValueError):
         pass
-    
+
     # Ultimate fallback - assume 4GB available (conservative estimate)
     fallback_memory = 4 * 1024 * 1024 * 1024  # 4GB in bytes
     return human_readable_size(fallback_memory), fallback_memory
+
+
+def get_disk_space(path: str) -> Tuple[str, int, str, int, str, int]:
+    """
+    Get disk space information for a given path.
+
+    Parameters
+    ----------
+    path : str
+        Path to check (directory or file)
+
+    Returns
+    -------
+    tuple
+        (total_human_readable, total_bytes,
+         used_human_readable, used_bytes,
+         free_human_readable, free_bytes)
+    """
+    import shutil
+
+    try:
+        # Get disk usage statistics
+        usage = shutil.disk_usage(path)
+
+        return (
+            human_readable_size(usage.total), usage.total,
+            human_readable_size(usage.used), usage.used,
+            human_readable_size(usage.free), usage.free
+        )
+    except (OSError, AttributeError) as e:
+        logger.warning(f"Could not determine disk space for {path}: {e}")
+        # Return conservative fallback (assume 10GB free)
+        fallback_free = 10 * 1024 * 1024 * 1024  # 10GB in bytes
+        fallback_total = 100 * 1024 * 1024 * 1024  # 100GB in bytes
+        fallback_used = fallback_total - fallback_free
+        return (
+            human_readable_size(fallback_total), fallback_total,
+            human_readable_size(fallback_used), fallback_used,
+            human_readable_size(fallback_free), fallback_free
+        )
+
+
+def estimate_disk_requirement(n_cells: int, n_genes: int,
+                              dtype=np.float64) -> Tuple[str, int]:
+    """
+    Estimate disk space needed for storing covariance arrays.
+
+    Parameters
+    ----------
+    n_cells : int
+        Number of cells (or landmarks)
+    n_genes : int
+        Number of genes
+    dtype : numpy.dtype, optional
+        Data type, by default np.float64
+
+    Returns
+    -------
+    tuple
+        (human_readable_size, size_in_bytes)
+    """
+    # Covariance matrix is (n_cells, n_cells, n_genes)
+    covariance_shape = (n_cells, n_cells, n_genes)
+    _, size_bytes = array_size(covariance_shape, dtype)
+
+    # Add 20% overhead for temporary files, metadata, etc.
+    size_with_overhead = int(size_bytes * 1.2)
+
+    return human_readable_size(size_with_overhead), size_with_overhead
 
 
 def memory_requirement_ratio(array_shape: tuple, dtype=np.float64) -> float:
@@ -406,10 +475,11 @@ class DiskStorage:
     # Class variable to track references to shared directories
     _shared_dirs = {}
     
-    def __init__(self, storage_dir: Optional[str] = None, use_dask: bool = True, namespace: Optional[str] = None):
+    def __init__(self, storage_dir: Optional[str] = None, use_dask: bool = True, namespace: Optional[str] = None,
+                 expected_size_bytes: Optional[int] = None, n_cells: Optional[int] = None, n_genes: Optional[int] = None):
         """
         Initialize disk storage manager.
-        
+
         Parameters
         ----------
         storage_dir : str, optional
@@ -419,11 +489,17 @@ class DiskStorage:
         namespace : str, optional
             Namespace prefix for array keys. If None, a random UUID is generated.
             Use this to prevent key collisions when sharing storage between objects.
+        expected_size_bytes : int, optional
+            Expected total size in bytes to be stored. Used for disk space validation.
+        n_cells : int, optional
+            Number of cells (for estimating storage needs if expected_size_bytes not provided).
+        n_genes : int, optional
+            Number of genes (for estimating storage needs if expected_size_bytes not provided).
         """
         # Generate a unique ID for this instance
         import uuid
         self._instance_id = str(uuid.uuid4())[:8]
-        
+
         if storage_dir is None:
             self.storage_dir = tempfile.mkdtemp(prefix=f"kompot_arrays_{self._instance_id}_")
             self._temp_dir = True
@@ -436,14 +512,22 @@ class DiskStorage:
             # Register this instance as a user of the shared directory
             if self.storage_dir not in DiskStorage._shared_dirs:
                 DiskStorage._shared_dirs[self.storage_dir] = self._instance_id
-            
+
         # Set namespace for array keys to prevent collisions
         self.namespace = namespace if namespace is not None else f"ns_{self._instance_id}"
-            
+
         # Determine if we should use dask
         self.use_dask = use_dask and DASK_AVAILABLE
-        
+
         self.array_registry = {}
+
+        # Estimate expected storage size if dimensions provided
+        if expected_size_bytes is None and n_cells is not None and n_genes is not None:
+            _, expected_size_bytes = estimate_disk_requirement(n_cells, n_genes)
+
+        # Check disk space availability
+        self._check_disk_space(expected_size_bytes)
+
         if self.use_dask:
             logger.info(f"Initialized disk storage at {self.storage_dir} with dask support (namespace: {self.namespace})")
         else:
@@ -452,7 +536,150 @@ class DiskStorage:
     def __del__(self):
         """Clean up temporary directory if it was created by this instance."""
         self.cleanup()
-        
+
+    def _check_disk_space(self, expected_size_bytes: Optional[int] = None, min_free_ratio: float = 0.1):
+        """
+        Check if sufficient disk space is available.
+
+        Parameters
+        ----------
+        expected_size_bytes : int, optional
+            Expected size to be stored in bytes
+        min_free_ratio : float, optional
+            Minimum fraction of disk that should remain free (default: 0.1 = 10%)
+        """
+        total_h, total_bytes, used_h, used_bytes, free_h, free_bytes = get_disk_space(self.storage_dir)
+
+        logger.info(f"Disk space at {self.storage_dir}:")
+        logger.info(f"  Total: {total_h} | Used: {used_h} | Free: {free_h}")
+
+        if expected_size_bytes is not None:
+            expected_h = human_readable_size(expected_size_bytes)
+            logger.info(f"  Expected storage need: {expected_h}")
+
+            # Check if we have enough space with safety margin
+            required_bytes = expected_size_bytes / (1.0 - min_free_ratio)
+
+            if free_bytes < required_bytes:
+                # Critical: not enough space
+                usage_ratio = expected_size_bytes / free_bytes if free_bytes > 0 else float('inf')
+
+                alternative_dirs = self._suggest_alternative_dirs()
+
+                error_msg = (
+                    f"\n{'='*70}\n"
+                    f"INSUFFICIENT DISK SPACE\n"
+                    f"{'='*70}\n"
+                    f"Storage directory: {self.storage_dir}\n"
+                    f"Available space: {free_h}\n"
+                    f"Required space: {expected_h} (plus {min_free_ratio*100:.0f}% buffer)\n"
+                    f"Deficit: {human_readable_size(required_bytes - free_bytes)}\n"
+                    f"\n"
+                    f"SOLUTIONS:\n"
+                    f"1. Use a different directory with more space:\n"
+                    f"   compute_differential_expression(..., disk_storage_dir='/path/to/larger/disk')\n"
+                )
+
+                if alternative_dirs:
+                    error_msg += f"\n   Suggested directories with more space:\n"
+                    for alt_dir, alt_free_h, alt_free_bytes in alternative_dirs[:3]:
+                        if alt_free_bytes > required_bytes:
+                            error_msg += f"   - {alt_dir}: {alt_free_h} free ✓\n"
+
+                error_msg += (
+                    f"\n"
+                    f"2. Reduce data size:\n"
+                    f"   - Use fewer landmarks: n_landmarks=<smaller_number>\n"
+                    f"   - Process fewer genes at once\n"
+                    f"   - Subset cells if appropriate\n"
+                    f"\n"
+                    f"3. Free up disk space on {self.storage_dir}\n"
+                    f"{'='*70}\n"
+                )
+
+                logger.error(error_msg)
+                raise IOError(f"Insufficient disk space: {free_h} available, {expected_h} required")
+
+            elif free_bytes < required_bytes * 1.5:
+                # Warning: tight on space
+                logger.warning(
+                    f"Disk space is tight. Available: {free_h}, Required: {expected_h}\n"
+                    f"Consider using a directory with more space if issues arise."
+                )
+
+    def _suggest_alternative_dirs(self) -> List[Tuple[str, str, int]]:
+        """
+        Suggest alternative directories with more disk space.
+
+        Returns
+        -------
+        list
+            List of (directory_path, free_space_human, free_space_bytes) tuples,
+            sorted by free space descending
+        """
+        import os
+
+        candidates = []
+
+        # Common locations to check
+        paths_to_check = [
+            os.path.expanduser("~"),  # Home directory
+            "/tmp",
+            os.environ.get("TMPDIR", ""),
+            os.environ.get("SCRATCH", ""),
+            os.environ.get("TEMP", ""),
+        ]
+
+        # Also check for /scratch if it exists (common on HPC systems)
+        if os.path.exists("/scratch"):
+            paths_to_check.append("/scratch")
+
+        for path in paths_to_check:
+            if path and os.path.exists(path) and os.path.isdir(path):
+                try:
+                    _, _, _, _, free_h, free_bytes = get_disk_space(path)
+                    candidates.append((path, free_h, free_bytes))
+                except:
+                    pass
+
+        # Sort by free space descending
+        candidates.sort(key=lambda x: x[2], reverse=True)
+
+        return candidates
+
+    def _monitor_disk_space_during_storage(self, array_size_bytes: int):
+        """
+        Monitor disk space while storing arrays and provide feedback.
+
+        Parameters
+        ----------
+        array_size_bytes : int
+            Size of array being stored
+        """
+        _, _, _, _, free_h, free_bytes = get_disk_space(self.storage_dir)
+        total_h, total_bytes = self.total_storage_used
+
+        # Check if we're running low on space
+        if free_bytes < array_size_bytes * 2:  # Less than 2x the current array size
+            logger.warning(
+                f"Disk space running low at {self.storage_dir}\n"
+                f"  Current storage used: {total_h}\n"
+                f"  Free space remaining: {free_h}\n"
+                f"  Consider stopping and using a larger disk if this is insufficient."
+            )
+
+        if free_bytes < array_size_bytes:
+            error_msg = (
+                f"Disk full! Cannot store array of size {human_readable_size(array_size_bytes)}\n"
+                f"  Free space: {free_h}\n"
+                f"  Storage location: {self.storage_dir}\n"
+                f"\n"
+                f"SOLUTION: Specify a directory with more space:\n"
+                f"  compute_differential_expression(..., disk_storage_dir='/path/with/more/space')"
+            )
+            logger.error(error_msg)
+            raise IOError(error_msg)
+
     def cleanup(self):
         """Remove temporary storage directory if it was created by this instance."""
         try:
@@ -492,14 +719,14 @@ class DiskStorage:
     def store_array(self, array: Union[np.ndarray, 'da.Array'], key: str) -> str:
         """
         Store an array to disk.
-        
+
         Parameters
         ----------
         array : np.ndarray or dask.array.Array
             Array to store
         key : str
             Identifier for the array
-            
+
         Returns
         -------
         str
@@ -508,12 +735,12 @@ class DiskStorage:
         # Add namespace to key to prevent collisions when sharing storage
         namespaced_key = f"{self.namespace}_{key}"
         file_path = os.path.join(self.storage_dir, f"{namespaced_key}.npy")
-        
+
         # Use file locking to prevent concurrent writes
         import filelock
         lock_path = f"{file_path}.lock"
         lock = filelock.FileLock(lock_path, timeout=60)
-        
+
         try:
             with lock:
                 # Handle dask arrays by computing them first
@@ -521,10 +748,13 @@ class DiskStorage:
                     # This is a dask array
                     logger.debug(f"Computing dask array before saving to disk: {namespaced_key}")
                     array = array.compute()
-                
+
+                # Monitor disk space before saving
+                self._monitor_disk_space_during_storage(array.nbytes)
+
                 # Save the array
                 np.save(file_path, array)
-                
+
                 # Save metadata
                 self.array_registry[key] = {
                     'path': file_path,
@@ -534,7 +764,7 @@ class DiskStorage:
                     'size_human': human_readable_size(array.nbytes),
                     'namespaced_key': namespaced_key
                 }
-                
+
                 logger.debug(f"Stored array '{key}' to disk: {self.array_registry[key]['size_human']}")
         except filelock.Timeout:
             logger.warning(f"Timeout while trying to acquire lock for {namespaced_key}")
@@ -546,7 +776,7 @@ class DiskStorage:
                     os.remove(lock_path)
                 except:
                     pass
-        
+
         return file_path
         
     def load_array(self, key: str, lazy: bool = None) -> Union[np.ndarray, 'da.Array']:

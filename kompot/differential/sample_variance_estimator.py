@@ -362,7 +362,12 @@ class SampleVarianceEstimator:
             use_disk_storage = self.store_arrays_on_disk
             if use_disk_storage and self._disk_storage is None:
                 # Lazy initialization of disk storage when actually needed
-                self._disk_storage = DiskStorage(storage_dir=self.disk_storage_dir)
+                # Pass dimensions so DiskStorage can estimate and check space requirements
+                self._disk_storage = DiskStorage(
+                    storage_dir=self.disk_storage_dir,
+                    n_cells=n_cells,
+                    n_genes=n_genes
+                )
                 logger.debug(f"Initializing disk storage for covariance matrix at {self._disk_storage.storage_dir}")
                 
             # Define the covariance shape for disk-backed matrix
