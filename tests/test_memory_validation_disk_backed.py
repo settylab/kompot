@@ -158,6 +158,7 @@ class TestMemoryValidation:
                 result_key='memory_test',
                 batch_size=50,
                 n_landmarks=20,
+                null_genes=0,  # Disable null genes for speed in memory test
                 store_arrays_on_disk=False,  # In-memory
                 progress=False
             )
@@ -178,6 +179,7 @@ class TestMemoryValidation:
                     result_key='disk_test',
                     batch_size=50,
                     n_landmarks=20,
+                    null_genes=0,  # Disable null genes for speed in memory test
                     store_arrays_on_disk=True,  # Disk-backed
                     disk_storage_dir=temp_dir,
                     progress=False
@@ -372,32 +374,44 @@ class TestMemoryValidation:
             
             # Get disk-backed result
             result = estimator.predict(X_new, diag=False)
-            
-            # Verify it's a memory-mapped array
-            assert isinstance(result, np.memmap), "Result should be a memory-mapped array"
-            
+
+            # Verify it's a disk-backed array (dask if available, otherwise memmap)
+            try:
+                import dask.array as da
+                DASK_AVAILABLE = True
+            except ImportError:
+                DASK_AVAILABLE = False
+
+            if DASK_AVAILABLE:
+                assert isinstance(result, da.Array), "Result should be a Dask array when dask is available"
+            else:
+                assert isinstance(result, np.memmap), "Result should be a memory-mapped array when dask is not available"
+
             # Verify shape
             expected_shape = (n_cells, n_cells, n_genes)
             assert result.shape == expected_shape, f"Expected shape {expected_shape}, got {result.shape}"
-            
-            # Verify the underlying file exists
-            assert hasattr(result, 'filename'), "Memory-mapped array should have filename attribute"
-            assert os.path.exists(result.filename), "Backing file should exist"
+
+            # For memmap, verify the underlying file exists
+            if isinstance(result, np.memmap):
+                assert hasattr(result, 'filename'), "Memory-mapped array should have filename attribute"
+                assert os.path.exists(result.filename), "Backing file should exist"
             
             # Verify values are finite
             sample_values = result[:10, :10, :5]
             assert np.all(np.isfinite(sample_values)), "Values should be finite"
-            
-            # Verify we can read/write
-            original_value = float(result[0, 0, 0])
-            result[0, 0, 0] = 999.0
-            assert result[0, 0, 0] == 999.0, "Should be able to modify memory-mapped array"
-            result[0, 0, 0] = original_value  # Restore
-            
-            logger.info(f"Memory-mapped array validation passed:")
+
+            logger.info(f"Disk-backed array validation passed:")
             logger.info(f"  Shape: {result.shape}")
-            logger.info(f"  File: {result.filename}")
-            logger.info(f"  Size on disk: {os.path.getsize(result.filename) / 1024 / 1024:.2f} MB")
+            logger.info(f"  Type: {type(result).__name__}")
+
+            # Verify we can read/write (only for memmap, dask arrays are read-only)
+            if isinstance(result, np.memmap):
+                original_value = float(result[0, 0, 0])
+                result[0, 0, 0] = 999.0
+                assert result[0, 0, 0] == 999.0, "Should be able to modify memory-mapped array"
+                result[0, 0, 0] = original_value  # Restore
+                logger.info(f"  File: {result.filename}")
+                logger.info(f"  Size on disk: {os.path.getsize(result.filename) / 1024 / 1024:.2f} MB")
             
     @pytest.mark.skipif(not PSUTIL_AVAILABLE, reason="Requires psutil for memory monitoring")
     def test_garbage_collection_effectiveness(self):
