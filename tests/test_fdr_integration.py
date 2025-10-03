@@ -157,15 +157,15 @@ class TestFDRIntegration:
             from kompot.anndata import compute_differential_expression
         except ImportError:
             pytest.skip("anndata not installed")
-        
+
         adata1, _ = create_test_anndata_with_differential_genes()
         adata2 = adata1.copy()
-        
+
         params = dict(
             groupby='condition',
             condition1='Ctrl',
             condition2='Treat',
-            null_genes=50,
+            null_genes=10,  # Must be < n_genes (default 50)
             null_seed=123,
             random_state=456,
             return_full_results=True,
@@ -234,14 +234,14 @@ class TestFDRIntegration:
         # Run with different thresholds
         results_strict = compute_differential_expression(
             adata1, groupby='condition', condition1='Ctrl', condition2='Treat',
-            null_genes=100, fdr_threshold=0.01, return_full_results=True,
+            null_genes=10, fdr_threshold=0.01, return_full_results=True,  # Must be < n_genes (default 50)
             result_key="strict", overwrite=True,
             store_additional_stats=True  # Store all statistical measures
         )
 
         results_lenient = compute_differential_expression(
             adata2, groupby='condition', condition1='Ctrl', condition2='Treat',
-            null_genes=100, fdr_threshold=0.1, return_full_results=True,
+            null_genes=10, fdr_threshold=0.1, return_full_results=True,  # Must be < n_genes (default 50)
             result_key="lenient", overwrite=True,
             store_additional_stats=True  # Store all statistical measures
         )

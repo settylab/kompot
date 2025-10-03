@@ -483,7 +483,9 @@ class DiskStorage:
         Parameters
         ----------
         storage_dir : str, optional
-            Directory to store arrays. If None, a temporary directory is created.
+            Base directory for array storage. A unique temporary subdirectory will be
+            created within this directory to avoid name collisions. If None, uses the
+            system's default temporary directory (respects TMPDIR, TEMP, TMP env vars).
         use_dask : bool, optional
             Whether to use dask for lazy loading when available, by default True.
         namespace : str, optional
@@ -501,17 +503,18 @@ class DiskStorage:
         self._instance_id = str(uuid.uuid4())[:8]
 
         if storage_dir is None:
+            # Use Python's tempfile default logic (respects TMPDIR, TEMP, TMP env vars)
             self.storage_dir = tempfile.mkdtemp(prefix=f"kompot_arrays_{self._instance_id}_")
             self._temp_dir = True
             # Register this as the owner of the temporary directory
             DiskStorage._shared_dirs[self.storage_dir] = self._instance_id
         else:
-            self.storage_dir = storage_dir
+            # User provided a base directory - create a unique subdirectory to avoid collisions
             os.makedirs(storage_dir, exist_ok=True)
-            self._temp_dir = False
-            # Register this instance as a user of the shared directory
-            if self.storage_dir not in DiskStorage._shared_dirs:
-                DiskStorage._shared_dirs[self.storage_dir] = self._instance_id
+            self.storage_dir = tempfile.mkdtemp(prefix=f"kompot_arrays_{self._instance_id}_", dir=storage_dir)
+            self._temp_dir = True
+            # Register this as the owner of the temporary subdirectory
+            DiskStorage._shared_dirs[self.storage_dir] = self._instance_id
 
         # Set namespace for array keys to prevent collisions
         self.namespace = namespace if namespace is not None else f"ns_{self._instance_id}"
@@ -576,24 +579,29 @@ class DiskStorage:
                     f"Deficit: {human_readable_size(required_bytes - free_bytes)}\n"
                     f"\n"
                     f"SOLUTIONS:\n"
-                    f"1. Use a different directory with more space:\n"
+                    f"1. Specify a directory with more space:\n"
                     f"   compute_differential_expression(..., disk_storage_dir='/path/to/larger/disk')\n"
+                    f"\n"
+                    f"2. Set environment variable to change default temp directory:\n"
+                    f"   export TMPDIR=/path/to/larger/disk\n"
+                    f"   (or TEMP or TMP on Windows)\n"
                 )
 
                 if alternative_dirs:
-                    error_msg += f"\n   Suggested directories with more space:\n"
+                    error_msg += f"\n"
+                    error_msg += f"3. Suggested directories with more space:\n"
                     for alt_dir, alt_free_h, alt_free_bytes in alternative_dirs[:3]:
                         if alt_free_bytes > required_bytes:
                             error_msg += f"   - {alt_dir}: {alt_free_h} free ✓\n"
 
                 error_msg += (
                     f"\n"
-                    f"2. Reduce data size:\n"
+                    f"4. Reduce data size:\n"
                     f"   - Use fewer landmarks: n_landmarks=<smaller_number>\n"
                     f"   - Process fewer genes at once\n"
                     f"   - Subset cells if appropriate\n"
                     f"\n"
-                    f"3. Free up disk space on {self.storage_dir}\n"
+                    f"5. Free up disk space on {self.storage_dir}\n"
                     f"{'='*70}\n"
                 )
 

@@ -47,7 +47,10 @@ def test_disk_storage_space_check():
             n_genes=5
         )
 
-        assert storage.storage_dir == tmpdir
+        # storage_dir should be a unique subdirectory inside tmpdir
+        assert storage.storage_dir.startswith(tmpdir)
+        assert storage.storage_dir != tmpdir  # Should be a subdirectory, not the same
+        assert os.path.exists(storage.storage_dir)
         assert len(storage.array_registry) == 0
 
         # Clean up
@@ -147,6 +150,98 @@ def test_suggest_alternative_dirs():
 
         # Clean up
         storage.cleanup()
+
+
+def test_concurrent_storage_no_collision():
+    """Test that multiple DiskStorage instances in same base dir don't collide."""
+    from kompot.memory_utils import DiskStorage
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        # Create two storage instances with same base directory
+        storage1 = DiskStorage(storage_dir=tmpdir, n_cells=10, n_genes=5)
+        storage2 = DiskStorage(storage_dir=tmpdir, n_cells=10, n_genes=5)
+
+        # Should have different storage directories
+        assert storage1.storage_dir != storage2.storage_dir
+        assert storage1.storage_dir.startswith(tmpdir)
+        assert storage2.storage_dir.startswith(tmpdir)
+
+        # Store arrays with same key in both - should not collide
+        arr1 = np.random.randn(5, 5)
+        arr2 = np.random.randn(10, 10)
+
+        path1 = storage1.store_array(arr1, "test_array")
+        path2 = storage2.store_array(arr2, "test_array")
+
+        # Paths should be different
+        assert path1 != path2
+
+        # Each should load their own array
+        loaded1 = storage1.load_array("test_array", lazy=False)
+        loaded2 = storage2.load_array("test_array", lazy=False)
+
+        np.testing.assert_array_almost_equal(arr1, loaded1)
+        np.testing.assert_array_almost_equal(arr2, loaded2)
+
+        # Different shapes prove they didn't collide
+        assert loaded1.shape == (5, 5)
+        assert loaded2.shape == (10, 10)
+
+        # Clean up
+        storage1.cleanup()
+        storage2.cleanup()
+
+
+def test_tmpdir_env_variable_respected():
+    """Test that TMPDIR environment variable is respected."""
+    from kompot.memory_utils import DiskStorage
+
+    # Create two different temporary directories
+    with tempfile.TemporaryDirectory() as custom_tmpdir1:
+        with tempfile.TemporaryDirectory() as custom_tmpdir2:
+            # Ensure they are different
+            assert custom_tmpdir1 != custom_tmpdir2
+
+            # Save original state
+            old_tmpdir = os.environ.get('TMPDIR')
+            old_tempdir = tempfile.tempdir
+
+            try:
+                # Test with first custom TMPDIR
+                os.environ['TMPDIR'] = custom_tmpdir1
+                tempfile.tempdir = None  # Reset cache
+
+                storage1 = DiskStorage(n_cells=10, n_genes=5)
+
+                # Should be in custom_tmpdir1, not custom_tmpdir2
+                assert storage1.storage_dir.startswith(custom_tmpdir1), \
+                    f"Expected storage in {custom_tmpdir1}, got {storage1.storage_dir}"
+                assert not storage1.storage_dir.startswith(custom_tmpdir2), \
+                    f"Should NOT be in {custom_tmpdir2}, but got {storage1.storage_dir}"
+
+                storage1.cleanup()
+
+                # Now change TMPDIR to second directory
+                os.environ['TMPDIR'] = custom_tmpdir2
+                tempfile.tempdir = None  # Reset cache again
+
+                storage2 = DiskStorage(n_cells=10, n_genes=5)
+
+                # Should be in custom_tmpdir2, not custom_tmpdir1
+                assert storage2.storage_dir.startswith(custom_tmpdir2), \
+                    f"Expected storage in {custom_tmpdir2}, got {storage2.storage_dir}"
+                assert not storage2.storage_dir.startswith(custom_tmpdir1), \
+                    f"Should NOT be in {custom_tmpdir1}, but got {storage2.storage_dir}"
+
+                storage2.cleanup()
+
+            finally:
+                # Restore original TMPDIR and tempdir cache
+                if old_tmpdir is None:
+                    os.environ.pop('TMPDIR', None)
+                else:
+                    os.environ['TMPDIR'] = old_tmpdir
+                tempfile.tempdir = old_tempdir
 
 
 if __name__ == "__main__":

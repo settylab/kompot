@@ -29,6 +29,9 @@ from .differential.sample_variance_estimator import SampleVarianceEstimator
 from .utils import compute_mahalanobis_distance, find_landmarks
 from .batch_utils import batch_process, apply_batched
 
+# Import resource estimation utilities
+from .resource_estimation import dry_run_differential_expression
+
 # Now import submodules - after the classes are imported
 from . import plot
 from . import anndata
@@ -76,17 +79,20 @@ logger = logging.getLogger("kompot")
 __all__ = [
     # Version
     "__version__",
-    
+
     # Mellon re-exports
-    "DensityEstimator", "FunctionEstimator", "Predictor", 
-    
+    "DensityEstimator", "FunctionEstimator", "Predictor",
+
     # Core differential analysis classes
     "DifferentialAbundance", "DifferentialExpression", "SampleVarianceEstimator",
-    
+
     # Utility functions
     "compute_mahalanobis_distance", "find_landmarks",
     "batch_process", "apply_batched",
-    
+
+    # Resource estimation
+    "dry_run_differential_expression",
+
     # AnnData functionality
     "compute_differential_abundance", "compute_differential_expression",
     "check_underrepresentation", "RunInfo", "RunComparison",

@@ -6,14 +6,18 @@ import jax.numpy as jnp
 import logging
 from typing import Dict, Optional
 from mellon import FunctionEstimator, DensityEstimator
+from tqdm.auto import tqdm
 
-from ..memory_utils import (
-    DiskStorage,
-    analyze_covariance_memory_requirements
-)
+from ..memory_utils import DiskStorage
+from ..resource_estimation import analyze_covariance_memory_requirements
 
-# Dask is no longer used in this module - we use direct numpy computation
-# for better performance and to avoid infinite loop bugs
+# Try to import dask for parallel computation
+try:
+    import dask
+    import dask.array as da
+    DASK_AVAILABLE = True
+except ImportError:
+    DASK_AVAILABLE = False
 
 logger = logging.getLogger("kompot")
 
@@ -45,7 +49,8 @@ class SampleVarianceEstimator:
         jit_compile: bool = True,
         estimator_type: str = 'function',
         store_arrays_on_disk: Optional[bool] = None,
-        disk_storage_dir: Optional[str] = None
+        disk_storage_dir: Optional[str] = None,
+        dask_num_workers: Optional[int] = None
     ):
         """
         Initialize the SampleVarianceEstimator.
@@ -67,10 +72,18 @@ class SampleVarianceEstimator:
             Directory to store arrays on disk. If provided and store_arrays_on_disk is None,
             store_arrays_on_disk will be set to True. If store_arrays_on_disk is False and
             this is provided, a warning will be logged and disk storage will not be used.
+        dask_num_workers : int, optional
+            Number of parallel Dask workers to use for covariance computation. If None (default),
+            Dask uses all available CPU cores for maximum speed. Set to a smaller number (e.g., 2-4)
+            to limit CPU utilization at the cost of slower computation. Only applies when Dask is
+            available and disk storage is enabled. Note: This primarily controls CPU usage, not memory,
+            since the main memory footprint comes from the shared centered data array rather than
+            per-worker allocations.
         """
         self.eps = eps
         self.jit_compile = jit_compile
         self.estimator_type = estimator_type
+        self.dask_num_workers = dask_num_workers
         
         # Determine store_arrays_on_disk based on disk_storage_dir if not explicitly set
         if store_arrays_on_disk is None:
@@ -247,14 +260,14 @@ class SampleVarianceEstimator:
         
         return self
     
-    def predict(self, X_new: np.ndarray, diag: bool = False) -> np.ndarray:
+    def predict(self, X_new: np.ndarray, diag: bool = False, progress: bool = True) -> np.ndarray:
         """
         Predict empirical variance for new points using JAX.
-        
+
         This method computes the variance with Bessel's correction (using n-1 instead of n
         in the denominator) to provide an unbiased estimate of the population variance.
         This correction is particularly important when the number of samples (groups) is small.
-        
+
         Parameters
         ----------
         X_new : np.ndarray
@@ -262,6 +275,8 @@ class SampleVarianceEstimator:
         diag : bool, optional
             If True (default is False), compute the variance for each cell state.
             If False, compute the full covariance matrix between all pairs of cells.
+        progress : bool, optional
+            Whether to show a progress bar during covariance computation. Default True.
             
         Returns
         -------
@@ -419,75 +434,134 @@ class SampleVarianceEstimator:
         centered_reshaped = jnp.moveaxis(centered, 1, 0)  # (n_cells, n_groups, n_genes)
         
         if use_disk_storage:
-            # Disk-backed version - use memory-mapped arrays for reduced memory usage
-            logger.info("Using memory-mapped arrays for disk-backed covariance computation")
-            
-            # Use numpy memory mapping
-            import tempfile
-            import os
-            import gc
-            
-            # Create a memory-mapped array
-            filename = os.path.join(self._disk_storage.storage_dir, 'covariance_matrix.npy')
-            mmap_array = np.lib.format.open_memmap(
-                filename, 
-                mode='w+',
-                dtype=np.float64,
-                shape=covariance_shape
-            )
-            
-            # Process gene-by-gene to minimize memory usage
-            for g in range(n_genes):
-                gene_centered = centered_reshaped[:, :, g]  # (n_cells, n_groups)
-                
-                # Convert JAX array to numpy early and clean up
-                if hasattr(gene_centered, '__array__'):  # Check if it's a JAX array
-                    gene_centered_np = np.asarray(gene_centered)
-                    # Delete the JAX array reference to free memory
-                    del gene_centered
-                else:
-                    gene_centered_np = gene_centered
-                
-                # Compute covariance directly using optimized numpy operations
-                divisor = self.n_groups - 1
-                gene_cov = np.dot(gene_centered_np, gene_centered_np.T) / divisor
-                
-                # Store in the memory-mapped array (this doesn't use RAM)
-                mmap_array[:, :, g] = gene_cov
-                
-                # Clean up temporary arrays
-                del gene_centered_np, gene_cov
-                
-                # Periodic garbage collection for large datasets
-                if g % 100 == 0 and g > 0:
-                    gc.collect()
-            
-            # Final cleanup of large JAX arrays
-            del centered_reshaped
-            gc.collect()
-            
-            # Return the memory-mapped array
-            return mmap_array
+            # Disk-backed version - use parallel computation with Dask if available
+            if DASK_AVAILABLE:
+                worker_info = f" with {self.dask_num_workers} workers" if self.dask_num_workers else " (all cores)"
+                logger.info(f"Using Dask for parallel disk-backed covariance computation{worker_info} (shape={covariance_shape})")
+
+                # Convert JAX to numpy once to avoid repeated conversions
+                import gc
+                centered_reshaped_np = np.asarray(centered_reshaped)
+                del centered_reshaped
+                gc.collect()
+
+                # Create dask delayed functions to compute each gene slice
+                @dask.delayed
+                def compute_gene_cov(gene_data, n_groups):
+                    """Compute covariance for a single gene."""
+                    divisor = n_groups - 1
+                    return np.dot(gene_data, gene_data.T) / divisor
+
+                # Create delayed computations for all genes
+                gene_arrays = []
+                for g in range(n_genes):
+                    gene_centered = centered_reshaped_np[:, :, g]  # (n_cells, n_groups)
+                    delayed_result = compute_gene_cov(gene_centered, self.n_groups)
+
+                    # Convert to dask array
+                    gene_array = da.from_delayed(
+                        delayed_result,
+                        shape=(n_cells, n_cells),
+                        dtype=np.float64
+                    )
+                    gene_arrays.append(gene_array)
+
+                # Stack along gene axis
+                # Note: Dask uses lazy evaluation - actual computation happens when array values are accessed
+                # Set global pool size if num_workers is specified
+                # This affects the threaded scheduler used by Dask delayed/array operations
+                if self.dask_num_workers is not None:
+                    dask.config.set(pool=dask.config.get("pool", {}).copy())
+                    dask.config.set({"pool.num-workers": self.dask_num_workers})
+                    logger.info(f"Configured Dask to use {self.dask_num_workers} workers (limits parallelism and memory)")
+
+                dask_covariance = da.stack(gene_arrays, axis=2)
+
+                # Clean up
+                del centered_reshaped_np
+                gc.collect()
+
+                logger.info(f"Created Dask array for covariance with shape {dask_covariance.shape}")
+                return dask_covariance
+
+            else:
+                # Fallback: numpy memory mapping (sequential, slower)
+                logger.warning(
+                    "Dask not available - using sequential numpy computation. "
+                    "Install dask for parallel processing: pip install dask[array]"
+                )
+                logger.info("Using memory-mapped arrays for disk-backed covariance computation")
+
+                import tempfile
+                import os
+                import gc
+
+                # Create a memory-mapped array
+                filename = os.path.join(self._disk_storage.storage_dir, 'covariance_matrix.npy')
+                mmap_array = np.lib.format.open_memmap(
+                    filename,
+                    mode='w+',
+                    dtype=np.float64,
+                    shape=covariance_shape
+                )
+
+                # Convert JAX array to numpy ONCE before the loop
+                centered_reshaped_np = np.asarray(centered_reshaped)
+                del centered_reshaped
+                gc.collect()
+
+                # Process gene-by-gene sequentially
+                gene_iterator = tqdm(range(n_genes), desc="Computing covariance", disable=not progress)
+                for g in gene_iterator:
+                    gene_centered_np = centered_reshaped_np[:, :, g]
+
+                    # Compute covariance
+                    divisor = self.n_groups - 1
+                    gene_cov = np.dot(gene_centered_np, gene_centered_np.T) / divisor
+
+                    # Store in memory-mapped array
+                    mmap_array[:, :, g] = gene_cov
+                    del gene_cov
+
+                    # Periodic GC
+                    if g % 50 == 0 and g > 0:
+                        gc.collect(0)
+
+                # Final cleanup
+                del centered_reshaped_np
+                gc.collect()
+
+                return mmap_array
         else:
             # In-memory version - allocate full covariance matrix
             cov_matrix = np.zeros(covariance_shape)
-            
-            for g in range(n_genes):
-                gene_centered = centered_reshaped[:, :, g]  # (n_cells, n_groups)
-                
-                # Compute covariance slice using JIT if available
-                if self._compute_cov_slice_jit is not None:
+
+            # For non-JIT path, convert to numpy once for efficiency
+            # For JIT path, keep as JAX array for compilation
+            if self._compute_cov_slice_jit is None:
+                # No JIT - convert to numpy once to avoid repeated JAX slicing overhead
+                import gc
+                centered_reshaped_np = np.asarray(centered_reshaped)
+                del centered_reshaped
+                gc.collect()
+
+                gene_iterator = tqdm(range(n_genes), desc="Computing covariance", disable=not progress)
+                for g in gene_iterator:
+                    gene_centered_np = centered_reshaped_np[:, :, g]  # (n_cells, n_groups)
+                    gene_cov = self._compute_cov_slice(gene_centered_np, self.n_groups)
+                    cov_matrix[:, :, g] = np.asarray(gene_cov)
+                    del gene_cov
+
+                del centered_reshaped_np
+            else:
+                # JIT path - keep as JAX array for optimal JIT performance
+                gene_iterator = tqdm(range(n_genes), desc="Computing covariance", disable=not progress)
+                for g in gene_iterator:
+                    gene_centered = centered_reshaped[:, :, g]  # (n_cells, n_groups)
                     gene_cov = self._compute_cov_slice_jit(gene_centered, self.n_groups)
-                else:
-                    gene_cov = self._compute_cov_slice(gene_centered, self.n_groups)
-                
-                # Convert result to numpy if it's a JAX array
-                cov_matrix[:, :, g] = np.asarray(gene_cov)
-                
-                # Clean up temporary references for large datasets
-                del gene_cov
-            
-            # Clean up large JAX arrays after processing
-            del centered_reshaped
-            
+                    cov_matrix[:, :, g] = np.asarray(gene_cov)
+                    del gene_cov
+
+                del centered_reshaped
+
             return cov_matrix

@@ -524,9 +524,9 @@ class DifferentialExpression:
             if self.variance_predictor1 is not None:
                 try:
                     # Important: use diag=False to get full covariance matrix
-                    variance1 = self.variance_predictor1(variance_points, diag=False)
+                    variance1 = self.variance_predictor1(variance_points, diag=False, progress=progress)
                     if self.variance_predictor2 is not None:
-                        variance2 = self.variance_predictor2(variance_points, diag=False)
+                        variance2 = self.variance_predictor2(variance_points, diag=False, progress=progress)
                         # Add the covariance matrices for complete variance representation
                         combined_variance = variance1 + variance2
                         
@@ -575,7 +575,7 @@ class DifferentialExpression:
             elif self.variance_predictor2 is not None:
                 try:
                     # Important: use diag=False to get full covariance matrix
-                    variance2 = self.variance_predictor2(variance_points, diag=False)
+                    variance2 = self.variance_predictor2(variance_points, diag=False, progress=progress)
                     # Check if we have gene-specific covariance matrices
                     if len(variance2.shape) == 3:
                         # We have per-gene covariance matrices
