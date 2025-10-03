@@ -15,8 +15,9 @@
    :caption: Tutorials:
    :maxdepth: 2
 
-   Tutorial Notebook <notebooks/tutorial_notebook.ipynb>
-   Sample Variance Analysis <notebooks/sample_variance.ipynb>
+   Getting Started <notebooks/01_getting_started.ipynb>
+   Advanced Differential Expression <notebooks/02_differential_expression_detailed.ipynb>
+   Sample Variance Analysis <notebooks/03_sample_variance.ipynb>
 
 .. |pypi| image:: https://img.shields.io/pypi/v/kompot.svg
    :target: https://pypi.org/project/kompot/
@@ -107,9 +108,12 @@ To install all optional dependencies:
 Quick Start
 -----------
 
-Check out our :doc:`Tutorial Notebook <notebooks/tutorial_notebook>` for a step-by-step introduction to Kompot's key functionality.
+**New to Kompot?** Start with the :doc:`Getting Started <notebooks/01_getting_started>` tutorial for a comprehensive introduction to differential abundance and expression analysis.
 
-For more advanced applications involving sample-specific variance estimation, see the :doc:`Sample Variance Analysis <notebooks/sample_variance>` tutorial.
+**Ready for more?** Explore advanced topics:
+
+- :doc:`Advanced Differential Expression <notebooks/02_differential_expression_detailed>` - Parameter customization, multiple comparisons, and visualization options
+- :doc:`Sample Variance Analysis <notebooks/03_sample_variance>` - Accounting for biological replicates in multi-sample studies
 
 .. toctree::
    :hidden:

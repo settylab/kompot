@@ -17,6 +17,7 @@ All notable changes to this project will be documented in this file.
  - bugfix: Prevent silent failure of `compute_differential_abundance` with sample variance
    by making sure enough space is available on disk for covariance tensor.
  - dry run for differential expression
+ - split tutorials in 3 parts
    
 
 ## [0.4.3]
