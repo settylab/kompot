@@ -527,9 +527,10 @@ def test_anndata_differential_expression_sample_variance_with_disk():
         result_key='memory_var',
         batch_size=2,  # Use very small batch for testing
         n_landmarks=5,  # Minimal landmarks for speed
+        null_genes=0,  # Disable null genes for speed in this test
         progress=False  # Disable progress bar for tests
     )
-    
+
     # Run with sample variance and disk-backed
     with tempfile.TemporaryDirectory() as temp_dir:
         result_disk = compute_differential_expression(
@@ -543,6 +544,7 @@ def test_anndata_differential_expression_sample_variance_with_disk():
             store_arrays_on_disk=True,  # Enable disk storage
             disk_storage_dir=temp_dir,
             n_landmarks=5,  # Minimal landmarks for speed
+            null_genes=0,  # Disable null genes for speed in this test
             progress=False  # Disable progress bar for tests
         )
         
@@ -699,9 +701,10 @@ def test_consistency_across_disk_backed_runs():
             store_arrays_on_disk=True,  # Enable disk storage
             disk_storage_dir=temp_dir1,
             batch_size=5,  # Use small batch for testing
+            null_genes=0,  # Disable null genes for speed in this test
             progress=False  # Disable progress bar for tests
         )
-        
+
         with tempfile.TemporaryDirectory() as temp_dir2:
             result_disk2 = compute_differential_expression(
                 adata,
@@ -714,6 +717,7 @@ def test_consistency_across_disk_backed_runs():
                 store_arrays_on_disk=True,  # Enable disk storage
                 disk_storage_dir=temp_dir2,
                 batch_size=5,  # Use small batch for testing
+                null_genes=0,  # Disable null genes for speed in this test
                 progress=False  # Disable progress bar for tests
             )
             
