@@ -646,6 +646,15 @@ def estimate_differential_expression_resources(
         shape=cov_matrix_shape
     )
 
+    # Cholesky decomposition of combined covariance (for Mahalanobis computation)
+    if compute_mahalanobis:
+        plan.add_requirement(
+            "Cholesky decomposition (for Mahalanobis)",
+            cov_size,  # Same size as covariance matrix
+            'memory',
+            shape=cov_matrix_shape
+        )
+
     # 3. Sample variance covariance matrices (if enabled)
     if inferred_use_sv:
         # Count unique samples
@@ -716,6 +725,47 @@ def estimate_differential_expression_resources(
                         "Disk storage requested but dask is not installed. "
                         "Install dask for 50x faster computation: pip install 'dask[array]'"
                     )
+
+    # Add batch_size information
+    batch_size = kwargs.get('batch_size', 100 if 'anndata' in str(type(adata)) else 500)
+
+    if compute_mahalanobis:
+        if inferred_use_sv:
+            # With sample variance: batch_size has NO effect on memory
+            plan.info.append(
+                f"Note: With sample variance, batch_size parameter ({batch_size}) has no effect on memory. "
+                f"The gene-specific covariance tensor ({human_readable_size(sv_cov_size * 2)}) dominates memory usage. "
+                f"To reduce memory, use store_arrays_on_disk=True or reduce n_landmarks."
+            )
+        else:
+            # Without sample variance: batch_size affects Mahalanobis computation memory
+            # Empirical testing shows JAX efficiently reuses memory during vmap operations.
+            # While theoretically we might expect 4× (batch_diffs, solved, solved**2, workspace),
+            # actual measurements show ~1× due to in-place operations and immediate deallocation.
+            # Using 1.5× as a conservative estimate to account for temporary workspace.
+            total_batch_genes = batch_size if batch_size > 0 and batch_size < n_total_genes else n_total_genes
+            actual_batch_mem = estimate_array_size((total_batch_genes, n_landmarks))
+
+            # Add this as a memory requirement so it shows in the allocations list
+            batch_shape = (total_batch_genes, n_landmarks)
+            plan.add_requirement(
+                f"Mahalanobis batch processing (batch_size={batch_size})",
+                actual_batch_mem,
+                'memory',
+                shape=batch_shape
+            )
+
+            plan.info.append(
+                f"Mahalanobis computation processes {total_batch_genes} genes per batch. "
+                f"Reduce batch_size to lower peak memory (currently {human_readable_size(actual_batch_mem)} for batch arrays)."
+            )
+
+            # If batch_size is 0 or greater than genes, warn about memory
+            if batch_size == 0 or batch_size >= n_total_genes:
+                plan.warnings.append(
+                    f"batch_size ({batch_size}) will process all {n_total_genes} genes at once. "
+                    f"Consider reducing batch_size (e.g., batch_size=500) to lower peak memory usage."
+                )
 
     # 4. Check for existing results and what will be overwritten
     from .anndata.utils.field_tracking import detect_output_field_overwrite

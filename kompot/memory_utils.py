@@ -107,24 +107,29 @@ def human_readable_size(size_in_bytes: int) -> str:
 
 def array_size(array_or_shape, dtype=None):
     """
-    Compute size of a NumPy array or theoretical array.
-    
+    Compute size of a NumPy array, Dask array, or theoretical array.
+
     Parameters
     ----------
-    array_or_shape : np.ndarray or tuple
-        NumPy array or shape tuple
+    array_or_shape : np.ndarray, dask.array.Array, or tuple
+        NumPy array, Dask array, or shape tuple
     dtype : numpy.dtype, optional
         Data type (only used if array_or_shape is a shape tuple)
-        
+
     Returns
     -------
     int or tuple
-        If array_or_shape is an array: size in bytes
+        If array_or_shape is an array: size in bytes (int)
         If array_or_shape is a shape: (human_readable_size_string, size_in_bytes)
     """
+    # Check if it's a numpy array
     if isinstance(array_or_shape, np.ndarray):
-        # Handle actual array
         return array_or_shape.nbytes
+    # Check if it's a dask array
+    elif hasattr(array_or_shape, 'nbytes') and hasattr(array_or_shape, 'chunks'):
+        # Dask array - nbytes is already computed as an int
+        return array_or_shape.nbytes
+    # Otherwise treat as shape tuple
     else:
         # Handle shape tuple (original behavior)
         if dtype is None:

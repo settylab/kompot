@@ -608,18 +608,19 @@ class DifferentialExpression:
             if gene_specific_covariance is not None:
                 # Use gene-specific covariance matrices (3D tensor)
                 logger.debug(f"Computing Mahalanobis distances for {fold_change_transposed.shape[0]:,} genes with gene-specific covariance matrices...")
-                
-                # Compute all distances using the unified utility function with gene-specific covariance
-                logger.debug(f"Using batch_size={self.batch_size} for Mahalanobis distance computation")
+
+                # Note: batch_size is not used for gene-specific covariance (processes one gene at a time)
+                # Memory is dominated by the covariance tensor: (n_points, n_points, n_genes)
+                logger.debug(f"Gene-specific covariance: batch_size is not used (processes genes sequentially)")
                 mahalanobis_distances = compute_mahalanobis_distances(
                     diff_values=fold_change_transposed,
                     covariance=gene_specific_covariance,
-                    batch_size=self.batch_size,  
+                    batch_size=None,  # Ignored for gene-specific covariance
                     jit_compile=self.jit_compile,
                     eps=self.eps,
                     progress=progress
                 )
-                
+
                 logger.info(f"Successfully computed Mahalanobis distances for {len(mahalanobis_distances):,} genes using gene-specific covariance")
             else:
                 logger.debug(f"Computing Mahalanobis distances for {fold_change_transposed.shape[0]:,} genes with shared covariance...")
@@ -637,9 +638,14 @@ class DifferentialExpression:
                 
                 logger.debug(f"Successfully computed Mahalanobis distances for {len(mahalanobis_distances):,} genes")
         except Exception as e:
-            error_msg = (f"Failed to compute Mahalanobis distances: {str(e)}. "
-                       f"Try manually reducing batch_size or disable Mahalanobis "
-                       f"distance calculation with compute_mahalanobis=False")
+            # Provide context-appropriate error message
+            if gene_specific_covariance is not None:
+                error_msg = (f"Failed to compute Mahalanobis distances with gene-specific covariance: {str(e)}. "
+                           f"Try using store_arrays_on_disk=True or reduce n_landmarks to control memory usage.")
+            else:
+                error_msg = (f"Failed to compute Mahalanobis distances: {str(e)}. "
+                           f"Try reducing batch_size, using store_arrays_on_disk=True, or disable Mahalanobis "
+                           f"distance calculation with compute_mahalanobis=False")
             logger.error(error_msg)
             raise RuntimeError(error_msg) from e
 

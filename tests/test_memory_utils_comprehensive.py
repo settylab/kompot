@@ -354,12 +354,13 @@ class TestDiskStorage:
             from kompot.memory_utils import DiskStorage
         except ImportError as e:
             pytest.skip(f"Could not import DiskStorage: {e}")
-        
+
         with tempfile.TemporaryDirectory() as tmpdir:
             storage = DiskStorage(tmpdir)
-            
-            assert storage.storage_dir == tmpdir
-            assert os.path.exists(tmpdir)
+
+            # DiskStorage creates a unique subdirectory within the provided dir
+            assert storage.storage_dir.startswith(tmpdir)
+            assert os.path.exists(storage.storage_dir)
             
     def test_disk_storage_store_and_load_array(self):
         """Test storing and loading arrays to/from disk."""
@@ -416,19 +417,21 @@ class TestDiskStorage:
             from kompot.memory_utils import DiskStorage
         except ImportError as e:
             pytest.skip(f"Could not import DiskStorage: {e}")
-        
+
         with tempfile.TemporaryDirectory() as tmpdir:
             storage = DiskStorage(tmpdir)
-            
+
             # Store some arrays
             arr1 = np.random.rand(10, 10)
             arr2 = np.random.rand(5, 5)
             storage.store_array(arr1, 'array1')
             storage.store_array(arr2, 'array2')
-            
-            # Check files exist
-            assert len(os.listdir(tmpdir)) >= 2
-            
+
+            # Check files exist in the storage subdirectory
+            storage_dir = storage.storage_dir
+            assert os.path.exists(storage_dir)
+            assert len(os.listdir(storage_dir)) >= 2
+
             # Cleanup
             storage.cleanup()
             
@@ -461,15 +464,14 @@ class TestDaskIntegration:
             pytest.skip(f"Could not import DASK_AVAILABLE: {e}")
         
         assert isinstance(DASK_AVAILABLE, bool)
-        
-    @pytest.mark.skipif(True, reason="Dask may not be available")
+
     def test_dask_array_operations(self):
         """Test operations with Dask arrays if available."""
         try:
             from kompot.memory_utils import DASK_AVAILABLE
             if not DASK_AVAILABLE:
                 pytest.skip("Dask not available")
-                
+
             import dask.array as da
             from kompot.memory_utils import array_size
         except ImportError:
