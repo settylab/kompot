@@ -61,6 +61,7 @@ Key features:
 - Support for covariance matrices and optional landmarks
 - JAX-accelerated computations
 - Empirical variance estimation
+- **Resource estimation and dry run** for planning large analyses
 - **Disk-backed storage for large datasets** with Dask support
 - Visualization tools (volcano plots, heatmaps, expression plots)
 - **Full scverse compatibility with direct AnnData integration**

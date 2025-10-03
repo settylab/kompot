@@ -31,6 +31,48 @@ Differential Expression
    :undoc-members:
    :show-inheritance:
 
+Resource Estimation
+-------------------
+
+Before running resource-intensive differential expression analyses, you can use the dry run utility to estimate memory and disk requirements, check for field overwrites, and verify parameters.
+
+**Key features:**
+
+- **Memory and disk estimation**: Calculates expected resource usage for all intermediate arrays and final results
+- **Null genes accounting**: Correctly estimates resource inflation from null distribution genes (default 2000 additional genes)
+- **Field overwrite detection**: Shows which fields will be overwritten, including their run_id and previous run details
+- **Sample variance impact**: Estimates additional memory for sample-specific covariance tensors
+- **Disk storage planning**: Estimates disk space needed when using ``store_arrays_on_disk=True``
+
+.. code-block:: python
+
+   import kompot as kp
+
+   # Run a dry run before actual computation
+   plan = kp.dry_run_differential_expression(
+       adata,
+       condition1='Young',
+       condition2='Old',
+       groupby='age',
+       use_sample_variance=True,
+       sample_column='donor_id',
+       verbose=True
+   )
+
+   # Examine the report
+   print(plan.format_report(verbose=True))
+
+The dry run output shows:
+
+- **System Resources**: Available memory and disk space
+- **Total Requirements**: Memory and disk needed with percentage of available
+- **Memory Allocations**: Detailed breakdown of each array (precision matrices, imputed expression, covariances)
+- **Output Fields**: All fields that will be created, with ``[OVERWRITES run_id=X]`` markers for existing fields
+- **Warnings**: Field overwrite information showing previous run timestamp, conditions, and parameters
+- **Status**: Whether the analysis is feasible given available resources
+
+.. autofunction:: kompot.dry_run_differential_expression
+
 Utilities
 ---------
 

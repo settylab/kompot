@@ -273,7 +273,7 @@ class ResourcePlan:
                         if field in overwrite_fields:
                             run_id = overwrite_fields[field]
                             if run_id is not None:
-                                overwrite_mark = f" [run_id={run_id}]"
+                                overwrite_mark = f" [OVERWRITES run_id={run_id}]"
                             else:
                                 overwrite_mark = " [OVERWRITE]"
                         else:
@@ -881,12 +881,20 @@ def dry_run_differential_expression(
     - Compare memory usage with/without sample_variance
     - Decide whether to use disk_storage_dir
     - Choose appropriate landmark subsampling
-    - Understand which fields will be created/overwritten
+    - Understand which fields will be created/overwritten with run_id tracking
+    - See detailed previous run information for fields that will be overwritten
     - Check if you have sufficient resources
 
     The actual kompot.compute_differential_expression() also checks resources,
     but this dry-run lets you experiment with parameters without waiting for
     the full computation.
+
+    **Field Overwrite Detection:**
+
+    The dry run shows which fields will be overwritten with their run_id in the
+    Output Fields section (e.g., ``[OVERWRITES run_id=0]``). The warnings section
+    provides detailed information about the previous run including timestamp,
+    conditions, and parameters like ``use_sample_variance`` and ``null_genes``.
 
     Parameters
     ----------
@@ -944,13 +952,21 @@ def dry_run_differential_expression(
     **Check field overwrites:**
 
     >>> plan = dry_run_differential_expression(
-    ...     adata, 'A', 'B', 'condition',
-    ...     result_prefix='my_de'  # Creates my_de_pval, my_de_logfc, etc.
+    ...     adata, 'Young', 'Old', 'age',
+    ...     result_key='kompot_de'
     ... )
-    >>> # Check if any fields will be overwritten
-    >>> overwritten = [r for r in plan.requirements if r.overwrite]
-    >>> if overwritten:
-    ...     print(f"Warning: Will overwrite {len(overwritten)} existing fields")
+    >>> # The output shows which fields will be overwritten with their run_id:
+    >>> # Output Fields:
+    >>> #   adata.layers:
+    >>> #     - kompot_de_Young_imputed [OVERWRITES run_id=0]
+    >>> #     - kompot_de_Old_imputed [OVERWRITES run_id=0]
+    >>> #   adata.var:
+    >>> #     - kompot_de_Young_to_Old_mean_lfc [OVERWRITES run_id=0]
+    >>> #
+    >>> # Warnings:
+    >>> #   ⚠ Results with result_key='kompot_de' already exist (run_id=0).
+    >>> #     Previous run: 2025-10-02T12:30:00 comparing Young to Old
+    >>> #     (null_genes=2000). Fields that will be overwritten: ...
 
     **Use with landmarks:**
 
