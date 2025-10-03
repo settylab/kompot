@@ -359,54 +359,136 @@ def apply_batched(
     
     n_samples = X.shape[axis]
     original_batch_size = batch_size
-    
+
     # Track which reduction factors we've tried to avoid repeated attempts
     tried_reduction_factors = set()
-    
-    # We'll collect results for each batch here
-    batch_results = []
-    
+
     # Track which samples we've successfully processed
     processed_indices = set()
-    
-    # Define a progress iterator
-    progress_iter = tqdm(
-        range(0, n_samples, batch_size),
-        desc=desc or f"Processing (batch_size={batch_size})",
-        disable=not show_progress
-    )
-    
-    # First attempt with specified batch size
-    for start_idx in progress_iter:
-        end_idx = min(start_idx + batch_size, n_samples)
-        batch_indices = list(range(start_idx, end_idx))
-        
-        # Skip batch if all indices have been processed
-        if all(idx in processed_indices for idx in batch_indices):
-            continue
-            
-        # Filter out already processed indices
-        remaining_indices = [idx for idx in batch_indices if idx not in processed_indices]
-        if not remaining_indices:
-            continue
-        
-        # Create slice for batch extraction
-        batch_slice = [slice(None)] * X.ndim
-        batch_slice[axis] = remaining_indices
-        batch_X = X[tuple(batch_slice)]
-        
-        try:
-            # Process this batch
-            result = func(batch_X)
-            batch_results.append(result)
-            processed_indices.update(remaining_indices)
-        except Exception as e:
-            # Check if it's a memory-related error
-            if is_jax_memory_error(e):
-                logger.warning(f"Memory error with batch size {batch_size}. Will try smaller batches.")
-            else:
-                # If it's not a memory error, re-raise
-                raise
+
+    # Process first batch to determine output shape/type and pre-allocate if possible
+    first_batch_size = min(batch_size, n_samples)
+    batch_slice = [slice(None)] * X.ndim
+    batch_slice[axis] = slice(0, first_batch_size)
+    first_batch_X = X[tuple(batch_slice)]
+
+    try:
+        first_result = func(first_batch_X)
+        processed_indices.update(range(first_batch_size))
+
+        # Check if we can pre-allocate (numpy/jax arrays only)
+        can_preallocate = isinstance(first_result, (np.ndarray, jnp.ndarray))
+
+        if can_preallocate and first_batch_size == n_samples:
+            # Already processed everything in first batch
+            return first_result
+
+        if can_preallocate:
+            # Pre-allocate output array
+            output_shape = list(first_result.shape)
+            output_shape[concat_axis] = n_samples
+            output = np.empty(output_shape, dtype=first_result.dtype)
+
+            # Fill in first batch
+            output_slice = [slice(None)] * output.ndim
+            output_slice[concat_axis] = slice(0, first_batch_size)
+            output[tuple(output_slice)] = first_result
+
+            # Define a progress iterator starting from second batch
+            progress_iter = tqdm(
+                range(first_batch_size, n_samples, batch_size),
+                desc=desc or f"Processing (batch_size={batch_size})",
+                disable=not show_progress,
+                initial=1,
+                total=(n_samples + batch_size - 1) // batch_size
+            )
+
+            # Process remaining batches with pre-allocated output
+            for start_idx in progress_iter:
+                end_idx = min(start_idx + batch_size, n_samples)
+                batch_indices = list(range(start_idx, end_idx))
+
+                # Create slice for batch extraction
+                batch_slice = [slice(None)] * X.ndim
+                batch_slice[axis] = batch_indices
+                batch_X = X[tuple(batch_slice)]
+
+                try:
+                    # Process this batch
+                    result = func(batch_X)
+
+                    # Write directly to output
+                    output_slice = [slice(None)] * output.ndim
+                    output_slice[concat_axis] = slice(start_idx, end_idx)
+                    output[tuple(output_slice)] = result
+
+                    processed_indices.update(batch_indices)
+                except Exception as e:
+                    # Check if it's a memory-related error
+                    if is_jax_memory_error(e):
+                        logger.warning(f"Memory error with batch size {batch_size}. Falling back to list accumulation.")
+                        can_preallocate = False
+                        break
+                    else:
+                        raise
+
+            if can_preallocate and len(processed_indices) == n_samples:
+                return output
+
+        # Fall back to list accumulation if pre-allocation not possible or failed
+        batch_results = [first_result]
+
+    except Exception as e:
+        if is_jax_memory_error(e):
+            logger.warning(f"Memory error with initial batch. Will try smaller batches.")
+            batch_results = []
+            can_preallocate = False
+        else:
+            raise
+
+    # Continue with list accumulation (fallback or non-array outputs)
+    if not can_preallocate or len(processed_indices) < n_samples:
+        # Define a progress iterator
+        start_from = len(processed_indices) if can_preallocate else 0
+        progress_iter = tqdm(
+            range(start_from, n_samples, batch_size),
+            desc=desc or f"Processing (batch_size={batch_size})",
+            disable=not show_progress
+        )
+
+        for start_idx in progress_iter:
+            if start_idx in processed_indices:
+                continue
+
+            end_idx = min(start_idx + batch_size, n_samples)
+            batch_indices = list(range(start_idx, end_idx))
+
+            # Skip batch if all indices have been processed
+            if all(idx in processed_indices for idx in batch_indices):
+                continue
+
+            # Filter out already processed indices
+            remaining_indices = [idx for idx in batch_indices if idx not in processed_indices]
+            if not remaining_indices:
+                continue
+
+            # Create slice for batch extraction
+            batch_slice = [slice(None)] * X.ndim
+            batch_slice[axis] = remaining_indices
+            batch_X = X[tuple(batch_slice)]
+
+            try:
+                # Process this batch
+                result = func(batch_X)
+                batch_results.append(result)
+                processed_indices.update(remaining_indices)
+            except Exception as e:
+                # Check if it's a memory-related error
+                if is_jax_memory_error(e):
+                    logger.warning(f"Memory error with batch size {batch_size}. Will try smaller batches.")
+                else:
+                    # If it's not a memory error, re-raise
+                    raise
     
     # If we haven't processed all samples, try with smaller batch sizes
     if len(processed_indices) < n_samples:

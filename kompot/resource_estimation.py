@@ -625,6 +625,55 @@ def estimate_differential_expression_resources(
             field_name=f"adata.layers['{field_names['fold_change_zscores_key']}']"
         )
 
+    # Cell batching memory (temporary Kus matrix during prediction)
+    # During prediction, mellon computes Kus = cov_func(X_batch, landmarks): (batch_cells, n_landmarks)
+    # This is a temporary matrix that scales with batch_size
+    cell_batch_size = kwargs.get('batch_size', 100 if 'anndata' in str(type(adata)) else 500)
+
+    # Determine effective batch size (use all cells if batch_size is None/0 or >= n_cells)
+    if cell_batch_size is None or cell_batch_size <= 0 or cell_batch_size >= n_cells:
+        effective_cell_batch = n_cells
+        batching_cells = False
+    else:
+        effective_cell_batch = cell_batch_size
+        batching_cells = True
+
+    # Temporary memory during prediction (per operation):
+    # 1. Kus = cov_func(X_batch, landmarks): (batch_cells, n_landmarks)
+    # 2. Temporary result from matmul before assignment: (batch_cells, n_genes)
+    # We do 3-6 operations: predict_cond1, predict_cond2, uncertainty1, uncertainty2, [sample_var1, sample_var2]
+    n_prediction_ops = 4 + (2 if inferred_use_sv else 0)
+
+    kus_size = estimate_array_size((effective_cell_batch, n_landmarks))
+    temp_result_size = estimate_array_size((effective_cell_batch, n_total_genes))
+    total_temp_per_op = kus_size + temp_result_size
+
+    # Always add as requirement (shows in Memory Allocations)
+    plan.add_requirement(
+        f"Temporary matrices during predictions (batch_size={cell_batch_size})",
+        total_temp_per_op,
+        'memory',
+        shape=f"({effective_cell_batch}, {n_landmarks}) + ({effective_cell_batch}, {n_total_genes})"
+    )
+
+    if batching_cells:
+        # Cell batching is active - explain the savings
+        full_temp = estimate_array_size((n_cells, n_landmarks)) + estimate_array_size((n_cells, n_total_genes))
+        plan.info.append(
+            f"Cell batching reduces memory: Each of {n_prediction_ops} prediction operations uses "
+            f"~{human_readable_size(total_temp_per_op)} temporary arrays instead of "
+            f"{human_readable_size(full_temp)} (saving {human_readable_size(full_temp - total_temp_per_op)})."
+        )
+    else:
+        # No cell batching - suggest improvement
+        smaller_batch = min(500, n_cells)
+        smaller_temp = estimate_array_size((smaller_batch, n_landmarks)) + estimate_array_size((smaller_batch, n_total_genes))
+        plan.info.append(
+            f"Cell batch_size ({cell_batch_size}) processes all {n_cells} cells at once. "
+            f"Consider reducing batch_size (e.g., batch_size={smaller_batch}) to lower peak memory by "
+            f"{human_readable_size(total_temp_per_op - smaller_temp)}."
+        )
+
     # 2. Function predictor covariance matrices (ALWAYS created for Mahalanobis distance)
     # These are created by function_predictor.covariance(X, diag=False)
     cov_matrix_shape = (n_landmarks, n_landmarks)
@@ -730,14 +779,7 @@ def estimate_differential_expression_resources(
     batch_size = kwargs.get('batch_size', 100 if 'anndata' in str(type(adata)) else 500)
 
     if compute_mahalanobis:
-        if inferred_use_sv:
-            # With sample variance: batch_size has NO effect on memory
-            plan.info.append(
-                f"Note: With sample variance, batch_size parameter ({batch_size}) has no effect on memory. "
-                f"The gene-specific covariance tensor ({human_readable_size(sv_cov_size * 2)}) dominates memory usage. "
-                f"To reduce memory, use store_arrays_on_disk=True or reduce n_landmarks."
-            )
-        else:
+        if not inferred_use_sv:
             # Without sample variance: batch_size affects Mahalanobis computation memory
             # Empirical testing shows JAX efficiently reuses memory during vmap operations.
             # While theoretically we might expect 4× (batch_diffs, solved, solved**2, workspace),
