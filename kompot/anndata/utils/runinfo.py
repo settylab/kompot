@@ -476,32 +476,37 @@ class RunInfo:
         <style>
             .kompot-runinfo {
                 max-width: 900px;
-                font-family: Arial, sans-serif;
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
             }
             .kompot-runinfo h3 {
-                color: #333;
+                margin-bottom: 10px;
+                font-weight: 600;
+            }
+            .kompot-runinfo details {
+                margin-top: 15px;
                 margin-bottom: 10px;
             }
-            .kompot-runinfo h4 {
-                color: #444;
-                margin-top: 20px;
-                margin-bottom: 5px;
+            .kompot-runinfo summary {
+                color: #555;
                 cursor: pointer;
+                font-weight: 500;
+                font-size: 1.1em;
+                padding: 5px 0;
+                list-style: none;
+                user-select: none;
             }
-            .kompot-runinfo h4::before {
-                content: "▼ ";
-                font-size: 0.8em;
-                color: #666;
-            }
-            .kompot-runinfo h4.collapsed::before {
-                content: "► ";
-            }
-            .kompot-runinfo .section-content {
-                overflow: hidden;
-                transition: max-height 0.3s ease;
-            }
-            .kompot-runinfo .hidden {
+            .kompot-runinfo summary::-webkit-details-marker {
                 display: none;
+            }
+            .kompot-runinfo summary::before {
+                content: "▶ ";
+                display: inline-block;
+                font-size: 0.8em;
+                color: #888;
+                margin-right: 5px;
+            }
+            .kompot-runinfo details[open] > summary::before {
+                content: "▼ ";
             }
             .kompot-runinfo table {
                 width: 100%;
@@ -509,128 +514,118 @@ class RunInfo:
                 margin-bottom: 15px;
             }
             .kompot-runinfo th {
-                background-color: #f0f0f0;
+                background-color: rgba(0, 0, 0, 0.04);
                 text-align: left;
                 padding: 8px;
-                border: 1px solid #ddd;
+                border: 1px solid rgba(0, 0, 0, 0.12);
+                font-weight: 500;
             }
             .kompot-runinfo td {
                 padding: 6px 8px;
-                border: 1px solid #ddd;
+                border: 1px solid rgba(0, 0, 0, 0.12);
                 vertical-align: top;
             }
+            .kompot-runinfo tr {
+                background-color: transparent;
+            }
+            .kompot-runinfo tr:nth-child(even) {
+                background-color: rgba(0, 0, 0, 0.02);
+            }
             .kompot-runinfo .overwritten {
-                color: #d32f2f;
-                font-weight: bold;
+                color: #c62828;
+                font-weight: 600;
             }
             .kompot-runinfo .active {
-                color: #388e3c;
+                color: #2e7d32;
             }
             .kompot-runinfo .field-section .field-row:hover {
-                background-color: #f5f5f5;
+                background-color: rgba(0, 0, 0, 0.04);
             }
             .kompot-runinfo .badge {
                 display: inline-block;
-                padding: 2px 6px;
-                border-radius: 3px;
-                font-size: 0.8em;
-                font-weight: bold;
+                padding: 2px 8px;
+                border-radius: 4px;
+                font-size: 0.85em;
+                font-weight: 500;
                 margin-left: 5px;
             }
             .kompot-runinfo .badge-success {
-                background-color: #e8f5e9;
-                color: #388e3c;
-                border: 1px solid #a5d6a7;
+                background-color: rgba(46, 125, 50, 0.12);
+                color: #2e7d32;
+                border: 1px solid rgba(46, 125, 50, 0.3);
             }
             .kompot-runinfo .badge-warning {
-                background-color: #fff8e1;
-                color: #ffa000;
-                border: 1px solid #ffecb3;
+                background-color: rgba(237, 108, 2, 0.12);
+                color: #e65100;
+                border: 1px solid rgba(237, 108, 2, 0.3);
             }
             .kompot-runinfo .badge-danger {
-                background-color: #ffebee;
-                color: #d32f2f;
-                border: 1px solid #ffcdd2;
+                background-color: rgba(198, 40, 40, 0.12);
+                color: #c62828;
+                border: 1px solid rgba(198, 40, 40, 0.3);
             }
             .kompot-runinfo .summary-box {
-                background-color: #f9f9f9;
-                border: 1px solid #eee;
+                background-color: rgba(0, 0, 0, 0.02);
+                border: 1px solid rgba(0, 0, 0, 0.08);
                 padding: 8px 12px;
                 margin: 10px 0;
                 border-radius: 4px;
             }
-            .kompot-runinfo .toggle-all {
-                margin-top: 5px;
-                margin-bottom: 10px;
-                cursor: pointer;
-                color: #2196f3;
-                font-size: 0.9em;
-                text-decoration: underline;
+            .kompot-runinfo .location-header {
+                background-color: rgba(0, 0, 0, 0.04);
+                font-weight: bold;
+            }
+
+            @media (prefers-color-scheme: dark) {
+                .kompot-runinfo summary {
+                    color: #b8b8b8;
+                }
+                .kompot-runinfo summary::before {
+                    color: #888;
+                }
+                .kompot-runinfo th {
+                    background-color: rgba(255, 255, 255, 0.06);
+                    border-color: rgba(255, 255, 255, 0.15);
+                }
+                .kompot-runinfo td {
+                    border-color: rgba(255, 255, 255, 0.15);
+                }
+                .kompot-runinfo tr:nth-child(even) {
+                    background-color: rgba(255, 255, 255, 0.03);
+                }
+                .kompot-runinfo .field-section .field-row:hover {
+                    background-color: rgba(255, 255, 255, 0.06);
+                }
+                .kompot-runinfo .overwritten {
+                    color: #ef5350;
+                }
+                .kompot-runinfo .active {
+                    color: #66bb6a;
+                }
+                .kompot-runinfo .badge-success {
+                    background-color: rgba(102, 187, 106, 0.2);
+                    color: #81c784;
+                    border-color: rgba(102, 187, 106, 0.4);
+                }
+                .kompot-runinfo .badge-warning {
+                    background-color: rgba(255, 167, 38, 0.2);
+                    color: #ffb74d;
+                    border-color: rgba(255, 167, 38, 0.4);
+                }
+                .kompot-runinfo .badge-danger {
+                    background-color: rgba(239, 83, 80, 0.2);
+                    color: #e57373;
+                    border-color: rgba(239, 83, 80, 0.4);
+                }
+                .kompot-runinfo .summary-box {
+                    background-color: rgba(255, 255, 255, 0.03);
+                    border-color: rgba(255, 255, 255, 0.12);
+                }
+                .kompot-runinfo .location-header {
+                    background-color: rgba(255, 255, 255, 0.08);
+                }
             }
         </style>
-        """
-        
-        # JavaScript for collapsible sections
-        js_code = """
-        <script>
-            (function() {
-                function toggleSection(e) {
-                    const heading = e.target.closest('h4');
-                    if (!heading) return;
-                    
-                    const content = heading.nextElementSibling;
-                    if (content && content.classList.contains('section-content')) {
-                        heading.classList.toggle('collapsed');
-                        content.classList.toggle('hidden');
-                    }
-                }
-                
-                function toggleAllSections(e) {
-                    const isExpand = e.target.textContent.includes('Expand');
-                    const container = e.target.closest('.kompot-runinfo');
-                    const headings = container.querySelectorAll('h4');
-                    
-                    headings.forEach(heading => {
-                        const content = heading.nextElementSibling;
-                        if (content && content.classList.contains('section-content')) {
-                            if (isExpand) {
-                                heading.classList.remove('collapsed');
-                                content.classList.remove('hidden');
-                            } else {
-                                heading.classList.add('collapsed');
-                                content.classList.add('hidden');
-                            }
-                        }
-                    });
-                    
-                    e.target.textContent = isExpand ? 'Collapse All Sections' : 'Expand All Sections';
-                }
-                
-                // Set a timeout to ensure the DOM is loaded
-                setTimeout(() => {
-                    const container = document.querySelector('.kompot-runinfo');
-                    if (!container) return;
-                    
-                    container.addEventListener('click', (e) => {
-                        if (e.target.classList.contains('toggle-all')) {
-                            toggleAllSections(e);
-                        } else {
-                            toggleSection(e);
-                        }
-                    });
-                    
-                    // Initialize all sections except summary as collapsed
-                    const sections = container.querySelectorAll('h4:not(.summary-heading)');
-                    sections.forEach(heading => {
-                        const content = heading.nextElementSibling;
-                        if (content && content.classList.contains('section-content')) {
-                            heading.classList.add('collapsed');
-                            content.classList.add('hidden');
-                        }
-                    });
-                }, 100);
-            })();
-        </script>
         """
         
         # Build HTML
@@ -638,11 +633,10 @@ class RunInfo:
             css_styles,
             "<div class='kompot-runinfo'>",
             f"<h3>Run {summary['adjusted_run_id']} ({summary['analysis_type'].upper()} Analysis)</h3>",
-            "<div class='toggle-all'>Expand All Sections</div>",
-            
+
             # Summary Section
-            "<h4 class='summary-heading'>Run Summary</h4>",
-            "<div class='section-content'>",
+            "<details open>",
+            "<summary>Run Summary</summary>",
             "<div class='summary-box'>",
             f"<strong>Analysis:</strong> {summary['analysis_type'].upper()} &nbsp;|&nbsp; ",
             f"<strong>Run ID:</strong> {summary['adjusted_run_id']} &nbsp;|&nbsp; ",
@@ -678,11 +672,11 @@ class RunInfo:
             html.append(f"<tr><td>Groups</td><td>{summary.get('groups', '')} ({summary.get('groups_count', 0)} total)</td></tr>")
         
         html.append("</table>")
-        html.append("</div>")  # Close summary section
-        
+        html.append("</details>")  # Close summary section
+
         # All Parameters Section (initially collapsed)
-        html.append("<h4>All Parameters</h4>")
-        html.append("<div class='section-content'>")
+        html.append("<details>")
+        html.append("<summary>All Parameters</summary>")
         html.append("<table>")
         html.append("<tr><th style='width:30%'>Parameter</th><th style='width:70%'>Value</th></tr>")
         
@@ -699,21 +693,21 @@ class RunInfo:
                 html.append(f"<tr><td>{k}</td><td>{val_str}</td></tr>")
         
         html.append("</table>")
-        html.append("</div>")  # Close parameters section
-        
+        html.append("</details>")  # Close parameters section
+
         # Environment Section (initially collapsed)
         if self.environment:
-            html.append("<h4>Environment</h4>")
-            html.append("<div class='section-content'>")
+            html.append("<details>")
+            html.append("<summary>Environment</summary>")
             html.append("<table>")
             html.append("<tr><th style='width:30%'>Parameter</th><th style='width:70%'>Value</th></tr>")
-            
+
             for k, v in sorted(self.environment.items()):
                 html.append(f"<tr><td>{k}</td><td>{v}</td></tr>")
-            
+
             html.append("</table>")
-            html.append("</div>")  # Close environment section
-        
+            html.append("</details>")  # Close environment section
+
         # Fields Section
         if self.adata_fields:
             # Calculate statistics for the fields section
@@ -723,8 +717,9 @@ class RunInfo:
             active_fields = total_fields - overwritten_count - missing_count
 
             # Add section header with stats
-            html.append("<h4>Fields Created by This Run</h4>")
-            html.append("<div class='section-content field-section'>")
+            html.append("<details>")
+            html.append("<summary>Fields Created by This Run</summary>")
+            html.append("<div class='field-section'>")
 
             # Show field statistics
             html.append("<div class='summary-box'>")
@@ -811,7 +806,7 @@ class RunInfo:
                 fields_by_location[location].sort(key=lambda x: x['name'])
                 
                 # Add location header
-                html.append(f"<tr><td colspan='4' style='background-color:#f5f5f5; font-weight:bold;'>{location.upper()} Fields</td></tr>")
+                html.append(f"<tr><td colspan='4' class='location-header'>{location.upper()} Fields</td></tr>")
                 
                 # Add fields for this location
                 for field_info in fields_by_location[location]:
@@ -844,11 +839,9 @@ class RunInfo:
                     html.append("</tr>")
             
             html.append("</table>")
-            
-            html.append("</div>")  # Close fields section
-        
-        # Include JavaScript
-        html.append(js_code)
+            html.append("</div>")  # Close field-section div
+            html.append("</details>")  # Close fields section
+
         html.append("</div>")  # Close runinfo div
         
         return "".join(html)
@@ -1049,32 +1042,37 @@ class RunComparison:
         <style>
             .kompot-comparison {
                 max-width: 900px;
-                font-family: Arial, sans-serif;
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
             }
             .kompot-comparison h3 {
-                color: #333;
+                margin-bottom: 10px;
+                font-weight: 600;
+            }
+            .kompot-comparison details {
+                margin-top: 15px;
                 margin-bottom: 10px;
             }
-            .kompot-comparison h4 {
-                color: #444;
-                margin-top: 20px;
-                margin-bottom: 5px;
+            .kompot-comparison summary {
+                color: #555;
                 cursor: pointer;
+                font-weight: 500;
+                font-size: 1.1em;
+                padding: 5px 0;
+                list-style: none;
+                user-select: none;
             }
-            .kompot-comparison h4::before {
-                content: "▼ ";
-                font-size: 0.8em;
-                color: #666;
-            }
-            .kompot-comparison h4.collapsed::before {
-                content: "► ";
-            }
-            .kompot-comparison .section-content {
-                overflow: hidden;
-                transition: max-height 0.3s ease;
-            }
-            .kompot-comparison .hidden {
+            .kompot-comparison summary::-webkit-details-marker {
                 display: none;
+            }
+            .kompot-comparison summary::before {
+                content: "▶ ";
+                display: inline-block;
+                font-size: 0.8em;
+                color: #888;
+                margin-right: 5px;
+            }
+            .kompot-comparison details[open] > summary::before {
+                content: "▼ ";
             }
             .kompot-comparison table {
                 width: 100%;
@@ -1082,152 +1080,170 @@ class RunComparison:
                 margin-bottom: 15px;
             }
             .kompot-comparison th {
-                background-color: #f0f0f0;
+                background-color: rgba(0, 0, 0, 0.04);
                 text-align: left;
                 padding: 8px;
-                border: 1px solid #ddd;
+                border: 1px solid rgba(0, 0, 0, 0.12);
+                font-weight: 500;
             }
             .kompot-comparison td {
                 padding: 6px 8px;
-                border: 1px solid #ddd;
+                border: 1px solid rgba(0, 0, 0, 0.12);
                 vertical-align: top;
             }
             .kompot-comparison .badge {
                 display: inline-block;
-                padding: 2px 6px;
-                border-radius: 3px;
-                font-size: 0.8em;
-                font-weight: bold;
+                padding: 2px 8px;
+                border-radius: 4px;
+                font-size: 0.85em;
+                font-weight: 500;
                 margin-left: 5px;
             }
             .kompot-comparison .badge-success {
-                background-color: #e8f5e9;
-                color: #388e3c;
-                border: 1px solid #a5d6a7;
+                background-color: rgba(46, 125, 50, 0.12);
+                color: #2e7d32;
+                border: 1px solid rgba(46, 125, 50, 0.3);
             }
             .kompot-comparison .badge-warning {
-                background-color: #fff8e1;
-                color: #ffa000;
-                border: 1px solid #ffecb3;
+                background-color: rgba(237, 108, 2, 0.12);
+                color: #e65100;
+                border: 1px solid rgba(237, 108, 2, 0.3);
             }
             .kompot-comparison .badge-danger {
-                background-color: #ffebee;
-                color: #d32f2f;
-                border: 1px solid #ffcdd2;
+                background-color: rgba(198, 40, 40, 0.12);
+                color: #c62828;
+                border: 1px solid rgba(198, 40, 40, 0.3);
             }
             .kompot-comparison .badge-info {
-                background-color: #e3f2fd;
-                color: #1976d2;
-                border: 1px solid #bbdefb;
+                background-color: rgba(21, 101, 192, 0.12);
+                color: #1565c0;
+                border: 1px solid rgba(21, 101, 192, 0.3);
             }
             .kompot-comparison .summary-box {
-                background-color: #f9f9f9;
-                border: 1px solid #eee;
+                background-color: rgba(0, 0, 0, 0.02);
+                border: 1px solid rgba(0, 0, 0, 0.08);
                 padding: 8px 12px;
                 margin: 10px 0;
                 border-radius: 4px;
             }
-            .kompot-comparison .toggle-all {
-                margin-top: 5px;
-                margin-bottom: 10px;
-                cursor: pointer;
-                color: #2196f3;
+            .kompot-comparison .note-box {
+                background-color: rgba(0, 0, 0, 0.02);
+                padding: 8px;
+                margin-top: 10px;
                 font-size: 0.9em;
-                text-decoration: underline;
+                border-radius: 4px;
+            }
+            .kompot-comparison .location-header {
+                background-color: rgba(0, 0, 0, 0.04);
+                font-weight: bold;
+            }
+            .kompot-comparison .location-header-shared {
+                background-color: rgba(33, 150, 243, 0.08);
+                font-weight: bold;
             }
             .kompot-comparison .diff-added {
-                background-color: #e8f5e9;
+                background-color: rgba(46, 125, 50, 0.08);
             }
             .kompot-comparison .diff-removed {
-                background-color: #ffebee;
+                background-color: rgba(198, 40, 40, 0.08);
             }
             .kompot-comparison .diff-changed {
-                background-color: #fff8e1;
+                background-color: rgba(237, 108, 2, 0.08);
             }
             .kompot-comparison .diff-unchanged {
-                background-color: #f5f5f5;
+                background-color: rgba(0, 0, 0, 0.02);
             }
             .kompot-comparison .field-category {
                 text-align: center;
-                font-weight: bold;
+                font-weight: 600;
             }
             .kompot-comparison .not-set {
-                color: #999;
+                color: #888;
                 font-style: italic;
             }
             .kompot-comparison .run1-only {
-                color: #d32f2f;
+                color: #c62828;
             }
             .kompot-comparison .run2-only {
-                color: #388e3c;
+                color: #2e7d32;
             }
             .kompot-comparison .in-both {
-                color: #1976d2;
+                color: #1565c0;
+            }
+
+            @media (prefers-color-scheme: dark) {
+                .kompot-comparison summary {
+                    color: #b8b8b8;
+                }
+                .kompot-comparison summary::before {
+                    color: #888;
+                }
+                .kompot-comparison th {
+                    background-color: rgba(255, 255, 255, 0.06);
+                    border-color: rgba(255, 255, 255, 0.15);
+                }
+                .kompot-comparison td {
+                    border-color: rgba(255, 255, 255, 0.15);
+                }
+                .kompot-comparison .badge-success {
+                    background-color: rgba(102, 187, 106, 0.2);
+                    color: #81c784;
+                    border-color: rgba(102, 187, 106, 0.4);
+                }
+                .kompot-comparison .badge-warning {
+                    background-color: rgba(255, 167, 38, 0.2);
+                    color: #ffb74d;
+                    border-color: rgba(255, 167, 38, 0.4);
+                }
+                .kompot-comparison .badge-danger {
+                    background-color: rgba(239, 83, 80, 0.2);
+                    color: #e57373;
+                    border-color: rgba(239, 83, 80, 0.4);
+                }
+                .kompot-comparison .badge-info {
+                    background-color: rgba(100, 181, 246, 0.2);
+                    color: #64b5f6;
+                    border-color: rgba(100, 181, 246, 0.4);
+                }
+                .kompot-comparison .summary-box {
+                    background-color: rgba(255, 255, 255, 0.03);
+                    border-color: rgba(255, 255, 255, 0.12);
+                }
+                .kompot-comparison .note-box {
+                    background-color: rgba(255, 255, 255, 0.03);
+                }
+                .kompot-comparison .location-header {
+                    background-color: rgba(255, 255, 255, 0.08);
+                }
+                .kompot-comparison .location-header-shared {
+                    background-color: rgba(100, 181, 246, 0.12);
+                }
+                .kompot-comparison .diff-added {
+                    background-color: rgba(102, 187, 106, 0.12);
+                }
+                .kompot-comparison .diff-removed {
+                    background-color: rgba(239, 83, 80, 0.12);
+                }
+                .kompot-comparison .diff-changed {
+                    background-color: rgba(255, 167, 38, 0.12);
+                }
+                .kompot-comparison .diff-unchanged {
+                    background-color: rgba(255, 255, 255, 0.03);
+                }
+                .kompot-comparison .not-set {
+                    color: #888;
+                }
+                .kompot-comparison .run1-only {
+                    color: #ef5350;
+                }
+                .kompot-comparison .run2-only {
+                    color: #66bb6a;
+                }
+                .kompot-comparison .in-both {
+                    color: #64b5f6;
+                }
             }
         </style>
-        """
-        
-        # JavaScript for collapsible sections
-        js_code = """
-        <script>
-            (function() {
-                function toggleSection(e) {
-                    const heading = e.target.closest('h4');
-                    if (!heading) return;
-                    
-                    const content = heading.nextElementSibling;
-                    if (content && content.classList.contains('section-content')) {
-                        heading.classList.toggle('collapsed');
-                        content.classList.toggle('hidden');
-                    }
-                }
-                
-                function toggleAllSections(e) {
-                    const isExpand = e.target.textContent.includes('Expand');
-                    const container = e.target.closest('.kompot-comparison');
-                    const headings = container.querySelectorAll('h4');
-                    
-                    headings.forEach(heading => {
-                        const content = heading.nextElementSibling;
-                        if (content && content.classList.contains('section-content')) {
-                            if (isExpand) {
-                                heading.classList.remove('collapsed');
-                                content.classList.remove('hidden');
-                            } else {
-                                heading.classList.add('collapsed');
-                                content.classList.add('hidden');
-                            }
-                        }
-                    });
-                    
-                    e.target.textContent = isExpand ? 'Collapse All Sections' : 'Expand All Sections';
-                }
-                
-                // Set a timeout to ensure the DOM is loaded
-                setTimeout(() => {
-                    const container = document.querySelector('.kompot-comparison');
-                    if (!container) return;
-                    
-                    container.addEventListener('click', (e) => {
-                        if (e.target.classList.contains('toggle-all')) {
-                            toggleAllSections(e);
-                        } else {
-                            toggleSection(e);
-                        }
-                    });
-                    
-                    // Initialize parameters as expanded, other sections as collapsed
-                    const sections = container.querySelectorAll('h4:not(.parameter-heading)');
-                    sections.forEach(heading => {
-                        const content = heading.nextElementSibling;
-                        if (content && content.classList.contains('section-content')) {
-                            heading.classList.add('collapsed');
-                            content.classList.add('hidden');
-                        }
-                    });
-                }, 100);
-            })();
-        </script>
         """
         
         # Calculate statistics for display
@@ -1242,11 +1258,10 @@ class RunComparison:
             css_styles,
             "<div class='kompot-comparison'>",
             f"<h3>Comparison of Run {self.run1.adjusted_run_id} and Run {self.run2.adjusted_run_id}</h3>",
-            "<div class='toggle-all'>Expand All Sections</div>",
-            
+
             # Summary Section
-            "<h4 class='summary-heading'>Summary</h4>",
-            "<div class='section-content'>",
+            "<details>",
+            "<summary>Summary</summary>",
             "<div class='summary-box'>",
             f"<strong>Analysis Type:</strong> {self.analysis_type.upper()} &nbsp;|&nbsp; ",
             f"<strong>Run {self.run1.adjusted_run_id}:</strong> {self.summary1.get('result_key', 'unknown')} ({self.summary1.get('timestamp', '')}) &nbsp;|&nbsp; ",
@@ -1300,11 +1315,11 @@ class RunComparison:
         html.append("</tr>")
         
         html.append("</table>")
-        html.append("</div>")  # Close summary section
-        
-        # Parameter Differences Section (always expanded)
-        html.append("<h4 class='parameter-heading'>Parameter Differences</h4>")
-        html.append("<div class='section-content'>")
+        html.append("</details>")  # Close summary section
+
+        # Parameter Differences Section (expanded by default)
+        html.append("<details open>")
+        html.append("<summary>Parameter Differences</summary>")
         
         # Prepare badges to highlight important parameter differences
         param_badges = []
@@ -1425,11 +1440,11 @@ class RunComparison:
         else:
             html.append("<p><em>All parameters are identical between runs</em></p>")
         
-        html.append("</div>")  # Close parameters section
-        
+        html.append("</details>")  # Close parameters section
+
         # Field Differences Section
-        html.append("<h4>Field Differences</h4>")
-        html.append("<div class='section-content'>")
+        html.append("<details>")
+        html.append("<summary>Field Differences</summary>")
 
         # Show field difference statistics
         html.append("<div class='summary-box'>")
@@ -1492,7 +1507,7 @@ class RunComparison:
                 has_overlapping_fields = True
                 
                 # Display location header
-                html.append(f"<tr><td colspan='4' style='background-color:#e3f2fd; font-weight:bold;'>{location.upper()} Shared Fields</td></tr>")
+                html.append(f"<tr><td colspan='4' class='location-header-shared'>{location.upper()} Shared Fields</td></tr>")
                 
                 # Display fields in both runs with ownership information
                 for field in sorted(loc_data['same']):
@@ -1534,7 +1549,7 @@ class RunComparison:
                 has_diff_fields = True
                 
                 # Display location header
-                html.append(f"<tr><td colspan='4' style='background-color:#f5f5f5; font-weight:bold;'>{location.upper()} Different Fields</td></tr>")
+                html.append(f"<tr><td colspan='4' class='location-header'>{location.upper()} Different Fields</td></tr>")
                 
                 # Display fields only in run1
                 for field in sorted(loc_data['only_in_run1']):
@@ -1561,15 +1576,13 @@ class RunComparison:
             
         # Add explanation text instead of legend
         if has_overlapping_fields:
-            html.append("<div style='margin-top: 10px; font-size: 0.9em; background-color:#f9f9f9; padding:8px; border-radius:4px;'>")
+            html.append("<div class='note-box'>")
             html.append("<strong>Note on shared fields:</strong> When both runs define the same field, the last run to write to the field ")
             html.append("overwrites the previous value. The 'Last Modified By' column shows which run's value is currently stored.")
             html.append("</div>")
-        
-        html.append("</div>")  # Close fields section
-        
-        # Include JavaScript
-        html.append(js_code)
+
+        html.append("</details>")  # Close fields section
+
         html.append("</div>")  # Close comparison div
         
         return "".join(html)
