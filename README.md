@@ -64,7 +64,7 @@ See [JAX GitHub](https://github.com/google/jax) for more installation details.
 
 ## Usage Example
 
-See the [Tutorial Notebook](https://github.com/settylab/kompot/blob/main/examples/tutorial_notebook.ipynb) and [documentation](https://kompot.readthedocs.io/en/latest/index.html).
+See the [Tutorial Notebooks](https://github.com/settylab/kompot/blob/main/examples/) and [documentation](https://kompot.readthedocs.io/en/latest/index.html).
 
 ## License
 
