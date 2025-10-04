@@ -15,15 +15,15 @@ F = TypeVar('F', bound=Callable[..., Any])
 def is_jax_memory_error(error: Exception) -> bool:
     """
     Check if an exception is a JAX memory error.
-    
+
     JAX-specific memory errors typically contain 'RESOURCE_EXHAUSTED' or 'Out of memory'
     in the error message.
-    
+
     Parameters
     ----------
     error : Exception
         The exception to check
-        
+
     Returns
     -------
     bool
@@ -31,9 +31,9 @@ def is_jax_memory_error(error: Exception) -> bool:
     """
     error_str = str(error)
     return any(msg in error_str.lower() for msg in [
-        "resource_exhausted", 
+        "resource_exhausted",
         "resource exhausted",
-        "out of memory", 
+        "out of memory",
         "memory"
     ])
 
@@ -41,19 +41,19 @@ def is_jax_memory_error(error: Exception) -> bool:
 def merge_batch_results(results: List[Any], concat_axis: int = 0) -> Any:
     """
     Merge results from batched processing.
-    
+
     This function handles different types of results and merges them appropriately:
     - Dictionaries: merged by key
     - NumPy or JAX arrays: concatenated along specified axis
     - Lists: flattened
-    
+
     Parameters
     ----------
     results : List[Any]
         List of results from batched processing
     concat_axis : int, optional
         Axis along which to concatenate arrays, by default 0
-        
+
     Returns
     -------
     Any
@@ -61,7 +61,7 @@ def merge_batch_results(results: List[Any], concat_axis: int = 0) -> Any:
     """
     if not results:
         return {}
-    
+
     # If results are dictionaries, merge them by key
     if isinstance(results[0], dict):
         merged = {}
@@ -69,19 +69,19 @@ def merge_batch_results(results: List[Any], concat_axis: int = 0) -> Any:
         all_keys = set()
         for res in results:
             all_keys.update(res.keys())
-        
+
         for key in all_keys:
             # Collect values for this key from all results where it exists
             values = [res[key] for res in results if key in res]
             if not values:
                 continue
-                
+
             # Handle arrays (numpy or jax)
             if all(isinstance(val, (np.ndarray, jnp.ndarray)) for val in values):
                 # Determine if we're working with JAX arrays
                 is_jax = isinstance(values[0], jnp.ndarray)
                 concat_fn = jnp.concatenate if is_jax else np.concatenate
-                
+
                 try:
                     # Handle scalar arrays (arrays with shape () or (1,))
                     if all(len(val.shape) == 0 for val in values):
@@ -99,46 +99,52 @@ def merge_batch_results(results: List[Any], concat_axis: int = 0) -> Any:
                 # Handle lists - flatten them
                 merged[key] = [item for sublist in values for item in sublist]
             else:
-                # For mixed types or non-array/list values
+                # For other types, just keep the list
                 merged[key] = values
-        
+
         return merged
-    
-    # Handle numpy arrays
-    elif isinstance(results[0], np.ndarray):
-        return np.concatenate(results, axis=concat_axis)
-    
-    # Handle jax arrays
-    elif isinstance(results[0], jnp.ndarray):
-        return jnp.concatenate(results, axis=concat_axis)
-    
-    # Handle lists
-    elif isinstance(results[0], list):
+
+    # If results are arrays, concatenate them
+    elif all(isinstance(res, (np.ndarray, jnp.ndarray)) for res in results):
+        # Check if we're working with JAX arrays
+        is_jax = isinstance(results[0], jnp.ndarray)
+        concat_fn = jnp.concatenate if is_jax else np.concatenate
+
+        # Handle scalar arrays
+        if all(len(res.shape) == 0 for res in results):
+            # For true scalars (shape ()), create a new array
+            array_vals = [res.item() for res in results]
+            return jnp.array(array_vals) if is_jax else np.array(array_vals)
+        else:
+            # Standard case: concatenate along specified axis
+            return concat_fn(results, axis=concat_axis)
+
+    # If results are lists, flatten them
+    elif all(isinstance(res, list) for res in results):
         return [item for sublist in results for item in sublist]
-    
-    # Otherwise, return the list of results
+
+    # For other types, just return the list
     return results
 
 
 def batch_process(default_batch_size: int = 500):
     """
     Decorator for batch processing data in predict methods.
-    
+
     This decorator handles memory-efficient batch processing with automatic fallback
     to smaller batch sizes if memory errors occur. It's particularly useful for
-    methods that process large datasets and might encounter memory limitations,
-    especially when using JAX.
-    
+    methods that process large datasets and might encounter memory limitations.
+
     Parameters
     ----------
     default_batch_size : int, optional
         Default batch size to use if not specified in the instance, by default 500
-        
+
     Returns
     -------
     Callable
         Decorated function with batch processing capabilities
-    
+
     Examples
     --------
     >>> @batch_process(default_batch_size=100)
@@ -151,188 +157,126 @@ def batch_process(default_batch_size: int = 500):
         def wrapper(self, X_new, *args, **kwargs):
             # Get batch size from instance or use default
             batch_size = getattr(self, 'batch_size', default_batch_size)
-            
-            # If batch_size is set to None or 0, process all data at once
-            if batch_size is None or batch_size <= 0:
-                return func(self, X_new, *args, **kwargs)
-            
-            # For very small inputs, process all at once
-            if len(X_new) <= batch_size:
-                return func(self, X_new, *args, **kwargs)
-            
-            # Try processing in batches
-            n_samples = len(X_new)
-            original_batch_size = batch_size
-            
-            # Track which reduction factors we've tried to avoid repeated attempts
-            tried_reduction_factors = set()
-            
-            # We'll collect results for each batch here
-            batch_results = []
-            
-            # Track which samples we've successfully processed
-            processed_indices = set()
-            
-            # First attempt with specified batch size
-            logger.info(f"Processing data in batches of size {batch_size}")
-            for start_idx in tqdm(range(0, n_samples, batch_size), 
-                                desc=f"Processing data (batch size={batch_size})"):
-                end_idx = min(start_idx + batch_size, n_samples)
-                batch_indices = list(range(start_idx, end_idx))
-                
-                # Skip batch if all indices have been processed
-                if all(idx in processed_indices for idx in batch_indices):
-                    continue
-                    
-                # Filter out already processed indices
-                remaining_indices = [idx for idx in batch_indices if idx not in processed_indices]
-                if not remaining_indices:
-                    continue
-                
-                batch_X = X_new[remaining_indices]
-                
-                try:
-                    # Process this batch
-                    result = func(self, batch_X, *args, **kwargs)
-                    batch_results.append(result)
-                    processed_indices.update(remaining_indices)
-                except Exception as e:
-                    # Check if it's a memory-related error
-                    if is_jax_memory_error(e):
-                        logger.warning(f"Memory error with batch size {batch_size}. Will try with smaller batches.")
-                        # Continue with next batch size - we'll handle remaining indices later
-                    else:
-                        # If it's not a memory error, re-raise
-                        raise
-            
-            # If we haven't processed all samples, try with smaller batch sizes
-            if len(processed_indices) < n_samples:
-                # Define reduction factors to try
-                reduction_factors = [2, 5, 10, 20, 50, 100, 200]
-                
-                for reduction_factor in reduction_factors:
-                    # Skip reduction factors we've already tried
-                    if reduction_factor in tried_reduction_factors:
-                        continue
-                        
-                    tried_reduction_factors.add(reduction_factor)
-                    current_batch_size = max(1, original_batch_size // reduction_factor)
-                    
-                    # Skip if we've already tried this batch size through another reduction factor
-                    if any(current_batch_size == original_batch_size // factor 
-                          for factor in tried_reduction_factors if factor != reduction_factor):
-                        continue
-                    
-                    logger.info(f"Retrying with reduced batch size: {current_batch_size}")
-                    
-                    remaining_indices = list(set(range(n_samples)) - processed_indices)
-                    remaining_indices.sort()  # Keep original order
-                    
-                    if not remaining_indices:
-                        break  # All done
-                        
-                    for i in range(0, len(remaining_indices), current_batch_size):
-                        batch_indices = remaining_indices[i:i + current_batch_size]
-                        if not batch_indices:
-                            continue
-                            
-                        batch_X = X_new[batch_indices]
-                        
-                        try:
-                            result = func(self, batch_X, *args, **kwargs)
-                            batch_results.append(result)
-                            processed_indices.update(batch_indices)
-                        except Exception as e:
-                            # Only continue batch size reduction if it's a memory error
-                            if is_jax_memory_error(e):
-                                # This batch size is still too large, break and try smaller
-                                logger.warning(f"Memory error with batch size {current_batch_size}. "
-                                              f"Trying smaller batch size.")
-                                break
-                            else:
-                                # Not a memory error, re-raise
-                                raise
-                    
-                    # Check if we've processed all indices
-                    remaining_indices = list(set(range(n_samples)) - processed_indices)
-                    if not remaining_indices:
-                        break  # All done
-                
-                # If we still have remaining indices, process one by one as a last resort
-                remaining_indices = list(set(range(n_samples)) - processed_indices)
-                if remaining_indices:
-                    logger.warning(f"Processing {len(remaining_indices)} remaining samples one by one. This may be slow.")
-                    
-                    for idx in tqdm(remaining_indices, desc="Processing individual samples"):
-                        try:
-                            result = func(self, X_new[idx:idx+1], *args, **kwargs)
-                            batch_results.append(result)
-                            processed_indices.add(idx)
-                        except Exception as e:
-                            logger.error(f"Failed to process sample {idx}: {str(e)}")
-                            if not is_jax_memory_error(e):
-                                raise
-            
-            # Check if we've successfully processed all samples
-            if len(processed_indices) < n_samples:
-                remaining = n_samples - len(processed_indices)
-                logger.warning(f"Failed to process {remaining} samples ({remaining/n_samples:.1%} of total)")
-                
-            # If we have results, combine them
-            if batch_results:
-                return merge_batch_results(batch_results)
-            else:
-                # No results at all
-                logger.error("No successful batch processing. Returning empty result.")
-                return {}
-                
+
+            # Use apply_batched to handle the batching
+            return apply_batched(
+                func=lambda x: func(self, x, *args, **kwargs),
+                X=X_new,
+                batch_size=batch_size,
+                axis=0,
+                show_progress=False,
+                desc=None,
+                concat_axis=0
+            )
+        return cast(F, wrapper)
+    return decorator
+
+
+def batched(
+    batch_size: Optional[int] = None,
+    axis: int = 0,
+    desc: Optional[str] = None,
+    show_progress: bool = True,
+    concat_axis: int = 0
+) -> Callable[[F], F]:
+    """
+    Decorator that automatically applies batched processing to a function.
+
+    This decorator wraps a function to process its input in batches. It handles
+    memory errors by automatically reducing the batch size and retrying.
+
+    Parameters
+    ----------
+    batch_size : int, optional
+        Number of samples to process per batch. If None, processes all at once.
+    axis : int, optional
+        Axis along which to split the input, by default 0
+    desc : str, optional
+        Description for the progress bar, by default None
+    show_progress : bool, optional
+        Whether to show a progress bar, by default True
+    concat_axis : int, optional
+        Axis along which to concatenate results, by default 0
+
+    Returns
+    -------
+    Callable
+        Decorated function that processes input in batches
+
+    Examples
+    --------
+    >>> @batched(batch_size=100)
+    >>> def process_data(X):
+    >>>     return np.mean(X, axis=1)
+    >>> result = process_data(large_array)
+    """
+    def decorator(func: F) -> F:
+        @wraps(func)
+        def wrapper(X: Any, *args, **kwargs) -> Any:
+            return apply_batched(
+                func=lambda x: func(x, *args, **kwargs),
+                X=X,
+                batch_size=batch_size,
+                axis=axis,
+                show_progress=show_progress,
+                desc=desc,
+                concat_axis=concat_axis
+            )
         return cast(F, wrapper)
     return decorator
 
 
 def apply_batched(
-    func: Callable,
-    X: np.ndarray,
-    batch_size: Optional[int] = 500,
+    func: Callable[[Any], Any],
+    X: Any,
+    batch_size: Optional[int] = None,
     axis: int = 0,
     show_progress: bool = True,
     desc: Optional[str] = None,
     concat_axis: int = 0
 ) -> Any:
     """
-    Apply a function to data in batches.
-    
-    This is a utility function for applying any function to data in a batched manner,
-    automatically handling batch size reduction if memory errors occur.
-    
+    Apply a function to data in batches with automatic memory error handling.
+
+    This function splits the input along the specified axis and processes it in batches.
+    If memory errors occur, it automatically reduces the batch size and retries.
+    All samples must be processed successfully - partial success is not supported.
+
     Parameters
     ----------
     func : Callable
-        Function to apply to batches of data
-    X : np.ndarray
-        Input data array
+        Function to apply to each batch. Should accept input with same structure as X.
+    X : Any
+        Input data to process. Can be numpy array, JAX array, or other indexable type.
     batch_size : int, optional
-        Batch size to use, by default 500
+        Number of samples per batch. If None/0 or >= input size, processes all at once.
     axis : int, optional
-        Axis along which to batch the data, by default 0
+        Axis along which to split the input, by default 0
     show_progress : bool, optional
         Whether to show a progress bar, by default True
     desc : str, optional
         Description for the progress bar, by default None
     concat_axis : int, optional
         Axis along which to concatenate result arrays, by default 0
-        
+
     Returns
     -------
     Any
         Combined results from batched processing
-        
+
+    Raises
+    ------
+    RuntimeError
+        If processing fails even with smallest batch size
+    Exception
+        Any non-memory errors are raised immediately
+
     Examples
     --------
     >>> # Apply a function to data in batches
     >>> result = apply_batched(
-    >>>     lambda x: np.mean(x, axis=1), 
-    >>>     large_array, 
+    >>>     lambda x: np.mean(x, axis=1),
+    >>>     large_array,
     >>>     batch_size=1000
     >>> )
     """
@@ -356,64 +300,56 @@ def apply_batched(
             else:
                 # If it's not a memory error, re-raise
                 raise
-    
+
     n_samples = X.shape[axis]
-    original_batch_size = batch_size
 
-    # Track which reduction factors we've tried to avoid repeated attempts
-    tried_reduction_factors = set()
+    # Try processing with adaptive batch sizing for memory errors
+    while batch_size >= 1:
+        try:
+            # Process first batch to determine output shape/type and pre-allocate if possible
+            first_batch_size = min(batch_size, n_samples)
+            batch_slice = [slice(None)] * X.ndim
+            batch_slice[axis] = slice(0, first_batch_size)
+            first_batch_X = X[tuple(batch_slice)]
 
-    # Track which samples we've successfully processed
-    processed_indices = set()
+            first_result = func(first_batch_X)
 
-    # Process first batch to determine output shape/type and pre-allocate if possible
-    first_batch_size = min(batch_size, n_samples)
-    batch_slice = [slice(None)] * X.ndim
-    batch_slice[axis] = slice(0, first_batch_size)
-    first_batch_X = X[tuple(batch_slice)]
+            # Check if we can pre-allocate (numpy/jax arrays only)
+            can_preallocate = isinstance(first_result, (np.ndarray, jnp.ndarray))
 
-    try:
-        first_result = func(first_batch_X)
-        processed_indices.update(range(first_batch_size))
+            if first_batch_size == n_samples:
+                # Already processed everything in first batch
+                return first_result
 
-        # Check if we can pre-allocate (numpy/jax arrays only)
-        can_preallocate = isinstance(first_result, (np.ndarray, jnp.ndarray))
+            if can_preallocate:
+                # Pre-allocate output array
+                output_shape = list(first_result.shape)
+                output_shape[concat_axis] = n_samples
+                output = np.empty(output_shape, dtype=first_result.dtype)
 
-        if can_preallocate and first_batch_size == n_samples:
-            # Already processed everything in first batch
-            return first_result
+                # Fill in first batch
+                output_slice = [slice(None)] * output.ndim
+                output_slice[concat_axis] = slice(0, first_batch_size)
+                output[tuple(output_slice)] = first_result
 
-        if can_preallocate:
-            # Pre-allocate output array
-            output_shape = list(first_result.shape)
-            output_shape[concat_axis] = n_samples
-            output = np.empty(output_shape, dtype=first_result.dtype)
+                # Define a progress iterator starting from second batch
+                progress_iter = tqdm(
+                    range(first_batch_size, n_samples, batch_size),
+                    desc=desc or f"Processing (batch_size={batch_size})",
+                    disable=not show_progress,
+                    initial=1,
+                    total=(n_samples + batch_size - 1) // batch_size
+                )
 
-            # Fill in first batch
-            output_slice = [slice(None)] * output.ndim
-            output_slice[concat_axis] = slice(0, first_batch_size)
-            output[tuple(output_slice)] = first_result
+                # Process remaining batches with pre-allocated output
+                for start_idx in progress_iter:
+                    end_idx = min(start_idx + batch_size, n_samples)
 
-            # Define a progress iterator starting from second batch
-            progress_iter = tqdm(
-                range(first_batch_size, n_samples, batch_size),
-                desc=desc or f"Processing (batch_size={batch_size})",
-                disable=not show_progress,
-                initial=1,
-                total=(n_samples + batch_size - 1) // batch_size
-            )
+                    # Create slice for batch extraction
+                    batch_slice = [slice(None)] * X.ndim
+                    batch_slice[axis] = slice(start_idx, end_idx)
+                    batch_X = X[tuple(batch_slice)]
 
-            # Process remaining batches with pre-allocated output
-            for start_idx in progress_iter:
-                end_idx = min(start_idx + batch_size, n_samples)
-                batch_indices = list(range(start_idx, end_idx))
-
-                # Create slice for batch extraction
-                batch_slice = [slice(None)] * X.ndim
-                batch_slice[axis] = batch_indices
-                batch_X = X[tuple(batch_slice)]
-
-                try:
                     # Process this batch
                     result = func(batch_X)
 
@@ -422,172 +358,44 @@ def apply_batched(
                     output_slice[concat_axis] = slice(start_idx, end_idx)
                     output[tuple(output_slice)] = result
 
-                    processed_indices.update(batch_indices)
-                except Exception as e:
-                    # Check if it's a memory-related error
-                    if is_jax_memory_error(e):
-                        logger.warning(f"Memory error with batch size {batch_size}. Falling back to list accumulation.")
-                        can_preallocate = False
-                        break
-                    else:
-                        raise
-
-            if can_preallocate and len(processed_indices) == n_samples:
                 return output
+            else:
+                # Use list accumulation for non-array outputs
+                batch_results = [first_result]
 
-        # Fall back to list accumulation if pre-allocation not possible or failed
-        batch_results = [first_result]
+                progress_iter = tqdm(
+                    range(first_batch_size, n_samples, batch_size),
+                    desc=desc or f"Processing (batch_size={batch_size})",
+                    disable=not show_progress
+                )
 
-    except Exception as e:
-        if is_jax_memory_error(e):
-            logger.warning(f"Memory error with initial batch. Will try smaller batches.")
-            batch_results = []
-            can_preallocate = False
-        else:
-            raise
+                for start_idx in progress_iter:
+                    end_idx = min(start_idx + batch_size, n_samples)
 
-    # Continue with list accumulation (fallback or non-array outputs)
-    if not can_preallocate or len(processed_indices) < n_samples:
-        # Define a progress iterator
-        start_from = len(processed_indices) if can_preallocate else 0
-        progress_iter = tqdm(
-            range(start_from, n_samples, batch_size),
-            desc=desc or f"Processing (batch_size={batch_size})",
-            disable=not show_progress
-        )
+                    # Create slice for batch extraction
+                    batch_slice = [slice(None)] * X.ndim
+                    batch_slice[axis] = slice(start_idx, end_idx)
+                    batch_X = X[tuple(batch_slice)]
 
-        for start_idx in progress_iter:
-            if start_idx in processed_indices:
-                continue
-
-            end_idx = min(start_idx + batch_size, n_samples)
-            batch_indices = list(range(start_idx, end_idx))
-
-            # Skip batch if all indices have been processed
-            if all(idx in processed_indices for idx in batch_indices):
-                continue
-
-            # Filter out already processed indices
-            remaining_indices = [idx for idx in batch_indices if idx not in processed_indices]
-            if not remaining_indices:
-                continue
-
-            # Create slice for batch extraction
-            batch_slice = [slice(None)] * X.ndim
-            batch_slice[axis] = remaining_indices
-            batch_X = X[tuple(batch_slice)]
-
-            try:
-                # Process this batch
-                result = func(batch_X)
-                batch_results.append(result)
-                processed_indices.update(remaining_indices)
-            except Exception as e:
-                # Check if it's a memory-related error
-                if is_jax_memory_error(e):
-                    logger.warning(f"Memory error with batch size {batch_size}. Will try smaller batches.")
-                else:
-                    # If it's not a memory error, re-raise
-                    raise
-    
-    # If we haven't processed all samples, try with smaller batch sizes
-    if len(processed_indices) < n_samples:
-        # Define reduction factors to try
-        reduction_factors = [2, 5, 10, 20, 50, 100, 200]
-        
-        for reduction_factor in reduction_factors:
-            # Skip reduction factors we've already tried
-            if reduction_factor in tried_reduction_factors:
-                continue
-                
-            tried_reduction_factors.add(reduction_factor)
-            current_batch_size = max(1, original_batch_size // reduction_factor)
-            
-            # Skip if we've already tried this batch size through another reduction factor
-            if any(current_batch_size == original_batch_size // factor 
-                  for factor in tried_reduction_factors if factor != reduction_factor):
-                continue
-            
-            logger.info(f"Retrying with reduced batch size: {current_batch_size}")
-            
-            remaining_indices = list(set(range(n_samples)) - processed_indices)
-            remaining_indices.sort()  # Keep original order
-            
-            if not remaining_indices:
-                break  # All done
-                
-            progress_iter = tqdm(
-                range(0, len(remaining_indices), current_batch_size),
-                desc=f"Processing (batch_size={current_batch_size})",
-                disable=not show_progress
-            )
-            
-            for i in progress_iter:
-                batch_indices = remaining_indices[i:i + current_batch_size]
-                if not batch_indices:
-                    continue
-                    
-                # Create slice for batch extraction
-                batch_slice = [slice(None)] * X.ndim
-                batch_slice[axis] = batch_indices
-                batch_X = X[tuple(batch_slice)]
-                
-                try:
+                    # Process this batch
                     result = func(batch_X)
                     batch_results.append(result)
-                    processed_indices.update(batch_indices)
-                except Exception as e:
-                    # Only continue batch size reduction if it's a memory error
-                    if is_jax_memory_error(e):
-                        # This batch size is still too large, break and try smaller
-                        logger.warning(f"Memory error with batch size {current_batch_size}. "
-                                      f"Trying smaller batch size.")
-                        break
-                    else:
-                        # Not a memory error, re-raise
-                        raise
-            
-            # Check if we've processed all indices
-            remaining_indices = list(set(range(n_samples)) - processed_indices)
-            if not remaining_indices:
-                break  # All done
-        
-        # If we still have remaining indices, process one by one as a last resort
-        remaining_indices = list(set(range(n_samples)) - processed_indices)
-        if remaining_indices:
-            logger.warning(f"Processing {len(remaining_indices)} remaining samples one by one. This may be slow.")
-            
-            progress_iter = tqdm(
-                remaining_indices,
-                desc="Processing individual samples",
-                disable=not show_progress
-            )
-            
-            for idx in progress_iter:
-                try:
-                    # Create slice for single sample extraction
-                    single_slice = [slice(None)] * X.ndim
-                    single_slice[axis] = slice(idx, idx+1)
-                    single_X = X[tuple(single_slice)]
-                    
-                    result = func(single_X)
-                    batch_results.append(result)
-                    processed_indices.add(idx)
-                except Exception as e:
-                    logger.error(f"Failed to process sample {idx}: {str(e)}")
-                    if not is_jax_memory_error(e):
-                        raise
-    
-    # Check if we've successfully processed all samples
-    if len(processed_indices) < n_samples:
-        remaining = n_samples - len(processed_indices)
-        logger.warning(f"Failed to process {remaining} samples ({remaining/n_samples:.1%} of total)")
-        
-    # If we have results, combine them
-    if batch_results:
-        return merge_batch_results(batch_results, concat_axis=concat_axis)
-    else:
-        # No results at all - this means complete failure
-        error_msg = f"Failed to process any samples. All {n_samples} samples failed."
-        logger.error(error_msg)
-        raise Exception(f"RESOURCE_EXHAUSTED: {error_msg}")
+
+                return merge_batch_results(batch_results, concat_axis=concat_axis)
+
+        except Exception as e:
+            if is_jax_memory_error(e):
+                # Reduce batch size and retry
+                new_batch_size = max(1, batch_size // 2)
+                if new_batch_size == batch_size:
+                    # Can't reduce further (already at 1)
+                    logger.error(f"Memory error even with batch_size=1. Cannot process data.")
+                    raise RuntimeError(f"Out of memory even with smallest batch size (1). Error: {str(e)}") from e
+                logger.info(f"Memory error with batch_size={batch_size}. Retrying with batch_size={new_batch_size}")
+                batch_size = new_batch_size
+            else:
+                # Non-memory error, raise immediately
+                raise
+
+    # Should never reach here
+    raise RuntimeError("Failed to process data with adaptive batch sizing")

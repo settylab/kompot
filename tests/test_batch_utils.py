@@ -249,27 +249,6 @@ class TestBatchUtils:
         # For scalar results, we get a list of results
         assert isinstance(result, list)
         assert len(result) == 3  # 3 batches
-    
-    def test_partial_success(self):
-        """Test behavior when some batches fail completely."""
-        def sometimes_fail(X):
-            # Always fail for values greater than 5
-            if np.any(X > 5):
-                raise Exception("RESOURCE_EXHAUSTED: Out of memory even with smallest batches")
-            return X * 2
-        
-        X = np.array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
-        
-        # This should process values 1-5 but fail on 6-10
-        with patch('logging.Logger.warning') as mock_warning:
-            result = apply_batched(sometimes_fail, X, batch_size=2, show_progress=False)
-            
-            # Check that a warning was logged
-            assert mock_warning.called
-        
-        # Result should contain only the processed values for 1-5
-        expected = np.array([2, 4, 6, 8, 10])
-        np.testing.assert_array_equal(result[:len(expected)], expected)
 
 
 if __name__ == "__main__":

@@ -18,6 +18,7 @@ All notable changes to this project will be documented in this file.
    by making sure enough space is available on disk for covariance tensor.
  - dry run for differential expression
  - split tutorials in 3 parts
+ - reduce memory demand when using batching and reflect this in dry run
    
 
 ## [0.4.3]

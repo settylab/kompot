@@ -466,8 +466,11 @@ def estimate_differential_expression_resources(
     if disk_storage_dir:
         check_path = disk_storage_dir
     else:
-        # Use Python's tempfile default logic (same as DiskStorage)
-        check_path = os.environ.get('TMPDIR') or os.environ.get('TEMP') or os.environ.get('TMP') or tempfile.gettempdir()
+        # Use Python's tempfile logic to determine where temp files would actually be created
+        # Create and immediately remove a temp directory to get the actual path tempfile uses
+        temp_test_dir = tempfile.mkdtemp(prefix="kompot_test_")
+        check_path = os.path.dirname(temp_test_dir)
+        os.rmdir(temp_test_dir)
 
     plan.availability = get_system_resources(check_path)
 
