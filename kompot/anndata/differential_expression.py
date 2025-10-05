@@ -1481,7 +1481,7 @@ def compute_differential_expression(
                            f"Will not compute weighted mean fold changes.")
     
     
-    # Create result dictionary
+    # Create result dictionary with fixed keys for programmatic access
     result_dict = {
         "mean_log_fold_change": expression_results["mean_log_fold_change"],
         "condition1_imputed": expression_results["condition1_imputed"],
@@ -1490,6 +1490,12 @@ def compute_differential_expression(
         "fold_change_zscores": expression_results["fold_change_zscores"],
         "model": diff_expression,
     }
+
+    # Add standard deviations if computed
+    if "condition1_std" in expression_results:
+        result_dict["condition1_std"] = expression_results["condition1_std"]
+    if "condition2_std" in expression_results:
+        result_dict["condition2_std"] = expression_results["condition2_std"]
 
     # Add FDR results if computed
     if fdr_results:
@@ -1520,18 +1526,21 @@ def compute_differential_expression(
 
     if 'mahalanobis_distances' in expression_results:
         result_dict["mahalanobis_distances"] = expression_results['mahalanobis_distances']
-    
+
     # Add log10-ptp if available
     if 'ptp' in expression_results:
         result_dict["ptp"] = expression_results['ptp']
-        
-        
+
+
     # Add landmarks to result dictionary if they were computed
     if (
         hasattr(diff_expression, "computed_landmarks")
         and diff_expression.computed_landmarks is not None
     ):
         result_dict["landmarks"] = diff_expression.computed_landmarks
+
+    # Add field_names dictionary for programmatic access to AnnData field names
+    result_dict["field_names"] = field_names
 
     if inplace:
         # Sanitize condition names for use in column names first

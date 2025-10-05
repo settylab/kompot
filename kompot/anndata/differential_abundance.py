@@ -636,7 +636,7 @@ def compute_differential_abundance(
         # Store back as JSON string
         set_json_metadata(adata, f"{storage_key}.anndata_fields", existing_tracking)
     
-    # Return results as a dictionary
+    # Return results as a dictionary with fixed keys for programmatic access
     result_dict = {
         "log_fold_change": abundance_results['log_fold_change'],
         "log_fold_change_zscore": abundance_results['log_fold_change_zscore'],
@@ -646,10 +646,13 @@ def compute_differential_abundance(
         "log_density_condition2": abundance_results['log_density_condition2'],
         "model": diff_abundance,
     }
-    
+
     # Add landmarks to result dictionary if they were computed
     if hasattr(diff_abundance, 'computed_landmarks') and diff_abundance.computed_landmarks is not None:
         result_dict["landmarks"] = diff_abundance.computed_landmarks
+
+    # Add field_names dictionary for programmatic access to AnnData field names
+    result_dict["field_names"] = field_names
     
     if copy:
         if return_full_results:
