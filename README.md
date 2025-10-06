@@ -1,5 +1,6 @@
 # Kompot
 
+[![Zonodo](https://zenodo.org/badge/DOI/10.5281/zenodo.17281115.svg)](https://doi.org/10.5281/zenodo.17281115)
 [![PyPI](https://img.shields.io/pypi/v/kompot.svg)](https://pypi.org/project/kompot/)
 [![Tests](https://github.com/settylab/kompot/actions/workflows/tests.yml/badge.svg)](https://github.com/settylab/kompot/actions/workflows/tests.yml)
 [![codecov](https://codecov.io/gh/settylab/kompot/branch/main/graph/badge.svg)](https://codecov.io/gh/settylab/kompot)
