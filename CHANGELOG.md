@@ -7,18 +7,20 @@ All notable changes to this project will be documented in this file.
  - comprehensive FDR implementation for differential expression analysis
  - FDR-based visualization in `volcano_de` plots: support for local/tail FDR y-axes and coloring
  - posterior tail probability for differential expression
- - itroduction of "is\_de" boolean column in `adata.var` to indicate differential expression based on significance threshold
+ - introduction of "is\_de" boolean column in `adata.var` to indicate differential expression based on significance threshold
  - more flexible `volcano_de` plot with FDR/PTP-based thresholding and y-axis options
  - "signal" and "strength" columns in stringDB gene-set enrichment analysis
  - expand testing
- - rename fileds to include comparison, e.g., "A\_to\_B", before statistic name
- - make de significnace measures tail fdr, ptp, and zscore optional
+ - rename fields to include comparison, e.g., "A\_to\_B", before statistic name
+ - make de significance measures tail fdr, ptp, and zscore optional
  - implement cleanup function
  - bugfix: Prevent silent failure of `compute_differential_abundance` with sample variance
    by making sure enough space is available on disk for covariance tensor.
  - dry run for differential expression
  - split tutorials in 3 parts
  - reduce memory demand when using batching and reflect this in dry run
+ - fix disk space checking to respect TMPDIR environment variable consistently
+ - include all computed results in full results dictionaries (std, fiel names, etc.)
    
 
 ## [0.4.3]
