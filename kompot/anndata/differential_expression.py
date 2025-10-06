@@ -518,11 +518,43 @@ def compute_differential_expression(
     Returns
     -------
     Union[Dict[str, np.ndarray], AnnData, Tuple[Dict[str, np.ndarray], AnnData]]
-        If copy is True and return_full_results is False, returns the modified AnnData object.
-        If copy is True and return_full_results is True, returns a tuple (results_dict, adata).
-        If inplace is True and return_full_results is False, returns None (adata is modified in place).
-        If inplace is True and return_full_results is True, returns the results dictionary.
-        Otherwise, returns a dictionary of results.
+        Return value depends on ``copy`` and ``return_full_results`` parameters:
+
+        - If ``copy=True`` and ``return_full_results=False``: Returns modified AnnData object
+        - If ``copy=True`` and ``return_full_results=True``: Returns tuple ``(results_dict, adata)``
+        - If ``copy=False`` and ``return_full_results=False``: Returns ``None`` (modifies in place)
+        - If ``copy=False`` and ``return_full_results=True``: Returns ``results_dict``
+
+        The ``results_dict`` contains the following keys for programmatic access:
+
+        - ``"mean_log_fold_change"``: Mean log fold change across all cells (n_genes,)
+        - ``"mahalanobis_distances"``: Mahalanobis distances for gene ranking (n_genes,)
+        - ``"imputed_expression_condition1"``: Imputed expression matrix for condition 1 (n_cells, n_genes)
+        - ``"imputed_expression_condition2"``: Imputed expression matrix for condition 2 (n_cells, n_genes)
+        - ``"log_fold_change"``: Cell-wise log fold changes (n_cells, n_genes)
+        - ``"log_fold_change_zscores"``: Z-scores of fold changes (n_cells, n_genes)
+        - ``"posterior_std_condition1"``: Posterior standard deviations for condition 1
+        - ``"posterior_std_condition2"``: Posterior standard deviations for condition 2
+        - ``"model"``: The fitted ``DifferentialExpression`` object for additional analyses
+        - ``"landmarks"``: Computed landmarks array if applicable (n_landmarks, n_features)
+        - ``"field_names"``: Dictionary mapping result types to their AnnData field names
+
+        If ``null_genes`` is specified, additional FDR-related keys are included:
+
+        - ``"mahalanobis_pvalues"``: P-values from empirical null distribution (n_genes,)
+        - ``"mahalanobis_local_fdr"``: Local FDR values using empirical null estimation (n_genes,)
+        - ``"mahalanobis_tail_fdr"``: Tail-based FDR using Benjamini-Hochberg correction (n_genes,)
+        - ``"is_de"``: Boolean array indicating significant DE genes at FDR threshold (n_genes,)
+
+        If ``groups`` is specified, additional group-specific keys are included:
+
+        - ``"group_mean_log_fold_change"``: Mean LFC per group (n_genes, n_groups)
+        - ``"group_mahalanobis_distances"``: Mahalanobis distances per group (n_genes, n_groups)
+        - ``"group_names"``: List of group names corresponding to columns
+
+        The ``model`` object provides access to the complete Gaussian Process model, enabling
+        additional downstream analyses such as computing gradients, accessing kernel parameters,
+        or performing custom predictions.
 
     Notes
     -----

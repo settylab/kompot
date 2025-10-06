@@ -135,11 +135,28 @@ def compute_differential_abundance(
     Returns
     -------
     Union[Dict[str, np.ndarray], AnnData, Tuple[Dict[str, np.ndarray], AnnData]]
-        If copy is True and return_full_results is False, returns the modified AnnData object.
-        If copy is True and return_full_results is True, returns a tuple (results_dict, adata).
-        If inplace is True and return_full_results is False, returns None (adata is modified in place).
-        If inplace is True and return_full_results is True, returns the results dictionary.
-        Otherwise, returns a dictionary of results.
+        Return value depends on ``copy`` and ``return_full_results`` parameters:
+
+        - If ``copy=True`` and ``return_full_results=False``: Returns modified AnnData object
+        - If ``copy=True`` and ``return_full_results=True``: Returns tuple ``(results_dict, adata)``
+        - If ``copy=False`` and ``return_full_results=False``: Returns ``None`` (modifies in place)
+        - If ``copy=False`` and ``return_full_results=True``: Returns ``results_dict``
+
+        The ``results_dict`` contains the following keys for programmatic access:
+
+        - ``"log_fold_change"``: Cell-wise log fold change values (n_cells,)
+        - ``"log_fold_change_zscore"``: Z-scores of log fold changes (n_cells,)
+        - ``"neg_log10_fold_change_ptp"``: Negative log10 posterior tail probabilities (n_cells,)
+        - ``"log_fold_change_direction"``: Direction labels ('up', 'neutral', 'down') (n_cells,)
+        - ``"log_density_condition1"``: Log density estimates for condition 1 (n_cells,)
+        - ``"log_density_condition2"``: Log density estimates for condition 2 (n_cells,)
+        - ``"model"``: The fitted ``DifferentialAbundance`` object for additional analyses
+        - ``"landmarks"``: Computed landmarks array if applicable (n_landmarks, n_features)
+        - ``"field_names"``: Dictionary mapping result types to their AnnData field names
+
+        The ``model`` object provides access to the complete density estimation model, enabling
+        additional downstream analyses such as computing gradients, accessing density estimators,
+        or performing custom predictions on new data.
     
     Notes
     -----
