@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
+## Next Release
+
+ - CSR→LIL→CSR layer conversion for faster appending of partial differential expression results
+
 ## [0.5.0]
 
  - comprehensive FDR implementation for differential expression analysis

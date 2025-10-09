@@ -1960,14 +1960,50 @@ def compute_differential_expression(
                 # Create a mapping from selected gene indices to var_names indices for faster lookup
                 gene_indices = np.array([adata.var_names.get_loc(gene) for gene in selected_genes])
 
+                # Convert CSR matrices to LIL format for efficient column-wise assignment
+                # This prevents the "Changing the sparsity structure of a csr_matrix is expensive" warning
+                # and significantly improves performance when writing column-by-column
+                layers_to_convert = [imputed1_key, imputed2_key, fold_change_key,
+                                    field_names["std_key_1"], field_names["std_key_2"]]
+                lil_layers = {}
+                needs_conversion = False
+                for layer_key in layers_to_convert:
+                    if sparse.issparse(adata.layers[layer_key]):
+                        needs_conversion = True
+                        # Create LIL copy without modifying original until complete
+                        lil_layers[layer_key] = adata.layers[layer_key].tolil()
+                    else:
+                        # For dense arrays, reference the original
+                        lil_layers[layer_key] = adata.layers[layer_key]
+
+                if needs_conversion:
+                    pct_genes = 100 * len(gene_indices) / adata.shape[1]
+                    sparse_layer_names = [k for k in layers_to_convert if sparse.issparse(adata.layers[k])]
+                    logger.info(
+                        f"Updating {len(gene_indices)} genes ({pct_genes:.1f}% of total) in existing sparse layers: "
+                        f"{', '.join(sparse_layer_names)}. Temporarily converting CSR→LIL→CSR to avoid slow "
+                        f"per-gene modifications."
+                        + (f" Consider using dense layers if you typically analyze >{pct_genes:.0f}% of genes."
+                           if pct_genes > 50 else "")
+                    )
+
                 # Use vectorized operations for bulk assignment where possible
-                # For sparse matrices we need to do this column by column
+                # For LIL matrices, per-gene assignment is efficient and won't trigger warnings
                 for i, gene_idx in enumerate(gene_indices):
-                    adata.layers[imputed1_key][:, gene_idx] = condition1_imputed[:, i]
-                    adata.layers[imputed2_key][:, gene_idx] = condition2_imputed[:, i]
-                    adata.layers[fold_change_key][:, gene_idx] = fold_change[:, i]
-                    adata.layers[field_names["std_key_1"]][:, gene_idx] = condition1_std[:, i]
-                    adata.layers[field_names["std_key_2"]][:, gene_idx] = condition2_std[:, i]
+                    lil_layers[imputed1_key][:, gene_idx] = condition1_imputed[:, i]
+                    lil_layers[imputed2_key][:, gene_idx] = condition2_imputed[:, i]
+                    lil_layers[fold_change_key][:, gene_idx] = fold_change[:, i]
+                    lil_layers[field_names["std_key_1"]][:, gene_idx] = condition1_std[:, i]
+                    lil_layers[field_names["std_key_2"]][:, gene_idx] = condition2_std[:, i]
+
+                # Convert back to CSR format for efficient downstream operations
+                # Only assign to adata after all conversions are complete (safer for interruptions)
+                if needs_conversion:
+                    for layer_key in layers_to_convert:
+                        if sparse.issparse(lil_layers[layer_key]):
+                            adata.layers[layer_key] = lil_layers[layer_key].tocsr()
+                        else:
+                            adata.layers[layer_key] = lil_layers[layer_key]
             else:
                 # Without sample variance, store as .obs columns (same for all genes)
                 # For this case, all genes have the same std, so we just take the first gene
@@ -1980,17 +2016,52 @@ def compute_differential_expression(
                 adata.obs.loc[filter_mask, field_names["std_key_1"]] = condition1_std[:, 0]
                 adata.obs.loc[filter_mask, field_names["std_key_2"]] = condition2_std[:, 0]
 
+                # Convert CSR matrices to LIL format for efficient column-wise assignment
+                layers_to_convert_novar = [imputed1_key, imputed2_key, fold_change_key]
+                if store_additional_stats:
+                    layers_to_convert_novar.append(field_names["fold_change_zscores_key"])
+
+                lil_layers_novar = {}
+                needs_conversion_novar = False
+                for layer_key in layers_to_convert_novar:
+                    if sparse.issparse(adata.layers[layer_key]):
+                        needs_conversion_novar = True
+                        # Create LIL copy without modifying original until complete
+                        lil_layers_novar[layer_key] = adata.layers[layer_key].tolil()
+                    else:
+                        # For dense arrays, reference the original
+                        lil_layers_novar[layer_key] = adata.layers[layer_key]
+
+                if needs_conversion_novar:
+                    pct_genes_novar = 100 * len(selected_genes) / adata.shape[1]
+                    sparse_layer_names_novar = [k for k in layers_to_convert_novar if sparse.issparse(adata.layers[k])]
+                    logger.info(
+                        f"Updating {len(selected_genes)} genes ({pct_genes_novar:.1f}% of total) in existing sparse layers: "
+                        f"{', '.join(sparse_layer_names_novar)}. Temporarily converting CSR→LIL→CSR to avoid slow "
+                        f"per-gene modifications."
+                        + (f" Consider using dense layers if you typically analyze >{pct_genes_novar:.0f}% of genes."
+                           if pct_genes_novar > 50 else "")
+                    )
+
                 # Map imputed values to the correct positions
                 for i, gene in enumerate(selected_genes):
                     gene_idx = list(adata.var_names).index(gene)
-                    adata.layers[imputed1_key][:, gene_idx] = condition1_imputed[:, i]
-                    adata.layers[imputed2_key][:, gene_idx] = condition2_imputed[:, i]
-                    adata.layers[fold_change_key][:, gene_idx] = fold_change[:, i]
+                    lil_layers_novar[imputed1_key][:, gene_idx] = condition1_imputed[:, i]
+                    lil_layers_novar[imputed2_key][:, gene_idx] = condition2_imputed[:, i]
+                    lil_layers_novar[fold_change_key][:, gene_idx] = fold_change[:, i]
                     # Only store fold_change_zscores if user requested additional stats
                     if store_additional_stats:
-                        adata.layers[field_names["fold_change_zscores_key"]][:, gene_idx] = (
+                        lil_layers_novar[field_names["fold_change_zscores_key"]][:, gene_idx] = (
                             fold_change_zscores[:, i]
                         )
+
+                # Convert back to CSR format for efficient downstream operations
+                if needs_conversion_novar:
+                    for layer_key in layers_to_convert_novar:
+                        if sparse.issparse(lil_layers_novar[layer_key]):
+                            adata.layers[layer_key] = lil_layers_novar[layer_key].tocsr()
+                        else:
+                            adata.layers[layer_key] = lil_layers_novar[layer_key]
         else:
             # Convert JAX arrays to NumPy arrays if needed
             condition1_imputed = np.array(expression_results["condition1_imputed"])
