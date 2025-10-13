@@ -677,6 +677,43 @@ def estimate_differential_expression_resources(
             f"{human_readable_size(total_temp_per_op - smaller_temp)}."
         )
 
+    # Intermediate arrays during predict() - CRITICAL FOR PEAK MEMORY
+    # Even with cell batching, apply_batched() pre-allocates full output arrays (n_cells, n_genes)
+    # During the predict() method in differential_expression.py, intermediate arrays coexist.
+    #
+    # Memory optimization history:
+    # - Original (2025-10-12): ~30 arrays identified via SLURM MaxRSS
+    # - zeros_like optimization (2025-10-13): Reduced to ~28 arrays
+    #   For No SV case: condition1/2_sample_variance use scalar 0 instead of full arrays
+    # - Manual optimizations (2025-10-13): Reduced to ~25 arrays
+    #   1. Eliminated 'stds' intermediate array (inlined computation)
+    #   2. Strategic del statements improve temporal locality (lines 825, 830, 835, 842)
+    #   3. Early cleanup of uncertainties and total_variance arrays
+    #
+    # Remaining arrays include:
+    # - 6 primary arrays from apply_batched (condition1/2_imputed, uncertainties)
+    # - fold_change and derived quantities (z-scores, condition1/2_std, total_variance)
+    # - Temporaries during numpy operations (addition, sqrt, division)
+    # - Python/numpy internal buffers and copies
+    #
+    # These are created during computation but freed before final result is returned.
+    # SLURM MaxRSS captures this peak; discrete memory measurements miss it due to GC.
+    n_intermediate_arrays = 25  # Reduced from 28 via manual optimizations (2025-10-13)
+    intermediate_array_size = estimate_array_size((n_cells, n_total_genes))
+    total_intermediate_memory = n_intermediate_arrays * intermediate_array_size
+
+    plan.add_requirement(
+        f"Peak intermediate arrays during predictions (~{n_intermediate_arrays} arrays)",
+        total_intermediate_memory,
+        'memory',
+        shape=f"{n_intermediate_arrays}×({n_cells}, {n_total_genes})"
+    )
+
+    plan.info.append(
+        f"Prediction creates ~{n_intermediate_arrays} intermediate arrays of shape ({n_cells:,}, {n_total_genes}). "
+        f"These coexist at peak memory ({human_readable_size(total_intermediate_memory)}) but are freed before completion."
+    )
+
     # 2. Function predictor covariance matrices (ALWAYS created for Mahalanobis distance)
     # These are created by function_predictor.covariance(X, diag=False)
     cov_matrix_shape = (n_landmarks, n_landmarks)
