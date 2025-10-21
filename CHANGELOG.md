@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 ## Next Release
 
  - CSR→LIL→CSR layer conversion for faster appending of partial differential expression results
+ - same argument order in `dry_run_differential_expression` and `compute_differential_expression`
 
 ## [0.5.0]
 

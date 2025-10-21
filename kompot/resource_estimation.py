@@ -998,9 +998,9 @@ def estimate_differential_expression_resources(
 
 def dry_run_differential_expression(
     adata,
+    groupby: str,
     condition1: str,
     condition2: str,
-    groupby: str,
     verbose: bool = True,
     **kwargs
 ) -> ResourcePlan:
@@ -1032,12 +1032,12 @@ def dry_run_differential_expression(
     ----------
     adata : AnnData
         Annotated data object
+    groupby : str
+        Column in adata.obs that defines groups
     condition1 : str
         First condition to compare
     condition2 : str
         Second condition to compare
-    groupby : str
-        Column in adata.obs that defines groups
     verbose : bool
         If True, print the resource plan report (default: True)
     **kwargs
