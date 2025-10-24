@@ -154,7 +154,14 @@ def compute_fdr_statistics(
     zero_pvalues = pvalues == 0.0
     if np.any(zero_pvalues):
         # Use a much smaller minimum to allow very small FDR values
-        min_pvalue = np.min(pvalues[~zero_pvalues])
+        # Handle case where ALL p-values are zero
+        non_zero_pvalues = pvalues[~zero_pvalues]
+        if len(non_zero_pvalues) > 0:
+            min_pvalue = np.min(non_zero_pvalues)
+        else:
+            # All p-values are zero - use 1/number_of_nulls as minimum
+            min_pvalue = 1.0 / len(null_mahalanobis)
+            logger.debug(f"All {len(pvalues)} p-values are zero, using default min_pvalue={min_pvalue}")
         pvalues[zero_pvalues] = min_pvalue
         logger.debug(f"Set minimum p-value to {min_pvalue} for {np.sum(zero_pvalues)} zero p-values")
 
