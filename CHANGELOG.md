@@ -7,6 +7,7 @@ All notable changes to this project will be documented in this file.
  - CSR→LIL→CSR layer conversion for faster appending of partial differential expression results
  - same argument order in `dry_run_differential_expression` and `compute_differential_expression`
  - bugfix: fdr computation when all p-values are 0
+ - increase testing coverage
 
 ## [0.5.0]
 
