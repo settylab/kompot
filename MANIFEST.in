@@ -4,14 +4,22 @@ include setup.cfg
 include pyproject.toml
 include MANIFEST.in
 
-recursive-include tests *
-recursive-include examples *
-recursive-include kompot *.pyi
-recursive-include kompot py.typed
+# Include kompot package files only
+recursive-include kompot *.py *.pyi
+include kompot/py.typed
 recursive-include kompot/reporter/templates *.html *.css *.js
-recursive-include docs *.py *.md *.rst *.txt *.ico *.css
 
-recursive-exclude * __pycache__
-recursive-exclude * *.py[cod]
-recursive-exclude * *.so
-recursive-exclude * .DS_Store
+# Exclude all build artifacts, caches, and temporary files
+global-exclude __pycache__
+global-exclude *.py[cod]
+global-exclude *.so
+global-exclude .DS_Store
+global-exclude .coverage
+
+# Exclude development files and directories
+prune .ipynb_checkpoints
+prune .pytest_cache
+prune tests
+prune docs
+prune examples
+prune wheel_contents
