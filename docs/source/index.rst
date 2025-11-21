@@ -146,6 +146,30 @@ See the :doc:`CLI documentation <cli>` for complete usage and examples.
     Github Repo <https://github.com/settylab/kompot>
 
 
+Citation
+========
+
+If you use Kompot in your research, please cite:
+
+   Otto, D. J., Arriaga-Gomez, E., Thieme, E., Yang, R., Lee, S. C., & Setty, M. (2025).
+   Comparing phenotypic manifolds with Kompot: Detecting differential abundance and gene expression at single-cell resolution.
+   *bioRxiv*. https://doi.org/10.1101/2025.06.03.657769
+
+BibTeX:
+
+.. code-block:: bibtex
+
+   @article{Otto2025.06.03.657769,
+       author = {Otto, Dominik J. and Arriaga-Gomez, Erica and Thieme, Elana and Yang, Ruijin and Lee, Stanley C. and Setty, Manu},
+       title = {Comparing phenotypic manifolds with Kompot: Detecting differential abundance and gene expression at single-cell resolution},
+       year = {2025},
+       doi = {10.1101/2025.06.03.657769},
+       publisher = {Cold Spring Harbor Laboratory},
+       journal = {bioRxiv},
+       URL = {https://www.biorxiv.org/content/10.1101/2025.06.03.657769}
+   }
+
+
 Index
 =====
 

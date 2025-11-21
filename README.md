@@ -79,6 +79,22 @@ kompot de input.h5ad -o output.h5ad \
   - [Sample Variance Analysis](https://github.com/settylab/kompot/blob/main/examples/03_sample_variance.ipynb)
 - [CLI Guide](https://kompot.readthedocs.io/en/latest/cli.html)
 
+## Citation
+
+If you use Kompot in your research, please cite:
+
+```bibtex
+@article{Otto2025.06.03.657769,
+    author = {Otto, Dominik J. and Arriaga-Gomez, Erica and Thieme, Elana and Yang, Ruijin and Lee, Stanley C. and Setty, Manu},
+    title = {Comparing phenotypic manifolds with Kompot: Detecting differential abundance and gene expression at single-cell resolution},
+    year = {2025},
+    doi = {10.1101/2025.06.03.657769},
+    publisher = {Cold Spring Harbor Laboratory},
+    journal = {bioRxiv},
+    URL = {https://www.biorxiv.org/content/10.1101/2025.06.03.657769}
+}
+```
+
 ## License
 
 GNU General Public License v3 (GPLv3)
