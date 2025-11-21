@@ -20,7 +20,7 @@ Key features:
 - Gene expression imputation and uncertainty estimation
 - Mahalanobis distance calculation for differential expression significance
 - JAX-accelerated computations with optional GPU support
-- **Disk-backed storage for large datasets** with dask support
+- Disk-backed covariance storage for sample variance estimation
 - **Full scverse compatibility** with direct AnnData integration
 - **Visualization tools** for volcano plots, heatmaps, and embeddings
 - **Command-line interface** for pipeline integration

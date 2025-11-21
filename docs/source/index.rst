@@ -75,7 +75,7 @@ Key features:
 - JAX-accelerated computations
 - Empirical variance estimation
 - **Resource estimation and dry run** for planning large analyses
-- **Disk-backed storage for large datasets** with dask support
+- Disk-backed covariance storage for sample variance estimation
 - Visualization tools (volcano plots, heatmaps, expression plots)
 - **Full scverse compatibility with direct AnnData integration**
 - **Command-line interface for pipeline integration** and batch processing
@@ -88,7 +88,7 @@ Kompot is particularly useful for:
 - Comparing cell type abundances across different samples
 - Identifying differentially expressed genes between conditions
 - Integrating multi-sample or multi-batch variability
-- Analyzing large-scale single-cell datasets that don't fit in memory using disk-backed storage
+- Handling large covariance tensors during sample variance estimation via disk-backed storage
 - Creating visualizations of differential analysis results
 
 Installation
