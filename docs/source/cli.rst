@@ -386,33 +386,6 @@ Kompot provides ready-to-use templates:
 - ``kompot/cli/templates/de_config_template.yaml``
 - ``kompot/cli/templates/da_config_template.yaml``
 
-Accessing Templates
-^^^^^^^^^^^^^^^^^^^
-
-.. code-block:: python
-
-   from pathlib import Path
-   import kompot
-
-   # Find template path
-   template_dir = Path(kompot.__file__).parent / 'cli' / 'templates'
-   print(list(template_dir.glob('*.yaml')))
-
-Or copy from the installed package:
-
-.. code-block:: bash
-
-   python -c "
-   from pathlib import Path
-   import kompot
-   import shutil
-
-   template_dir = Path(kompot.__file__).parent / 'cli' / 'templates'
-   for template in template_dir.glob('*.yaml'):
-       shutil.copy(template, '.')
-       print(f'Copied {template.name}')
-   "
-
 Pipeline Integration
 --------------------
 
