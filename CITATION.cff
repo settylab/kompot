@@ -1,0 +1,52 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+type: software
+title: "Kompot: Differential abundance and gene expression analysis in single-cell data"
+authors:
+  - family-names: Otto
+    given-names: Dominik J.
+    affiliation: Fred Hutchinson Cancer Center
+  - family-names: Arriaga-Gomez
+    given-names: Erica
+    affiliation: Fred Hutchinson Cancer Center
+  - family-names: Thieme
+    given-names: Elana
+    affiliation: Fred Hutchinson Cancer Center
+  - family-names: Yang
+    given-names: Ruijin
+    affiliation: Fred Hutchinson Cancer Center
+  - family-names: Lee
+    given-names: Stanley C.
+    affiliation: Fred Hutchinson Cancer Center
+  - family-names: Setty
+    given-names: Manu
+    affiliation: Fred Hutchinson Cancer Center
+repository-code: "https://github.com/settylab/kompot"
+url: "https://kompot.readthedocs.io"
+license: GPL-3.0-or-later
+keywords:
+  - single-cell
+  - differential-abundance
+  - differential-expression
+  - bioinformatics
+  - genomics
+preferred-citation:
+  type: article
+  title: "Comparing phenotypic manifolds with Kompot: Detecting differential abundance and gene expression at single-cell resolution"
+  authors:
+    - family-names: Otto
+      given-names: Dominik J.
+    - family-names: Arriaga-Gomez
+      given-names: Erica
+    - family-names: Thieme
+      given-names: Elana
+    - family-names: Yang
+      given-names: Ruijin
+    - family-names: Lee
+      given-names: Stanley C.
+    - family-names: Setty
+      given-names: Manu
+  year: 2025
+  journal: bioRxiv
+  doi: 10.1101/2025.06.03.657769
+  url: "https://www.biorxiv.org/content/10.1101/2025.06.03.657769"
