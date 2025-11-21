@@ -437,6 +437,9 @@ class TestCLIDiffusionMaps:
         """Test error when PCA is missing."""
         input_file = Path(temp_dir) / 'input.h5ad'
         output_file = Path(temp_dir) / 'output.h5ad'
+
+        # Remove PCA from sample data
+        del sample_adata.obsm['X_pca']
         sample_adata.write_h5ad(input_file)
 
         # Run CLI without PCA in data

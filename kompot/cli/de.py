@@ -130,6 +130,13 @@ def add_de_parser(subparsers) -> argparse.ArgumentParser:
         help='Number of null genes for FDR estimation (default: 2000)'
     )
 
+    parser.add_argument(
+        '--null-seed',
+        type=int,
+        default=42,
+        help='Random seed for null gene selection and shuffling (default: 42)'
+    )
+
     # Boolean flags
     parser.add_argument(
         '--no-progress',
@@ -185,7 +192,7 @@ def run_de(args):
     # Convert args to dict, removing None values and CLI-specific args
     args_dict = {
         k: v for k, v in vars(args).items()
-        if v is not None and k not in ['input', 'output', 'config', 'func', 'verbose']
+        if v is not None and k not in ['input', 'output', 'config', 'func', 'verbose', 'command']
     }
 
     # Rename CLI args to match function parameters

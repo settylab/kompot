@@ -442,7 +442,7 @@ def compute_differential_abundance(
         
         # Create landmarks info
         landmarks_info = {
-            'shape': landmarks_shape,
+            'shape': list(landmarks_shape),  # Convert tuple to list for HDF5 serialization
             'dtype': landmarks_dtype,
             'source': 'computed',
             'n_landmarks': landmarks_shape[0],

@@ -19,7 +19,7 @@ def main():
     parser.add_argument(
         '--version',
         action='version',
-        version='%(prog)s 0.5.2'
+        version='%(prog)s 0.6.0'
     )
 
     parser.add_argument(

@@ -128,6 +128,12 @@ def add_da_parser(subparsers) -> argparse.ArgumentParser:
         help='Length scale multiplication factor (default: 10.0)'
     )
 
+    parser.add_argument(
+        '--random-state',
+        type=int,
+        help='Random seed for reproducible landmark selection (default: None)'
+    )
+
     # Boolean flags
     parser.add_argument(
         '--store-landmarks',
@@ -171,7 +177,7 @@ def run_da(args):
     # Convert args to dict, removing None values and CLI-specific args
     args_dict = {
         k: v for k, v in vars(args).items()
-        if v is not None and k not in ['input', 'output', 'config', 'func', 'verbose']
+        if v is not None and k not in ['input', 'output', 'config', 'func', 'verbose', 'command']
     }
 
     # Rename CLI args to match function parameters

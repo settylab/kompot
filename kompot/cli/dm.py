@@ -84,9 +84,38 @@ def add_dm_parser(subparsers) -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
-        '--use-adjacency-matrix',
-        action='store_true',
-        help='Use adjacency matrix if available'
+        '--seed',
+        type=int,
+        default=0,
+        help='Random seed for reproducibility (default: 0)'
+    )
+
+    parser.add_argument(
+        '--kernel-key',
+        type=str,
+        default='DM_Kernel',
+        help='Key to store kernel in adata.obsp (default: DM_Kernel)'
+    )
+
+    parser.add_argument(
+        '--sim-key',
+        type=str,
+        default='DM_Similarity',
+        help='Key to store similarity in adata.obsp (default: DM_Similarity)'
+    )
+
+    parser.add_argument(
+        '--eigval-key',
+        type=str,
+        default='DM_EigenValues',
+        help='Key to store eigenvalues in adata.uns (default: DM_EigenValues)'
+    )
+
+    parser.add_argument(
+        '--eigvec-key',
+        type=str,
+        default='DM_EigenVectors',
+        help='Key to store eigenvectors in adata.obsm (default: DM_EigenVectors)'
     )
 
     parser.set_defaults(func=run_dm)
@@ -127,16 +156,22 @@ def run_dm(args):
     # Convert args to dict, removing None values and CLI-specific args
     args_dict = {
         k: v for k, v in vars(args).items()
-        if v is not None and k not in ['input', 'output', 'config', 'func', 'verbose']
+        if v is not None and k not in ['input', 'output', 'config', 'func', 'verbose', 'command']
     }
 
-    # Rename CLI args to match function parameters
+    # Rename CLI args to match function parameters (convert hyphens to underscores)
     if 'pca_key' in args_dict:
         args_dict['pca_key'] = args_dict.pop('pca_key')
     if 'n_components' in args_dict:
         args_dict['n_components'] = args_dict.pop('n_components')
-    if 'use_adjacency_matrix' in args_dict:
-        args_dict['use_adjacency_matrix'] = args_dict.pop('use_adjacency_matrix')
+    if 'kernel_key' in args_dict:
+        args_dict['kernel_key'] = args_dict.pop('kernel_key')
+    if 'sim_key' in args_dict:
+        args_dict['sim_key'] = args_dict.pop('sim_key')
+    if 'eigval_key' in args_dict:
+        args_dict['eigval_key'] = args_dict.pop('eigval_key')
+    if 'eigvec_key' in args_dict:
+        args_dict['eigvec_key'] = args_dict.pop('eigvec_key')
 
     # Merge with config (CLI args take precedence)
     params = merge_args_with_config(args_dict, config)
