@@ -3,7 +3,15 @@
 .. toctree::
    :hidden:
    :maxdepth: 2
-   :caption: Modules:
+   :caption: User Guide:
+
+   Installation <installation>
+   Command-Line Interface <cli>
+
+.. toctree::
+   :hidden:
+   :maxdepth: 2
+   :caption: API Reference:
 
    Differential Analysis <differential>
    AnnData Integration <anndata>
@@ -18,6 +26,10 @@
    Getting Started <notebooks/01_getting_started.ipynb>
    Advanced Differential Expression <notebooks/02_differential_expression_detailed.ipynb>
    Sample Variance Analysis <notebooks/03_sample_variance.ipynb>
+
+.. |doi| image:: https://zenodo.org/badge/944121568.svg
+   :target: https://zenodo.org/badge/latestdoi/944121568
+   :alt: DOI
 
 .. |pypi| image:: https://img.shields.io/pypi/v/kompot.svg
    :target: https://pypi.org/project/kompot/
@@ -35,7 +47,7 @@
    :target: https://kompot.readthedocs.io/en/latest/?badge=latest
    :alt: Documentation Status
 
-|pypi| |tests| |codecov| |docs|
+|doi| |pypi| |tests| |codecov| |docs|
 
 .. image:: _static/images/kompot_logo.png
    :alt: Kompot Logo
@@ -63,9 +75,10 @@ Key features:
 - JAX-accelerated computations
 - Empirical variance estimation
 - **Resource estimation and dry run** for planning large analyses
-- **Disk-backed storage for large datasets** with Dask support
+- **Disk-backed storage for large datasets** with dask support
 - Visualization tools (volcano plots, heatmaps, expression plots)
 - **Full scverse compatibility with direct AnnData integration**
+- **Command-line interface for pipeline integration** and batch processing
 
 Use Cases
 ---------
@@ -81,32 +94,25 @@ Kompot is particularly useful for:
 Installation
 ------------
 
-To install the base package:
+Install from PyPI:
 
 .. code-block:: bash
 
    pip install kompot
 
-For additional plotting functionality with scanpy integration:
+Or via conda/mamba:
 
 .. code-block:: bash
 
-   pip install kompot[plot]
+   conda install -c bioconda kompot
 
-For disk-backed storage with Dask support (recommended for large datasets):
-
-.. code-block:: bash
-
-   pip install kompot[dask]
-
-To install all optional dependencies:
-
-.. code-block:: bash
-
-   pip install kompot[all]
+For optional dependencies and JAX GPU support, see the :doc:`installation guide <installation>`.
 
 Quick Start
 -----------
+
+Python API
+^^^^^^^^^^
 
 **New to Kompot?** Start with the :doc:`Getting Started <notebooks/01_getting_started>` tutorial for a comprehensive introduction to differential abundance and expression analysis.
 
@@ -114,6 +120,23 @@ Quick Start
 
 - :doc:`Advanced Differential Expression <notebooks/02_differential_expression_detailed>` - Parameter customization, multiple comparisons, and visualization options
 - :doc:`Sample Variance Analysis <notebooks/03_sample_variance>` - Accounting for biological replicates in multi-sample studies
+
+Command-Line Interface
+^^^^^^^^^^^^^^^^^^^^^^^
+
+**For pipeline integration and batch processing**, use the :doc:`Command-Line Interface <cli>`:
+
+.. code-block:: bash
+
+   # Compute diffusion maps (preprocessing)
+   kompot dm input.h5ad -o input_dm.h5ad --pca-key X_pca
+
+   # Run differential expression
+   kompot de input_dm.h5ad -o results.h5ad \\
+     --groupby condition --condition1 control --condition2 treatment \\
+     --obsm-key DM_EigenVectors
+
+See the :doc:`CLI documentation <cli>` for complete usage and examples.
 
 .. toctree::
    :hidden:

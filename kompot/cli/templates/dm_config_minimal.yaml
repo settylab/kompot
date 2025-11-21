@@ -1,0 +1,10 @@
+# Minimal configuration for diffusion maps computation
+
+# PCA coordinates
+pca_key: "X_pca"
+
+# Number of diffusion components
+n_components: 10
+
+# Nearest neighbors for graph
+knn: 30

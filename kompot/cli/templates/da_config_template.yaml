@@ -1,0 +1,59 @@
+# Configuration template for differential abundance analysis
+# This file shows all available parameters for kompot da command
+#
+# Usage: kompot da input.h5ad -o output.h5ad -c da_config.yaml
+#
+# Required parameters (can also be provided via CLI):
+groupby: "condition"           # Column in adata.obs with condition labels
+condition1: "control"          # Reference condition
+condition2: "treatment"        # Comparison condition
+
+# Cell state representation:
+obsm_key: "X_pca"             # Key in adata.obsm (e.g., X_pca, DM_EigenVectors)
+
+# Result storage:
+result_key: "kompot_da"        # Key for storing results in adata.uns
+
+# Landmark approximation:
+n_landmarks: null              # Number of landmarks (null = use all cells)
+landmarks: null                # Pre-computed landmarks array (overrides n_landmarks)
+store_landmarks: false         # Whether to store landmarks in output
+
+# Sample variance (for biological replicates):
+sample_col: null               # Column in adata.obs with sample IDs
+allow_single_condition_variance: false  # Allow variance with samples in only one condition
+
+# Significance thresholds:
+log_fold_change_threshold: 1.0  # Log fold change threshold
+ptp_threshold: 0.05            # Posterior tail probability threshold
+
+# Computation parameters:
+batch_size: null               # Cells per batch (null = auto)
+random_state: null             # Random seed for landmark selection
+jit_compile: false             # Use JAX JIT compilation
+
+# GP kernel parameters:
+ls_factor: 10.0                # Length scale multiplication factor
+
+# Output options:
+progress: true                 # Show progress bars (not used in CLI)
+overwrite: null                # Overwrite existing results (null = warn)
+
+# Copy behavior:
+copy: false                    # Return copy of AnnData (always false for CLI)
+inplace: true                  # Modify in place (always true for CLI)
+
+# Return behavior:
+return_full_results: false     # Return full results dict (not used in CLI)
+
+# Additional density estimator kwargs:
+# These are passed to the underlying mellon DensityEstimator
+# Uncomment and modify as needed:
+#
+# d_method: "fractal"          # Density estimation method
+# sigma: null                  # Noise level (null = auto)
+# ls: null                     # Length scale (null = auto)
+# gp_type: "vonkarman"         # GP kernel type
+# cov_func_curry: null         # Custom covariance function
+# rank: null                   # Rank for low-rank approximation
+# nn: null                     # Number of neighbors

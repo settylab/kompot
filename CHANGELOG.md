@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 ## Next Release
 
  - store kompot and other package versions in run info
+ - implement command line tools for pipeline integration
 
 ## [0.5.2]
 

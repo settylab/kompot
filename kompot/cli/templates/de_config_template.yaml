@@ -1,0 +1,77 @@
+# Configuration template for differential expression analysis
+# This file shows all available parameters for kompot de command
+#
+# Usage: kompot de input.h5ad -o output.h5ad -c de_config.yaml
+#
+# Required parameters (can also be provided via CLI):
+groupby: "condition"           # Column in adata.obs with condition labels
+condition1: "control"          # Reference condition
+condition2: "treatment"        # Comparison condition
+
+# Cell state representation:
+obsm_key: "X_pca"             # Key in adata.obsm (e.g., X_pca, DM_EigenVectors)
+
+# Expression data:
+layer: null                    # Layer in adata.layers (null = use adata.X)
+
+# Result storage:
+result_key: "kompot_de"        # Key for storing results in adata.uns
+
+# Landmark approximation:
+n_landmarks: 5000              # Number of landmarks (null = use all cells)
+landmarks: null                # Pre-computed landmarks array (overrides n_landmarks)
+store_landmarks: false         # Whether to store landmarks in output
+
+# Sample variance (for biological replicates):
+sample_col: null               # Column in adata.obs with sample IDs
+allow_single_condition_variance: false  # Allow variance with samples in only one condition
+
+# Statistical parameters:
+fdr_threshold: 0.05            # FDR threshold for significance
+null_genes: 2000               # Number of null genes for FDR estimation
+null_seed: 42                  # Random seed for null gene generation
+
+# Computation parameters:
+batch_size: 100                # Cells per batch (0 = all at once)
+random_state: null             # Random seed for landmark selection
+jit_compile: false             # Use JAX JIT compilation
+
+# GP kernel parameters:
+sigma: 1.0                     # Noise level for function estimator
+ls: null                       # Length scale (null = auto-estimate)
+ls_factor: 10.0                # Length scale multiplication factor
+eps: 1.0e-8                    # Numerical stability constant
+
+# Memory management:
+store_arrays_on_disk: null     # Store large arrays on disk (null = auto)
+disk_storage_dir: null         # Directory for disk storage
+max_memory_ratio: 0.8          # Max memory usage ratio
+
+# Output options:
+store_additional_stats: false  # Store extra statistics
+store_posterior_covariance: false  # Store posterior covariance
+progress: true                 # Show progress bars
+overwrite: null                # Overwrite existing results (null = warn)
+
+# Advanced filtering:
+genes: null                    # List of gene names to analyze (null = all)
+min_cells: 2                   # Minimum cells per gene
+min_percentage: null           # Minimum percentage of cells expressing
+
+# Cell/group filtering:
+cell_filter: null              # Cells or groups to exclude
+# Examples:
+#   cell_filter: "group_name"              # Exclude a group
+#   cell_filter: ["group1", "group2"]      # Exclude multiple groups
+#   cell_filter: {batch: "batch1"}         # Exclude by metadata
+#   cell_filter: [{batch: "batch1"}, {quality: "low"}]  # Multiple filters
+
+groups: null                   # Subset analysis by groups
+# Examples:
+#   groups: "cell_type"                    # Group by column
+#   groups: {cell_type: ["T", "B"]}        # Filter by values
+#   groups: {subset1: {cell_type: "T"}, subset2: {cell_type: "B"}}  # Named subsets
+
+# Additional function-specific kwargs:
+compute_mahalanobis: true      # Compute Mahalanobis distances
+check_representation: null     # Check cell state representation quality

@@ -1,6 +1,6 @@
 # Kompot
 
-[![Zonodo](https://zenodo.org/badge/DOI/10.5281/zenodo.17281115.svg)](https://doi.org/10.5281/zenodo.17281115)
+[![DOI](https://zenodo.org/badge/944121568.svg)](https://zenodo.org/badge/latestdoi/944121568)
 [![PyPI](https://img.shields.io/pypi/v/kompot.svg)](https://pypi.org/project/kompot/)
 [![Tests](https://github.com/settylab/kompot/actions/workflows/tests.yml/badge.svg)](https://github.com/settylab/kompot/actions/workflows/tests.yml)
 [![codecov](https://codecov.io/gh/settylab/kompot/branch/main/graph/badge.svg)](https://codecov.io/gh/settylab/kompot)
@@ -19,13 +19,11 @@ Key features:
 - Computation of differential abundance between conditions
 - Gene expression imputation and uncertainty estimation
 - Mahalanobis distance calculation for differential expression significance
-- Weighted log fold change analysis with density difference weighting
-- Support for covariance matrices and optional landmarks
-- JAX-accelerated computations
-- Empirical variance estimation
-- **Disk-backed storage for large datasets** with Dask support
-- **Full scverse compatibility with direct AnnData integration**
-- **Visualization tools** for differential expression, abundance results, and customizable embedding plots
+- JAX-accelerated computations with optional GPU support
+- **Disk-backed storage for large datasets** with dask support
+- **Full scverse compatibility** with direct AnnData integration
+- **Visualization tools** for volcano plots, heatmaps, and embeddings
+- **Command-line interface** for pipeline integration
 
 ## Installation
 
@@ -33,39 +31,53 @@ Key features:
 pip install kompot
 ```
 
-For using the default diffusion map cell state representation:
+Or via conda:
 
 ```bash
-pip install palantir
+conda install -c bioconda kompot
 ```
 
-For additional plotting functionality with scanpy integration:
+See the [installation guide](https://kompot.readthedocs.io/en/latest/installation.html) for optional dependencies and JAX GPU support.
+
+## Usage
+
+### Python API
+
+```python
+import kompot
+import anndata as ad
+
+# Load data
+adata = ad.read_h5ad("data.h5ad")
+
+# Differential expression
+kompot.compute_differential_expression(
+    adata,
+    groupby="condition",
+    condition1="control",
+    condition2="treatment",
+    obsm_key="X_pca"
+)
+```
+
+### Command-Line Interface
 
 ```bash
-pip install kompot[plot]
+# Differential expression
+kompot de input.h5ad -o output.h5ad \
+  --groupby condition \
+  --condition1 control \
+  --condition2 treatment
 ```
 
-For disk-backed storage with Dask support (recommended for large datasets):
+## Documentation
 
-```bash
-pip install kompot[dask]
-```
-
-To install all optional dependencies:
-
-```bash
-pip install kompot[all]
-```
-
-### JAX Installation
-
-Kompot depends on JAX for efficient computations. By default, the CPU version of JAX is used, which is recommended for most users as it provides good performance without memory constraints.
-
-See [JAX GitHub](https://github.com/google/jax) for more installation details.
-
-## Usage Example
-
-See the [Tutorial Notebooks](https://github.com/settylab/kompot/blob/main/examples/) and [documentation](https://kompot.readthedocs.io/en/latest/index.html).
+- [Full Documentation](https://kompot.readthedocs.io)
+- [Tutorial Notebooks](https://github.com/settylab/kompot/tree/main/examples)
+  - [Getting Started](https://github.com/settylab/kompot/blob/main/examples/01_getting_started.ipynb)
+  - [Advanced Differential Expression](https://github.com/settylab/kompot/blob/main/examples/02_differential_expression_detailed.ipynb)
+  - [Sample Variance Analysis](https://github.com/settylab/kompot/blob/main/examples/03_sample_variance.ipynb)
+- [CLI Guide](https://kompot.readthedocs.io/en/latest/cli.html)
 
 ## License
 

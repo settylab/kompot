@@ -1,0 +1,19 @@
+# Configuration template for diffusion maps computation
+# This file shows all available parameters for kompot dm command
+#
+# Usage: kompot dm input.h5ad -o output.h5ad -c dm_config.yaml
+#
+# PCA coordinates (required):
+pca_key: "X_pca"              # Key in adata.obsm with PCA coordinates
+
+# Diffusion parameters:
+n_components: 10              # Number of diffusion components to compute
+knn: 30                       # Number of nearest neighbors for graph
+alpha: 0                      # Diffusion alpha parameter (0 = standard diffusion)
+
+# Graph construction:
+use_adjacency_matrix: false   # Use existing adjacency matrix if available
+
+# Note: This uses Palantir's run_diffusion_maps function
+# Results are stored in adata.obsm['DM_EigenVectors']
+# and adata.uns['DM_EigenValues']

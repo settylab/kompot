@@ -1,0 +1,22 @@
+# Minimal configuration for differential expression analysis
+# Only the most commonly used parameters
+
+# Required
+groupby: "condition"
+condition1: "control"
+condition2: "treatment"
+
+# Common parameters
+obsm_key: "X_pca"
+layer: null                    # Use adata.X
+result_key: "kompot_de"
+
+# For biological replicates (optional)
+sample_col: null               # e.g., "sample_id" if you have replicates
+
+# Significance
+fdr_threshold: 0.05
+
+# Performance
+batch_size: 100                # Reduce if memory issues
+n_landmarks: 5000              # Reduce for faster computation

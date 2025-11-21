@@ -1,0 +1,18 @@
+# Minimal configuration for differential abundance analysis
+# Only the most commonly used parameters
+
+# Required
+groupby: "condition"
+condition1: "control"
+condition2: "treatment"
+
+# Common parameters
+obsm_key: "X_pca"
+result_key: "kompot_da"
+
+# For biological replicates (optional)
+sample_col: null               # e.g., "sample_id" if you have replicates
+
+# Thresholds
+log_fold_change_threshold: 1.0
+ptp_threshold: 0.05
