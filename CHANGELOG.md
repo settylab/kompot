@@ -4,8 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## Next Release
 
+## [0.6.0]
+
  - store kompot and other package versions in run info
  - implement command line tools for pipeline integration
+ - comprehensive installation documentation with JAX GPU support
+ - Zenodo badge automatically points to latest version
 
 ## [0.5.2]
 
