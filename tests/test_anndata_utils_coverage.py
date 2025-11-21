@@ -442,13 +442,28 @@ class TestFieldTrackingCoverage:
     def test_get_environment_info(self):
         """Test get_environment_info function."""
         from kompot.anndata.utils.field_tracking import get_environment_info
-        
+
         env_info = get_environment_info()
-        
+
         assert isinstance(env_info, dict)
         assert 'python_version' in env_info
         assert 'platform' in env_info
         assert 'timestamp' in env_info
+        assert 'package_versions' in env_info
+
+        # Verify package versions are included
+        pkg_versions = env_info['package_versions']
+        assert isinstance(pkg_versions, dict)
+
+        # Check all expected packages are tracked
+        expected_packages = ['kompot', 'anndata', 'jax', 'jaxlib', 'numpy', 'scipy', 'pandas']
+        for pkg in expected_packages:
+            assert pkg in pkg_versions, f"Package {pkg} not found in package_versions"
+
+        # Verify versions are non-empty strings
+        for pkg in expected_packages:
+            assert isinstance(pkg_versions[pkg], str)
+            assert len(pkg_versions[pkg]) > 0
 
     def test_detect_output_field_overwrite(self, utils_adata):
         """Test detect_output_field_overwrite function."""

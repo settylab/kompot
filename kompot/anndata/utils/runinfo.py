@@ -703,7 +703,12 @@ class RunInfo:
             html.append("<tr><th style='width:30%'>Parameter</th><th style='width:70%'>Value</th></tr>")
 
             for k, v in sorted(self.environment.items()):
-                html.append(f"<tr><td>{k}</td><td>{v}</td></tr>")
+                # Special formatting for package_versions
+                if k == 'package_versions' and isinstance(v, dict):
+                    version_str = "<br>".join([f"&nbsp;&nbsp;{pkg}: {ver}" for pkg, ver in sorted(v.items())])
+                    html.append(f"<tr><td>{k}</td><td>{version_str}</td></tr>")
+                else:
+                    html.append(f"<tr><td>{k}</td><td>{v}</td></tr>")
 
             html.append("</table>")
             html.append("</details>")  # Close environment section

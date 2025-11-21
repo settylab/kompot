@@ -99,6 +99,17 @@ def test_compute_differential_abundance_with_landmarks():
     assert 'landmarks_info' in adata2.uns['kompot_da']
     assert 'landmarks' not in adata2.uns['kompot_da']
 
+    # Verify package versions are stored in run info
+    from kompot.anndata.utils.runinfo import RunInfo
+    run_info = RunInfo(adata, analysis_type='da')
+    assert 'package_versions' in run_info.environment
+    pkg_versions = run_info.environment['package_versions']
+    expected_packages = ['kompot', 'anndata', 'jax', 'jaxlib', 'numpy', 'scipy', 'pandas']
+    for pkg in expected_packages:
+        assert pkg in pkg_versions, f"Package {pkg} not found in package_versions"
+        assert isinstance(pkg_versions[pkg], str)
+        assert len(pkg_versions[pkg]) > 0
+
 
 def test_compute_differential_abundance_with_custom_ls_factor():
     """Test compute_differential_abundance function with custom ls_factor."""

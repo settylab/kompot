@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
+## Next Release
+
+ - store kompot and other package versions in run info
+
 ## [0.5.2]
 
  - CSR→LIL→CSR layer conversion for faster appending of partial differential expression results

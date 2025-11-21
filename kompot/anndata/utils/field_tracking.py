@@ -272,40 +272,62 @@ def generate_output_field_names(
     return field_names
 
 
-def get_environment_info() -> Dict[str, str]:
+def get_environment_info() -> Dict[str, Any]:
     """
     Get information about the current execution environment.
-    
+
     Returns
     -------
-    Dict[str, str]
-        Dictionary with environment information
+    Dict[str, Any]
+        Dictionary with environment information including package versions
     """
     from datetime import datetime
     import platform
     import getpass
     import socket
     import os
-    
+
     try:
         hostname = socket.gethostname()
     except:
         hostname = "unknown"
-        
+
     try:
         username = getpass.getuser()
     except:
         username = "unknown"
-        
+
+    # Get package versions for key dependencies
+    package_versions = {}
+    # Core packages: kompot itself, data handling, and computation backends
+    key_packages = [
+        'kompot',      # This package
+        'anndata',     # Data structure
+        'jax',         # Main computation backend
+        'jaxlib',      # JAX implementation
+        'numpy',       # Numerical arrays
+        'scipy',       # Scientific computing
+        'pandas',      # DataFrames
+    ]
+
+    for pkg_name in key_packages:
+        try:
+            import importlib.metadata
+            version = importlib.metadata.version(pkg_name)
+            package_versions[pkg_name] = version
+        except Exception:
+            package_versions[pkg_name] = "unknown"
+
     env_info = {
         "timestamp": datetime.now().isoformat(),
         "platform": platform.platform(),
         "python_version": platform.python_version(),
         "hostname": hostname,
         "username": username,
-        "pid": os.getpid()
+        "pid": os.getpid(),
+        "package_versions": package_versions
     }
-    
+
     return env_info
 
 

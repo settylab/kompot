@@ -97,6 +97,15 @@ class TestCleanupMultipleRuns:
         assert len(run_info_2.missing_fields) == 0
         assert len(run_info_3.missing_fields) == 0
 
+        # Verify package versions are stored in run info
+        assert 'package_versions' in run_info_2.environment
+        pkg_versions = run_info_2.environment['package_versions']
+        expected_packages = ['kompot', 'anndata', 'jax', 'jaxlib', 'numpy', 'scipy', 'pandas']
+        for pkg in expected_packages:
+            assert pkg in pkg_versions, f"Package {pkg} not found in package_versions"
+            assert isinstance(pkg_versions[pkg], str)
+            assert len(pkg_versions[pkg]) > 0
+
     def test_cleanup_with_overwritten_fields(self):
         """Test cleanup when fields have been overwritten by later runs."""
         try:
