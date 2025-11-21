@@ -184,7 +184,8 @@ Diffusion maps capture continuous cell state transitions better than PCA alone:
 
 - Preserves the geometry of differentiation trajectories
 - Reduces noise while maintaining biological structure
-- Required for kompot's Mahalanobis distance calculations
+- Euclidean distance in this representation better represents biological similarity
+- Distance in cell-state representation is used by kompot's covariance kernel
 
 See the `Palantir documentation <https://github.com/dpeerlab/Palantir>`_ for details.
 
