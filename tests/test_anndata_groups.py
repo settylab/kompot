@@ -30,7 +30,8 @@ def check_group_metrics_varm(adata, result_key):
     for key in varm_keys:
         if result_key in key and "mean_lfc" in key and "_groups" in key:
             mean_lfc_key = key
-        elif result_key in key and "mahalanobis" in key and "_groups" in key:
+        elif result_key in key and "mahalanobis" in key and "_groups" in key and "fdr" not in key:
+            # Exclude FDR keys - we want the mahalanobis distances, not the FDR values
             mahalanobis_key = key
     
     # If we didn't find a mahalanobis key but found a mean key, it's ok since some tests

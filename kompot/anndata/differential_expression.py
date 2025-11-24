@@ -2365,9 +2365,15 @@ def compute_differential_expression(
                 if compute_mahalanobis:
                     varm_keys.append(field_names["mahalanobis_varm_key"])
 
-                # Only include weighted_lfc if differential_abundance_key is provided
-                if differential_abundance_key is not None:
-                    varm_keys.append(field_names["weighted_lfc_varm_key"])
+                # Add FDR-related varm keys if using null genes
+                if use_fdr and null_gene_indices and compute_mahalanobis:
+                    # Add group-wise FDR matrices
+                    varm_keys.append(f"{field_names['mahalanobis_local_fdr_key']}_groups")
+                    varm_keys.append(f"{field_names['is_de_key']}_groups")
+
+                # Add ptp if storing additional stats
+                if compute_mahalanobis and store_additional_stats:
+                    varm_keys.append(f"{field_names['ptp_key']}_groups")
 
                 
                 
@@ -2485,9 +2491,13 @@ def compute_differential_expression(
                                         ]  # Take first column otherwise
 
                                 # Check if length matches the expected length
-                                if len(subset_values) != len(selected_genes):
+                                # When null genes are used, results include both real and null genes
+                                if len(subset_values) == len(expanded_genes):
+                                    # Results include null genes, extract only real genes
+                                    subset_values = subset_values[: len(selected_genes)]
+                                elif len(subset_values) != len(selected_genes):
                                     logger.warning(
-                                        f"Subset {subset_name} {metric_name} length {len(subset_values)} doesn't match selected_genes length {len(selected_genes)}. Reshaping."
+                                        f"Subset {subset_name} {metric_name} length {len(subset_values)} doesn't match selected_genes length {len(selected_genes)} or expanded_genes length {len(expanded_genes)}. Reshaping."
                                     )
                                     if len(subset_values) < len(selected_genes):
                                         # Pad with NaNs if the array is too short
@@ -2531,9 +2541,13 @@ def compute_differential_expression(
                                         ]  # Take first column otherwise
 
                                 # Check if length matches the expected length
-                                if len(subset_values) != len(selected_genes):
+                                # When null genes are used, results include both real and null genes
+                                if len(subset_values) == len(expanded_genes):
+                                    # Results include null genes, extract only real genes
+                                    subset_values = subset_values[: len(selected_genes)]
+                                elif len(subset_values) != len(selected_genes):
                                     logger.warning(
-                                        f"Subset {subset_name} {metric_name} length {len(subset_values)} doesn't match selected_genes length {len(selected_genes)}. Reshaping."
+                                        f"Subset {subset_name} {metric_name} length {len(subset_values)} doesn't match selected_genes length {len(selected_genes)} or expanded_genes length {len(expanded_genes)}. Reshaping."
                                     )
                                     if len(subset_values) < len(selected_genes):
                                         # Pad with NaNs if the array is too short
@@ -2557,95 +2571,64 @@ def compute_differential_expression(
                                 # Assign the whole column at once
                                 adata.varm[varm_key][subset_name] = full_series
 
-                    # Handle weighted mean log fold change if needed
-                    if differential_abundance_key is not None and "fold_change" in subset_results:
-                        # Get density values for the subset
-                        cond1_safe = _sanitize_name(condition1)
-                        cond2_safe = _sanitize_name(condition2)
+                    # Compute group-wise FDR statistics if null genes were used
+                    if use_fdr and null_gene_indices and compute_mahalanobis:
+                        if "mahalanobis_distances" in subset_results:
+                            # Split subset results into real vs null genes
+                            n_real_genes = len(selected_genes)
+                            n_null_genes = len(null_gene_indices)
 
-                        density_col1 = f"{differential_abundance_key}_log_density_{cond1_safe}"
-                        density_col2 = f"{differential_abundance_key}_log_density_{cond2_safe}"
+                            all_subset_mahalanobis = subset_results["mahalanobis_distances"]
 
-                        if density_col1 in adata.obs and density_col2 in adata.obs:
-                            # Filter density values to the subset
-                            log_density_condition1 = adata.obs[density_col1][subset_mask]
-                            log_density_condition2 = adata.obs[density_col2][subset_mask]
+                            # Extract only if we have the expected length (real + null)
+                            if len(all_subset_mahalanobis) == len(expanded_genes):
+                                subset_real_mahalanobis = all_subset_mahalanobis[:n_real_genes]
+                                subset_null_mahalanobis = all_subset_mahalanobis[n_real_genes:]
 
-                            # Calculate log density difference
-                            log_density_diff = log_density_condition2 - log_density_condition1
-
-                            # Compute weighted mean fold change for the subset
-                            weighted_lfc = compute_weighted_mean_fold_change(
-                                subset_results["fold_change"], log_density_diff=log_density_diff
-                            )
-
-                            # Handle 2D arrays by taking first column if needed
-                            if isinstance(weighted_lfc, np.ndarray) and weighted_lfc.ndim == 2:
-                                if weighted_lfc.shape[1] == 1:
-                                    weighted_lfc = weighted_lfc[:, 0]
-                                else:
-                                    weighted_lfc = weighted_lfc[:, 0]  # Take first column otherwise
-
-                            # Check if length matches the expected length
-                            if len(weighted_lfc) != len(selected_genes):
-                                logger.warning(
-                                    f"Subset {subset_name} weighted_lfc length {len(weighted_lfc)} doesn't match selected_genes length {len(selected_genes)}. Reshaping."
+                                # Compute FDR statistics for this group
+                                subset_pvalues, subset_local_fdr, subset_tail_fdr, subset_is_significant = compute_fdr_statistics(
+                                    real_mahalanobis=subset_real_mahalanobis,
+                                    null_mahalanobis=subset_null_mahalanobis,
+                                    fdr_threshold=fdr_threshold,
                                 )
-                                if len(weighted_lfc) < len(selected_genes):
-                                    # Pad with NaNs if the array is too short
-                                    padding = np.full(
-                                        len(selected_genes) - len(weighted_lfc), np.nan
-                                    )
-                                    weighted_lfc = np.concatenate([weighted_lfc, padding])
-                                else:
-                                    # Truncate if the array is too long
-                                    weighted_lfc = weighted_lfc[: len(selected_genes)]
 
-                            # Add to adata.varm - DataFrame already initialized with all columns
-                            # Use standardized key from field_names
-                            varm_key = field_names["weighted_lfc_varm_key"]
+                                # Store group-wise FDR results in varm
+                                local_fdr_varm_key = f"{field_names['mahalanobis_local_fdr_key']}_groups"
+                                is_de_varm_key = f"{field_names['is_de_key']}_groups"
 
-                            # Create a Series with proper index covering all genes, initialize with NaN
-                            full_series = pd.Series(np.nan, index=adata.var_names)
-                            # Assign values only to selected genes
-                            full_series.loc[selected_genes] = weighted_lfc
-                            # Assign the whole column at once
-                            adata.varm[varm_key][subset_name] = full_series
+                                # Store local_fdr
+                                full_series = pd.Series(np.nan, index=adata.var_names)
+                                full_series.loc[selected_genes] = subset_local_fdr
+                                adata.varm[local_fdr_varm_key][subset_name] = full_series
 
-                    
-                    # Handle weighted mean log fold change if needed
-                    if differential_abundance_key is not None and "fold_change" in subset_results:
-                        # Get density values for the subset
-                        cond1_safe = _sanitize_name(condition1)
-                        cond2_safe = _sanitize_name(condition2)
-                        
-                        density_col1 = f"{differential_abundance_key}_log_density_{cond1_safe}"
-                        density_col2 = f"{differential_abundance_key}_log_density_{cond2_safe}"
-                        
-                        if density_col1 in adata.obs and density_col2 in adata.obs:
-                            # Filter density values to the subset
-                            log_density_condition1 = adata.obs[density_col1][subset_mask]
-                            log_density_condition2 = adata.obs[density_col2][subset_mask]
-                            
-                            # Calculate log density difference
-                            log_density_diff = log_density_condition2 - log_density_condition1
-                            
-                            # Compute weighted mean fold change for the subset
-                            weighted_lfc = compute_weighted_mean_fold_change(
-                                subset_results['fold_change'],
-                                log_density_diff=log_density_diff
-                            )
-                            
-                            # Add to adata.varm - DataFrame already initialized with all columns
-                            # Use standardized key from field_names
-                            varm_key = field_names["weighted_lfc_varm_key"]
-                            
-                            # Create a Series with proper index covering all genes, initialize with NaN
-                            full_series = pd.Series(np.nan, index=adata.var_names)
-                            # Assign values only to selected genes
-                            full_series[selected_genes] = weighted_lfc
-                            # Assign the whole column at once
-                            adata.varm[varm_key][subset_name] = full_series
+                                # Store is_de
+                                full_series = pd.Series(False, index=adata.var_names)
+                                full_series.loc[selected_genes] = subset_is_significant
+                                adata.varm[is_de_varm_key][subset_name] = full_series
+
+                                # Log group-specific DE summary
+                                n_group_de = np.sum(subset_is_significant)
+                                logger.info(
+                                    f"Group '{subset_name}': {n_group_de}/{n_real_genes} genes "
+                                    f"significantly DE at FDR < {fdr_threshold}"
+                                )
+
+                    # Store group-wise ptp if available
+                    if compute_mahalanobis and store_additional_stats and "ptp" in subset_results:
+                        subset_ptp = subset_results["ptp"]
+
+                        # Extract only real genes if null genes are present
+                        if len(subset_ptp) == len(expanded_genes):
+                            subset_ptp = subset_ptp[:len(selected_genes)]
+                        elif len(subset_ptp) != len(selected_genes):
+                            # Truncate if too long
+                            subset_ptp = subset_ptp[:len(selected_genes)]
+
+                        # Store in varm
+                        ptp_varm_key = f"{field_names['ptp_key']}_groups"
+                        full_series = pd.Series(np.nan, index=adata.var_names)
+                        full_series.loc[selected_genes] = subset_ptp
+                        adata.varm[ptp_varm_key][subset_name] = full_series
                 
                 
                 # No need to add columns to adata.var anymore as we're using varm exclusively
@@ -2669,25 +2652,37 @@ def compute_differential_expression(
                         "contains_subsets": subset_names,
                     }
 
-                if (
-                    differential_abundance_key is not None
-                    and field_names["weighted_lfc_varm_key"] in adata.varm
-                ):
-                    field_mapping[field_names["weighted_lfc_varm_key"]] = {
-                        "location": "varm",
-                        "type": "weighted_mean_log_fold_change",
-                        "description": "Weighted mean log fold change values for all subsets",
-                        "contains_subsets": subset_names,
-                    }
+                # Add FDR varm keys if computed
+                if use_fdr and null_gene_indices and compute_mahalanobis:
+                    local_fdr_varm_key = f"{field_names['mahalanobis_local_fdr_key']}_groups"
+                    is_de_varm_key = f"{field_names['is_de_key']}_groups"
 
-                
-                if differential_abundance_key is not None and field_names["weighted_lfc_varm_key"] in adata.varm:
-                    field_mapping[field_names["weighted_lfc_varm_key"]] = {
-                        "location": "varm",
-                        "type": "weighted_mean_log_fold_change",
-                        "description": "Weighted mean log fold change values for all subsets",
-                        "contains_subsets": subset_names
-                    }
+                    if local_fdr_varm_key in adata.varm:
+                        field_mapping[local_fdr_varm_key] = {
+                            "location": "varm",
+                            "type": "local_fdr",
+                            "description": "Local FDR values for all subsets",
+                            "contains_subsets": subset_names,
+                        }
+
+                    if is_de_varm_key in adata.varm:
+                        field_mapping[is_de_varm_key] = {
+                            "location": "varm",
+                            "type": "is_de",
+                            "description": "Differential expression significance for all subsets",
+                            "contains_subsets": subset_names,
+                        }
+
+                # Add ptp varm key if computed
+                if compute_mahalanobis and store_additional_stats:
+                    ptp_varm_key = f"{field_names['ptp_key']}_groups"
+                    if ptp_varm_key in adata.varm:
+                        field_mapping[ptp_varm_key] = {
+                            "location": "varm",
+                            "type": "ptp",
+                            "description": "Peak-to-peak values for all subsets",
+                            "contains_subsets": subset_names,
+                        }
         
         
         # Add this mapping to run info

@@ -1,9 +1,14 @@
 """Shared pytest fixtures and configuration for kompot tests."""
 
+import os
 import pytest
 import numpy as np
 import pandas as pd
 import anndata as ad
+
+# Configure JAX to use CPU only for tests (must be set before JAX import)
+os.environ['JAX_PLATFORMS'] = 'cpu'
+os.environ['JAX_ENABLE_X64'] = 'True'
 
 
 # ===== Pytest Configuration =====
