@@ -527,24 +527,13 @@ def compute_differential_expression(
 
         The ``results_dict`` contains the following keys for programmatic access:
 
-        - ``"mean_log_fold_change"``: Mean log fold change across all cells (n_genes,)
-        - ``"mahalanobis_distances"``: Mahalanobis distances for gene ranking (n_genes,)
-        - ``"imputed_expression_condition1"``: Imputed expression matrix for condition 1 (n_cells, n_genes)
-        - ``"imputed_expression_condition2"``: Imputed expression matrix for condition 2 (n_cells, n_genes)
-        - ``"log_fold_change"``: Cell-wise log fold changes (n_cells, n_genes)
-        - ``"log_fold_change_zscores"``: Z-scores of fold changes (n_cells, n_genes)
-        - ``"posterior_std_condition1"``: Posterior standard deviations for condition 1
-        - ``"posterior_std_condition2"``: Posterior standard deviations for condition 2
+        - ``"table"``: pandas DataFrame with gene-level results, indexed by gene names.
+          Columns: ``mean_lfc`` (mean log fold change). If FDR is computed (``null_genes > 0``),
+          also includes: ``pvalue``, ``local_fdr``, ``tail_fdr``, ``is_de`` (significant at threshold).
+          If ``compute_mahalanobis=True``: ``mahalanobis``. If ``compute_ptp=True``: ``ptp``.
         - ``"model"``: The fitted ``DifferentialExpression`` object for additional analyses
         - ``"landmarks"``: Computed landmarks array if applicable (n_landmarks, n_features)
         - ``"field_names"``: Dictionary mapping result types to their AnnData field names
-
-        If ``null_genes`` is specified, additional FDR-related keys are included:
-
-        - ``"mahalanobis_pvalues"``: P-values from empirical null distribution (n_genes,)
-        - ``"mahalanobis_local_fdr"``: Local FDR values using empirical null estimation (n_genes,)
-        - ``"mahalanobis_tail_fdr"``: Tail-based FDR using Benjamini-Hochberg correction (n_genes,)
-        - ``"is_de"``: Boolean array indicating significant DE genes at FDR threshold (n_genes,)
 
         If ``groups`` is specified, additional group-specific keys are included:
 
@@ -1514,55 +1503,36 @@ def compute_differential_expression(
     
     
     # Create result dictionary with fixed keys for programmatic access
+    # Build results DataFrame with gene index
+    results_data = {
+        "mean_lfc": expression_results["mean_log_fold_change"],
+    }
     result_dict = {
-        "mean_log_fold_change": expression_results["mean_log_fold_change"],
-        "condition1_imputed": expression_results["condition1_imputed"],
-        "condition2_imputed": expression_results["condition2_imputed"],
-        "fold_change": expression_results["fold_change"],
-        "fold_change_zscores": expression_results["fold_change_zscores"],
         "model": diff_expression,
     }
 
-    # Add standard deviations if computed
-    if "condition1_std" in expression_results:
-        result_dict["condition1_std"] = expression_results["condition1_std"]
-    if "condition2_std" in expression_results:
-        result_dict["condition2_std"] = expression_results["condition2_std"]
-
-    # Add FDR results if computed
+    # Add FDR results to DataFrame if computed
     if fdr_results:
-        result_dict.update(
-            {
-                "mahalanobis_pvalues": fdr_results["pvalues"],
-                "mahalanobis_local_fdr": fdr_results["local_fdr_values"],
-                "mahalanobis_tail_fdr": fdr_results["tail_fdr_values"],
-                "is_differentially_expressed": fdr_results["is_significant"],
-                "fdr_summary": fdr_results["summary_stats"],
-            }
-        )
+        results_data["pvalue"] = fdr_results["pvalues"]
+        results_data["local_fdr"] = fdr_results["local_fdr_values"]
+        results_data["tail_fdr"] = fdr_results["tail_fdr_values"]
+        results_data["is_de"] = fdr_results["is_significant"]
+        result_dict["fdr_summary"] = fdr_results["summary_stats"]
+
+    # Add mahalanobis distances if computed
+    if compute_mahalanobis and 'mahalanobis_distances' in expression_results:
+        results_data["mahalanobis"] = expression_results['mahalanobis_distances']
+
+    # Add ptp if available
+    if 'ptp' in expression_results:
+        results_data["ptp"] = expression_results['ptp']
+
+    # Build the results DataFrame with gene index
+    result_dict["table"] = pd.DataFrame(results_data, index=selected_genes)
 
     # Add underrepresentation info if available
     if "underrep" in locals():
         result_dict["underrepresentation"] = underrep
-        if "auto_filter" in locals() and auto_filter:
-            result_dict["auto_filtered"] = True
-
-    # Add optional result fields
-    if compute_mahalanobis:
-        result_dict["mahalanobis_distances"] = expression_results["mahalanobis_distances"]
-
-    if "weighted_mean_log_fold_change" in expression_results:
-        result_dict["weighted_mean_log_fold_change"] = expression_results[
-            "weighted_mean_log_fold_change"
-        ]
-
-    if 'mahalanobis_distances' in expression_results:
-        result_dict["mahalanobis_distances"] = expression_results['mahalanobis_distances']
-
-    # Add log10-ptp if available
-    if 'ptp' in expression_results:
-        result_dict["ptp"] = expression_results['ptp']
-
 
     # Add landmarks to result dictionary if they were computed
     if (
@@ -2164,6 +2134,7 @@ def compute_differential_expression(
             "copy": copy,
             "inplace": inplace,
             "overwrite": overwrite,
+            **function_kwargs
         }
 
         # Get storage usage stats if disk storage was used

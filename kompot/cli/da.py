@@ -44,8 +44,13 @@ def add_da_parser(subparsers) -> argparse.ArgumentParser:
     parser.add_argument(
         '-o', '--output',
         type=str,
-        required=True,
-        help='Output AnnData file (.h5ad or .zarr)'
+        help='Output AnnData file (.h5ad or .zarr). Required unless --table-output is specified.'
+    )
+
+    parser.add_argument(
+        '-t', '--table-output',
+        type=str,
+        help='Output only the DA results as a table (.csv or .tsv). Contains cell-level statistics from adata.obs.'
     )
 
     # Config file
@@ -78,14 +83,12 @@ def add_da_parser(subparsers) -> argparse.ArgumentParser:
     parser.add_argument(
         '--obsm-key',
         type=str,
-        default='X_pca',
-        help='Key in adata.obsm for cell states (default: X_pca)'
+        help='Key in adata.obsm for cell states (default: DM_EigenVectors)'
     )
 
     parser.add_argument(
         '--result-key',
         type=str,
-        default='kompot_da',
         help='Key for storing results in adata.uns (default: kompot_da)'
     )
 
@@ -104,27 +107,24 @@ def add_da_parser(subparsers) -> argparse.ArgumentParser:
     parser.add_argument(
         '--batch-size',
         type=int,
-        help='Batch size for memory-efficient processing (default: None)'
+        help='Batch size for memory-efficient processing (default: 0, no batching)'
     )
 
     parser.add_argument(
         '--log-fold-change-threshold',
         type=float,
-        default=1.0,
         help='Threshold for log fold change significance (default: 1.0)'
     )
 
     parser.add_argument(
         '--ptp-threshold',
         type=float,
-        default=0.05,
         help='Posterior tail probability threshold (default: 0.05)'
     )
 
     parser.add_argument(
         '--ls-factor',
         type=float,
-        default=10.0,
         help='Length scale multiplication factor (default: 10.0)'
     )
 
@@ -161,6 +161,11 @@ def run_da(args):
     args
         Parsed arguments from argparse
     """
+    # Validate output arguments
+    if not args.output and not args.table_output:
+        logger.error("Either --output or --table-output must be specified")
+        sys.exit(1)
+
     # Validate input file
     input_path = validate_anndata_path(args.input)
 
@@ -177,7 +182,7 @@ def run_da(args):
     # Convert args to dict, removing None values and CLI-specific args
     args_dict = {
         k: v for k, v in vars(args).items()
-        if v is not None and k not in ['input', 'output', 'config', 'func', 'verbose', 'command']
+        if v is not None and k not in ['input', 'output', 'table_output', 'config', 'func', 'verbose', 'command']
     }
 
     # Rename CLI args to match function parameters
@@ -217,23 +222,46 @@ def run_da(args):
     logger.info(f"  Condition 2: {params['condition2']}")
     logger.info(f"  ObsM key: {params.get('obsm_key', 'X_pca')}")
 
-    # Run analysis
+    # Run analysis - use return_full_results if table output is requested
     try:
-        compute_differential_abundance(adata, **params)
+        if args.table_output:
+            result_dict = compute_differential_abundance(adata, return_full_results=True, **params)
+        else:
+            compute_differential_abundance(adata, **params)
+            result_dict = None
     except Exception as e:
         logger.error(f"Analysis failed: {str(e)}")
         raise
 
-    # Save output
-    output_path = Path(args.output)
-    logger.info(f"Saving results to {output_path}")
+    # Save AnnData output if specified
+    if args.output:
+        output_path = Path(args.output)
+        logger.info(f"Saving results to {output_path}")
 
-    if str(output_path).endswith('.h5ad'):
-        adata.write_h5ad(output_path)
-    elif str(output_path).endswith('.zarr'):
-        adata.write_zarr(output_path)
-    else:
-        logger.error(f"Unsupported output format: {output_path.suffix}. Use .h5ad or .zarr")
-        sys.exit(1)
+        if str(output_path).endswith('.h5ad'):
+            adata.write_h5ad(output_path)
+        elif str(output_path).endswith('.zarr'):
+            adata.write_zarr(output_path)
+        else:
+            logger.error(f"Unsupported output format: {output_path.suffix}. Use .h5ad or .zarr")
+            sys.exit(1)
+
+    # Save table output if specified
+    if args.table_output:
+        table_path = Path(args.table_output)
+        logger.info(f"Saving DA results table to {table_path}")
+
+        output_df = result_dict["table"]
+
+        # Determine separator based on file extension
+        if str(table_path).endswith('.tsv'):
+            output_df.to_csv(table_path, sep='\t')
+        elif str(table_path).endswith('.csv'):
+            output_df.to_csv(table_path)
+        else:
+            logger.error(f"Unsupported table format: {table_path.suffix}. Use .csv or .tsv")
+            sys.exit(1)
+
+        logger.info(f"Saved {len(output_df.columns)} columns for {len(output_df)} cells")
 
     logger.info("Differential abundance analysis completed successfully")

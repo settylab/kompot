@@ -285,10 +285,11 @@ class TestStoreAdditionalStats:
             n_landmarks=5
         )
 
-        # Check that results dictionary has all measures
-        assert 'mahalanobis_pvalues' in results
-        assert 'mahalanobis_local_fdr' in results
-        assert 'mahalanobis_tail_fdr' in results
+        # Check that results dictionary has all measures in table DataFrame
+        assert 'table' in results
+        assert 'pvalue' in results['table'].columns
+        assert 'local_fdr' in results['table'].columns
+        assert 'tail_fdr' in results['table'].columns
 
         # Check that adata has corresponding columns
         assert 'test_consistency_A_to_B_mahalanobis_pvalue' in adata.var.columns
@@ -297,7 +298,7 @@ class TestStoreAdditionalStats:
 
         # Check that values match
         np.testing.assert_array_equal(
-            results['mahalanobis_pvalues'],
+            results['table']['pvalue'].values,
             adata.var['test_consistency_A_to_B_mahalanobis_pvalue'].values
         )
 
@@ -325,14 +326,15 @@ class TestStoreAdditionalStats:
             n_landmarks=5
         )
 
-        # Check that results dictionary includes all measures
-        assert 'mahalanobis_pvalues' in results
-        assert 'mahalanobis_local_fdr' in results
-        assert 'mahalanobis_tail_fdr' in results
-        assert 'is_differentially_expressed' in results
+        # Check that results dictionary includes all measures in table DataFrame
+        assert 'table' in results
+        assert 'pvalue' in results['table'].columns
+        assert 'local_fdr' in results['table'].columns
+        assert 'tail_fdr' in results['table'].columns
+        assert 'is_de' in results['table'].columns
 
         # Check shapes
-        assert len(results['mahalanobis_pvalues']) == adata.n_vars
-        assert len(results['mahalanobis_local_fdr']) == adata.n_vars
-        assert len(results['mahalanobis_tail_fdr']) == adata.n_vars
-        assert len(results['is_differentially_expressed']) == adata.n_vars
+        assert len(results['table']['pvalue']) == adata.n_vars
+        assert len(results['table']['local_fdr']) == adata.n_vars
+        assert len(results['table']['tail_fdr']) == adata.n_vars
+        assert len(results['table']['is_de']) == adata.n_vars

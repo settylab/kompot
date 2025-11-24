@@ -151,7 +151,8 @@ class TestDifferentialExpressionCoverage:
         )
         
         assert isinstance(result, dict)
-        assert 'mean_log_fold_change' in result
+        assert 'table' in result
+        assert 'mean_lfc' in result['table'].columns
         assert 'model' in result
 
     def test_compute_differential_expression_with_layer(self, basic_adata):
@@ -173,7 +174,8 @@ class TestDifferentialExpressionCoverage:
         )
         
         assert isinstance(result, dict)
-        assert 'mean_log_fold_change' in result
+        assert 'table' in result
+        assert 'mean_lfc' in result['table'].columns
 
     def test_compute_differential_expression_with_genes_subset(self, basic_adata):
         """Test compute_differential_expression with specific genes."""
@@ -194,7 +196,8 @@ class TestDifferentialExpressionCoverage:
         )
         
         assert isinstance(result, dict)
-        assert 'mean_log_fold_change' in result
+        assert 'table' in result
+        assert 'mean_lfc' in result['table'].columns
 
     def test_compute_differential_expression_with_landmarks(self, basic_adata):
         """Test compute_differential_expression with provided landmarks."""
@@ -215,7 +218,8 @@ class TestDifferentialExpressionCoverage:
         )
         
         assert isinstance(result, dict)
-        assert 'mean_log_fold_change' in result
+        assert 'table' in result
+        assert 'mean_lfc' in result['table'].columns
 
     def test_compute_differential_expression_with_cell_filter(self, basic_adata):
         """Test compute_differential_expression with cell filtering."""
@@ -255,7 +259,8 @@ class TestDifferentialExpressionCoverage:
             )
             
             assert isinstance(result, dict)
-            assert 'mean_log_fold_change' in result
+            assert 'table' in result
+            assert 'mean_lfc' in result['table'].columns
 
     def test_compute_differential_expression_with_copy(self, basic_adata):
         """Test compute_differential_expression with copy=True."""
@@ -300,9 +305,10 @@ class TestDifferentialExpressionCoverage:
         )
         
         assert isinstance(result, dict)
-        assert 'mean_log_fold_change' in result
-        # Should not have FDR-related keys
-        assert 'is_differentially_expressed' not in result
+        assert 'table' in result
+        assert 'mean_lfc' in result['table'].columns
+        # Should not have FDR-related columns
+        assert 'is_de' not in result['table'].columns
 
     def test_compute_differential_expression_with_single_condition_variance(self, basic_adata):
         """Test compute_differential_expression with allow_single_condition_variance."""
@@ -320,7 +326,8 @@ class TestDifferentialExpressionCoverage:
         )
         
         assert isinstance(result, dict)
-        assert 'mean_log_fold_change' in result
+        assert 'table' in result
+        assert 'mean_lfc' in result['table'].columns
 
     def test_compute_differential_expression_store_landmarks(self, basic_adata):
         """Test compute_differential_expression with store_landmarks=True."""
@@ -338,8 +345,9 @@ class TestDifferentialExpressionCoverage:
         )
         
         assert isinstance(result, dict)
-        assert 'mean_log_fold_change' in result
-        
+        assert 'table' in result
+        assert 'mean_lfc' in result['table'].columns
+
         # Check that landmarks were stored
         assert 'kompot_de' in basic_adata.uns
 
@@ -360,7 +368,8 @@ class TestDifferentialExpressionCoverage:
         )
         
         assert isinstance(result, dict)
-        assert 'mean_log_fold_change' in result
+        assert 'table' in result
+        assert 'mean_lfc' in result['table'].columns
 
     def test_compute_differential_expression_custom_parameters(self, basic_adata):
         """Test compute_differential_expression with custom sigma, ls, eps parameters."""
@@ -380,7 +389,8 @@ class TestDifferentialExpressionCoverage:
         )
         
         assert isinstance(result, dict)
-        assert 'mean_log_fold_change' in result
+        assert 'table' in result
+        assert 'mean_lfc' in result['table'].columns
 
     def test_compute_differential_expression_progress_disabled(self, basic_adata):
         """Test compute_differential_expression with progress=False."""
@@ -398,7 +408,8 @@ class TestDifferentialExpressionCoverage:
         )
         
         assert isinstance(result, dict)
-        assert 'mean_log_fold_change' in result
+        assert 'table' in result
+        assert 'mean_lfc' in result['table'].columns
 
     def test_compute_differential_expression_batch_size(self, basic_adata):
         """Test compute_differential_expression with different batch sizes."""
@@ -416,7 +427,8 @@ class TestDifferentialExpressionCoverage:
         )
         
         assert isinstance(result, dict)
-        assert 'mean_log_fold_change' in result
+        assert 'table' in result
+        assert 'mean_lfc' in result['table'].columns
 
     def test_compute_differential_expression_store_posterior_covariance(self, basic_adata):
         """Test compute_differential_expression with store_posterior_covariance."""
@@ -434,4 +446,5 @@ class TestDifferentialExpressionCoverage:
         )
         
         assert isinstance(result, dict)
-        assert 'mean_log_fold_change' in result
+        assert 'table' in result
+        assert 'mean_lfc' in result['table'].columns

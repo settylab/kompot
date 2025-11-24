@@ -79,12 +79,12 @@ class TestFDRIntegration:
             store_additional_stats=True  # Store all statistical measures
         )
         
-        # Check FDR results are present
-        fdr_keys = ['mahalanobis_pvalues', 'mahalanobis_local_fdr', 
-                   'mahalanobis_tail_fdr', 'is_differentially_expressed']
-        for key in fdr_keys:
-            assert key in results, f"Missing key: {key}"
-            assert len(results[key]) == adata.n_vars
+        # Check FDR results are present in table DataFrame
+        assert 'table' in results, "Missing table in results"
+        table_cols = ['pvalue', 'local_fdr', 'is_de']
+        for col in table_cols:
+            assert col in results['table'].columns, f"Missing column: {col}"
+            assert len(results['table'][col]) == adata.n_vars
         
         # Check AnnData columns (including new ptp column)
         fdr_columns = ['test_fdr_Ctrl_to_Treat_mahalanobis_pvalue', 'test_fdr_Ctrl_to_Treat_mahalanobis_local_fdr',
@@ -135,14 +135,14 @@ class TestFDRIntegration:
             overwrite=True
         )
         
-        # Should not have FDR results
-        fdr_keys = ['mahalanobis_pvalues', 'mahalanobis_local_fdr', 
-                   'mahalanobis_tail_fdr', 'is_differentially_expressed']
-        for key in fdr_keys:
-            assert key not in results, f"Should not have key when disabled: {key}"
-        
+        # Should not have FDR results in table
+        assert 'table' in results
+        fdr_cols = ['pvalue', 'local_fdr', 'tail_fdr', 'is_de']
+        for col in fdr_cols:
+            assert col not in results['table'].columns, f"Should not have column when disabled: {col}"
+
         # Should still have regular results
-        assert 'mahalanobis_distances' in results
+        assert 'mahalanobis' in results['table'].columns
         
         # Should not have FDR columns
         fdr_columns = ['no_fdr_test_mahalanobis_pvalue', 'no_fdr_test_mahalanobis_local_fdr',
@@ -178,15 +178,15 @@ class TestFDRIntegration:
         
         # P-values should be identical
         np.testing.assert_array_equal(
-            results1['mahalanobis_pvalues'],
-            results2['mahalanobis_pvalues'],
+            results1['table']['pvalue'].values,
+            results2['table']['pvalue'].values,
             err_msg="P-values should be reproducible"
         )
-        
+
         # DE calls should be identical
         np.testing.assert_array_equal(
-            results1['is_differentially_expressed'],
-            results2['is_differentially_expressed'],
+            results1['table']['is_de'].values,
+            results2['table']['is_de'].values,
             err_msg="DE calls should be reproducible"
         )
     
@@ -217,8 +217,8 @@ class TestFDRIntegration:
         )
 
         # Should work with specific indices
-        assert 'mahalanobis_pvalues' in results
-        assert len(results['mahalanobis_pvalues']) == adata.n_vars
+        assert 'pvalue' in results['table'].columns
+        assert len(results['table']['pvalue']) == adata.n_vars
     
     def test_fdr_thresholds(self):
         """Test different FDR thresholds."""
@@ -246,8 +246,8 @@ class TestFDRIntegration:
             store_additional_stats=True  # Store all statistical measures
         )
         
-        n_strict = np.sum(results_strict['is_differentially_expressed'])
-        n_lenient = np.sum(results_lenient['is_differentially_expressed'])
+        n_strict = np.sum(results_strict['table']['is_de'])
+        n_lenient = np.sum(results_lenient['table']['is_de'])
         
         # Lenient threshold should detect more genes
         assert n_lenient >= n_strict, "Lenient threshold should detect >= genes than strict"
@@ -272,8 +272,8 @@ class TestFDRIntegration:
         )
         
         # Should work without errors
-        assert 'mean_log_fold_change' in results
-        assert 'mahalanobis_distances' in results
+        assert 'mean_lfc' in results['table'].columns
+        assert 'mahalanobis' in results['table'].columns
 
 
 if __name__ == "__main__":

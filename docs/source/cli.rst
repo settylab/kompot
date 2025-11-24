@@ -198,6 +198,9 @@ Basic Usage
 .. code-block:: bash
 
    kompot de INPUT -o OUTPUT [OPTIONS]
+   kompot de INPUT -t TABLE_OUTPUT [OPTIONS]
+
+At least one output must be specified: ``-o/--output`` for full AnnData or ``-t/--table-output`` for CSV/TSV table.
 
 Required Parameters
 ^^^^^^^^^^^^^^^^^^^
@@ -208,12 +211,22 @@ Either via CLI or config file:
 - ``--condition1 LABEL`` - Reference condition label
 - ``--condition2 LABEL`` - Comparison condition label
 
+Output Options
+^^^^^^^^^^^^^^
+
+.. code-block:: text
+
+   -o, --output FILE         # Output AnnData file (.h5ad or .zarr)
+   -t, --table-output FILE   # Output DE results as table (.csv or .tsv)
+
+The ``--table-output`` option exports only the kompot-produced columns from ``adata.var`` (gene-level statistics like mahalanobis distance, log fold change, FDR, etc.). This is useful for downstream analysis or integration with other tools.
+
 Common Options
 ^^^^^^^^^^^^^^
 
 .. code-block:: text
 
-   --obsm-key KEY            # Cell state representation (default: X_pca)
+   --obsm-key KEY            # Cell state representation (default: DM_EigenVectors)
    --layer LAYER             # Expression data layer (default: None, use X)
    --result-key KEY          # Storage key (default: kompot_de)
    --n-landmarks N           # Number of landmarks (default: 5000)
@@ -267,6 +280,9 @@ Basic Usage
 .. code-block:: bash
 
    kompot da INPUT -o OUTPUT [OPTIONS]
+   kompot da INPUT -t TABLE_OUTPUT [OPTIONS]
+
+At least one output must be specified: ``-o/--output`` for full AnnData or ``-t/--table-output`` for CSV/TSV table.
 
 Required Parameters
 ^^^^^^^^^^^^^^^^^^^
@@ -276,6 +292,16 @@ Either via CLI or config file:
 - ``--groupby COLUMN`` - Column in ``adata.obs`` with condition labels
 - ``--condition1 LABEL`` - Reference condition label
 - ``--condition2 LABEL`` - Comparison condition label
+
+Output Options
+^^^^^^^^^^^^^^
+
+.. code-block:: text
+
+   -o, --output FILE         # Output AnnData file (.h5ad or .zarr)
+   -t, --table-output FILE   # Output DA results as table (.csv or .tsv)
+
+The ``--table-output`` option exports only the kompot-produced columns from ``adata.obs`` (cell-level statistics like log fold change, z-scores, PTP values, etc.). This is useful for downstream analysis or integration with other tools.
 
 Common Options
 ^^^^^^^^^^^^^^

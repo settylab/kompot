@@ -151,18 +151,18 @@ def test_sample_col_parameter():
     # Check that the two models produce similar results
     # The log fold change values should be similar (allowing for numerical differences due to fewer landmarks)
     np.testing.assert_allclose(
-        result['log_fold_change'], 
-        result_no_samples['log_fold_change'],
+        result['table']['lfc'].values,
+        result_no_samples['table']['lfc'].values,
         rtol=1e-3, atol=1e-3  # More tolerant comparison for faster tests
     )
-    
-    # Check that both models have valid outputs 
-    assert 'neg_log10_fold_change_ptp' in result
-    assert 'neg_log10_fold_change_ptp' in result_no_samples
-    
+
+    # Check that both models have valid outputs
+    assert 'neg_log10_ptp' in result['table'].columns
+    assert 'neg_log10_ptp' in result_no_samples['table'].columns
+
     # Check that both models have the direction classifications
-    assert 'log_fold_change_direction' in result
-    assert 'log_fold_change_direction' in result_no_samples
+    assert 'direction' in result['table'].columns
+    assert 'direction' in result_no_samples['table'].columns
     
     # Check if the variance predictors were used
     assert result['model'].variance_predictor1 is not None

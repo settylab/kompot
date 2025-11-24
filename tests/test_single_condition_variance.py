@@ -49,12 +49,12 @@ class TestSingleConditionVariance:
             inplace=False,
             return_full_results=True
         )
-        
+
         # Should complete successfully
         assert isinstance(results, dict)
-        assert 'mahalanobis_distances' in results
-        assert 'fold_change' in results
-        
+        assert 'mahalanobis' in results['table'].columns
+        assert 'mean_lfc' in results['table'].columns
+
     def test_de_single_condition_variance_disabled(self):
         """Test DE with allow_single_condition_variance=False (default)."""
         with pytest.raises(ValueError, match="At least 2 groups with sufficient cells"):
@@ -85,8 +85,8 @@ class TestSingleConditionVariance:
         
         # Should complete successfully
         assert isinstance(results, dict)
-        assert 'log_fold_change' in results
-        assert 'neg_log10_fold_change_ptp' in results
+        assert 'lfc' in results['table'].columns
+        assert 'neg_log10_ptp' in results['table'].columns
         
     def test_da_single_condition_variance_disabled(self):
         """Test DA with allow_single_condition_variance=False (default)."""
@@ -122,8 +122,8 @@ class TestSingleConditionVariance:
         )
         
         assert isinstance(results, dict)
-        assert 'mahalanobis_distances' in results
-        
+        assert 'mahalanobis' in results['table'].columns
+
     def test_no_sample_col_works_normally(self):
         """Test that cases without sample_col work normally regardless of flag."""
         # Without sample_col, the flag should have no effect
@@ -155,8 +155,8 @@ class TestSingleConditionVariance:
         assert isinstance(results1, dict)
         assert isinstance(results2, dict)
         np.testing.assert_allclose(
-            results1['mahalanobis_distances'], 
-            results2['mahalanobis_distances'], 
+            results1['table']['mahalanobis'].values,
+            results2['table']['mahalanobis'].values,
             rtol=1e-3
         )
         
@@ -182,9 +182,9 @@ class TestSingleConditionVariance:
         
         # Should complete successfully
         assert isinstance(results, dict)
-        assert 'mahalanobis_distances' in results
-        assert 'fold_change' in results
-        
+        assert 'mahalanobis' in results['table'].columns
+        assert 'mean_lfc' in results['table'].columns
+
         # Test the reverse case (condition 1 fails, condition 2 succeeds)
         samples_reverse = ['sample1'] * 50 + ['sample2'] * 25 + ['sample3'] * 25  # cond1 has only one sample
         self.adata.obs['sample_reverse'] = pd.Categorical(samples_reverse)
@@ -203,9 +203,9 @@ class TestSingleConditionVariance:
         
         # Should also complete successfully
         assert isinstance(results_reverse, dict)
-        assert 'mahalanobis_distances' in results_reverse
-        assert 'fold_change' in results_reverse
-        
+        assert 'mahalanobis' in results_reverse['table'].columns
+        assert 'mean_lfc' in results_reverse['table'].columns
+
     def test_both_conditions_fail_raises_error(self):
         """Test that if both conditions fail to generate variance, an error is raised."""
         # Create data where both conditions have only 1 sample each

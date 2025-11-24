@@ -208,10 +208,12 @@ def test_compute_differential_abundance_with_batch_size():
     assert result is not None
     assert isinstance(result, dict)
     
-    # Basic check for correct result shapes
-    assert result['log_fold_change'].shape[0] == adata.n_obs
-    assert result['log_fold_change_zscore'].shape[0] == adata.n_obs
-    assert result['neg_log10_fold_change_ptp'].shape[0] == adata.n_obs
+    # Basic check for correct result shapes (results are now in table DataFrame)
+    assert 'table' in result
+    assert len(result['table']) == adata.n_obs
+    assert 'lfc' in result['table'].columns
+    assert 'lfc_zscore' in result['table'].columns
+    assert 'neg_log10_ptp' in result['table'].columns
 
 
 def test_compute_differential_abundance_with_copy():

@@ -264,6 +264,119 @@ class TestCLIDifferentialExpression:
         assert result.returncode != 0
         assert 'Missing required parameters' in result.stderr or 'Missing required parameters' in result.stdout
 
+    def test_de_table_output_csv(self, sample_adata, temp_dir):
+        """Test DE with table output to CSV."""
+        input_file = Path(temp_dir) / 'input.h5ad'
+        table_file = Path(temp_dir) / 'results.csv'
+        sample_adata.write_h5ad(input_file)
+
+        # Run CLI with table output only (no AnnData output)
+        cmd = [
+            sys.executable, '-m', 'kompot.cli',
+            'de',
+            str(input_file),
+            '-t', str(table_file),
+            '--groupby', 'condition',
+            '--condition1', 'A',
+            '--condition2', 'B',
+            '--obsm-key', 'X_pca',
+            '--n-landmarks', '50',
+            '--null-genes', '10',
+            '--batch-size', '50'
+        ]
+
+        result = subprocess.run(cmd, capture_output=True, text=True)
+
+        assert result.returncode == 0, f"CLI failed: {result.stderr}"
+        assert table_file.exists()
+
+        # Verify table content
+        import pandas as pd
+        df = pd.read_csv(table_file, index_col=0)
+        assert len(df) > 0
+        # Check that kompot columns are present
+        assert any('kompot' in col or 'lfc' in col.lower() for col in df.columns)
+
+    def test_de_table_output_tsv(self, sample_adata, temp_dir):
+        """Test DE with table output to TSV."""
+        input_file = Path(temp_dir) / 'input.h5ad'
+        table_file = Path(temp_dir) / 'results.tsv'
+        sample_adata.write_h5ad(input_file)
+
+        cmd = [
+            sys.executable, '-m', 'kompot.cli',
+            'de',
+            str(input_file),
+            '-t', str(table_file),
+            '--groupby', 'condition',
+            '--condition1', 'A',
+            '--condition2', 'B',
+            '--obsm-key', 'X_pca',
+            '--n-landmarks', '50',
+            '--null-genes', '10',
+            '--batch-size', '50'
+        ]
+
+        result = subprocess.run(cmd, capture_output=True, text=True)
+
+        assert result.returncode == 0, f"CLI failed: {result.stderr}"
+        assert table_file.exists()
+
+        # Verify TSV format
+        import pandas as pd
+        df = pd.read_csv(table_file, index_col=0, sep='\t')
+        assert len(df) > 0
+
+    def test_de_both_outputs(self, sample_adata, temp_dir):
+        """Test DE with both AnnData and table outputs."""
+        input_file = Path(temp_dir) / 'input.h5ad'
+        output_file = Path(temp_dir) / 'output.h5ad'
+        table_file = Path(temp_dir) / 'results.csv'
+        sample_adata.write_h5ad(input_file)
+
+        cmd = [
+            sys.executable, '-m', 'kompot.cli',
+            'de',
+            str(input_file),
+            '-o', str(output_file),
+            '-t', str(table_file),
+            '--groupby', 'condition',
+            '--condition1', 'A',
+            '--condition2', 'B',
+            '--obsm-key', 'X_pca',
+            '--n-landmarks', '50',
+            '--null-genes', '10',
+            '--batch-size', '50'
+        ]
+
+        result = subprocess.run(cmd, capture_output=True, text=True)
+
+        assert result.returncode == 0, f"CLI failed: {result.stderr}"
+        assert output_file.exists()
+        assert table_file.exists()
+
+    def test_de_no_output_error(self, sample_adata, temp_dir):
+        """Test error when neither output nor table-output is specified."""
+        input_file = Path(temp_dir) / 'input.h5ad'
+        sample_adata.write_h5ad(input_file)
+
+        cmd = [
+            sys.executable, '-m', 'kompot.cli',
+            'de',
+            str(input_file),
+            '--groupby', 'condition',
+            '--condition1', 'A',
+            '--condition2', 'B',
+            '--obsm-key', 'X_pca'
+        ]
+
+        result = subprocess.run(cmd, capture_output=True, text=True)
+
+        assert result.returncode != 0
+        # Error message goes to stdout via logger
+        combined_output = (result.stdout + result.stderr).lower()
+        assert 'output' in combined_output or 'table-output' in combined_output
+
 
 class TestCLIDifferentialAbundance:
     """Test differential abundance CLI command."""
@@ -355,6 +468,85 @@ class TestCLIDifferentialAbundance:
         result = subprocess.run(cmd, capture_output=True, text=True)
 
         assert result.returncode == 0, f"CLI failed: {result.stderr}"
+
+    def test_da_table_output_csv(self, sample_adata, temp_dir):
+        """Test DA with table output to CSV."""
+        input_file = Path(temp_dir) / 'input.h5ad'
+        table_file = Path(temp_dir) / 'results.csv'
+        sample_adata.write_h5ad(input_file)
+
+        # Run CLI with table output only (no AnnData output)
+        cmd = [
+            sys.executable, '-m', 'kompot.cli',
+            'da',
+            str(input_file),
+            '-t', str(table_file),
+            '--groupby', 'condition',
+            '--condition1', 'A',
+            '--condition2', 'B',
+            '--obsm-key', 'X_pca'
+        ]
+
+        result = subprocess.run(cmd, capture_output=True, text=True)
+
+        assert result.returncode == 0, f"CLI failed: {result.stderr}"
+        assert table_file.exists()
+
+        # Verify table content
+        import pandas as pd
+        df = pd.read_csv(table_file, index_col=0)
+        assert len(df) > 0
+        # Check that kompot columns are present
+        assert any('kompot' in col or 'lfc' in col.lower() for col in df.columns)
+
+    def test_da_table_output_tsv(self, sample_adata, temp_dir):
+        """Test DA with table output to TSV."""
+        input_file = Path(temp_dir) / 'input.h5ad'
+        table_file = Path(temp_dir) / 'results.tsv'
+        sample_adata.write_h5ad(input_file)
+
+        cmd = [
+            sys.executable, '-m', 'kompot.cli',
+            'da',
+            str(input_file),
+            '-t', str(table_file),
+            '--groupby', 'condition',
+            '--condition1', 'A',
+            '--condition2', 'B',
+            '--obsm-key', 'X_pca'
+        ]
+
+        result = subprocess.run(cmd, capture_output=True, text=True)
+
+        assert result.returncode == 0, f"CLI failed: {result.stderr}"
+        assert table_file.exists()
+
+        # Verify TSV format
+        import pandas as pd
+        df = pd.read_csv(table_file, index_col=0, sep='\t')
+        assert len(df) > 0
+
+    def test_da_no_output_error(self, sample_adata, temp_dir):
+        """Test error when neither output nor table-output is specified."""
+        input_file = Path(temp_dir) / 'input.h5ad'
+        sample_adata.write_h5ad(input_file)
+
+        cmd = [
+            sys.executable, '-m', 'kompot.cli',
+            'da',
+            str(input_file),
+            '--groupby', 'condition',
+            '--condition1', 'A',
+            '--condition2', 'B',
+            '--obsm-key', 'X_pca'
+        ]
+
+        result = subprocess.run(cmd, capture_output=True, text=True)
+
+        assert result.returncode != 0
+        # Error message goes to stdout via logger
+        combined_output = (result.stdout + result.stderr).lower()
+        assert 'output' in combined_output or 'table-output' in combined_output
 
 
 class TestCLIDiffusionMaps:

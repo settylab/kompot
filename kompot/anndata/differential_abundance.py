@@ -144,12 +144,10 @@ def compute_differential_abundance(
 
         The ``results_dict`` contains the following keys for programmatic access:
 
-        - ``"log_fold_change"``: Cell-wise log fold change values (n_cells,)
-        - ``"log_fold_change_zscore"``: Z-scores of log fold changes (n_cells,)
-        - ``"neg_log10_fold_change_ptp"``: Negative log10 posterior tail probabilities (n_cells,)
-        - ``"log_fold_change_direction"``: Direction labels ('up', 'neutral', 'down') (n_cells,)
-        - ``"log_density_condition1"``: Log density estimates for condition 1 (n_cells,)
-        - ``"log_density_condition2"``: Log density estimates for condition 2 (n_cells,)
+        - ``"table"``: pandas DataFrame with cell-level results, indexed by cell names.
+          Columns: ``lfc`` (log fold change), ``lfc_zscore`` (z-scores),
+          ``neg_log10_ptp`` (negative log10 posterior tail probabilities),
+          ``direction`` (labels: 'up', 'neutral', 'down')
         - ``"model"``: The fitted ``DifferentialAbundance`` object for additional analyses
         - ``"landmarks"``: Computed landmarks array if applicable (n_landmarks, n_features)
         - ``"field_names"``: Dictionary mapping result types to their AnnData field names
@@ -528,7 +526,8 @@ def compute_differential_abundance(
         "result_key": result_key,
         "copy": copy,
         "inplace": inplace,
-        "overwrite": overwrite
+        "overwrite": overwrite,
+        **density_kwargs
     }
     
     current_run_info = {
@@ -653,24 +652,25 @@ def compute_differential_abundance(
         # Store back as JSON string
         set_json_metadata(adata, f"{storage_key}.anndata_fields", existing_tracking)
     
-    # Return results as a dictionary with fixed keys for programmatic access
+    # Build results DataFrame with cell index
+    results_table = pd.DataFrame({
+        "lfc": abundance_results['log_fold_change'],
+        "lfc_zscore": abundance_results['log_fold_change_zscore'],
+        "neg_log10_ptp": abundance_results['neg_log10_fold_change_ptp'],
+        "direction": abundance_results['log_fold_change_direction'],
+    }, index=adata.obs_names)
+
+    # Return results as a dictionary with table and metadata
     result_dict = {
-        "log_fold_change": abundance_results['log_fold_change'],
-        "log_fold_change_zscore": abundance_results['log_fold_change_zscore'],
-        "neg_log10_fold_change_ptp": abundance_results['neg_log10_fold_change_ptp'],  # Now using negative log10 PTPs (Posterior Tail Probabilities)
-        "log_fold_change_direction": abundance_results['log_fold_change_direction'],
-        "log_density_condition1": abundance_results['log_density_condition1'],
-        "log_density_condition2": abundance_results['log_density_condition2'],
+        "table": results_table,
         "model": diff_abundance,
+        "field_names": field_names,
     }
 
     # Add landmarks to result dictionary if they were computed
     if hasattr(diff_abundance, 'computed_landmarks') and diff_abundance.computed_landmarks is not None:
         result_dict["landmarks"] = diff_abundance.computed_landmarks
 
-    # Add field_names dictionary for programmatic access to AnnData field names
-    result_dict["field_names"] = field_names
-    
     if copy:
         if return_full_results:
             return result_dict, adata

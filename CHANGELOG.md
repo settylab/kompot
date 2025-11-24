@@ -2,7 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
-## Next Release
+## [0.6.1]
+
+ - table output for CLI
+ - default representation in CLI is diffusion maps
+ - replace `results_dict` arrays with table of result
+ - set default batch size to 0
 
 ## [0.6.0]
 
