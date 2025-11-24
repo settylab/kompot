@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## Next Release
+
+ - fix differential expression analysis using `groups`
+ - increase testing coverage
+ - thread and GPU-usage control in CLI
+
 ## [0.6.1]
 
  - table output for CLI

@@ -8,6 +8,7 @@ import anndata as ad
 
 from ..anndata import compute_differential_abundance
 from .utils import load_config, merge_args_with_config, validate_anndata_path
+from .compute_config import configure_compute
 
 
 logger = logging.getLogger("kompot.cli")
@@ -147,6 +148,19 @@ def add_da_parser(subparsers) -> argparse.ArgumentParser:
         help='Overwrite existing results without warning'
     )
 
+    # Compute configuration
+    parser.add_argument(
+        '--use-gpu',
+        action='store_true',
+        help='Use GPU for computation (requires CUDA-enabled JAX)'
+    )
+
+    parser.add_argument(
+        '--threads',
+        type=int,
+        help='Number of threads to use for JAX, NumPy, and Dask (default: all available cores)'
+    )
+
     parser.set_defaults(func=run_da)
 
     return parser
@@ -179,10 +193,25 @@ def run_da(args):
         logger.info(f"Loading configuration from {args.config}")
         config = load_config(args.config)
 
+    # Configure compute resources (must be done AFTER mellon import in compute_differential_abundance)
+    # Extract compute config before other processing
+    use_gpu = getattr(args, 'use_gpu', False)
+    n_threads = getattr(args, 'threads', None)
+
+    # Log configuration before compute setup
+    if use_gpu:
+        logger.info("GPU acceleration: ENABLED")
+    else:
+        logger.info("GPU acceleration: DISABLED (using CPU)")
+    if n_threads:
+        logger.info(f"Thread limit: {n_threads}")
+    else:
+        logger.info("Thread limit: NONE (using all available cores)")
+
     # Convert args to dict, removing None values and CLI-specific args
     args_dict = {
         k: v for k, v in vars(args).items()
-        if v is not None and k not in ['input', 'output', 'table_output', 'config', 'func', 'verbose', 'command']
+        if v is not None and k not in ['input', 'output', 'table_output', 'config', 'func', 'verbose', 'command', 'use_gpu', 'threads']
     }
 
     # Rename CLI args to match function parameters
@@ -221,6 +250,21 @@ def run_da(args):
     logger.info(f"  Condition 1: {params['condition1']}")
     logger.info(f"  Condition 2: {params['condition2']}")
     logger.info(f"  ObsM key: {params.get('obsm_key', 'X_pca')}")
+
+    # Configure computational backend
+    # This must be called AFTER mellon import (which happens in compute_differential_abundance)
+    # So we do a "lazy" import here to trigger mellon import, then configure
+    logger.info("")
+    logger.info("Configuring computational backend...")
+    try:
+        # Import mellon to trigger its JAX configuration
+        import mellon
+        # Now configure our settings (will override mellon's CPU-only default if needed)
+        configure_compute(use_gpu=use_gpu, n_threads=n_threads)
+    except Exception as e:
+        logger.warning(f"Could not configure compute backend: {e}")
+        logger.warning("Proceeding with default configuration")
+    logger.info("")
 
     # Run analysis - use return_full_results if table output is requested
     try:
