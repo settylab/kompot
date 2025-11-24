@@ -8,7 +8,7 @@ from unittest.mock import patch, MagicMock
 from kompot.anndata import compute_differential_abundance, compute_differential_expression, RunInfo
 
 
-def create_test_anndata(n_cells=100, n_genes=20):
+def create_test_anndata(n_cells=60, n_genes=20):
     """Create a test AnnData object."""
     import anndata
         

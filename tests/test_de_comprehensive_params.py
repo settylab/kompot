@@ -9,8 +9,11 @@ import tempfile
 from kompot import compute_differential_expression
 
 
-def create_de_test_data(n_cells=120, n_genes=15, with_layer=False, with_samples=True):
-    """Create test data for differential expression."""
+def create_de_test_data(n_cells=50, n_genes=15, with_layer=False, with_samples=True):
+    """Create test data for differential expression.
+
+    Optimized to use 50 cells (down from 120) for faster tests.
+    """
     np.random.seed(42)
 
     X = np.random.normal(5, 2, (n_cells, n_genes))
@@ -53,7 +56,7 @@ def test_de_with_specific_genes_list():
         condition1='A',
         condition2='B',
         genes=genes_to_test,
-        n_landmarks=40,
+        n_landmarks=10,
         null_genes=None,
         progress=False
     )
@@ -71,7 +74,7 @@ def test_de_with_layer():
         condition1='A',
         condition2='B',
         layer='raw',
-        n_landmarks=40,
+        n_landmarks=10,
         null_genes=None,
         progress=False
     )
@@ -112,7 +115,7 @@ def test_de_with_sample_variance():
         condition2='B',
         use_sample_variance=True,
         sample_col='sample',
-        n_landmarks=40,
+        n_landmarks=10,
         null_genes=None,
         progress=False
     )
@@ -131,7 +134,7 @@ def test_de_with_cell_filter_string():
         condition1='A',
         condition2='B',
         cell_filter='use_cell',
-        n_landmarks=30,
+        n_landmarks=10,
         null_genes=None,
         progress=False
     )
@@ -151,7 +154,7 @@ def test_de_with_cell_filter_dict():
         condition1='A',
         condition2='B',
         cell_filter=cell_filter,
-        n_landmarks=30,
+        n_landmarks=10,
         null_genes=None,
         progress=False
     )
@@ -169,7 +172,7 @@ def test_de_with_groups_column():
         condition1='A',
         condition2='B',
         groups='celltype',
-        n_landmarks=30,
+        n_landmarks=10,
         null_genes=None,
         progress=False
     )
@@ -193,7 +196,7 @@ def test_de_with_groups_dict():
         condition1='A',
         condition2='B',
         groups=groups_dict,
-        n_landmarks=30,
+        n_landmarks=10,
         null_genes=None,
         progress=False
     )
@@ -211,7 +214,7 @@ def test_de_store_landmarks():
         condition1='A',
         condition2='B',
         store_landmarks=True,
-        n_landmarks=30,
+        n_landmarks=10,
         null_genes=None,
         progress=False
     )
@@ -229,7 +232,7 @@ def test_de_return_full_results():
         condition1='A',
         condition2='B',
         return_full_results=True,
-        n_landmarks=30,
+        n_landmarks=10,
         null_genes=None,
         progress=False
     )
@@ -248,7 +251,7 @@ def test_de_store_posterior_covariance():
         condition1='A',
         condition2='B',
         store_posterior_covariance=True,
-        n_landmarks=30,
+        n_landmarks=10,
         null_genes=None,
         progress=False
     )
@@ -267,7 +270,7 @@ def test_de_with_disk_storage():
             condition1='A',
             condition2='B',
             disk_storage_dir=tmpdir,
-            n_landmarks=30,
+            n_landmarks=10,
             null_genes=None,
             progress=False
         )
@@ -285,7 +288,7 @@ def test_de_with_custom_ls():
         condition1='A',
         condition2='B',
         ls=0.5,
-        n_landmarks=30,
+        n_landmarks=10,
         null_genes=None,
         progress=False
     )
@@ -303,7 +306,7 @@ def test_de_with_custom_sigma():
         condition1='A',
         condition2='B',
         sigma=2.0,
-        n_landmarks=30,
+        n_landmarks=10,
         null_genes=None,
         progress=False
     )
@@ -321,7 +324,7 @@ def test_de_compute_mahalanobis_false():
         condition1='A',
         condition2='B',
         compute_mahalanobis=False,
-        n_landmarks=30,
+        n_landmarks=10,
         null_genes=None,
         progress=False
     )
@@ -339,7 +342,7 @@ def test_de_with_custom_batch_size():
         condition1='A',
         condition2='B',
         batch_size=50,
-        n_landmarks=30,
+        n_landmarks=10,
         null_genes=None,
         progress=False
     )
@@ -357,7 +360,7 @@ def test_de_with_custom_eps():
         condition1='A',
         condition2='B',
         eps=1e-10,
-        n_landmarks=30,
+        n_landmarks=10,
         null_genes=None,
         progress=False
     )
@@ -375,7 +378,7 @@ def test_de_with_random_state():
         condition1='A',
         condition2='B',
         random_state=42,
-        n_landmarks=30,
+        n_landmarks=10,
         null_genes=None,
         progress=False,
         copy=True
@@ -387,7 +390,7 @@ def test_de_with_random_state():
         condition1='A',
         condition2='B',
         random_state=42,
-        n_landmarks=30,
+        n_landmarks=10,
         null_genes=None,
         progress=False,
         copy=True
@@ -408,7 +411,7 @@ def test_de_with_min_cells():
         condition1='A',
         condition2='B',
         min_cells=5,
-        n_landmarks=30,
+        n_landmarks=10,
         null_genes=None,
         progress=False
     )
@@ -426,7 +429,7 @@ def test_de_with_min_percentage():
         condition1='A',
         condition2='B',
         min_percentage=0.05,
-        n_landmarks=30,
+        n_landmarks=10,
         null_genes=None,
         progress=False
     )
@@ -446,7 +449,7 @@ def test_de_inplace_false():
         condition1='A',
         condition2='B',
         inplace=False,
-        n_landmarks=30,
+        n_landmarks=10,
         null_genes=None,
         progress=False
     )
@@ -465,7 +468,7 @@ def test_de_store_additional_stats():
         condition1='A',
         condition2='B',
         store_additional_stats=True,
-        n_landmarks=30,
+        n_landmarks=10,
         null_genes=None,
         progress=False
     )
@@ -485,7 +488,7 @@ def test_de_with_fdr_enabled():
         null_genes=10,  # Enable FDR
         null_seed=42,
         fdr_threshold=0.1,
-        n_landmarks=30,
+        n_landmarks=10,
         progress=False
     )
 
@@ -502,7 +505,7 @@ def test_de_with_allow_single_condition_variance():
         condition1='A',
         condition2='B',
         allow_single_condition_variance=True,
-        n_landmarks=30,
+        n_landmarks=10,
         null_genes=None,
         progress=False
     )

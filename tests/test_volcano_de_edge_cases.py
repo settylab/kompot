@@ -14,7 +14,7 @@ from kompot.plot.volcano import volcano_de, _infer_de_keys
 from kompot.utils import KOMPOT_COLORS
 
 
-def create_test_anndata_edge_cases(n_cells=100, n_genes=20):
+def create_test_anndata_edge_cases(n_cells=60, n_genes=20):
     """Create a test AnnData object with edge cases for testing volcano_de."""
     import anndata
         

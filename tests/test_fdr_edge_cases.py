@@ -6,7 +6,7 @@ import pandas as pd
 import anndata
 
 
-def create_fdr_test_data(n_cells=100, n_genes=50, signal_strength=3.0, with_signal=True):
+def create_fdr_test_data(n_cells=60, n_genes=50, signal_strength=3.0, with_signal=True):
     """Create test data with controlled signal for FDR testing."""
     np.random.seed(42)
 
@@ -31,7 +31,7 @@ def test_fdr_with_strong_signal():
     """Test FDR with strong signal genes."""
     from kompot import compute_differential_expression
 
-    adata = create_fdr_test_data(n_cells=100, n_genes=50, signal_strength=5.0, with_signal=True)
+    adata = create_fdr_test_data(n_cells=60, n_genes=50, signal_strength=5.0, with_signal=True)
 
     result = compute_differential_expression(
         adata,
@@ -56,7 +56,7 @@ def test_fdr_with_no_signal():
     """Test FDR when there's no real signal (all null)."""
     from kompot import compute_differential_expression
 
-    adata = create_fdr_test_data(n_cells=100, n_genes=50, signal_strength=0.0, with_signal=False)
+    adata = create_fdr_test_data(n_cells=60, n_genes=50, signal_strength=0.0, with_signal=False)
 
     result = compute_differential_expression(
         adata,
@@ -77,7 +77,7 @@ def test_fdr_with_many_null_genes():
     """Test FDR with more null genes than real genes."""
     from kompot import compute_differential_expression
 
-    adata = create_fdr_test_data(n_cells=100, n_genes=30, signal_strength=3.0)
+    adata = create_fdr_test_data(n_cells=60, n_genes=30, signal_strength=3.0)
 
     # Use more null genes than real genes
     result = compute_differential_expression(
@@ -99,7 +99,7 @@ def test_fdr_with_few_null_genes():
     """Test FDR with very few null genes."""
     from kompot import compute_differential_expression
 
-    adata = create_fdr_test_data(n_cells=100, n_genes=50, signal_strength=3.0)
+    adata = create_fdr_test_data(n_cells=60, n_genes=50, signal_strength=3.0)
 
     result = compute_differential_expression(
         adata,
@@ -120,7 +120,7 @@ def test_fdr_with_different_thresholds():
     """Test FDR with various thresholds."""
     from kompot import compute_differential_expression
 
-    adata = create_fdr_test_data(n_cells=100, n_genes=40, signal_strength=3.0)
+    adata = create_fdr_test_data(n_cells=60, n_genes=40, signal_strength=3.0)
 
     # Test with strict threshold
     result = compute_differential_expression(
@@ -142,7 +142,7 @@ def test_fdr_with_weak_signal():
     """Test FDR with weak signal (might not reach significance)."""
     from kompot import compute_differential_expression
 
-    adata = create_fdr_test_data(n_cells=100, n_genes=50, signal_strength=0.5, with_signal=True)
+    adata = create_fdr_test_data(n_cells=60, n_genes=50, signal_strength=0.5, with_signal=True)
 
     result = compute_differential_expression(
         adata,
@@ -163,7 +163,7 @@ def test_fdr_with_return_full_results():
     """Test FDR with return_full_results to access FDR values."""
     from kompot import compute_differential_expression
 
-    adata = create_fdr_test_data(n_cells=100, n_genes=40, signal_strength=4.0)
+    adata = create_fdr_test_data(n_cells=60, n_genes=40, signal_strength=4.0)
 
     result = compute_differential_expression(
         adata,
@@ -189,7 +189,7 @@ def test_fdr_with_specific_gene_subset():
     """Test FDR calculation on a subset of genes."""
     from kompot import compute_differential_expression
 
-    adata = create_fdr_test_data(n_cells=100, n_genes=50, signal_strength=3.0)
+    adata = create_fdr_test_data(n_cells=60, n_genes=50, signal_strength=3.0)
 
     # Test FDR on subset
     genes_to_test = [f'gene_{i}' for i in range(20)]
@@ -275,7 +275,7 @@ def test_fdr_with_different_null_seeds():
     """Test FDR with different null seeds gives different null distributions."""
     from kompot import compute_differential_expression
 
-    adata = create_fdr_test_data(n_cells=100, n_genes=40, signal_strength=3.0)
+    adata = create_fdr_test_data(n_cells=60, n_genes=40, signal_strength=3.0)
 
     # Run with different null seeds
     result1 = compute_differential_expression(
@@ -312,7 +312,7 @@ def test_fdr_with_very_strict_threshold():
     """Test FDR with extremely strict threshold (likely no significant genes)."""
     from kompot import compute_differential_expression
 
-    adata = create_fdr_test_data(n_cells=100, n_genes=40, signal_strength=2.0)
+    adata = create_fdr_test_data(n_cells=60, n_genes=40, signal_strength=2.0)
 
     result = compute_differential_expression(
         adata,
@@ -333,7 +333,7 @@ def test_fdr_with_lenient_threshold():
     """Test FDR with lenient threshold."""
     from kompot import compute_differential_expression
 
-    adata = create_fdr_test_data(n_cells=100, n_genes=40, signal_strength=1.5)
+    adata = create_fdr_test_data(n_cells=60, n_genes=40, signal_strength=1.5)
 
     result = compute_differential_expression(
         adata,
@@ -354,7 +354,7 @@ def test_fdr_with_layer():
     """Test FDR calculation with a specific layer."""
     from kompot import compute_differential_expression
 
-    adata = create_fdr_test_data(n_cells=100, n_genes=40, signal_strength=3.0)
+    adata = create_fdr_test_data(n_cells=60, n_genes=40, signal_strength=3.0)
     adata.layers['raw'] = adata.X.copy() * 2.0
 
     result = compute_differential_expression(

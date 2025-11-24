@@ -5,7 +5,7 @@ import pandas as pd
 import pytest
 
 
-def create_simple_test_data(n_cells=100, n_genes=50):
+def create_simple_test_data(n_cells=60, n_genes=50):
     """Create simple test AnnData for testing."""
     import anndata as ad
 

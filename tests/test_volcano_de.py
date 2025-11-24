@@ -14,7 +14,7 @@ from kompot.plot.volcano import volcano_de, _infer_de_keys
 from kompot.utils import KOMPOT_COLORS
 
 
-def create_test_anndata(n_cells=100, n_genes=20, with_categorical=False, with_continuous=False):
+def create_test_anndata(n_cells=60, n_genes=20, with_categorical=False, with_continuous=False):
     """Create a test AnnData object with various data types for testing volcano_de."""
     import anndata
         

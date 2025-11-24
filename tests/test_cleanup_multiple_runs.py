@@ -5,7 +5,7 @@ import pandas as pd
 import pytest
 
 
-def create_test_adata_for_multiple_runs(n_cells=100, n_genes=50):
+def create_test_adata_for_multiple_runs(n_cells=60, n_genes=50):
     """Create test AnnData for cleanup testing with multiple runs."""
     import anndata as ad
 

@@ -12,7 +12,7 @@ import jax.numpy as jnp
 import anndata
 
 
-def create_test_adata_with_ptp(n_cells=100, n_genes=50):
+def create_test_adata_with_ptp(n_cells=60, n_genes=50):
     """Create test AnnData with realistic ptp values computed from Mahalanobis distances."""
     np.random.seed(42)
     

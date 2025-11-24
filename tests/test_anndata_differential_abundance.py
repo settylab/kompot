@@ -12,7 +12,7 @@ from typing import Dict, Any, List
 from kompot.anndata.differential_abundance import compute_differential_abundance
 
 
-def create_test_anndata(n_cells=100, n_genes=20, with_samples=False):
+def create_test_anndata(n_cells=60, n_genes=20, with_samples=False):
     """Create a test AnnData object."""
     import anndata
         

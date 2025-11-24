@@ -7,7 +7,7 @@ import pytest
 from tests.test_anndata_functions import create_test_anndata
 
 
-def create_test_anndata_with_differential_genes(n_cells=100, n_genes=50, n_differential=10):
+def create_test_anndata_with_differential_genes(n_cells=60, n_genes=50, n_differential=10):
     """Create test AnnData with known differential genes."""
     import anndata as ad
     
