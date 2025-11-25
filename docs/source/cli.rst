@@ -245,6 +245,14 @@ Boolean Flags
    --store-additional-stats  # Store extra statistics
    --overwrite               # Overwrite without warning
 
+Compute Options
+^^^^^^^^^^^^^^^
+
+.. code-block:: text
+
+   --use-gpu                 # Use GPU acceleration (requires CUDA-enabled JAX)
+   --threads N               # Number of threads for JAX/NumPy/Dask (default: all cores)
+
 Advanced Options
 ^^^^^^^^^^^^^^^^
 
@@ -324,6 +332,14 @@ Boolean Flags
 
    --store-landmarks         # Store landmarks for reuse
    --overwrite               # Overwrite without warning
+
+Compute Options
+^^^^^^^^^^^^^^^
+
+.. code-block:: text
+
+   --use-gpu                 # Use GPU acceleration (requires CUDA-enabled JAX)
+   --threads N               # Number of threads for JAX/NumPy/Dask (default: all cores)
 
 Example: Complete Analysis
 ^^^^^^^^^^^^^^^^^^^^^^^^^^
