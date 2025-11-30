@@ -7,7 +7,7 @@ import anndata
 from scipy import sparse
 
 
-def create_test_adata(n_cells=100, n_genes=30, sparse_data=False):
+def create_test_adata(n_cells=60, n_genes=30, sparse_data=False):
     """Create test AnnData object."""
     np.random.seed(42)
 

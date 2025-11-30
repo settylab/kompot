@@ -15,7 +15,7 @@ from kompot.plot.heatmap.direction_plot import direction_barplot, _infer_directi
 from kompot.anndata.utils.json_utils import from_json_string, to_json_string
 
 
-def create_test_anndata(n_cells=100, n_genes=20):
+def create_test_anndata(n_cells=60, n_genes=20):
     """Create a test AnnData object."""
     try:
         import anndata

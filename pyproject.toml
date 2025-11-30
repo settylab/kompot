@@ -10,8 +10,22 @@ include-package-data = false
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "--cov=kompot --cov-report=xml --cov-report=term-missing"
+# Coverage disabled by default for speed - enable with: pytest --cov=kompot
+addopts = "-v --tb=short"
 python_files = "test_*.py"
+markers = [
+    "slow: marks tests as slow (deselect with '-m not slow')",
+    "integration: marks tests as integration tests (deselect with '-m not integration')",
+    "memory: marks tests that measure memory usage",
+]
+# Filter warnings to keep output clean
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore::PendingDeprecationWarning",
+    "ignore::FutureWarning",
+    "ignore:Transforming to str index:anndata._core.aligned_df.ImplicitModificationWarning",
+    "ignore:Series.__getitem__ treating keys as positions is deprecated:FutureWarning",
+]
 
 [tool.flake8]
 max-line-length = 100
@@ -23,7 +37,7 @@ ignore = ["E203", "W503"]
 
 [project]
 name = "kompot"
-version = "0.6.1"
+version = "0.6.2"
 description = "Differential abundance and gene expression analysis using Mahalanobis distance with JAX backend"
 readme = "README.md"
 authors = [

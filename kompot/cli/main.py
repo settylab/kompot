@@ -1,15 +1,63 @@
 """Main CLI entry point for kompot."""
 import argparse
 import sys
+import os
 
-from .de import add_de_parser
-from .da import add_da_parser
-from .dm import add_dm_parser
+# DO NOT import subcommand modules here - they import NumPy which must come
+# AFTER setting thread limit environment variables
+
 from .utils import setup_logging
+
+
+def _set_early_thread_limits(args_list):
+    """
+    Set thread limit environment variables BEFORE any NumPy imports.
+
+    This parses --threads from command line args without fully parsing,
+    allowing us to set thread limits before NumPy initialization.
+
+    Parameters
+    ----------
+    args_list : list
+        Command line arguments (typically sys.argv[1:])
+    """
+    # Look for --threads or --use-gpu in args
+    n_threads = None
+
+    for i, arg in enumerate(args_list):
+        if arg == '--threads' and i + 1 < len(args_list):
+            try:
+                n_threads = int(args_list[i + 1])
+            except ValueError:
+                pass  # Will be handled by proper argparse later
+            break
+        elif arg.startswith('--threads='):
+            try:
+                n_threads = int(arg.split('=')[1])
+            except ValueError:
+                pass
+            break
+
+    # Set thread limits if specified
+    if n_threads is not None:
+        n_threads_str = str(n_threads)
+        os.environ['OMP_NUM_THREADS'] = n_threads_str
+        os.environ['MKL_NUM_THREADS'] = n_threads_str
+        os.environ['OPENBLAS_NUM_THREADS'] = n_threads_str
+        os.environ['BLAS_NUM_THREADS'] = n_threads_str
+        # Note: We can't log yet as logging isn't set up
 
 
 def main():
     """Main CLI entry point."""
+    # Set thread limits BEFORE any imports that might load NumPy
+    _set_early_thread_limits(sys.argv[1:])
+
+    # NOW we can safely import modules that use NumPy
+    from .de import add_de_parser
+    from .da import add_da_parser
+    from .dm import add_dm_parser
+
     parser = argparse.ArgumentParser(
         prog='kompot',
         description='Kompot: Differential abundance and expression analysis for single-cell data',

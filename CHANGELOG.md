@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.6.2]
+
+ - fix differential expression analysis using `groups`
+ - increase testing coverage
+ - thread and GPU-usage control in CLI
+ - fix `volcano_de` plot when the layer is `None`
+
 ## [0.6.1]
 
  - table output for CLI

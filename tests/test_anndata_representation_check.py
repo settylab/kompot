@@ -9,7 +9,7 @@ from unittest.mock import patch, MagicMock
 from kompot.anndata import compute_differential_expression, check_underrepresentation
 
 
-def create_test_anndata_with_underrepresentation(n_cells=100, n_genes=20):
+def create_test_anndata_with_underrepresentation(n_cells=60, n_genes=20):
     """Create a test AnnData object with deliberate underrepresentation."""
     import anndata
         
@@ -68,7 +68,7 @@ def create_test_anndata_with_underrepresentation(n_cells=100, n_genes=20):
 
 def test_check_underrepresentation_basic():
     """Test the basic functionality of check_underrepresentation."""
-    adata = create_test_anndata_with_underrepresentation(n_cells=100)
+    adata = create_test_anndata_with_underrepresentation(n_cells=60)
     
     print("\nDirect test of check_underrepresentation:")
     
@@ -169,7 +169,7 @@ def test_check_underrepresentation_basic():
 
 def test_check_underrepresentation_with_different_group_types():
     """Test check_underrepresentation with different types of group specifications."""
-    adata = create_test_anndata_with_underrepresentation(n_cells=100)
+    adata = create_test_anndata_with_underrepresentation(n_cells=60)
     
     # Test with string groups
     result_string = check_underrepresentation(
@@ -225,7 +225,7 @@ def test_check_underrepresentation_with_different_group_types():
 def test_compute_de_with_check_representation_none():
     """Test compute_differential_expression with check_representation=None."""
     # Create test data with deliberate underrepresentation
-    adata = create_test_anndata_with_underrepresentation(n_cells=100)
+    adata = create_test_anndata_with_underrepresentation(n_cells=60)
     
     # First run with check_representation=None (default)
     with patch('logging.Logger.warning') as mock_warning:
@@ -276,7 +276,7 @@ def test_compute_de_with_check_representation_none():
 def test_compute_de_with_check_representation_true():
     """Test compute_differential_expression with check_representation=True."""
     # Create test data with deliberate underrepresentation
-    adata = create_test_anndata_with_underrepresentation(n_cells=100)
+    adata = create_test_anndata_with_underrepresentation(n_cells=60)
     
     # Test with check_representation=True to trigger auto-filtering
     # We need to use very permissive parameters to avoid filtering all cells
@@ -331,7 +331,7 @@ def test_compute_de_with_check_representation_true_and_filter():
     from kompot.anndata.utils import refine_filter_for_underrepresentation
     
     # Create test data
-    adata = create_test_anndata_with_underrepresentation(n_cells=100)
+    adata = create_test_anndata_with_underrepresentation(n_cells=60)
     
     # Create a simple initial filter
     initial_filter = {'tissue': ['tissue2']}
@@ -401,7 +401,7 @@ def test_compute_de_with_check_representation_true_and_filter():
 def test_compute_de_with_check_representation_false():
     """Test compute_differential_expression with check_representation=False."""
     # Create test data with deliberate underrepresentation
-    adata = create_test_anndata_with_underrepresentation(n_cells=100)
+    adata = create_test_anndata_with_underrepresentation(n_cells=60)
     
     # Test with check_representation=False to skip the check
     with patch('logging.Logger.warning') as mock_warning:
@@ -442,7 +442,7 @@ def test_refine_filter_for_underrepresentation():
     from kompot.anndata.utils import refine_filter_for_underrepresentation
     
     # Create test data with deliberate underrepresentation
-    adata = create_test_anndata_with_underrepresentation(n_cells=100)
+    adata = create_test_anndata_with_underrepresentation(n_cells=60)
     
     # Create a filter mask that excludes some cells but still keeps underrepresented groups
     filter_mask = np.ones(adata.n_obs, dtype=bool)

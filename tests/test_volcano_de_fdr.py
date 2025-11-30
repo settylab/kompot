@@ -12,7 +12,7 @@ matplotlib.use("Agg")  # Use non-interactive backend to prevent windows
 
 
 def create_test_anndata_with_fdr(
-    n_cells=100, n_genes=500, n_differential=50, result_key="kompot_de"
+    n_cells=60, n_genes=500, n_differential=50, result_key="kompot_de"
 ):
     """Create a test AnnData object with comprehensive FDR data."""
     import anndata

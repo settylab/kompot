@@ -222,10 +222,10 @@ def plot_gene_expression(
         if 'layer' in params:
             inferred_layer = params['layer']
             # Don't use fold_change layers for expression visualization
-            if "fold_change" not in inferred_layer:
+            if inferred_layer is not None and "fold_change" not in inferred_layer:
                 layer = inferred_layer
                 logger.info(f"Using layer '{layer}' inferred from run information")
-            else:
+            elif inferred_layer is not None:
                 logger.info(f"Ignoring fold_change layer '{inferred_layer}' inferred from run, using adata.X instead")
             
     # Extract fold change and score for the gene

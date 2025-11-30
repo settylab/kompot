@@ -9,7 +9,7 @@ from kompot.anndata import compute_differential_expression
 from kompot.anndata.utils import get_last_run_info
 
 
-def create_test_anndata(n_cells=100, n_genes=20, with_sample_col=False):
+def create_test_anndata(n_cells=60, n_genes=20, with_sample_col=False):
     """Create a test AnnData object."""
     try:
         import anndata
