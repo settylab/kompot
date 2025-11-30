@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## Next Release
+## [0.6.2]
 
  - fix differential expression analysis using `groups`
  - increase testing coverage
