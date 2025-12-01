@@ -69,12 +69,17 @@ def copy_nbsphinx_images_and_fix_paths(app, exception):
     import re
 
     # Source: where nbsphinx extracts base64 images
-    doctrees_nbsphinx = Path(app.outdir).parent / 'doctrees' / 'nbsphinx'
+    # Use app.doctreedir which is the actual doctrees path set by -d option
+    doctrees_nbsphinx = Path(app.doctreedir) / 'nbsphinx'
 
     # Destination: where Sphinx serves images from
     html_images = Path(app.outdir) / '_images'
 
+    print(f'Checking for images in: {doctrees_nbsphinx}')
+    print(f'Output directory: {app.outdir}')
+
     if not doctrees_nbsphinx.exists():
+        print(f'Directory {doctrees_nbsphinx} does not exist, skipping image copy')
         return
 
     html_images.mkdir(exist_ok=True, parents=True)
