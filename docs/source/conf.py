@@ -53,20 +53,62 @@ extensions = [
 nbsphinx_prompt_width = '0'
 
 # Configure nbsphinx execution behavior
-# On ReadTheDocs, use 'auto' to skip already-executed cells but allow image extraction
-# This ensures images are properly extracted from notebook outputs to the HTML output directory
-if os.environ.get('READTHEDOCS') == 'True':
-    nbsphinx_execute = 'auto'
-    nbsphinx_allow_errors = True
-    # Set reasonable timeout for any cells that need execution
-    nbsphinx_timeout = 300  # 5 minutes max per cell
-else:
-    nbsphinx_allow_errors = False
-    # Add custom CSS to handle plot aspect ratios and table of contents
-    nbsphinx_execute_arguments = [
-        "--InlineBackend.figure_formats={'png'}",
-        "--InlineBackend.rc={'figure.figsize': (8, 6), 'figure.dpi': 100, 'savefig.bbox': 'tight', 'savefig.transparent': True}",
-    ]
+# Never execute notebooks - use existing outputs
+nbsphinx_execute = 'never'
+nbsphinx_allow_errors = True
+
+
+# Copy extracted images from _build/doctrees to _images after build and fix HTML paths
+def copy_nbsphinx_images_and_fix_paths(app, exception):
+    """Copy nbsphinx extracted images to _images and fix HTML references."""
+    if exception is not None:
+        return
+
+    import shutil
+    from pathlib import Path
+    import re
+
+    # Source: where nbsphinx extracts base64 images
+    doctrees_nbsphinx = Path(app.outdir).parent / 'doctrees' / 'nbsphinx'
+
+    # Destination: where Sphinx serves images from
+    html_images = Path(app.outdir) / '_images'
+
+    if not doctrees_nbsphinx.exists():
+        return
+
+    html_images.mkdir(exist_ok=True, parents=True)
+
+    # Copy all PNG files from nbsphinx cache to _images
+    copied_images = set()
+    for img_file in doctrees_nbsphinx.glob('*.png'):
+        dest = html_images / img_file.name
+        if not dest.exists():
+            shutil.copy2(img_file, dest)
+            copied_images.add(img_file.name)
+            print(f'Copied {img_file.name} to _images/')
+
+    if not copied_images:
+        return
+
+    # Fix image paths in HTML files
+    # Pattern: ../../_build/doctrees/nbsphinx/IMAGE.png -> ../_images/IMAGE.png
+    pattern = re.compile(r'\.\./\.\./\_build/doctrees/nbsphinx/([^"\']+\.png)')
+    replacement = r'../_images/\1'
+
+    notebooks_dir = Path(app.outdir) / 'notebooks'
+    if notebooks_dir.exists():
+        for html_file in notebooks_dir.glob('*.html'):
+            content = html_file.read_text(encoding='utf-8')
+            new_content = pattern.sub(replacement, content)
+            if new_content != content:
+                html_file.write_text(new_content, encoding='utf-8')
+                print(f'Fixed image paths in {html_file.name}')
+
+
+def setup(app):
+    """Setup function to register Sphinx event handlers."""
+    app.connect('build-finished', copy_nbsphinx_images_and_fix_paths)
 
 # Add a prolog to control figure rendering
 nbsphinx_prolog = """
