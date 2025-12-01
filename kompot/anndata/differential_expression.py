@@ -34,246 +34,6 @@ from .fdr_utils import (
 logger = logging.getLogger("kompot")
 
 
-def _prepare_null_genes(
-    null_genes: Union[int, List[int], None], available_genes: List[str], null_seed: Optional[int]
-) -> tuple[List[int], bool]:
-    """
-    Select null genes for FDR calculation.
-
-    Args:
-        null_genes: Specification of null genes (int for random sampling, list for specific genes, None to disable)
-        available_genes: List of available gene names
-        null_seed: Random seed for reproducible selection
-
-    Returns:
-        (null_gene_indices, used_replacement): List of gene indices and whether sampling with replacement was used
-    """
-    if null_genes is None or null_genes == 0:
-        return [], False
-
-    n_available = len(available_genes)
-
-    if isinstance(null_genes, int):
-        if null_genes <= 0:
-            raise ValueError(f"null_genes must be positive, got {null_genes}")
-
-        rng = np.random.RandomState(null_seed)
-
-        if null_genes > n_available:
-            logger.warning(
-                f"Requested {null_genes} null genes but only {n_available} genes available. "
-                f"Using sampling with replacement."
-            )
-            null_gene_indices = rng.choice(n_available, size=null_genes, replace=True).tolist()
-            used_replacement = True
-        else:
-            null_gene_indices = rng.choice(n_available, size=null_genes, replace=False).tolist()
-            used_replacement = False
-
-    elif isinstance(null_genes, list):
-        null_gene_indices = null_genes.copy()
-        used_replacement = False
-
-        if not all(isinstance(idx, int) for idx in null_gene_indices):
-            raise ValueError("All elements in null_genes list must be integers")
-
-        invalid_indices = [idx for idx in null_gene_indices if idx < 0 or idx >= n_available]
-        if invalid_indices:
-            raise ValueError(
-                f"Invalid gene indices: {invalid_indices}. Must be between 0 and {n_available-1}"
-            )
-
-    else:
-        raise ValueError(f"null_genes must be int, list of ints, or None, got {type(null_genes)}")
-
-    return null_gene_indices, used_replacement
-
-
-def _generate_shuffled_expression(
-    expr1: np.ndarray, expr2: np.ndarray, null_gene_indices: List[int], null_seed: Optional[int]
-) -> tuple[np.ndarray, np.ndarray]:
-    """
-    Generate shuffled expression matrices for null genes.
-
-    Each gene gets differently shuffled expression values between conditions to break
-    the association between cell state and gene expression.
-
-    Args:
-        expr1: Expression matrix for condition 1 (cells x genes)
-        expr2: Expression matrix for condition 2 (cells x genes)
-        null_gene_indices: Indices of genes to use for null distribution
-        null_seed: Random seed for reproducible shuffling
-
-    Returns:
-        (shuffled_expr1, shuffled_expr2): Expression matrices with shuffled values between conditions
-    """
-    if not null_gene_indices:
-        return np.empty((expr1.shape[0], 0)), np.empty((expr2.shape[0], 0))
-
-    # Combine expression matrices
-    combined_expr = np.vstack([expr1, expr2])
-    n_cells_1 = expr1.shape[0]
-    n_cells_2 = expr2.shape[0]
-
-    # Initialize output arrays for shuffled null genes
-    shuffled_expr_combined = np.zeros((n_cells_1 + n_cells_2, len(null_gene_indices)))
-
-    # Set up base random state
-    base_rng = np.random.RandomState(null_seed)
-
-    # For each null gene, create a differently shuffled version
-    for i, gene_idx in enumerate(null_gene_indices):
-        # Create a unique random state for this gene instance
-        gene_seed = base_rng.randint(0, 2**31 - 1)
-        gene_rng = np.random.RandomState(gene_seed)
-
-        # Get expression values for this gene from both conditions
-        gene_expr = combined_expr[:, gene_idx].copy()
-
-        # Shuffle the expression values to break condition-expression association
-        # This creates a null distribution where expression is random w.r.t. conditions
-        shuffled_expr_combined[:, i] = gene_rng.permutation(gene_expr)
-
-    # Split back into condition-specific matrices
-    shuffled_expr1 = shuffled_expr_combined[:n_cells_1, :]
-    shuffled_expr2 = shuffled_expr_combined[n_cells_1:, :]
-
-    return shuffled_expr1, shuffled_expr2
-
-
-def _compute_fdr_statistics(
-    real_mahalanobis: np.ndarray, null_mahalanobis: np.ndarray, fdr_threshold: float
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    """
-    Compute p-values, local FDR, and tail-based FDR from null distribution of Mahalanobis distances.
-
-    Note: Larger Mahalanobis distances indicate MORE significance (deviation from null).
-    Mahalanobis distances are always non-negative.
-
-    Args:
-        real_mahalanobis: Mahalanobis distances for real genes (non-negative)
-        null_mahalanobis: Mahalanobis distances for null genes (background)
-        fdr_threshold: FDR threshold for significance
-
-    Returns:
-        (pvalues, local_fdr_values, tail_fdr_values, is_significant): P-values, local FDR, tail-based FDR, and boolean significance
-    """
-    from scipy import stats
-    from statsmodels.stats.multitest import local_fdr, multipletests
-
-    # Step 1: Compute empirical p-values from null distribution
-    # For Mahalanobis distances: larger distance = more extreme = smaller p-value
-    pvalues = np.zeros(len(real_mahalanobis))
-
-    for i, real_dist in enumerate(real_mahalanobis):
-        # Right-tailed p-value: fraction of null distances >= real distance
-        # This is correct because larger Mahalanobis = more significant
-        pvalues[i] = np.sum(null_mahalanobis >= real_dist) / len(null_mahalanobis)
-
-    # Ensure p-values are not exactly 0 for downstream calculations
-    # Only add pseudocount for truly zero p-values
-    zero_pvalues = pvalues == 0.0
-    if np.any(zero_pvalues):
-        min_pvalue = 1.0 / (2 * len(null_mahalanobis))  # Conservative minimum for zeros
-        pvalues[zero_pvalues] = min_pvalue
-
-    # Step 2: Compute tail-based FDR using Benjamini-Hochberg
-    _, tail_fdr_values, _, _ = multipletests(pvalues, method="fdr_bh")
-
-    # Step 3: Convert to appropriate statistics for local FDR calculation
-    # For local FDR, we need z-scores. Convert using inverse normal CDF
-    # Since larger Mahalanobis = smaller p-value = larger |z-score|
-    zscores = -stats.norm.ppf(pvalues)  # One-tailed conversion
-
-    # Handle potential infinite z-scores by clipping
-    zscores = np.clip(zscores, -10, 10)
-
-    # Step 4: Apply local FDR estimation (similar to fdrtool approach)
-    try:
-        # Local FDR estimation with empirical null modeling
-        local_fdr_values = local_fdr(
-            zscores,
-            null_proportion=1.0,  # Assume theoretical null proportion
-            null_pdf=None,  # Let it estimate empirical null distribution
-            deg=7,  # Polynomial degree for spline fitting (fdrtool default)
-            nbins=30,  # Number of bins for density estimation
-            alpha=0,  # No higher criticism threshold
-        )
-
-        # Ensure local FDR values are valid probabilities
-        local_fdr_values = np.clip(local_fdr_values, 0, 1)
-
-        # Fix edge case: when all p-values are very high (no signal), local FDR can incorrectly return 0
-        # In such cases, use tail-based FDR as more reliable
-        high_pvalue_mask = pvalues > 0.9
-        if np.all(high_pvalue_mask):
-            logger.debug("All p-values > 0.9, using tail-based FDR instead of local FDR")
-            local_fdr_values = tail_fdr_values.copy()
-        elif np.any(high_pvalue_mask):
-            # For individual high p-values, ensure local FDR is at least as high as tail FDR
-            problematic = high_pvalue_mask & (local_fdr_values < tail_fdr_values)
-            if np.any(problematic):
-                local_fdr_values[problematic] = tail_fdr_values[problematic]
-                logger.debug(
-                    f"Fixed {np.sum(problematic)} genes where local FDR was lower than tail FDR for high p-values"
-                )
-
-    except Exception as e:
-        logger.warning(f"Local FDR estimation failed: {e}. Using tail-based FDR as fallback.")
-        # Fallback to tail-based FDR if local FDR computation fails
-        local_fdr_values = tail_fdr_values.copy()
-
-    # Step 5: Determine significance based on local FDR threshold (more conservative)
-    # Use local FDR as primary significance criterion
-    is_significant = local_fdr_values < fdr_threshold
-
-    return pvalues, local_fdr_values, tail_fdr_values, is_significant
-
-
-def _annotate_differential_genes(
-    fdr_values: np.ndarray,
-    mahalanobis_distances: np.ndarray,
-    gene_names: List[str],
-    fdr_threshold: float,
-) -> tuple[pd.Series, Dict[str, Any]]:
-    """
-    Create boolean DE annotation and summary statistics.
-
-    Args:
-        fdr_values: FDR-corrected p-values
-        mahalanobis_distances: Mahalanobis distances for genes
-        gene_names: Names of genes
-        fdr_threshold: FDR threshold for significance
-
-    Returns:
-        (de_boolean_series, summary_stats): Boolean DE annotation and summary statistics
-    """
-    # Create boolean series
-    is_significant = fdr_values < fdr_threshold
-    de_boolean_series = pd.Series(is_significant, index=gene_names)
-
-    # Calculate summary statistics
-    n_significant = np.sum(is_significant)
-    n_total = len(gene_names)
-
-    # Find threshold Mahalanobis distance corresponding to FDR threshold
-    if n_significant > 0:
-        significant_distances = mahalanobis_distances[is_significant]
-        min_significant_distance = np.min(significant_distances)
-    else:
-        min_significant_distance = np.inf
-
-    summary_stats = {
-        "n_significant": n_significant,
-        "n_total": n_total,
-        "fraction_significant": n_significant / n_total,
-        "fdr_threshold": fdr_threshold,
-        "min_significant_mahalanobis": min_significant_distance,
-    }
-
-    return de_boolean_series, summary_stats
-
-
 def compute_differential_expression(
     adata,
     groupby: str,
@@ -582,9 +342,6 @@ def compute_differential_expression(
     """
 
     # Generate standardized field names
-    # Weighted LFC functionality has been removed - set compatibility variable
-    differential_abundance_key = None
-    
     field_names = generate_output_field_names(
         result_key=result_key,
         condition1=condition1,
@@ -617,13 +374,6 @@ def compute_differential_expression(
                 ]
             )
 
-    # Update all_patterns with differential abundance integration if needed
-    if differential_abundance_key is not None:
-        field_names["has_weighted_lfc"] = True
-        all_patterns["var"].append(field_names["weighted_lfc_key"])
-
-    
-    
     # Update all_patterns with group information if needed
     if groups is not None:
         field_names["has_groups"] = True
@@ -637,12 +387,6 @@ def compute_differential_expression(
         if compute_mahalanobis:
             all_patterns["varm"].append(field_names["mahalanobis_varm_key"])
 
-        # Only add weighted_lfc varm key if differential_abundance_key is provided
-        if differential_abundance_key is not None:
-            all_patterns["varm"].append(field_names["weighted_lfc_varm_key"])
-
-
-            
         # Filter out None values
         all_patterns["varm"] = [k for k in all_patterns["varm"] if k is not None]
 
@@ -812,40 +556,6 @@ def compute_differential_expression(
             f"Column '{groupby}' not found in adata.obs. Available columns: {list(adata.obs.columns)}"
         )
 
-    # Check if differential_abundance_key-related columns exist instead of the key itself
-    if differential_abundance_key is not None:
-        # Sanitize condition names for use in column names
-        cond1_safe = _sanitize_name(condition1)
-        cond2_safe = _sanitize_name(condition2)
-
-        # Check for condition-specific column names
-        specific_cols = [
-            f"{differential_abundance_key}_log_density_{cond1_safe}",
-            f"{differential_abundance_key}_log_density_{cond2_safe}",
-        ]
-
-        if not all(col in adata.obs for col in specific_cols):
-            raise ValueError(
-                f"Log density columns not found in adata.obs. "
-                f"Expected: {specific_cols}. "
-                f"Available columns: {list(adata.obs.columns)}"
-            )
-
-    # Check if differential_abundance_key-related columns exist instead of the key itself
-    if differential_abundance_key is not None:
-        # Sanitize condition names for use in column names
-        cond1_safe = _sanitize_name(condition1)
-        cond2_safe = _sanitize_name(condition2)
-        
-        # Check for condition-specific column names
-        specific_cols = [f"{differential_abundance_key}_log_density_{cond1_safe}", 
-                       f"{differential_abundance_key}_log_density_{cond2_safe}"]
-        
-        if not all(col in adata.obs for col in specific_cols):
-            raise ValueError(f"Log density columns not found in adata.obs. "
-                           f"Expected: {specific_cols}. "
-                           f"Available columns: {list(adata.obs.columns)}")
-    
     # Make a copy if requested
     if copy:
         adata = adata.copy()
@@ -1085,42 +795,7 @@ def compute_differential_expression(
                 f"Stored landmarks have dimension {landmarks_dim} but data has dimension {data_dim}. Will check for other landmarks."
             )
 
-    # If we have differential_abundance_key, check if there are landmarks stored there
-    if (
-        landmarks is None
-        and differential_abundance_key is not None
-        and differential_abundance_key in adata.uns
-        and "landmarks" in adata.uns[differential_abundance_key]
-    ):
-        stored_abund_landmarks = adata.uns[differential_abundance_key]["landmarks"]
-        landmarks_dim = stored_abund_landmarks.shape[1]
-        data_dim = adata.obsm[obsm_key].shape[1]
 
-        # Only use the stored landmarks if dimensions match
-        if landmarks_dim == data_dim:
-            logger.info(
-                f"Using landmarks from abundance analysis in adata.uns['{differential_abundance_key}']['landmarks'] with shape {stored_abund_landmarks.shape}"
-            )
-            landmarks = stored_abund_landmarks
-        else:
-            logger.warning(
-                f"Abundance landmarks have dimension {landmarks_dim} but data has dimension {data_dim}. Will check for other landmarks."
-            )
-    
-    # If we have differential_abundance_key, check if there are landmarks stored there
-    if landmarks is None and differential_abundance_key is not None and differential_abundance_key in adata.uns and 'landmarks' in adata.uns[differential_abundance_key]:
-        stored_abund_landmarks = adata.uns[differential_abundance_key]['landmarks']
-        landmarks_dim = stored_abund_landmarks.shape[1]
-        data_dim = adata.obsm[obsm_key].shape[1]
-        
-        # Only use the stored landmarks if dimensions match
-        if landmarks_dim == data_dim:
-            logger.info(f"Using landmarks from abundance analysis in adata.uns['{differential_abundance_key}']['landmarks'] with shape {stored_abund_landmarks.shape}")
-            landmarks = stored_abund_landmarks
-        else:
-            logger.warning(f"Stored landmarks have dimension {landmarks_dim} but data has dimension {data_dim}. Will check for other landmarks.")
-    
-    
     # If still no landmarks, check for any other landmarks in storage_key
     if landmarks is None:
         storage_key = "kompot_de"
@@ -1150,7 +825,6 @@ def compute_differential_expression(
         landmarks is None
         and "kompot_da" in adata.uns
         and "landmarks" in adata.uns["kompot_da"]
-        and (differential_abundance_key != "kompot_da")
     ):
         da_landmarks = adata.uns["kompot_da"]["landmarks"]
         landmarks_dim = da_landmarks.shape[1]
@@ -1166,21 +840,7 @@ def compute_differential_expression(
             logger.warning(
                 f"DA landmarks have dimension {landmarks_dim} but data has dimension {data_dim}. Computing new landmarks."
             )
-    
-    # As a last resort, check for DA landmarks if not already checked
-    if landmarks is None and "kompot_da" in adata.uns and 'landmarks' in adata.uns["kompot_da"] and (differential_abundance_key != "kompot_da"):
-        da_landmarks = adata.uns["kompot_da"]['landmarks']
-        landmarks_dim = da_landmarks.shape[1]
-        data_dim = adata.obsm[obsm_key].shape[1]
-        
-        # Only use the stored landmarks if dimensions match
-        if landmarks_dim == data_dim:
-            logger.info(f"Reusing differential abundance landmarks from adata.uns['kompot_da']['landmarks'] with shape {da_landmarks.shape}")
-            landmarks = da_landmarks
-        else:
-            logger.warning(f"DA landmarks have dimension {landmarks_dim} but data has dimension {data_dim}. Computing new landmarks.")
-    
-    
+
     # Initialize and fit DifferentialExpression
     use_sample_variance = sample_col is not None
 
@@ -1444,64 +1104,6 @@ def compute_differential_expression(
             logger.error(f"Failed to compute and store posterior covariance matrix: {str(e)}")
             logger.error("Posterior covariance matrix will not be stored in obsp.")
 
-    # Separately compute weighted fold changes if needed
-    if differential_abundance_key is not None:
-        # Sanitize condition names for use in column names
-        cond1_safe = _sanitize_name(condition1)
-        cond2_safe = _sanitize_name(condition2)
-
-        # Get log densities from adata with descriptive names
-        density_col1 = f"{differential_abundance_key}_log_density_{cond1_safe}"
-        density_col2 = f"{differential_abundance_key}_log_density_{cond2_safe}"
-
-        if density_col1 in adata.obs and density_col2 in adata.obs:
-            # Apply the filter mask to get only the cells we're predicting for
-            log_density_condition1 = adata.obs[density_col1][filter_mask]
-            log_density_condition2 = adata.obs[density_col2][filter_mask]
-
-            # Calculate log density difference directly
-            log_density_diff = log_density_condition2 - log_density_condition1
-
-            # Use the standalone function to compute weighted mean fold change with pre-computed difference
-            # The exp(abs()) is now handled inside the function
-            expression_results["weighted_mean_log_fold_change"] = compute_weighted_mean_fold_change(
-                expression_results["fold_change"], log_density_diff=log_density_diff
-            )
-        else:
-            logger.warning(
-                f"Log density columns not found in adata.obs. Expected: {density_col1}, {density_col2}. "
-                f"Will not compute weighted mean fold changes."
-            )
-
-    # Separately compute weighted fold changes if needed
-    if differential_abundance_key is not None:
-        # Sanitize condition names for use in column names
-        cond1_safe = _sanitize_name(condition1)
-        cond2_safe = _sanitize_name(condition2)
-        
-        # Get log densities from adata with descriptive names
-        density_col1 = f"{differential_abundance_key}_log_density_{cond1_safe}"
-        density_col2 = f"{differential_abundance_key}_log_density_{cond2_safe}"
-        
-        if density_col1 in adata.obs and density_col2 in adata.obs:
-            # Apply the filter mask to get only the cells we're predicting for
-            log_density_condition1 = adata.obs[density_col1][filter_mask]
-            log_density_condition2 = adata.obs[density_col2][filter_mask]
-            
-            # Calculate log density difference directly
-            log_density_diff = log_density_condition2 - log_density_condition1
-            
-            # Use the standalone function to compute weighted mean fold change with pre-computed difference
-            # The exp(abs()) is now handled inside the function
-            expression_results['weighted_mean_log_fold_change'] = compute_weighted_mean_fold_change(
-                expression_results['fold_change'],
-                log_density_diff=log_density_diff
-            )
-        else:
-            logger.warning(f"Log density columns not found in adata.obs. Expected: {density_col1}, {density_col2}. "
-                           f"Will not compute weighted mean fold changes.")
-    
-    
     # Create result dictionary with fixed keys for programmatic access
     # Build results DataFrame with gene index
     results_data = {
@@ -1649,90 +1251,6 @@ def compute_differential_expression(
                 new_var_columns[ptp_key] = pd.Series(np.nan, index=adata.var_names)
                 new_var_columns[ptp_key].loc[selected_genes] = ptp_values
 
-        if differential_abundance_key is not None:
-            # Use the standardized field name from field_names
-            # Weighted mean log fold change is NOT impacted by sample variance
-            column_name = field_names["weighted_lfc_key"]
-
-            # Extract and verify weighted_mean_log_fold_change
-            weighted_lfc = expression_results["weighted_mean_log_fold_change"]
-            # Convert list to numpy array if needed
-            if isinstance(weighted_lfc, list):
-                weighted_lfc = np.array(weighted_lfc)
-
-            # Ensure weighted_lfc is 1D before reshaping
-            if len(weighted_lfc.shape) > 1:
-                logger.warning(
-                    f"weighted_mean_log_fold_change has shape {weighted_lfc.shape}, flattening to 1D."
-                )
-                # Take the first row if it's a 2D array
-                if weighted_lfc.shape[0] < weighted_lfc.shape[1]:
-                    weighted_lfc = weighted_lfc[0]  # Take first row if more columns than rows
-                else:
-                    weighted_lfc = weighted_lfc[:, 0]  # Take first column otherwise
-
-            if len(weighted_lfc) != len(selected_genes):
-                logger.warning(
-                    f"weighted_mean_log_fold_change length {len(weighted_lfc)} doesn't match selected_genes length {len(selected_genes)}. Reshaping."
-                )
-                if len(weighted_lfc) < len(selected_genes):
-                    # Pad with NaNs if the array is too short
-                    padding = np.full(len(selected_genes) - len(weighted_lfc), np.nan)
-                    weighted_lfc = np.concatenate([weighted_lfc, padding])
-                else:
-                    # Truncate if the array is too long
-                    weighted_lfc = weighted_lfc[: len(selected_genes)]
-
-            # Add to collection for batch addition
-            if column_name in adata.var:
-                # Only create a series for selected genes to avoid overwriting existing values
-                new_var_columns[column_name] = pd.Series(weighted_lfc, index=selected_genes)
-            else:
-                # Initialize with NaN for all genes if column doesn't exist yet
-                new_var_columns[column_name] = pd.Series(np.nan, index=adata.var_names)
-                new_var_columns[column_name].loc[selected_genes] = weighted_lfc
-
-        
-        if differential_abundance_key is not None:
-            # Use the standardized field name from field_names
-            # Weighted mean log fold change is NOT impacted by sample variance
-            column_name = field_names["weighted_lfc_key"]
-            
-            # Extract and verify weighted_mean_log_fold_change
-            weighted_lfc = expression_results['weighted_mean_log_fold_change']
-            # Convert list to numpy array if needed
-            if isinstance(weighted_lfc, list):
-                weighted_lfc = np.array(weighted_lfc)
-                
-            # Ensure weighted_lfc is 1D before reshaping
-            if len(weighted_lfc.shape) > 1:
-                logger.warning(f"weighted_mean_log_fold_change has shape {weighted_lfc.shape}, flattening to 1D.")
-                # Take the first row if it's a 2D array
-                if weighted_lfc.shape[0] < weighted_lfc.shape[1]:
-                    weighted_lfc = weighted_lfc[0]  # Take first row if more columns than rows
-                else:
-                    weighted_lfc = weighted_lfc[:, 0]  # Take first column otherwise
-                
-            if len(weighted_lfc) != len(selected_genes):
-                logger.warning(f"weighted_mean_log_fold_change length {len(weighted_lfc)} doesn't match selected_genes length {len(selected_genes)}. Reshaping.")
-                if len(weighted_lfc) < len(selected_genes):
-                    # Pad with NaNs if the array is too short
-                    padding = np.full(len(selected_genes) - len(weighted_lfc), np.nan)
-                    weighted_lfc = np.concatenate([weighted_lfc, padding])
-                else:
-                    # Truncate if the array is too long
-                    weighted_lfc = weighted_lfc[:len(selected_genes)]
-            
-            # Add to collection for batch addition
-            if column_name in adata.var:
-                # Only create a series for selected genes to avoid overwriting existing values
-                new_var_columns[column_name] = pd.Series(weighted_lfc, index=selected_genes)
-            else:
-                # Initialize with NaN for all genes if column doesn't exist yet
-                new_var_columns[column_name] = pd.Series(np.nan, index=adata.var_names)
-                new_var_columns[column_name].loc[selected_genes] = weighted_lfc
-        
-        
         # Add mean log fold change with descriptive name
         # Use the standardized field name from field_names
         # Mean log fold change is NOT impacted by sample variance
@@ -2302,13 +1820,6 @@ def compute_differential_expression(
                 "description": f"Boolean indicator of differential expression at local FDR < {fdr_threshold}",
             }
 
-        if differential_abundance_key is not None:
-            field_mapping[field_names["weighted_lfc_key"]] = {
-                "location": "var",
-                "type": "weighted_mean_log_fold_change",
-                "description": "Weighted mean log fold change",
-            }
-
         # Note: mahalanobis and ptp field mappings are already added above around lines 2180-2191
         # No need to add them again here
 
@@ -2747,12 +2258,6 @@ def compute_differential_expression(
             # Also store the varm keys used for group-specific metrics
             current_run_info["varm_keys"] = {
                 "mean_lfc": field_names["mean_lfc_varm_key"],
-                "mahalanobis": field_names["mahalanobis_varm_key"],
-                "weighted_lfc": (
-                    field_names["weighted_lfc_varm_key"]
-                    if differential_abundance_key is not None
-                    else None
-                ),
                 "mahalanobis": field_names["mahalanobis_varm_key"]
             }
 
@@ -2816,14 +2321,6 @@ def compute_differential_expression(
             if compute_mahalanobis and field_names["mahalanobis_varm_key"] in adata.varm:
                 anndata_field_tracking["varm"][field_names["mahalanobis_varm_key"]] = new_run_id
 
-            # Track weighted_lfc_varm_key only if differential_abundance_key is provided
-            if (
-                differential_abundance_key is not None
-                and field_names["weighted_lfc_varm_key"] in adata.varm
-            ):
-                anndata_field_tracking["varm"][field_names["weighted_lfc_varm_key"]] = new_run_id
-
-            
         
         # Add or update tracking information in adata.uns[storage_key]
         if "anndata_fields" not in adata.uns[storage_key]:
