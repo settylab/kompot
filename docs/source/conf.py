@@ -55,11 +55,16 @@ nbsphinx_allow_errors = True
 # Configure nbsphinx to keep section headers in the content but manage TOC better
 nbsphinx_prompt_width = '0'
 
-# Add custom CSS to handle plot aspect ratios and table of contents
-nbsphinx_execute_arguments = [
-    "--InlineBackend.figure_formats={'png'}",
-    "--InlineBackend.rc={'figure.figsize': (8, 6), 'figure.dpi': 100, 'savefig.bbox': 'tight', 'savefig.transparent': True}",
-]
+# Don't execute notebooks on ReadTheDocs - they should already have outputs
+# This prevents image path issues where images end up in _build/doctrees instead of _images
+if os.environ.get('READTHEDOCS') == 'True':
+    nbsphinx_execute = 'never'
+else:
+    # Add custom CSS to handle plot aspect ratios and table of contents
+    nbsphinx_execute_arguments = [
+        "--InlineBackend.figure_formats={'png'}",
+        "--InlineBackend.rc={'figure.figsize': (8, 6), 'figure.dpi': 100, 'savefig.bbox': 'tight', 'savefig.transparent': True}",
+    ]
 
 # Add a prolog to control figure rendering
 nbsphinx_prolog = """
