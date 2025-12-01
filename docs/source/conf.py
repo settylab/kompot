@@ -49,17 +49,19 @@ extensions = [
     "sphinx.ext.napoleon",
 ]
 
-# Allow errors in notebooks during build
-nbsphinx_allow_errors = True
-
 # Configure nbsphinx to keep section headers in the content but manage TOC better
 nbsphinx_prompt_width = '0'
 
-# Don't execute notebooks on ReadTheDocs - they should already have outputs
-# This prevents image path issues where images end up in _build/doctrees instead of _images
+# Configure nbsphinx execution behavior
+# On ReadTheDocs, use 'auto' to skip already-executed cells but allow image extraction
+# This ensures images are properly extracted from notebook outputs to the HTML output directory
 if os.environ.get('READTHEDOCS') == 'True':
-    nbsphinx_execute = 'never'
+    nbsphinx_execute = 'auto'
+    nbsphinx_allow_errors = True
+    # Set reasonable timeout for any cells that need execution
+    nbsphinx_timeout = 300  # 5 minutes max per cell
 else:
+    nbsphinx_allow_errors = False
     # Add custom CSS to handle plot aspect ratios and table of contents
     nbsphinx_execute_arguments = [
         "--InlineBackend.figure_formats={'png'}",
