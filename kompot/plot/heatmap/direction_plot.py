@@ -42,9 +42,25 @@ def _infer_direction_key(
     # If direction column already provided, validate it and extract conditions
     if direction_column is not None:
         if direction_column in adata.obs.columns:
-            # Try to extract conditions from the column name
-            conditions = _extract_conditions_from_key(direction_column)
-            condition1, condition2 = conditions if conditions else (None, None)
+            # Prioritize run_info params for condition names (authoritative source)
+            condition1, condition2 = None, None
+            ri = get_run_from_history(adata, run_id, analysis_type="da")
+            if ri is not None and 'params' in ri:
+                condition1 = ri['params'].get('condition1')
+                condition2 = ri['params'].get('condition2')
+
+            # Fall back to key name extraction if run_info unavailable
+            if condition1 is None or condition2 is None:
+                conditions = _extract_conditions_from_key(direction_column)
+                if conditions:
+                    if condition1 is None:
+                        condition1 = conditions[0]
+                    if condition2 is None:
+                        condition2 = conditions[1]
+                    logger.warning(
+                        "Condition names extracted from key name (may be unreliable for multi-word conditions). "
+                        "Re-run compute_differential_abundance to ensure run_info contains condition names."
+                    )
             return direction_column, condition1, condition2
         else:
             logger.warning(
@@ -64,8 +80,7 @@ def _infer_direction_key(
 
         direction_column = inferred_fields.get("direction_key")
 
-        # Extract conditions from run info
-        from ...anndata.utils import get_run_from_history
+        # Extract conditions from run info (uses module-level import)
         run_info = get_run_from_history(adata, run_id, analysis_type="da")
         condition1, condition2 = None, None
 

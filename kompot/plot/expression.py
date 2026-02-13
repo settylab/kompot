@@ -186,20 +186,25 @@ def plot_gene_expression(
     # Get run info for both conditions and layer
     run_info = get_run_from_history(adata, run_id, analysis_type="de")
     
-    # Extract conditions from lfc_key if not provided
+    # Extract conditions - prioritize run_info params (stores original names reliably)
     if condition1 is None or condition2 is None:
-        # Try to extract conditions from the key name
-        conditions = _extract_conditions_from_key(lfc_key) if lfc_key is not None else None
-        if conditions:
-            condition1, condition2 = conditions
-        else:
-            # If not in key, try getting from run info
-            if run_info is not None and 'params' in run_info:
-                params = run_info['params']
-                if 'condition1' in params and 'condition2' in params:
-                    condition1 = params['condition1']
-                    condition2 = params['condition2']
-        
+        # First try run_info params - this is the authoritative source
+        if run_info is not None and 'params' in run_info:
+            params = run_info['params']
+            if condition1 is None and 'condition1' in params:
+                condition1 = params['condition1']
+            if condition2 is None and 'condition2' in params:
+                condition2 = params['condition2']
+
+        # Only if run_info unavailable, fall back to key name extraction
+        if condition1 is None or condition2 is None:
+            conditions = _extract_conditions_from_key(lfc_key) if lfc_key is not None else None
+            if conditions:
+                if condition1 is None:
+                    condition1 = conditions[0]
+                if condition2 is None:
+                    condition2 = conditions[1]
+
         # If still none, provide defaults
         if condition1 is None:
             condition1 = "Condition 1"
@@ -238,89 +243,67 @@ def plot_gene_expression(
         logger.warning("Falling back to standard coordinates.")
         basis = None
         
-    # Determine condition-specific imputed expression layer names
+    # Determine condition-specific imputed expression layer names from run_info.
+    # We never silently fall back to pattern-matching layer names, as that could
+    # pick layers from a different run with a different result_key prefix.
     condition1_layer = None
     condition2_layer = None
     fold_change_layer = None
-    
-    # First try to get them from run_info
+
     if run_info is not None:
-        # Check if imputed_layer_keys is directly in run_info
+        # Get the condition names from run_info params for mapping
+        param_condition1 = run_info.get('params', {}).get('condition1')
+        param_condition2 = run_info.get('params', {}).get('condition2')
+
+        # Determine if the user swapped conditions relative to the run
+        swapped = (param_condition1 == condition2 and param_condition2 == condition1)
+
+        # Primary source: imputed_layer_keys (stores the full layer names directly)
         if 'imputed_layer_keys' in run_info:
             imputed_keys = run_info['imputed_layer_keys']
-            # The keys may be named condition1/condition2, but the actual imputed layers
-            # correspond to the specific condition names (e.g., Young/Old)
-            if 'condition1' in imputed_keys:
-                # Map to the correct condition based on run_info
-                if run_info.get('params', {}).get('condition1') == condition1:
-                    condition1_layer = imputed_keys['condition1']
-                    logger.info(f"Using condition1 imputed layer '{condition1_layer}' for '{condition1}'")
-                elif run_info.get('params', {}).get('condition1') == condition2:
-                    condition2_layer = imputed_keys['condition1']
-                    logger.info(f"Using condition1 imputed layer '{condition2_layer}' for '{condition2}'")
-                
-            if 'condition2' in imputed_keys:
-                # Map to the correct condition based on run_info
-                if run_info.get('params', {}).get('condition2') == condition2:
-                    condition2_layer = imputed_keys['condition2']
-                    logger.info(f"Using condition2 imputed layer '{condition2_layer}' for '{condition2}'")
-                elif run_info.get('params', {}).get('condition2') == condition1:
-                    condition1_layer = imputed_keys['condition2']
-                    logger.info(f"Using condition2 imputed layer '{condition1_layer}' for '{condition1}'")
-                
-            if 'fold_change' in imputed_keys:
-                fold_change_layer = imputed_keys['fold_change']
-                logger.info(f"Using fold_change layer '{fold_change_layer}' from run_info")
-        
-        # Otherwise check field_names
+
+            if swapped:
+                condition1_layer = imputed_keys.get('condition2')
+                condition2_layer = imputed_keys.get('condition1')
+            else:
+                condition1_layer = imputed_keys.get('condition1')
+                condition2_layer = imputed_keys.get('condition2')
+            fold_change_layer = imputed_keys.get('fold_change')
+
+        # Fallback source: field_names dict
         elif 'field_names' in run_info:
-            field_names = run_info['field_names']
-            params = run_info.get('params', {})
-            
-            # Map the imputed layers based on the actual condition names in params
-            if 'imputed_key_1' in field_names and 'imputed_key_2' in field_names:
-                # Get condition names from params
-                param_condition1 = params.get('condition1')
-                param_condition2 = params.get('condition2')
-                
-                # Map to the correct layers based on condition names
-                if param_condition1 == condition1 and param_condition2 == condition2:
-                    # Standard mapping
-                    condition1_layer = field_names['imputed_key_1']
-                    condition2_layer = field_names['imputed_key_2']
-                    logger.info(f"Using imputed layer '{condition1_layer}' for '{condition1}'")
-                    logger.info(f"Using imputed layer '{condition2_layer}' for '{condition2}'")
-                elif param_condition1 == condition2 and param_condition2 == condition1:
-                    # Reversed mapping
-                    condition1_layer = field_names['imputed_key_2']
-                    condition2_layer = field_names['imputed_key_1']
-                    logger.info(f"Using imputed layer '{condition1_layer}' for '{condition1}'")
-                    logger.info(f"Using imputed layer '{condition2_layer}' for '{condition2}'")
+            fn = run_info['field_names']
+            if 'imputed_key_1' in fn and 'imputed_key_2' in fn:
+                if swapped:
+                    condition1_layer = fn['imputed_key_2']
+                    condition2_layer = fn['imputed_key_1']
                 else:
-                    # Fall back to position-based mapping if condition names don't match
-                    condition1_layer = field_names['imputed_key_1']
-                    condition2_layer = field_names['imputed_key_2']
-                    logger.info(f"Using imputed layer '{condition1_layer}' for condition 1")
-                    logger.info(f"Using imputed layer '{condition2_layer}' for condition 2")
-                    
-            # Get fold change layer
-            if 'fold_change_key' in field_names:
-                fold_change_layer = field_names['fold_change_key']
-                logger.info(f"Using fold_change layer '{fold_change_layer}' from field_names")
-    
-    # If layers still not found, try to find them by name pattern
+                    condition1_layer = fn['imputed_key_1']
+                    condition2_layer = fn['imputed_key_2']
+            fold_change_layer = fn.get('fold_change_key')
+
+        # Log what we resolved
+        if condition1_layer:
+            logger.info(f"Using imputed layer '{condition1_layer}' for '{condition1}'")
+        if condition2_layer:
+            logger.info(f"Using imputed layer '{condition2_layer}' for '{condition2}'")
+        if fold_change_layer:
+            logger.info(f"Using fold_change layer '{fold_change_layer}' from run_info")
+
+    # Warn explicitly about missing layers instead of silently guessing
     if condition1_layer is None or condition2_layer is None or fold_change_layer is None:
-        logger.info("Some layers not found in run_info, searching by name pattern")
-        for layer_name in adata.layers.keys():
-            if condition1_layer is None and 'imputed' in layer_name and condition1 and condition1.lower() in layer_name.lower():
-                condition1_layer = layer_name
-                logger.info(f"Found condition1 imputed layer '{condition1_layer}' by name pattern")
-            elif condition2_layer is None and 'imputed' in layer_name and condition2 and condition2.lower() in layer_name.lower():
-                condition2_layer = layer_name
-                logger.info(f"Found condition2 imputed layer '{condition2_layer}' by name pattern")
-            elif fold_change_layer is None and 'fold_change' in layer_name:
-                fold_change_layer = layer_name
-                logger.info(f"Found fold_change layer '{fold_change_layer}' by name pattern")
+        missing = []
+        if condition1_layer is None:
+            missing.append(f"condition1 ('{condition1}') imputed layer")
+        if condition2_layer is None:
+            missing.append(f"condition2 ('{condition2}') imputed layer")
+        if fold_change_layer is None:
+            missing.append("fold_change layer")
+        logger.warning(
+            f"Could not determine layer names from run_info for: {', '.join(missing)}. "
+            f"The corresponding panels will be empty. "
+            f"Re-run compute_differential_expression or specify layers manually."
+        )
             
     # Create figure and axes
     fig, axs = plt.subplots(2, 2, figsize=figsize)

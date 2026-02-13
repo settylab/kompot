@@ -222,11 +222,18 @@ def volcano_da(
             condition1 = params['condition1']
             condition2 = params['condition2']
     
-    # Try to extract from key name if still not found
+    # Fall back to key name extraction if run_info unavailable (unreliable for multi-word names)
     if (condition1 is None or condition2 is None) and lfc_key is not None:
         conditions = _extract_conditions_from_key(lfc_key)
         if conditions:
-            condition1, condition2 = conditions
+            if condition1 is None:
+                condition1 = conditions[0]
+            if condition2 is None:
+                condition2 = conditions[1]
+            logger.warning(
+                "Condition names extracted from key name (may be unreliable for multi-word conditions). "
+                "Re-run compute_differential_abundance to ensure run_info contains condition names."
+            )
     
     # Log appropriate information based on what needed to be inferred
     if needed_column_inference:

@@ -276,17 +276,17 @@ def volcano_de(
         
         # Fallback to string replacement if run info approach fails
         if significance_key is None and score_key and "mahalanobis" in score_key:
-            logger.info("Attempting fallback FDR key inference from score key...")
+            logger.warning("No FDR keys in run_info; attempting fallback FDR key inference from score key...")
             if y_axis_type == "local_fdr":
                 fallback_key = score_key.replace("mahalanobis", "mahalanobis_local_fdr")
-            else:  # tail_fdr  
+            else:  # tail_fdr
                 fallback_key = score_key.replace("mahalanobis", "mahalanobis_tail_fdr")
-            
+
             if fallback_key in adata.var.columns:
                 score_key = fallback_key
                 significance_key = fallback_key
                 y_transform = fdr_y_transform
-                logger.info(f"Using fallback {y_axis_type} key: {fallback_key}")
+                logger.warning(f"Using fallback {y_axis_type} key: {fallback_key}")
             else:
                 logger.warning(f"Fallback FDR key '{fallback_key}' not found either")
         
@@ -310,14 +310,14 @@ def volcano_de(
         
         # Fallback to string replacement if run info approach fails
         if significance_key is None and score_key and "mahalanobis" in score_key:
-            logger.info("Attempting fallback ptp key inference from score key...")
+            logger.warning("No ptp key in run_info; attempting fallback ptp key inference from score key...")
             fallback_key = score_key.replace("mahalanobis", "ptp")
-            
+
             if fallback_key in adata.var.columns:
                 score_key = fallback_key
                 significance_key = fallback_key
                 y_transform = fdr_y_transform  # Same -log10 transform as FDR
-                logger.info(f"Using fallback ptp key: {fallback_key}")
+                logger.warning(f"Using fallback ptp key: {fallback_key}")
             else:
                 logger.warning(f"Fallback ptp key '{fallback_key}' not found either")
         
@@ -367,17 +367,26 @@ def volcano_de(
 
     # Only try to get conditions if they were not explicitly provided
     if condition1 is None or condition2 is None:
-        # Try to extract from key name
-        conditions = _extract_conditions_from_key(lfc_key)
-        if conditions:
-            condition1, condition2 = conditions
-        else:
-            # If not in key, try getting from run info (already retrieved above)
-            if run_info is not None and "params" in run_info:
-                params = run_info["params"]
-                if "condition1" in params and "condition2" in params:
-                    condition1 = params["condition1"]
-                    condition2 = params["condition2"]
+        # First try run_info params - this is the authoritative source
+        if run_info is not None and "params" in run_info:
+            params = run_info["params"]
+            if condition1 is None and "condition1" in params:
+                condition1 = params["condition1"]
+            if condition2 is None and "condition2" in params:
+                condition2 = params["condition2"]
+
+        # Only if run_info unavailable, fall back to key name extraction
+        if condition1 is None or condition2 is None:
+            conditions = _extract_conditions_from_key(lfc_key)
+            if conditions:
+                if condition1 is None:
+                    condition1 = conditions[0]
+                if condition2 is None:
+                    condition2 = conditions[1]
+                logger.warning(
+                    "Condition names extracted from key name (may be unreliable for multi-word conditions). "
+                    "Re-run compute_differential_expression to ensure run_info contains condition names."
+                )
 
     # Log which run and fields are being used
     conditions_str = (

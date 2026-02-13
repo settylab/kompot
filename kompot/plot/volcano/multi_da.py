@@ -251,9 +251,27 @@ def multi_volcano_da(
     # Extract the threshold values
     auto_lfc_threshold, auto_ptp_threshold = thresholds
     
-    # Try to extract conditions from the key name for better labeling
-    condition_names = _extract_conditions_from_key(lfc_key)
-    condition1, condition2 = condition_names if condition_names else (None, None)
+    # Get condition information - prioritize run_info params (authoritative source)
+    run_info = get_run_from_history(adata, run_id, analysis_type="da")
+    condition1, condition2 = None, None
+
+    if run_info is not None and 'params' in run_info:
+        params = run_info['params']
+        condition1 = params.get('condition1')
+        condition2 = params.get('condition2')
+
+    # Only if run_info unavailable, fall back to key name extraction
+    if condition1 is None or condition2 is None:
+        condition_names = _extract_conditions_from_key(lfc_key)
+        if condition_names:
+            if condition1 is None:
+                condition1 = condition_names[0]
+            if condition2 is None:
+                condition2 = condition_names[1]
+            logger.warning(
+                "Condition names extracted from key name (may be unreliable for multi-word conditions). "
+                "Re-run compute_differential_abundance to ensure run_info contains condition names."
+            )
     
     # Track which values needed inference for logging
     needed_column_inference = lfc_key is None or ptp_key is None
