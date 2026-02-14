@@ -7,6 +7,7 @@ import os
 # AFTER setting thread limit environment variables
 
 from .utils import setup_logging
+from ..version import __version__
 
 
 def _set_early_thread_limits(args_list):
@@ -67,7 +68,7 @@ def main():
     parser.add_argument(
         '--version',
         action='version',
-        version='%(prog)s 0.6.0'
+        version=f'%(prog)s {__version__}'
     )
 
     parser.add_argument(
