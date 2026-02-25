@@ -579,10 +579,7 @@ def compute_differential_abundance(
         new_run_id = len(current_history)
         
     logger.info(f"This run will have `run_id={new_run_id}`.")
-    
-    # Always append current run to the run history using the json encoding
-    append_to_run_history(adata, current_run_info, "da")
-    
+
     # Create a comprehensive field-to-location mapping for field tracking
     # This maps the full field names to their locations
     field_mapping = {
@@ -593,14 +590,17 @@ def compute_differential_abundance(
         field_names["direction_key"]: {"location": "obs", "type": "direction", "description": "Direction classification (up/down/neutral)"},
         field_names["density_key_1"]: {"location": "obs", "type": "density", "description": f"Log density for {condition1}"},
         field_names["density_key_2"]: {"location": "obs", "type": "density", "description": f"Log density for {condition2}"},
-        
+
         # Uns fields
         f"{field_names['direction_key']}_colors": {"location": "uns", "type": "colors", "description": "Color mapping for direction categories"}
     }
 
-    # Add this mapping to run info
+    # Add this mapping to run info before appending to history
     current_run_info["field_mapping"] = field_mapping
-    
+
+    # Always append current run to the run history using the json encoding
+    append_to_run_history(adata, current_run_info, "da")
+
     # Store current params and run info as JSON
     set_json_metadata(adata, f"{storage_key}.last_run_info", current_run_info)
 

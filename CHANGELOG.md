@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
  - fix `cell_filter` documentation: parameter was documented as specifying cells to exclude, but the implementation includes matching cells. Updated docstrings, CLI config template, and docs to correctly describe inclusion semantics.
+ - fix missing `field_mapping` in DA run history: `append_to_run_history` was called before `field_mapping` was added to `current_run_info`, so history entries never contained it.
 
 ## [0.6.3]
 
