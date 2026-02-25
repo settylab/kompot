@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+ - fix `cell_filter` documentation: parameter was documented as specifying cells to exclude, but the implementation includes matching cells. Updated docstrings, CLI config template, and docs to correctly describe inclusion semantics.
+
 ## [0.6.3]
 
  - fix condition extraction across all plotting functions: condition names are now extracted from `run_info` params (authoritative source) instead of fragile `_extract_conditions_from_key()` string-splitting, which was broken for multi-word condition names (e.g. "Pre-treatment", "Wild Type"). Affected functions: `plot_gene_expression`, `volcano_da`, `volcano_de`, `multi_volcano_da`, `direction_barplot`

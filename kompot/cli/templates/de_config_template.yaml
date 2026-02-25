@@ -59,12 +59,12 @@ min_cells: 2                   # Minimum cells per gene
 min_percentage: null           # Minimum percentage of cells expressing
 
 # Cell/group filtering:
-cell_filter: null              # Cells or groups to exclude
+cell_filter: null              # Cells or groups to include (null = all)
 # Examples:
-#   cell_filter: "group_name"              # Exclude a group
-#   cell_filter: ["group1", "group2"]      # Exclude multiple groups
-#   cell_filter: {batch: "batch1"}         # Exclude by metadata
-#   cell_filter: [{batch: "batch1"}, {quality: "low"}]  # Multiple filters
+#   cell_filter: "is_valid"                # Include cells where column is True
+#   cell_filter: {batch: "batch1"}         # Include only batch1 cells
+#   cell_filter: {batch: ["batch1", "batch2"]}  # Include specific batches
+#   cell_filter: [{batch: "batch1"}, {quality: "high"}]  # Multiple filters
 
 groups: null                   # Subset analysis by groups
 # Examples:

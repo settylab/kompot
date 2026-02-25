@@ -389,7 +389,7 @@ Config files use standard YAML syntax:
 
    # Advanced parameters
    genes: ["Gene1", "Gene2", "Gene3"]  # Analyze specific genes
-   cell_filter: {batch: "batch1"}       # Exclude batch1 cells
+   cell_filter: {batch: "batch1"}       # Include only batch1 cells
 
    # GP parameters
    sigma: 1.0

@@ -149,20 +149,20 @@ def compute_differential_expression(
         Maximum fraction of available memory that arrays should occupy before
         triggering warnings or enabling disk storage, by default 0.8 (80%).
     cell_filter : str, List[str], Dict, List[Dict], optional
-        Specification for cells or groups to exclude from the analysis.
+        Specification for cells to include in the analysis. Only cells matching
+        the filter criteria will be kept.
         Will be interpreted in the following ways:
 
-        - If str and `groups` is provided: Interpreted as a group name to exclude from the
+        - If str: Column name in adata.obs containing boolean values. Cells where
+          the column is True are included.
+        - If List[str] and `groups` is provided: Group names to include from the
           groups defined by the `groups` parameter.
-        - If List[str] and `groups` is provided: Multiple group names to exclude from the
-          groups defined by the `groups` parameter.
-        - If Dict: Keys are column names in adata.obs, and values are specific values to exclude.
-        - If List[Dict]: Multiple dictionaries specifying different exclusion criteria.
+        - If Dict: Keys are column names in adata.obs, and values are the allowed
+          values to keep. Cells matching all specified criteria are included.
+        - If List[Dict]: Multiple dictionaries specifying different inclusion criteria.
 
-        Cells matching any of the specified exclusion criteria will be excluded from the analysis.
-        The string and list of strings formats are only valid when the `groups` parameter is also provided,
-        as they refer to excluding groups from the subset analysis. The dictionary formats work independently
-        to exclude cells based on their metadata.
+        Only cells matching the specified criteria will be included in the analysis.
+        The dictionary format works independently to select cells based on their metadata.
 
     groups : str, Dict, Dict[str, Dict], List[Dict], pd.Series, np.ndarray, List[np.ndarray], optional
         Specification for subsetting or grouping cells for additional analysis.
