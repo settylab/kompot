@@ -9,7 +9,8 @@ from kompot.anndata.fdr_utils import (
     prepare_null_genes,
     generate_shuffled_expression,
     compute_fdr_statistics,
-    annotate_differential_genes
+    annotate_differential_genes,
+    _benjamini_hochberg,
 )
 
 
@@ -336,6 +337,77 @@ class TestAnnotateDifferentialGenes:
         assert de_annotation.all()
         assert summary_stats['n_significant'] == n_genes
         assert summary_stats['fraction_significant'] == 1.0
+
+
+class TestBenjaminiHochberg:
+    """Tests for _benjamini_hochberg function."""
+
+    def test_known_values(self):
+        """Test against hand-computed BH-adjusted p-values."""
+        # 5 p-values, sorted: 0.01, 0.03, 0.05, 0.20, 0.50
+        # Ranks:              1,    2,    3,    4,    5
+        # raw adjusted = p * n/rank: 0.05, 0.075, 0.0833, 0.25, 0.50
+        # cummin from right:         0.05, 0.075, 0.0833, 0.25, 0.50
+        pvals = np.array([0.05, 0.50, 0.01, 0.20, 0.03])
+        adjusted = _benjamini_hochberg(pvals)
+
+        expected_sorted = np.array([0.05, 0.075, 5.0 / 60, 0.25, 0.50])
+        # Map back to original order: input indices sorted by pval are [2,4,0,3,1]
+        expected = np.empty(5)
+        sort_order = [2, 4, 0, 3, 1]
+        for rank_idx, orig_idx in enumerate(sort_order):
+            expected[orig_idx] = expected_sorted[rank_idx]
+
+        np.testing.assert_allclose(adjusted, expected, rtol=1e-10)
+
+    def test_all_significant(self):
+        """All very small p-values should remain significant after correction."""
+        pvals = np.array([0.001, 0.002, 0.003, 0.004, 0.005])
+        adjusted = _benjamini_hochberg(pvals)
+        assert np.all(adjusted < 0.05)
+
+    def test_no_false_discoveries_under_null(self):
+        """Under the global null (all p-values uniform), BH should control FDR."""
+        rng = np.random.RandomState(42)
+        n_tests = 500
+        alpha = 0.05
+        n_simulations = 200
+        fdr_sum = 0.0
+        for _ in range(n_simulations):
+            pvals = rng.uniform(0, 1, n_tests)
+            adjusted = _benjamini_hochberg(pvals)
+            fdr_sum += np.mean(adjusted < alpha)
+        avg_rejection_rate = fdr_sum / n_simulations
+        assert avg_rejection_rate < alpha * 1.5, (
+            f"Average rejection rate {avg_rejection_rate:.3f} too high under global null"
+        )
+
+    def test_adjusted_geq_raw(self):
+        """BH-adjusted p-values should always be >= raw p-values."""
+        rng = np.random.RandomState(42)
+        pvals = rng.uniform(0, 1, 200)
+        adjusted = _benjamini_hochberg(pvals)
+        assert np.all(adjusted >= pvals - 1e-15)
+
+    def test_clipped_to_one(self):
+        """Adjusted p-values should never exceed 1."""
+        pvals = np.array([0.5, 0.6, 0.7, 0.8, 0.9])
+        adjusted = _benjamini_hochberg(pvals)
+        assert np.all(adjusted <= 1.0)
+
+    def test_single_pvalue(self):
+        """Single p-value should be unchanged."""
+        pvals = np.array([0.03])
+        adjusted = _benjamini_hochberg(pvals)
+        np.testing.assert_allclose(adjusted, pvals)
+
+    def test_monotone_adjusted(self):
+        """Sorted adjusted p-values should be non-decreasing."""
+        rng = np.random.RandomState(99)
+        pvals = rng.uniform(0, 1, 300)
+        adjusted = _benjamini_hochberg(pvals)
+        sorted_adj = adjusted[np.argsort(pvals)]
+        assert np.all(np.diff(sorted_adj) >= -1e-15)
 
 
 def _analytical_lfdr(d, pi0, lambda0, lambda1):

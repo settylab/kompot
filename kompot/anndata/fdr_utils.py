@@ -130,8 +130,7 @@ def compute_fdr_statistics(
     Compute p-values, local FDR, and tail-based FDR from null distribution of Mahalanobis distances.
 
     Uses monotone-constrained density estimation (Grenander estimator) to compute
-    local FDR directly from Mahalanobis distances, avoiding the numerical instability
-    of the statsmodels GLM-based approach. Both null and mixture densities are
+    local FDR directly from Mahalanobis distances. Both null and mixture densities are
     constrained to be monotonically declining with Mahalanobis distance, and the
     resulting local FDR is guaranteed to be monotonically declining with distance.
 
@@ -146,8 +145,6 @@ def compute_fdr_statistics(
     Returns:
         (pvalues, local_fdr_values, tail_fdr_values, is_significant): P-values, local FDR, tail-based FDR, and boolean significance
     """
-    from statsmodels.stats.multitest import multipletests
-
     # Step 1: Compute empirical p-values (vectorized with searchsorted)
     sorted_null = np.sort(null_mahalanobis)
     n_null = len(sorted_null)
@@ -164,7 +161,7 @@ def compute_fdr_statistics(
         logger.debug(f"Set minimum p-value to {min_pval} for {np.sum(zero_mask)} zero p-values")
 
     # Step 2: Compute tail-based FDR using Benjamini-Hochberg
-    _, tail_fdr_values, _, _ = multipletests(pvalues, method="fdr_bh")
+    tail_fdr_values = _benjamini_hochberg(pvalues)
 
     # Step 3: Compute local FDR via monotone density estimation on Mahalanobis distances
     local_fdr_values = _compute_local_fdr_monotone(real_mahalanobis, null_mahalanobis)
@@ -173,6 +170,34 @@ def compute_fdr_statistics(
     is_significant = local_fdr_values < fdr_threshold
 
     return pvalues, local_fdr_values, tail_fdr_values, is_significant
+
+
+def _benjamini_hochberg(pvalues: np.ndarray) -> np.ndarray:
+    """
+    Benjamini-Hochberg FDR correction for multiple testing.
+
+    Args:
+        pvalues: Raw p-values (1-d array)
+
+    Returns:
+        BH-adjusted p-values (q-values), same order as input
+    """
+    pvalues = np.asarray(pvalues, dtype=float)
+    n = len(pvalues)
+    sort_idx = np.argsort(pvalues)
+    pvals_sorted = pvalues[sort_idx]
+
+    # BH adjusted p-value: p_i * n / rank_i, then enforce monotonicity
+    ranks = np.arange(1, n + 1, dtype=float)
+    adjusted = pvals_sorted * n / ranks
+    # Cumulative minimum from right to enforce monotonicity
+    adjusted = np.minimum.accumulate(adjusted[::-1])[::-1]
+    adjusted = np.clip(adjusted, 0.0, 1.0)
+
+    # Restore original order
+    result = np.empty_like(adjusted)
+    result[sort_idx] = adjusted
+    return result
 
 
 def _compute_local_fdr_monotone(
