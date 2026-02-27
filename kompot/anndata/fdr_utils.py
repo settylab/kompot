@@ -9,7 +9,9 @@ import numpy as np
 import pandas as pd
 import logging
 from typing import Optional, Union, Dict, Any, List, Tuple
-from scipy import stats
+
+# np.trapz was renamed to np.trapezoid in NumPy 2.0
+_trapz = getattr(np, "trapezoid", getattr(np, "trapz", None))
 
 logger = logging.getLogger("kompot")
 
@@ -127,6 +129,12 @@ def compute_fdr_statistics(
     """
     Compute p-values, local FDR, and tail-based FDR from null distribution of Mahalanobis distances.
 
+    Uses monotone-constrained density estimation (Grenander estimator) to compute
+    local FDR directly from Mahalanobis distances, avoiding the numerical instability
+    of the statsmodels GLM-based approach. Both null and mixture densities are
+    constrained to be monotonically declining with Mahalanobis distance, and the
+    resulting local FDR is guaranteed to be monotonically declining with distance.
+
     Note: Larger Mahalanobis distances indicate MORE significance (deviation from null).
     Mahalanobis distances are always non-negative.
 
@@ -138,85 +146,193 @@ def compute_fdr_statistics(
     Returns:
         (pvalues, local_fdr_values, tail_fdr_values, is_significant): P-values, local FDR, tail-based FDR, and boolean significance
     """
-    from statsmodels.stats.multitest import local_fdr, multipletests
+    from statsmodels.stats.multitest import multipletests
 
-    # Step 1: Compute empirical p-values from null distribution
-    # For Mahalanobis distances: larger distance = more extreme = smaller p-value
-    pvalues = np.zeros(len(real_mahalanobis))
+    # Step 1: Compute empirical p-values (vectorized with searchsorted)
+    sorted_null = np.sort(null_mahalanobis)
+    n_null = len(sorted_null)
+    pvalues = (
+        n_null - np.searchsorted(sorted_null, real_mahalanobis, side="left")
+    ).astype(float) / n_null
 
-    for i, real_dist in enumerate(real_mahalanobis):
-        # Right-tailed p-value: fraction of null distances >= real distance
-        # This is correct because larger Mahalanobis = more significant
-        pvalues[i] = np.sum(null_mahalanobis >= real_dist) / len(null_mahalanobis)
-
-    # Ensure p-values are not exactly 0 for downstream calculations
-    # Only add pseudocount for truly zero p-values
-    zero_pvalues = pvalues == 0.0
-    if np.any(zero_pvalues):
-        # Use a much smaller minimum to allow very small FDR values
-        # Handle case where ALL p-values are zero
-        non_zero_pvalues = pvalues[~zero_pvalues]
-        if len(non_zero_pvalues) > 0:
-            min_pvalue = np.min(non_zero_pvalues)
-        else:
-            # All p-values are zero - use 1/number_of_nulls as minimum
-            min_pvalue = 1.0 / len(null_mahalanobis)
-            logger.debug(f"All {len(pvalues)} p-values are zero, using default min_pvalue={min_pvalue}")
-        pvalues[zero_pvalues] = min_pvalue
-        logger.debug(f"Set minimum p-value to {min_pvalue} for {np.sum(zero_pvalues)} zero p-values")
+    # Floor zero p-values
+    zero_mask = pvalues == 0.0
+    if np.any(zero_mask):
+        non_zero = pvalues[~zero_mask]
+        min_pval = np.min(non_zero) if len(non_zero) > 0 else 1.0 / n_null
+        pvalues[zero_mask] = min_pval
+        logger.debug(f"Set minimum p-value to {min_pval} for {np.sum(zero_mask)} zero p-values")
 
     # Step 2: Compute tail-based FDR using Benjamini-Hochberg
     _, tail_fdr_values, _, _ = multipletests(pvalues, method="fdr_bh")
 
-    # Step 3: Convert to appropriate statistics for local FDR calculation
-    # For local FDR, we need z-scores. Convert using inverse normal CDF
-    # Since larger Mahalanobis = smaller p-value = larger |z-score|
-    zscores = -stats.norm.ppf(pvalues)  # One-tailed conversion
+    # Step 3: Compute local FDR via monotone density estimation on Mahalanobis distances
+    local_fdr_values = _compute_local_fdr_monotone(real_mahalanobis, null_mahalanobis)
 
-    # Handle potential infinite z-scores by clipping, but use a larger range
-    # to allow for very small p-values and correspondingly small FDR values
-    zscores = np.clip(zscores, -20, 20)
-
-    # Step 4: Apply local FDR estimation (similar to fdrtool approach)
-    try:
-        # Local FDR estimation with empirical null modeling
-        local_fdr_values = local_fdr(
-            zscores,
-            null_proportion=1.0,  # Assume theoretical null proportion
-            null_pdf=None,  # Let it estimate empirical null distribution
-            deg=7,  # Polynomial degree for spline fitting (fdrtool default)
-            nbins=500,  # Number of bins for density estimation
-            alpha=0,  # No higher criticism threshold
-        )
-
-        # Ensure local FDR values are valid probabilities
-        local_fdr_values = np.clip(local_fdr_values, 0, 1)
-
-        # Fix edge case: when all p-values are very high (no signal), local FDR can incorrectly return 0
-        # In such cases, use tail-based FDR as more reliable
-        high_pvalue_mask = pvalues > 0.9
-        if np.all(high_pvalue_mask):
-            logger.debug("All p-values > 0.9, using tail-based FDR instead of local FDR")
-            local_fdr_values = tail_fdr_values.copy()
-        elif np.any(high_pvalue_mask):
-            # For individual high p-values, ensure local FDR is at least as high as tail FDR
-            problematic = high_pvalue_mask & (local_fdr_values < tail_fdr_values)
-            if np.any(problematic):
-                local_fdr_values[problematic] = tail_fdr_values[problematic]
-                logger.debug(
-                    f"Fixed {np.sum(problematic)} genes where local FDR was lower than tail FDR for high p-values"
-                )
-
-    except Exception as e:
-        logger.warning(f"Local FDR estimation failed: {e}. Using tail-based FDR as fallback.")
-        # Fallback to tail-based FDR if local FDR computation fails
-        local_fdr_values = tail_fdr_values.copy()
-
-    # Step 5: Determine significance based on local FDR threshold (more conservative)
-    # Use local FDR as primary significance criterion
+    # Step 4: Determine significance
     is_significant = local_fdr_values < fdr_threshold
 
     return pvalues, local_fdr_values, tail_fdr_values, is_significant
+
+
+def _compute_local_fdr_monotone(
+    real_distances: np.ndarray, null_distances: np.ndarray, n_grid: int = 500
+) -> np.ndarray:
+    """
+    Compute local FDR using monotone-constrained density estimation.
+
+    Both null and mixture densities are estimated using the Grenander estimator
+    (boundary-corrected KDE + isotonic regression via PAVA), which enforces
+    monotonically declining density with respect to Mahalanobis distance.
+    The resulting local FDR ratio is also constrained to be monotonically declining.
+
+    Args:
+        real_distances: Mahalanobis distances for real genes
+        null_distances: Mahalanobis distances for null genes
+        n_grid: Number of grid points for density evaluation
+
+    Returns:
+        Local FDR values for each real gene
+    """
+    from scipy.interpolate import interp1d
+
+    if len(null_distances) < 2 or len(real_distances) < 2:
+        logger.warning("Too few distances for local FDR estimation, returning lfdr=1")
+        return np.ones(len(real_distances))
+
+    max_dist = max(np.max(real_distances), np.max(null_distances))
+    if max_dist <= 0:
+        return np.ones(len(real_distances))
+    grid = np.linspace(0, max_dist * 1.05, n_grid)
+
+    # Estimate null density f0 with monotone decreasing constraint
+    f0 = _estimate_monotone_density(null_distances, grid)
+
+    # Estimate mixture density f with monotone decreasing constraint
+    f_mix = _estimate_monotone_density(real_distances, grid)
+
+    # Local FDR = f0(d) / f_mix(d) with pi0 = 1 (conservative)
+    eps = np.max(f_mix) * 1e-10 if np.max(f_mix) > 0 else 1e-20
+    raw_lfdr = np.where(f_mix > eps, f0 / f_mix, 1.0)
+    raw_lfdr = np.clip(raw_lfdr, 0.0, 1.0)
+
+    # Enforce monotone decreasing local FDR with distance
+    monotone_lfdr = _pava_decreasing(raw_lfdr)
+
+    # Interpolate to evaluate at real distances
+    lfdr_func = interp1d(
+        grid, monotone_lfdr, kind="linear", bounds_error=False, fill_value=(1.0, 0.0)
+    )
+
+    return np.clip(lfdr_func(real_distances), 0.0, 1.0)
+
+
+def _estimate_monotone_density(distances: np.ndarray, grid: np.ndarray) -> np.ndarray:
+    """
+    Estimate a monotonically declining density using the Grenander estimator.
+
+    Uses boundary-corrected KDE (reflection method at 0) for the initial density
+    estimate, then applies the Pool Adjacent Violators Algorithm (PAVA) to enforce
+    the monotone decreasing constraint. The result is normalized to a proper density.
+
+    Args:
+        distances: Non-negative distance values
+        grid: Evaluation grid points (must be evenly spaced starting near 0)
+
+    Returns:
+        Monotonically declining density evaluated at grid points
+    """
+    from scipy.stats import gaussian_kde
+
+    try:
+        # Boundary-corrected KDE using reflection at 0.
+        # This handles the non-negative support of Mahalanobis distances by
+        # mirroring the data around 0, which prevents density leakage below 0.
+        reflected = np.concatenate([-distances, distances])
+        kde = gaussian_kde(reflected)
+        density = 2.0 * kde(grid)  # Factor 2 to account for the reflected half
+    except (np.linalg.LinAlgError, ValueError):
+        # Fallback: histogram-based density if KDE fails (e.g., zero variance)
+        logger.debug("KDE failed, falling back to histogram density")
+        bin_edges = np.linspace(grid[0], grid[-1], len(grid) + 1)
+        counts, _ = np.histogram(distances, bins=bin_edges)
+        bin_width = bin_edges[1] - bin_edges[0]
+        density = counts.astype(float) / (len(distances) * bin_width)
+
+    # Apply PAVA for monotone decreasing constraint (Grenander estimator)
+    density = _pava_decreasing(density)
+
+    # Ensure non-negative and normalize to proper density
+    density = np.maximum(density, 0.0)
+    integral = _trapz(density, grid[: len(density)])
+    if integral > 0:
+        density /= integral
+
+    return density
+
+
+def _pava_decreasing(y: np.ndarray, w: Optional[np.ndarray] = None) -> np.ndarray:
+    """
+    Pool Adjacent Violators Algorithm for monotone non-increasing constraint.
+
+    Returns the monotone non-increasing sequence closest to y in weighted L2 norm.
+    Uses the numerically stable incremental update from fdrtool's isomean.c
+    to avoid catastrophic cancellation when merging blocks with similar values.
+
+    Args:
+        y: Input sequence
+        w: Optional weights (default: uniform weights of 1.0)
+
+    Returns:
+        Monotone non-increasing sequence
+    """
+    y = np.asarray(y, dtype=float)
+    n = len(y)
+    if n <= 1:
+        return y.copy()
+
+    if w is None:
+        w = np.ones(n, dtype=float)
+    else:
+        w = np.asarray(w, dtype=float)
+
+    # Antitonic regression = negate, isotonic (PAVA), negate
+    # Following fdrtool's C_isomean implementation for numerical stability
+    neg_y = -y.copy()
+    ghat = np.empty(n, dtype=float)
+    gew = np.empty(n, dtype=float)
+    k = np.empty(n, dtype=int)  # block start indices
+
+    c = 0
+    k[c] = 0
+    gew[c] = w[0]
+    ghat[c] = neg_y[0]
+
+    for j in range(1, n):
+        c += 1
+        k[c] = j
+        gew[c] = w[j]
+        ghat[c] = neg_y[j]
+
+        while c > 0 and ghat[c - 1] >= ghat[c]:
+            # Merge blocks using fdrtool's stable incremental update:
+            # ghat[c-1] += (gew[c]/total) * (ghat[c] - ghat[c-1])
+            # This avoids (w1*g1 + w2*g2)/total which can lose precision.
+            neu = gew[c] + gew[c - 1]
+            ghat[c - 1] = ghat[c - 1] + (gew[c] / neu) * (ghat[c] - ghat[c - 1])
+            gew[c - 1] = neu
+            c -= 1
+
+    # Write back: fill each block with its pooled value
+    output = np.empty(n, dtype=float)
+    nn = n
+    while nn >= 1:
+        start = k[c]
+        output[start:nn] = -ghat[c]  # negate back for antitonic
+        nn = start
+        c -= 1
+
+    return output
 
 
 def annotate_differential_genes(

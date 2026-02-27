@@ -4,6 +4,7 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+ - fix local FDR numerical instability: replace statsmodels Poisson GLM (which caused overflow/divide-by-zero RuntimeWarnings) with Grenander estimator — boundary-corrected KDE + PAVA isotonic regression enforcing monotonically declining densities and local FDR with Mahalanobis distance. PAVA follows fdrtool's numerically stable incremental update. Added ground truth validation tests using exponential and gamma mixture distributions.
  - fix `cell_filter` documentation: parameter was documented as specifying cells to exclude, but the implementation includes matching cells. Updated docstrings, CLI config template, and docs to correctly describe inclusion semantics.
  - fix missing `field_mapping` in DA run history: `append_to_run_history` was called before `field_mapping` was added to `current_run_info`, so history entries never contained it.
 
