@@ -71,6 +71,7 @@ def compute_differential_expression(
     return_full_results: bool = False,
     store_posterior_covariance: bool = False,
     allow_single_condition_variance: bool = False,
+    use_empirical_variance: bool = False,
     progress: bool = True,
     null_genes: Union[int, List[int], None] = 2000,
     null_seed: Optional[int] = 42,
@@ -116,6 +117,12 @@ def compute_differential_expression(
     allow_single_condition_variance : bool, optional
         If True, allows variance estimation with only one condition having multiple samples.
         By default False, which requires both conditions to have multiple samples.
+    use_empirical_variance : bool, optional
+        Whether to estimate per-gene empirical variance from squared residuals.
+        When True, fits additional GP models to squared residuals, then uses
+        the predictions to adjust Mahalanobis distances and z-scores. This captures
+        gene-specific heteroscedastic noise without requiring biological replicates.
+        By default False.
     sigma : float, optional
         Noise level for function estimator, by default 1.0.
     ls : float, optional
@@ -848,6 +855,7 @@ def compute_differential_expression(
         # Don't disable landmarks - we'll compute posterior covariance separately
         n_landmarks=n_landmarks,
         use_sample_variance=use_sample_variance,
+        use_empirical_variance=use_empirical_variance,
         eps=eps,  # Pass the eps parameter
         jit_compile=jit_compile,
         random_state=random_state,
@@ -1625,6 +1633,7 @@ def compute_differential_expression(
             is not None,  # Just store if landmarks were provided, not the actual values
             "sample_col": sample_col,  # Keep this for documentation in the AnnData object
             "use_sample_variance": use_sample_variance,  # This is now inferred from sample_col
+            "use_empirical_variance": use_empirical_variance,
             "sigma": sigma,
             "ls": ls,
             "ls_factor": ls_factor,

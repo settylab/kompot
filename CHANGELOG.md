@@ -4,6 +4,7 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+ - add `use_empirical_variance` option for differential expression: fits per-gene GP models to squared residuals to estimate heteroscedastic noise, then adjusts Mahalanobis distances via a diagonal factor trick (avoids per-gene covariance matrices). Deflates significance for high-noise genes without requiring biological replicates. Compatible with sample variance (`sample_col`). Available in both `DifferentialExpression` and `compute_differential_expression()`.
  - fix local FDR numerical instability: replace statsmodels Poisson GLM (which caused overflow/divide-by-zero RuntimeWarnings) with Grenander estimator — boundary-corrected KDE + PAVA isotonic regression enforcing monotonically declining densities and local FDR with Mahalanobis distance. PAVA follows fdrtool's numerically stable incremental update. Added ground truth validation tests using exponential and gamma mixture distributions.
  - remove `statsmodels` dependency: Benjamini-Hochberg FDR correction is now implemented directly.
  - fix `cell_filter` documentation: parameter was documented as specifying cells to exclude, but the implementation includes matching cells. Updated docstrings, CLI config template, and docs to correctly describe inclusion semantics.

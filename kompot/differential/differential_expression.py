@@ -49,6 +49,7 @@ class DifferentialExpression:
         self,
         n_landmarks: Optional[int] = None,
         use_sample_variance: Optional[bool] = None,
+        use_empirical_variance: bool = False,
         eps: float = 1e-8,  # Increased default epsilon for better numerical stability
         jit_compile: bool = False,
         function_predictor1: Optional[Any] = None,
@@ -70,10 +71,16 @@ class DifferentialExpression:
             Number of landmarks to use for approximation. If None, use all points, by default None.
         use_sample_variance : bool, optional
             Whether to use sample variance for uncertainty estimation. By default None.
-            - If None (recommended): Automatically determined based on variance_predictor1/2 
+            - If None (recommended): Automatically determined based on variance_predictor1/2
               or whether sample indices are provided in fit().
             - If True: Force use of sample variance (even if no predictors/indices available).
             - If False: Disable sample variance (even if predictors/indices are available).
+        use_empirical_variance : bool, optional
+            Whether to estimate per-gene empirical variance from squared residuals.
+            When True, fits additional GP models to squared residuals during fit(),
+            then uses the predictions to adjust Mahalanobis distances via a diagonal
+            factor trick. This captures gene-specific heteroscedastic noise without
+            requiring biological replicates. By default False.
         eps : float, optional
             Small constant for numerical stability, by default 1e-8.
         jit_compile : bool, optional
@@ -108,6 +115,9 @@ class DifferentialExpression:
             triggering warnings or enabling disk storage, by default 0.8 (80%).
         """
         self.n_landmarks = n_landmarks
+        self.use_empirical_variance = use_empirical_variance
+        self.empirical_variance_predictor1 = None
+        self.empirical_variance_predictor2 = None
         self.eps = eps
         self.jit_compile = jit_compile
         self.random_state = random_state
@@ -307,8 +317,63 @@ class DifferentialExpression:
             self.expression_estimator_condition2 = mellon.FunctionEstimator(**estimator_defaults)
             self.expression_estimator_condition2.fit(X_condition2, y_condition2)
             self.function_predictor2 = self.expression_estimator_condition2.predict
-        
-        
+
+        # Fit empirical variance estimators if enabled
+        if self.use_empirical_variance:
+            logger.info("Fitting empirical variance estimators from squared residuals...")
+
+            # Get estimator parameters for variance GPs
+            var_estimator_kwargs = {
+                'sigma': sigma,
+                'optimizer': 'advi',
+                'predictor_with_uncertainty': False,
+            }
+            # Reuse landmarks and ls from the main estimators
+            if hasattr(self, 'computed_landmarks') and self.computed_landmarks is not None:
+                var_estimator_kwargs['landmarks'] = self.computed_landmarks
+                var_estimator_kwargs['gp_type'] = 'fixed'
+            elif 'estimator_defaults' in locals():
+                if 'landmarks' in estimator_defaults:
+                    var_estimator_kwargs['landmarks'] = estimator_defaults['landmarks']
+                    var_estimator_kwargs['gp_type'] = 'fixed'
+                if 'n_landmarks' in estimator_defaults:
+                    var_estimator_kwargs['n_landmarks'] = estimator_defaults['n_landmarks']
+            try:
+                var_estimator_kwargs['ls'] = self.function_predictor1.cov_func.ls
+            except AttributeError:
+                if ls is not None:
+                    var_estimator_kwargs['ls'] = ls
+
+            # Condition 1: compute residuals and fit variance GP directly to squared residuals
+            logger.info("Computing residuals and fitting variance GP for condition 1...")
+            imputed1 = apply_batched(
+                lambda X: self.function_predictor1(X),
+                X_condition1,
+                batch_size=self.batch_size,
+                desc=None,
+            )
+            residuals_sq1 = (y_condition1 - imputed1) ** 2
+
+            emp_var_estimator1 = mellon.FunctionEstimator(**var_estimator_kwargs)
+            emp_var_estimator1.fit(X_condition1, residuals_sq1)
+            self.empirical_variance_predictor1 = emp_var_estimator1.predict
+
+            # Condition 2: compute residuals and fit variance GP directly to squared residuals
+            logger.info("Computing residuals and fitting variance GP for condition 2...")
+            imputed2 = apply_batched(
+                lambda X: self.function_predictor2(X),
+                X_condition2,
+                batch_size=self.batch_size,
+                desc=None,
+            )
+            residuals_sq2 = (y_condition2 - imputed2) ** 2
+
+            emp_var_estimator2 = mellon.FunctionEstimator(**var_estimator_kwargs)
+            emp_var_estimator2.fit(X_condition2, residuals_sq2)
+            self.empirical_variance_predictor2 = emp_var_estimator2.predict
+
+            logger.info("Empirical variance estimators fitted successfully.")
+
         # Handle sample-specific variance if enabled and sample indices are provided
         if self.use_sample_variance and have_sample_indices:
             logger.debug("Setting up sample variance estimation...")
@@ -604,14 +669,47 @@ class DifferentialExpression:
                     logger.error(error_msg)
                     raise RuntimeError(error_msg) from e
         
+        # Compute empirical variance at variance_points if enabled
+        empirical_diag_var = None
+        if self.use_empirical_variance and self.empirical_variance_predictor1 is not None:
+            logger.info("Computing empirical variance at evaluation points...")
+            emp_var1 = np.maximum(apply_batched(
+                lambda X: self.empirical_variance_predictor1(X),
+                variance_points, batch_size=self.batch_size,
+                desc="Empirical variance (condition 1)" if progress else None,
+            ), self.eps)
+            emp_var2 = np.maximum(apply_batched(
+                lambda X: self.empirical_variance_predictor2(X),
+                variance_points, batch_size=self.batch_size,
+                desc="Empirical variance (condition 2)" if progress else None,
+            ), self.eps)
+            # combined_emp_var shape: (n_points, n_genes)
+            combined_emp_var = emp_var1 + emp_var2
+            del emp_var1, emp_var2
+            # diagonal_variance needs shape (n_genes, n_points)
+            empirical_diag_var = combined_emp_var.T
+            logger.info(f"Empirical diagonal variance shape: {empirical_diag_var.shape}")
+
         # Transpose fold_change to get shape (n_genes, n_points) for easier gene-wise processing
         fold_change_transposed = fold_change_subset.T
-        
+
         # Choose the approach based on whether we have gene-specific covariance matrices
         try:
             if gene_specific_covariance is not None:
                 # Use gene-specific covariance matrices (3D tensor)
                 logger.debug(f"Computing Mahalanobis distances for {fold_change_transposed.shape[0]:,} genes with gene-specific covariance matrices...")
+
+                # When both sample variance (3D tensor) and empirical variance (diagonal)
+                # are available, add diag(emp_var) to each gene's covariance slice
+                if empirical_diag_var is not None:
+                    logger.info("Adding empirical diagonal variance to gene-specific covariance matrices...")
+                    n_points_cov = gene_specific_covariance.shape[0]
+                    # empirical_diag_var shape: (n_genes, n_points)
+                    for g in tqdm(range(gene_specific_covariance.shape[2]),
+                                  desc="Adding empirical variance to gene covariances",
+                                  disable=not progress):
+                        diag_indices = np.arange(n_points_cov)
+                        gene_specific_covariance[diag_indices, diag_indices, g] += empirical_diag_var[g]
 
                 # Note: batch_size is not used for gene-specific covariance (processes one gene at a time)
                 # Memory is dominated by the covariance tensor: (n_points, n_points, n_genes)
@@ -628,7 +726,7 @@ class DifferentialExpression:
                 logger.info(f"Successfully computed Mahalanobis distances for {len(mahalanobis_distances):,} genes using gene-specific covariance")
             else:
                 logger.debug(f"Computing Mahalanobis distances for {fold_change_transposed.shape[0]:,} genes with shared covariance...")
-                
+
                 # Compute all distances using the unified utility function with the combined covariance matrix
                 logger.debug(f"Using batch_size={self.batch_size} for Mahalanobis distance computation")
                 mahalanobis_distances = compute_mahalanobis_distances(
@@ -637,9 +735,10 @@ class DifferentialExpression:
                     batch_size=self.batch_size,
                     jit_compile=self.jit_compile,
                     eps=self.eps,
-                    progress=progress
+                    progress=progress,
+                    diagonal_variance=empirical_diag_var,
                 )
-                
+
                 logger.debug(f"Successfully computed Mahalanobis distances for {len(mahalanobis_distances):,} genes")
         except Exception as e:
             # Provide context-appropriate error message
@@ -798,6 +897,24 @@ class DifferentialExpression:
         # Compute fold change
         fold_change = condition2_imputed - condition1_imputed
 
+        # Compute empirical variance if enabled (per-cell, per-gene)
+        if self.use_empirical_variance and self.empirical_variance_predictor1 is not None:
+            emp_var1 = np.maximum(apply_batched(
+                lambda X: self.empirical_variance_predictor1(X),
+                X_new, batch_size=batch_size,
+                show_progress=progress,
+                desc="Empirical variance (condition 1)" if progress else None,
+            ), self.eps)
+            emp_var2 = np.maximum(apply_batched(
+                lambda X: self.empirical_variance_predictor2(X),
+                X_new, batch_size=batch_size,
+                show_progress=progress,
+                desc="Empirical variance (condition 2)" if progress else None,
+            ), self.eps)
+        else:
+            emp_var1 = 0
+            emp_var2 = 0
+
         # Ensure uncertainties have the right shape for broadcasting
         if len(condition1_uncertainty.shape) == 1:
             # Reshape to (n_samples, 1) for broadcasting with fold_change
@@ -819,9 +936,9 @@ class DifferentialExpression:
         # Combined uncertainty - base function predictor uncertainties
         total_variance = condition1_uncertainty + condition2_uncertainty
 
-        # Total variance is the sum of function predictor variance and sample variance
-        total_variance1 = condition1_uncertainty + condition1_sample_variance
-        total_variance2 = condition2_uncertainty + condition2_sample_variance
+        # Total variance is the sum of function predictor variance, sample variance, and empirical variance
+        total_variance1 = condition1_uncertainty + condition1_sample_variance + emp_var1
+        total_variance2 = condition2_uncertainty + condition2_sample_variance + emp_var2
         del condition1_uncertainty, condition2_uncertainty
 
         # Compute posterior standard deviations by taking square root of total variance
@@ -834,10 +951,15 @@ class DifferentialExpression:
             total_variance = total_variance + condition1_sample_variance + condition2_sample_variance
         del condition1_sample_variance, condition2_sample_variance
 
+        # Add empirical variance to combined variance for z-scores
+        if self.use_empirical_variance and self.empirical_variance_predictor1 is not None:
+            total_variance = total_variance + emp_var1 + emp_var2
+        del emp_var1, emp_var2
+
         # Compute mean log fold change
         mean_log_fold_change = np.mean(fold_change, axis=0)
 
-        # Compute z-scores using the total variance (function + sample)
+        # Compute z-scores using the total variance (function + sample + empirical)
         fold_change_zscores = fold_change / np.sqrt(total_variance + self.eps)
         del total_variance
         
