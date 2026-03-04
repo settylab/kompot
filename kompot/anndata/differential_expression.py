@@ -73,7 +73,7 @@ def compute_differential_expression(
     allow_single_condition_variance: bool = False,
     use_empirical_variance: bool = False,
     progress: bool = True,
-    null_genes: Union[int, List[int], None] = 2000,
+    null_genes: Union[int, List[int], str, None] = "auto",
     null_seed: Optional[int] = 42,
     fdr_threshold: float = 0.05,
     store_additional_stats: bool = False,
@@ -246,14 +246,15 @@ def compute_differential_expression(
         bars for all batch processing operations including prediction, uncertainty computation,
         and Mahalanobis distance calculations. When False, all progress bars are disabled.
         Default is True.
-    null_genes : int, List[int], or None, optional
+    null_genes : int, List[int], None, or "auto", optional
         Specification for generating null distribution to compute FDR-corrected p-values:
 
+        - If "auto" (default): Uses 2000 null genes when ``sample_col`` is None,
+          or 0 (disabled) when ``sample_col`` is provided, since the sample variance
+          null distribution is not yet calibrated for FDR estimation.
         - If int: Number of genes to randomly sample for null distribution
         - If List[int]: Specific gene indices to use for null distribution
         - If None or 0: Disable FDR calculation (no p-values computed)
-
-        Default is 2000 (uses 2000 randomly sampled null genes for FDR estimation).
 
         Null genes have their expression values shuffled between conditions to break the
         association with cell state, creating a background distribution for statistical testing.
@@ -347,6 +348,14 @@ def compute_differential_expression(
     If landmarks are computed, they are stored in adata.uns[result_key]['landmarks']
     for potential reuse in other analyses.
     """
+
+    # Resolve null_genes default: 0 when sample_col is provided, 2000 otherwise
+    if null_genes == "auto":
+        if sample_col is not None:
+            null_genes = 0
+            logger.info("Defaulting null_genes=0 (FDR disabled) because sample_col is provided.")
+        else:
+            null_genes = 2000
 
     # Generate standardized field names
     field_names = generate_output_field_names(
