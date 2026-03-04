@@ -26,6 +26,9 @@ store_landmarks: false         # Whether to store landmarks in output
 sample_col: null               # Column in adata.obs with sample IDs
 allow_single_condition_variance: false  # Allow variance with samples in only one condition
 
+# Empirical variance (heteroscedastic noise):
+use_empirical_variance: false  # Fit per-gene GP to squared residuals to estimate noise
+
 # Statistical parameters:
 fdr_threshold: 0.05            # FDR threshold for significance
 null_genes: 2000               # Number of null genes for FDR estimation

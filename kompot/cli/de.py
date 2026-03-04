@@ -161,6 +161,12 @@ def add_de_parser(subparsers) -> argparse.ArgumentParser:
         help='Overwrite existing results without warning'
     )
 
+    parser.add_argument(
+        '--use-empirical-variance',
+        action='store_true',
+        help='Estimate per-gene heteroscedastic noise from squared residuals to deflate significance for high-noise genes'
+    )
+
     # Compute configuration
     parser.add_argument(
         '--use-gpu',
@@ -248,6 +254,8 @@ def run_de(args):
         args_dict['store_additional_stats'] = args_dict.pop('store_additional_stats')
     if 'no_progress' in args_dict:
         args_dict['progress'] = not args_dict.pop('no_progress')
+    if 'use_empirical_variance' in args_dict:
+        args_dict['use_empirical_variance'] = args_dict.pop('use_empirical_variance')
 
     # Merge with config (CLI args take precedence)
     params = merge_args_with_config(args_dict, config)
