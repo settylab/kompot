@@ -485,6 +485,132 @@ class TestAnnDataEmpiricalVariance:
         assert model.empirical_variance_predictor1 is None
 
 
+# ===== Leverage correction =====
+
+
+class TestLeverageCorrection:
+    """Tests for the Nyström hat matrix leverage correction."""
+
+    @pytest.fixture
+    def synth_data(self):
+        rng = np.random.RandomState(42)
+        n, g, d = 80, 6, 3
+        X = rng.randn(n, d)
+        y = rng.randn(n, g)
+        return X, y
+
+    def test_leverage_values_in_range(self, synth_data):
+        """Leverage h_i should be in [0, 1) for all points."""
+        X, y = synth_data
+        de = DifferentialExpression(
+            use_empirical_variance=True, n_landmarks=20, batch_size=0,
+        )
+        de.fit(X, y, X, y, sigma=1.0, ls_factor=10.0)
+
+        h = DifferentialExpression._compute_leverage(
+            de.function_predictor1, X, sigma=1.0,
+        )
+        assert h is not None
+        assert np.all(h >= 0), f"Negative leverage: {h.min()}"
+        assert np.all(h < 1), f"Leverage >= 1: {h.max()}"
+
+    def test_leverage_depends_on_sigma(self, synth_data):
+        """Leverage should decrease as sigma increases (more smoothing)."""
+        X, y = synth_data
+        de = DifferentialExpression(
+            use_empirical_variance=True, n_landmarks=20, batch_size=0,
+        )
+        de.fit(X, y, X, y, sigma=1.0, ls_factor=10.0)
+
+        h_low = DifferentialExpression._compute_leverage(
+            de.function_predictor1, X, sigma=0.5,
+        )
+        h_high = DifferentialExpression._compute_leverage(
+            de.function_predictor1, X, sigma=2.0,
+        )
+        assert h_low is not None and h_high is not None
+        assert np.mean(h_low) > np.mean(h_high), (
+            f"Lower sigma should give higher leverage: "
+            f"mean(h|σ=0.5)={np.mean(h_low):.4f}, mean(h|σ=2.0)={np.mean(h_high):.4f}"
+        )
+
+    def test_leverage_trace_bounded_by_landmarks(self, synth_data):
+        """tr(H) = sum of leverages should be <= number of landmarks."""
+        X, y = synth_data
+        m = 20
+        de = DifferentialExpression(
+            use_empirical_variance=True, n_landmarks=m, batch_size=0,
+        )
+        de.fit(X, y, X, y, sigma=1.0, ls_factor=10.0)
+
+        h = DifferentialExpression._compute_leverage(
+            de.function_predictor1, X, sigma=1.0,
+        )
+        assert h is not None
+        assert h.sum() <= m + 0.1, (
+            f"tr(H)={h.sum():.2f} should be <= m={m}"
+        )
+
+    def test_corrected_residuals_larger(self, synth_data):
+        """Leverage-corrected squared residuals should be >= uncorrected."""
+        X, y = synth_data
+        de = DifferentialExpression(
+            use_empirical_variance=True, n_landmarks=20, batch_size=0,
+        )
+        de.fit(X, y, X, y, sigma=1.0, ls_factor=10.0)
+
+        # Compute raw residuals
+        import mellon
+        est = mellon.FunctionEstimator(n_landmarks=20, sigma=1.0, optimizer='advi')
+        est.fit(X, y)
+        imputed = np.asarray(est.predict(X))
+        raw_sq = (y - imputed) ** 2
+
+        h = DifferentialExpression._compute_leverage(est.predict, X, sigma=1.0)
+        assert h is not None
+        corrected_sq = raw_sq / (1 - h[:, None]) ** 2
+
+        assert np.all(corrected_sq >= raw_sq - 1e-10), (
+            "Corrected residuals should be >= uncorrected (h >= 0)"
+        )
+
+    def test_correction_reduces_bias(self):
+        """Leverage correction should reduce variance estimation bias on average."""
+        import mellon
+
+        n, d, m = 200, 3, 40
+        sigma_true = 3.0
+        n_trials = 5
+        raw_biases, corr_biases = [], []
+
+        for seed in range(n_trials):
+            rng = np.random.RandomState(seed)
+            X = rng.randn(n, d)
+            true_func = np.sin(X[:, 0]) + 0.5 * np.cos(X[:, 1])
+            y = true_func + rng.randn(n) * sigma_true
+
+            est = mellon.FunctionEstimator(n_landmarks=m, sigma=1.0, optimizer='advi')
+            est.fit(X, y)
+            imputed = np.asarray(est.predict(X))
+            raw_sq = (y - imputed) ** 2
+
+            h = DifferentialExpression._compute_leverage(est.predict, X, sigma=1.0)
+            assert h is not None
+            corrected_sq = raw_sq / (1 - h) ** 2
+
+            true_var = sigma_true ** 2
+            raw_biases.append((raw_sq.mean() - true_var) / true_var)
+            corr_biases.append((corrected_sq.mean() - true_var) / true_var)
+
+        # Raw residuals should be biased low (negative); corrected should be closer to 0
+        mean_raw = np.mean(raw_biases)
+        mean_corr = np.mean(corr_biases)
+        assert abs(mean_corr) < abs(mean_raw), (
+            f"Corrected mean bias ({mean_corr:.4f}) should be closer to 0 "
+            f"than raw ({mean_raw:.4f})"
+        )
+
+
 # ===== Variance GP parameter reuse and overrides =====
 
 

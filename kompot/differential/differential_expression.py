@@ -177,7 +177,59 @@ class DifferentialExpression:
         """Cleanup method for object deletion."""
         # No cleanup needed as we no longer manage disk storage directly
         pass
-        
+
+    @staticmethod
+    def _compute_leverage(predictor, X, sigma):
+        """Compute the Nyström hat matrix diagonal for leverage correction.
+
+        For a sparse GP with m landmarks the hat matrix is
+        ``H = B (σ² K_uu + B^T B)^{-1} B^T`` where ``B = K(X, landmarks)``.
+        The diagonal ``h_i = H_{ii}`` gives each point's leverage — how much
+        its observation influences its own prediction.  Correcting squared
+        residuals by ``1 / (1 - h_i)²`` yields the HC3 / LOO-equivalent
+        unbiased variance estimator.
+
+        Parameters
+        ----------
+        predictor : mellon predictor
+            Fitted predictor exposing ``cov_func`` and ``landmarks``.
+        X : np.ndarray, shape (n, d)
+            Training coordinates.
+        sigma : float
+            GP noise standard deviation.
+
+        Returns
+        -------
+        np.ndarray of shape (n,) or None
+            Leverage values in [0, 1), or None if the required attributes
+            are not available on the predictor.
+        """
+        try:
+            cov_func = predictor.cov_func
+            landmarks = np.asarray(predictor.landmarks)
+        except AttributeError:
+            logger.debug(
+                "Predictor lacks cov_func or landmarks; skipping leverage correction."
+            )
+            return None
+
+        B = np.asarray(cov_func(X, landmarks))              # n × m
+        K_uu = np.asarray(cov_func(landmarks, landmarks))   # m × m
+        M = sigma ** 2 * K_uu + B.T @ B                     # m × m
+        try:
+            BM = B @ np.linalg.inv(M)                        # n × m
+        except np.linalg.LinAlgError:
+            logger.warning("Singular matrix in leverage computation; skipping correction.")
+            return None
+        h = np.sum(BM * B, axis=1)                           # n
+        h = np.clip(h, 0.0, 1.0 - 1e-6)
+        logger.info(
+            f"Leverage correction: h in [{h.min():.4f}, {h.max():.4f}], "
+            f"tr(H)={h.sum():.1f}/{len(X)}, "
+            f"mean 1/(1-h)²={np.mean(1/(1-h)**2):.3f}"
+        )
+        return h
+
     def fit(
         self,
         X_condition1: np.ndarray,
@@ -368,7 +420,7 @@ class DifferentialExpression:
             if user_kw:
                 var_estimator_kwargs.update(user_kw)
 
-            # Condition 1: compute residuals and fit variance GP
+            # Condition 1: compute residuals, apply leverage correction, fit variance GP
             logger.info("Computing residuals and fitting variance GP for condition 1...")
             imputed1 = apply_batched(
                 lambda X: self.function_predictor1(X),
@@ -378,11 +430,17 @@ class DifferentialExpression:
             )
             residuals_sq1 = (y_condition1 - imputed1) ** 2
 
+            leverage1 = self._compute_leverage(
+                self.function_predictor1, X_condition1, sigma,
+            )
+            if leverage1 is not None:
+                residuals_sq1 = residuals_sq1 / np.maximum((1 - leverage1[:, None]) ** 2, self.eps)
+
             emp_var_estimator1 = mellon.FunctionEstimator(**var_estimator_kwargs)
             emp_var_estimator1.fit(X_condition1, residuals_sq1)
             self.empirical_variance_predictor1 = emp_var_estimator1.predict
 
-            # Condition 2: compute residuals and fit variance GP
+            # Condition 2: compute residuals, apply leverage correction, fit variance GP
             logger.info("Computing residuals and fitting variance GP for condition 2...")
             imputed2 = apply_batched(
                 lambda X: self.function_predictor2(X),
@@ -391,6 +449,12 @@ class DifferentialExpression:
                 desc=None,
             )
             residuals_sq2 = (y_condition2 - imputed2) ** 2
+
+            leverage2 = self._compute_leverage(
+                self.function_predictor2, X_condition2, sigma,
+            )
+            if leverage2 is not None:
+                residuals_sq2 = residuals_sq2 / np.maximum((1 - leverage2[:, None]) ** 2, self.eps)
 
             emp_var_estimator2 = mellon.FunctionEstimator(**var_estimator_kwargs)
             emp_var_estimator2.fit(X_condition2, residuals_sq2)
