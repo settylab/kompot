@@ -483,3 +483,70 @@ class TestAnnDataEmpiricalVariance:
         model = result["model"]
         assert model.use_empirical_variance is False
         assert model.empirical_variance_predictor1 is None
+
+
+# ===== Variance GP parameter reuse and overrides =====
+
+
+class TestVarianceGPParams:
+    """Tests for variance GP parameter reuse and kwargs overrides."""
+
+    @pytest.fixture
+    def synth_data(self):
+        rng = np.random.RandomState(42)
+        n, g, d = 60, 6, 3
+        X = rng.randn(n, d)
+        y = rng.randn(n, g)
+        return X, y
+
+    def test_reuses_expression_cov_func(self, synth_data):
+        """Variance GP should reuse the expression GP's cov_func (same ls)."""
+        X, y = synth_data
+        de = DifferentialExpression(
+            use_empirical_variance=True, n_landmarks=20, batch_size=0,
+        )
+        de.fit(X, y, X, y, ls_factor=10.0)
+
+        expr_ls = de.function_predictor1.cov_func.ls
+        var_ls = de.empirical_variance_predictor1.cov_func.ls
+        np.testing.assert_allclose(var_ls, expr_ls, rtol=1e-5)
+
+    def test_kwargs_ls_overrides(self, synth_data):
+        """empirical_variance_kwargs['ls'] should override the expression GP's ls."""
+        X, y = synth_data
+        de = DifferentialExpression(
+            use_empirical_variance=True,
+            empirical_variance_kwargs={'ls': 5.0},
+            n_landmarks=20, batch_size=0,
+        )
+        de.fit(X, y, X, y, ls_factor=10.0)
+
+        var_ls = de.empirical_variance_predictor1.cov_func.ls
+        np.testing.assert_allclose(var_ls, 5.0, rtol=1e-5)
+
+    def test_kwargs_sigma_override(self, synth_data):
+        """Custom sigma in empirical_variance_kwargs should be used."""
+        X, y = synth_data
+        de = DifferentialExpression(
+            use_empirical_variance=True,
+            empirical_variance_kwargs={'sigma': 2.0},
+            n_landmarks=20, batch_size=0,
+        )
+        de.fit(X, y, X, y, ls_factor=10.0)
+        assert de.empirical_variance_predictor1 is not None
+        assert de.empirical_variance_predictor2 is not None
+
+    def test_kwargs_cov_func_override(self, synth_data):
+        """Passing a cov_func via kwargs should override the expression GP's."""
+        from mellon.cov import Matern52
+        X, y = synth_data
+        custom_cov = Matern52(ls=42.0)
+        de = DifferentialExpression(
+            use_empirical_variance=True,
+            empirical_variance_kwargs={'cov_func': custom_cov},
+            n_landmarks=20, batch_size=0,
+        )
+        de.fit(X, y, X, y, ls_factor=10.0)
+
+        var_ls = de.empirical_variance_predictor1.cov_func.ls
+        np.testing.assert_allclose(var_ls, 42.0, rtol=1e-5)

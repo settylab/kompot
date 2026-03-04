@@ -50,6 +50,7 @@ class DifferentialExpression:
         n_landmarks: Optional[int] = None,
         use_sample_variance: Optional[bool] = None,
         use_empirical_variance: bool = False,
+        empirical_variance_kwargs: Optional[Dict] = None,
         eps: float = 1e-8,  # Increased default epsilon for better numerical stability
         jit_compile: bool = False,
         function_predictor1: Optional[Any] = None,
@@ -81,6 +82,13 @@ class DifferentialExpression:
             then uses the predictions to adjust Mahalanobis distances via a diagonal
             factor trick. This captures gene-specific heteroscedastic noise without
             requiring biological replicates. By default False.
+        empirical_variance_kwargs : dict, optional
+            Additional keyword arguments passed to the variance FunctionEstimator,
+            overriding defaults. By default the variance GP reuses the expression
+            GP's covariance function (including its length scale) and landmarks.
+            Use this dict to override any parameter, e.g. ``{'ls': 5.0}`` for a
+            custom length scale, or ``{'sigma': 2.0}`` for a different noise level.
+            By default None.
         eps : float, optional
             Small constant for numerical stability, by default 1e-8.
         jit_compile : bool, optional
@@ -116,6 +124,7 @@ class DifferentialExpression:
         """
         self.n_landmarks = n_landmarks
         self.use_empirical_variance = use_empirical_variance
+        self.empirical_variance_kwargs = empirical_variance_kwargs
         self.empirical_variance_predictor1 = None
         self.empirical_variance_predictor2 = None
         self.eps = eps
@@ -170,7 +179,7 @@ class DifferentialExpression:
         pass
         
     def fit(
-        self, 
+        self,
         X_condition1: np.ndarray,
         y_condition1: np.ndarray, 
         X_condition2: np.ndarray,
@@ -322,13 +331,29 @@ class DifferentialExpression:
         if self.use_empirical_variance:
             logger.info("Fitting empirical variance estimators from squared residuals...")
 
-            # Get estimator parameters for variance GPs
+            # Build default kwargs for the variance GP, reusing fitted
+            # parameters from the expression GP to avoid recomputation.
+            user_kw = self.empirical_variance_kwargs or {}
             var_estimator_kwargs = {
                 'sigma': sigma,
                 'optimizer': 'advi',
                 'predictor_with_uncertainty': False,
             }
-            # Reuse landmarks and ls from the main estimators
+
+            # Reuse cov_func from the expression GP (includes fitted ls),
+            # unless the user explicitly overrides ls or cov_func.
+            if 'cov_func' not in user_kw and 'ls' not in user_kw:
+                try:
+                    var_estimator_kwargs['cov_func'] = self.function_predictor1.cov_func
+                except AttributeError:
+                    if ls is not None:
+                        var_estimator_kwargs['ls'] = ls
+            elif 'ls' in user_kw and 'cov_func' not in user_kw:
+                # User wants a custom ls; don't pass cov_func
+                pass
+            # else: user passed cov_func directly, handled below via update
+
+            # Reuse landmarks from the expression GP
             if hasattr(self, 'computed_landmarks') and self.computed_landmarks is not None:
                 var_estimator_kwargs['landmarks'] = self.computed_landmarks
                 var_estimator_kwargs['gp_type'] = 'fixed'
@@ -338,13 +363,12 @@ class DifferentialExpression:
                     var_estimator_kwargs['gp_type'] = 'fixed'
                 if 'n_landmarks' in estimator_defaults:
                     var_estimator_kwargs['n_landmarks'] = estimator_defaults['n_landmarks']
-            try:
-                var_estimator_kwargs['ls'] = self.function_predictor1.cov_func.ls
-            except AttributeError:
-                if ls is not None:
-                    var_estimator_kwargs['ls'] = ls
 
-            # Condition 1: compute residuals and fit variance GP directly to squared residuals
+            # User overrides take precedence
+            if user_kw:
+                var_estimator_kwargs.update(user_kw)
+
+            # Condition 1: compute residuals and fit variance GP
             logger.info("Computing residuals and fitting variance GP for condition 1...")
             imputed1 = apply_batched(
                 lambda X: self.function_predictor1(X),
@@ -358,7 +382,7 @@ class DifferentialExpression:
             emp_var_estimator1.fit(X_condition1, residuals_sq1)
             self.empirical_variance_predictor1 = emp_var_estimator1.predict
 
-            # Condition 2: compute residuals and fit variance GP directly to squared residuals
+            # Condition 2: compute residuals and fit variance GP
             logger.info("Computing residuals and fitting variance GP for condition 2...")
             imputed2 = apply_batched(
                 lambda X: self.function_predictor2(X),
