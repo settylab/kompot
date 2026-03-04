@@ -324,7 +324,7 @@ def compute_mahalanobis_distances(
             all_distances = []
             effective_batch_size = batch_size if batch_size and batch_size > 0 else n_genes
             n_batches = (n_genes + effective_batch_size - 1) // effective_batch_size
-            gene_iter = tqdm(range(n_batches), desc="Computing weighted Mahalanobis distances") if progress else range(n_batches)
+            gene_iter = tqdm(range(n_batches), desc="Computing weighted Mahalanobis distances") if progress and n_batches > 1 else range(n_batches)
 
             # Pre-compile the solve function
             @jax.jit
