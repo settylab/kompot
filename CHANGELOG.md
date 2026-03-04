@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [0.7.0]
 
  - add `use_empirical_variance` option for differential expression: fits per-gene GP models to squared residuals to estimate heteroscedastic noise, then adjusts Mahalanobis distances via a diagonal factor trick (avoids per-gene covariance matrices). Deflates significance for high-noise genes without requiring biological replicates. Compatible with sample variance (`sample_col`). Available in both `DifferentialExpression` and `compute_differential_expression()`.
  - default `null_genes` to 0 when `sample_col` is provided: FDR null distribution is not yet calibrated for the sample variance case. Explicit values still override.
