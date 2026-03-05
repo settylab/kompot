@@ -112,7 +112,7 @@ class TestDifferentialExpressionFit:
         de = DifferentialExpression(n_landmarks=8, batch_size=50)
         
         # Mock mellon to avoid heavy computation
-        with patch('kompot.differential.differential_expression.mellon') as mock_mellon:
+        with patch('kompot.differential.expression_model.mellon') as mock_mellon:
             mock_estimator = MagicMock()
             mock_predictor = MagicMock()
             mock_estimator.predict = mock_predictor
@@ -137,7 +137,7 @@ class TestDifferentialExpressionFit:
         
         de = DifferentialExpression()
         
-        with patch('kompot.differential.differential_expression.mellon') as mock_mellon:
+        with patch('kompot.differential.expression_model.mellon') as mock_mellon:
             mock_estimator = MagicMock()
             mock_predictor = MagicMock()
             mock_estimator.predict = mock_predictor
@@ -159,7 +159,7 @@ class TestDifferentialExpressionFit:
         
         de = DifferentialExpression()
         
-        with patch('kompot.differential.differential_expression.mellon') as mock_mellon:
+        with patch('kompot.differential.expression_model.mellon') as mock_mellon:
             # Mock parameter computation functions
             mock_mellon.parameters.compute_d_factal.return_value = 1.5
             mock_mellon.parameters.compute_nn_distances.return_value = np.array([0.1, 0.2, 0.3])
@@ -192,7 +192,7 @@ class TestDifferentialExpressionFit:
         
         de = DifferentialExpression(use_sample_variance=None)
         
-        with patch('kompot.differential.differential_expression.mellon') as mock_mellon:
+        with patch('kompot.differential.expression_model.mellon') as mock_mellon:
             mock_estimator = MagicMock()
             mock_predictor = MagicMock()
             mock_estimator.predict = mock_predictor
@@ -227,7 +227,7 @@ class TestDifferentialExpressionFit:
         
         de = DifferentialExpression()
         
-        with patch('kompot.differential.differential_expression.mellon') as mock_mellon:
+        with patch('kompot.differential.expression_model.mellon') as mock_mellon:
             mock_estimator = MagicMock()
             mock_predictor = MagicMock()
             mock_estimator.predict = mock_predictor
@@ -300,7 +300,7 @@ class TestDifferentialExpressionPredict:
         
         X_test = np.random.rand(3, 5)
         
-        with patch('kompot.differential.differential_expression.apply_batched') as mock_batch:
+        with patch('kompot.differential.expression_model.apply_batched') as mock_batch:
             with patch('kompot.differential.differential_expression.compute_mahalanobis_distances') as mock_mahal:
                 with patch('kompot.differential.differential_expression.jax_stats.chi2.sf') as mock_chi2:
                     mock_batch.side_effect = lambda func, X, **kwargs: func(X)
@@ -355,7 +355,7 @@ class TestDifferentialExpressionPredict:
         
         X_test = np.random.rand(2, 4)
         
-        with patch('kompot.differential.differential_expression.apply_batched') as mock_batch:
+        with patch('kompot.differential.expression_model.apply_batched') as mock_batch:
             with patch('kompot.differential.differential_expression.compute_mahalanobis_distances') as mock_mahal:
                 mock_batch.side_effect = lambda func, X, **kwargs: func(X)
                 mock_mahal.return_value = np.array([0.3, 0.7])
@@ -394,7 +394,7 @@ class TestDifferentialExpressionPredict:
         
         X_test = np.random.rand(2, 3)
         
-        with patch('kompot.differential.differential_expression.apply_batched') as mock_batch:
+        with patch('kompot.differential.expression_model.apply_batched') as mock_batch:
             with patch('kompot.differential.differential_expression.compute_mahalanobis_distances') as mock_mahal:
                 mock_batch.side_effect = lambda func, X, **kwargs: func(X)
                 mock_mahal.return_value = np.array([0.1, 0.1])
@@ -432,7 +432,7 @@ class TestDifferentialExpressionMemoryManagement:
             
             X1, X2, expr1, expr2 = create_de_test_data()
             
-            with patch('kompot.differential.differential_expression.mellon') as mock_mellon:
+            with patch('kompot.differential.expression_model.mellon') as mock_mellon:
                 mock_estimator = MagicMock()
                 mock_predictor = MagicMock()
                 mock_estimator.predict = mock_predictor
@@ -462,7 +462,7 @@ class TestDifferentialExpressionMemoryManagement:
             
             X1, X2, expr1, expr2 = create_de_test_data()
             
-            with patch('kompot.differential.differential_expression.mellon') as mock_mellon:
+            with patch('kompot.differential.expression_model.mellon') as mock_mellon:
                 mock_estimator = MagicMock()
                 mock_predictor = MagicMock()
                 mock_estimator.predict = mock_predictor
@@ -537,7 +537,7 @@ class TestDifferentialExpressionErrorHandling:
         
         X_test = np.random.rand(1, 4)
         
-        with patch('kompot.differential.differential_expression.apply_batched') as mock_batch:
+        with patch('kompot.differential.expression_model.apply_batched') as mock_batch:
             with patch('kompot.differential.differential_expression.compute_mahalanobis_distances') as mock_mahal:
                 # Mock JAX memory error
                 mock_mahal.side_effect = Exception("RESOURCE_EXHAUSTED")
@@ -587,7 +587,7 @@ class TestDifferentialExpressionBatching:
         
         X_test = np.random.rand(5, 4)  # 5 cells, should require multiple batches
         
-        with patch('kompot.differential.differential_expression.apply_batched') as mock_batch:
+        with patch('kompot.differential.expression_model.apply_batched') as mock_batch:
             with patch('kompot.differential.differential_expression.compute_mahalanobis_distances') as mock_mahal:
                 with patch('kompot.differential.differential_expression.jax_stats.chi2.sf') as mock_chi2:
                     mock_batch.side_effect = lambda func, X, **kwargs: func(X)

@@ -23,6 +23,7 @@ mellon.logger.setLevel(logging.WARNING)
 # Import core functionality directly - using relative imports
 from .differential.differential_abundance import DifferentialAbundance
 from .differential.differential_expression import DifferentialExpression
+from .differential.expression_model import ExpressionModel
 from .differential.sample_variance_estimator import SampleVarianceEstimator
 
 # Import utility functions
@@ -40,6 +41,7 @@ from . import anndata
 from .anndata import (
     compute_differential_abundance,
     compute_differential_expression,
+    impute_expression,
     check_underrepresentation,
     RunInfo,
     RunComparison,
@@ -84,7 +86,7 @@ __all__ = [
     "DensityEstimator", "FunctionEstimator", "Predictor",
 
     # Core differential analysis classes
-    "DifferentialAbundance", "DifferentialExpression", "SampleVarianceEstimator",
+    "DifferentialAbundance", "DifferentialExpression", "ExpressionModel", "SampleVarianceEstimator",
 
     # Utility functions
     "compute_mahalanobis_distance", "find_landmarks",
@@ -95,6 +97,7 @@ __all__ = [
 
     # AnnData functionality
     "compute_differential_abundance", "compute_differential_expression",
+    "impute_expression",
     "check_underrepresentation", "RunInfo", "RunComparison",
     "cleanup", "get_field_status",
 
