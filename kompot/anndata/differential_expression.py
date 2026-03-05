@@ -735,7 +735,7 @@ def compute_differential_expression(
         )
 
     if use_fdr:
-        logger.info(
+        logger.debug(
             f"Preparing null distribution with null_genes={null_genes}, null_seed={null_seed}"
         )
 
@@ -764,7 +764,7 @@ def compute_differential_expression(
                 null_seed=null_seed,
             )
 
-            logger.info(
+            logger.debug(
                 f"Generated shuffled expression for {len(null_gene_indices)} null genes"
                 + (" (with replacement)" if used_replacement else "")
             )
@@ -954,7 +954,7 @@ def compute_differential_expression(
                 f"Stored landmarks in adata.uns['{result_key}']['landmarks'] with shape {landmarks_shape} for future reuse"
             )
         else:
-            logger.info(
+            logger.debug(
                 "Landmark storage skipped (store_landmarks=False). Compute with store_landmarks=True to enable landmark reuse."
             )
     else:
@@ -987,7 +987,7 @@ def compute_differential_expression(
     # Phase 3: Compute FDR statistics if null genes were used
     fdr_results = {}
     if use_fdr and null_gene_indices and compute_mahalanobis:
-        logger.info("Computing FDR statistics from null distribution")
+        logger.debug("Computing FDR statistics from null distribution")
 
         # Split results into real vs null genes
         n_real_genes = len(selected_genes)

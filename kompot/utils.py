@@ -311,7 +311,7 @@ def compute_mahalanobis_distances(
         # C_g = C + diag(v_g) => D_g^2 ≈ sum_i z_{g,i}^2 / m_{g,i}
         # where m_{g,i} = 1 + sum_j (L^{-1})_{ij}^2 * v_{g,j}
         if diagonal_variance is not None:
-            logger.info("Using diagonal variance factor trick for per-gene Mahalanobis distances")
+            logger.debug("Using diagonal variance factor trick for per-gene Mahalanobis distances")
             diag_var = jnp.array(diagonal_variance)  # shape (n_genes, n_points)
             n_genes = diag_var.shape[0]
             m = chol.shape[0]

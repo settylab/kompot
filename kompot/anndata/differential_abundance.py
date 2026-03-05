@@ -464,7 +464,7 @@ def compute_differential_abundance(
             
             logger.info(f"Stored landmarks in adata.uns['{result_key}']['landmarks'] with shape {landmarks_shape} for future reuse")
         else:
-            logger.info(f"Landmark storage skipped (store_landmarks=False). Compute with store_landmarks=True to enable landmark reuse.")
+            logger.debug(f"Landmark storage skipped (store_landmarks=False). Compute with store_landmarks=True to enable landmark reuse.")
     else:
         logger.debug("No computed landmarks found to store. Check if landmarks were pre-computed or if n_landmarks is set correctly.")
     

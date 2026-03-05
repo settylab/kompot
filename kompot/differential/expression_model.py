@@ -158,7 +158,7 @@ class ExpressionModel:
             estimator_defaults["obs_variance"] = True
 
         # ---- fit mellon GP ----
-        logger.info("Fitting expression estimator...")
+        logger.debug("Fitting expression estimator...")
         self._estimator = mellon.FunctionEstimator(**estimator_defaults)
         self._estimator.fit(X, y)
         self._predictor = self._estimator.predict

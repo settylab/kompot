@@ -535,7 +535,7 @@ class DifferentialExpression:
         
         # Determine which points to use for computation
         if has_landmarks and landmarks is not None:
-            logger.info(f"Using {len(landmarks):,} landmarks for Mahalanobis computation")
+            logger.debug(f"Using {len(landmarks):,} landmarks for Mahalanobis computation")
             
             # Get covariance matrices
             cov1 = self.function_predictor1.covariance(landmarks, diag=False)
@@ -549,7 +549,7 @@ class DifferentialExpression:
             # Points for sample variance computation
             variance_points = landmarks
         else:
-            logger.info(f"No landmarks used, computing covariance between all {len(X):,} points.")
+            logger.debug(f"No landmarks used, computing covariance between all {len(X):,} points.")
             
             # Get covariance matrices
             cov1 = self.function_predictor1.covariance(X, diag=False)
@@ -664,7 +664,7 @@ class DifferentialExpression:
         # Compute empirical variance at variance_points if enabled
         empirical_diag_var = None
         if self.use_empirical_variance and self.empirical_variance_predictor1 is not None:
-            logger.info("Computing empirical variance at evaluation points...")
+            logger.debug("Computing empirical variance at evaluation points...")
             emp_var1 = np.maximum(apply_batched(
                 lambda X: self.empirical_variance_predictor1(X),
                 variance_points, batch_size=self.batch_size,
@@ -680,7 +680,7 @@ class DifferentialExpression:
             del emp_var1, emp_var2
             # diagonal_variance needs shape (n_genes, n_points)
             empirical_diag_var = combined_emp_var.T
-            logger.info(f"Empirical diagonal variance shape: {empirical_diag_var.shape}")
+            logger.debug(f"Empirical diagonal variance shape: {empirical_diag_var.shape}")
 
         # Transpose fold_change to get shape (n_genes, n_points) for easier gene-wise processing
         fold_change_transposed = fold_change_subset.T
@@ -694,7 +694,7 @@ class DifferentialExpression:
                 # When both sample variance (3D tensor) and empirical variance (diagonal)
                 # are available, add diag(emp_var) to each gene's covariance slice
                 if empirical_diag_var is not None:
-                    logger.info("Adding empirical diagonal variance to gene-specific covariance matrices...")
+                    logger.debug("Adding empirical diagonal variance to gene-specific covariance matrices...")
                     n_points_cov = gene_specific_covariance.shape[0]
                     # empirical_diag_var shape: (n_genes, n_points)
                     for g in tqdm(range(gene_specific_covariance.shape[2]),
@@ -715,7 +715,7 @@ class DifferentialExpression:
                     progress=progress
                 )
 
-                logger.info(f"Successfully computed Mahalanobis distances for {len(mahalanobis_distances):,} genes using gene-specific covariance")
+                logger.debug(f"Successfully computed Mahalanobis distances for {len(mahalanobis_distances):,} genes using gene-specific covariance")
             else:
                 logger.debug(f"Computing Mahalanobis distances for {fold_change_transposed.shape[0]:,} genes with shared covariance...")
 
