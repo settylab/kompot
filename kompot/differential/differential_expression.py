@@ -50,7 +50,6 @@ class DifferentialExpression:
         n_landmarks: Optional[int] = None,
         use_sample_variance: Optional[bool] = None,
         use_empirical_variance: bool = False,
-        empirical_variance_kwargs: Optional[Dict] = None,
         eps: float = 1e-8,  # Increased default epsilon for better numerical stability
         jit_compile: bool = False,
         function_predictor1: Optional[Any] = None,
@@ -77,18 +76,12 @@ class DifferentialExpression:
             - If True: Force use of sample variance (even if no predictors/indices available).
             - If False: Disable sample variance (even if predictors/indices are available).
         use_empirical_variance : bool, optional
-            Whether to estimate per-gene empirical variance from squared residuals.
-            When True, fits additional GP models to squared residuals during fit(),
-            then uses the predictions to adjust Mahalanobis distances via a diagonal
-            factor trick. This captures gene-specific heteroscedastic noise without
-            requiring biological replicates. By default False.
-        empirical_variance_kwargs : dict, optional
-            Additional keyword arguments passed to the variance FunctionEstimator,
-            overriding defaults. By default the variance GP reuses the expression
-            GP's covariance function (including its length scale) and landmarks.
-            Use this dict to override any parameter, e.g. ``{'ls': 5.0}`` for a
-            custom length scale, or ``{'sigma': 2.0}`` for a different noise level.
-            By default None.
+            Whether to estimate per-gene empirical variance from GP residuals.
+            When True, the expression GP is fitted with ``obs_variance=True``,
+            which computes leverage-corrected squared residuals and smooths them
+            with a second GP to produce an input-dependent noise surface.
+            This captures gene-specific heteroscedastic noise without requiring
+            biological replicates. By default False.
         eps : float, optional
             Small constant for numerical stability, by default 1e-8.
         jit_compile : bool, optional
@@ -124,7 +117,6 @@ class DifferentialExpression:
         """
         self.n_landmarks = n_landmarks
         self.use_empirical_variance = use_empirical_variance
-        self.empirical_variance_kwargs = empirical_variance_kwargs
         self.empirical_variance_predictor1 = None
         self.empirical_variance_predictor2 = None
         self.eps = eps
@@ -177,58 +169,6 @@ class DifferentialExpression:
         """Cleanup method for object deletion."""
         # No cleanup needed as we no longer manage disk storage directly
         pass
-
-    @staticmethod
-    def _compute_leverage(predictor, X, sigma):
-        """Compute the Nyström hat matrix diagonal for leverage correction.
-
-        For a sparse GP with m landmarks the hat matrix is
-        ``H = B (σ² K_uu + B^T B)^{-1} B^T`` where ``B = K(X, landmarks)``.
-        The diagonal ``h_i = H_{ii}`` gives each point's leverage — how much
-        its observation influences its own prediction.  Correcting squared
-        residuals by ``1 / (1 - h_i)²`` yields the HC3 / LOO-equivalent
-        unbiased variance estimator.
-
-        Parameters
-        ----------
-        predictor : mellon predictor
-            Fitted predictor exposing ``cov_func`` and ``landmarks``.
-        X : np.ndarray, shape (n, d)
-            Training coordinates.
-        sigma : float
-            GP noise standard deviation.
-
-        Returns
-        -------
-        np.ndarray of shape (n,) or None
-            Leverage values in [0, 1), or None if the required attributes
-            are not available on the predictor.
-        """
-        try:
-            cov_func = predictor.cov_func
-            landmarks = np.asarray(predictor.landmarks)
-        except AttributeError:
-            logger.debug(
-                "Predictor lacks cov_func or landmarks; skipping leverage correction."
-            )
-            return None
-
-        B = np.asarray(cov_func(X, landmarks))              # n × m
-        K_uu = np.asarray(cov_func(landmarks, landmarks))   # m × m
-        M = sigma ** 2 * K_uu + B.T @ B                     # m × m
-        try:
-            BM = B @ np.linalg.inv(M)                        # n × m
-        except np.linalg.LinAlgError:
-            logger.warning("Singular matrix in leverage computation; skipping correction.")
-            return None
-        h = np.sum(BM * B, axis=1)                           # n
-        h = np.clip(h, 0.0, 1.0 - 1e-6)
-        logger.info(
-            f"Leverage correction: h in [{h.min():.4f}, {h.max():.4f}], "
-            f"tr(H)={h.sum():.1f}/{len(X)}, "
-            f"mean 1/(1-h)²={np.mean(1/(1-h)**2):.3f}"
-        )
-        return h
 
     def fit(
         self,
@@ -359,12 +299,18 @@ class DifferentialExpression:
                 # When ls is not provided, pass ls_factor to the estimator
                 estimator_defaults['ls_factor'] = ls_factor
                 
+            # Enable obs_variance on the expression GP when empirical
+            # variance is requested — mellon computes the leverage-corrected,
+            # GP-smoothed observation noise surface internally.
+            if self.use_empirical_variance:
+                estimator_defaults['obs_variance'] = True
+
             # Fit expression estimators for both conditions
             logger.info("Fitting expression estimator for condition 1...")
             self.expression_estimator_condition1 = mellon.FunctionEstimator(**estimator_defaults)
             self.expression_estimator_condition1.fit(X_condition1, y_condition1)
             self.function_predictor1 = self.expression_estimator_condition1.predict
-            
+
             # Update ls for condition 2 based on condition 1 if not provided
             if ls is None and 'ls' not in function_kwargs:
                 # Get ls from condition 1 and use it for condition 2
@@ -373,94 +319,21 @@ class DifferentialExpression:
                 # We already applied ls_factor in condition 1, so we don't need to pass it again
                 if 'ls_factor' in estimator_defaults:
                     del estimator_defaults['ls_factor']
-            
+
             logger.info("Fitting expression estimator for condition 2...")
             self.expression_estimator_condition2 = mellon.FunctionEstimator(**estimator_defaults)
             self.expression_estimator_condition2.fit(X_condition2, y_condition2)
             self.function_predictor2 = self.expression_estimator_condition2.predict
 
-        # Fit empirical variance estimators if enabled
+        # Store empirical variance predictors from mellon's obs_variance
         if self.use_empirical_variance:
-            logger.info("Fitting empirical variance estimators from squared residuals...")
-
-            # Build default kwargs for the variance GP, reusing fitted
-            # parameters from the expression GP to avoid recomputation.
-            user_kw = self.empirical_variance_kwargs or {}
-            var_estimator_kwargs = {
-                'sigma': sigma,
-                'optimizer': 'advi',
-                'predictor_with_uncertainty': False,
-            }
-
-            # Reuse cov_func from the expression GP (includes fitted ls),
-            # unless the user explicitly overrides ls or cov_func.
-            if 'cov_func' not in user_kw and 'ls' not in user_kw:
-                try:
-                    var_estimator_kwargs['cov_func'] = self.function_predictor1.cov_func
-                except AttributeError:
-                    if ls is not None:
-                        var_estimator_kwargs['ls'] = ls
-            elif 'ls' in user_kw and 'cov_func' not in user_kw:
-                # User wants a custom ls; don't pass cov_func
-                pass
-            # else: user passed cov_func directly, handled below via update
-
-            # Reuse landmarks from the expression GP
-            if hasattr(self, 'computed_landmarks') and self.computed_landmarks is not None:
-                var_estimator_kwargs['landmarks'] = self.computed_landmarks
-                var_estimator_kwargs['gp_type'] = 'fixed'
-            elif 'estimator_defaults' in locals():
-                if 'landmarks' in estimator_defaults:
-                    var_estimator_kwargs['landmarks'] = estimator_defaults['landmarks']
-                    var_estimator_kwargs['gp_type'] = 'fixed'
-                if 'n_landmarks' in estimator_defaults:
-                    var_estimator_kwargs['n_landmarks'] = estimator_defaults['n_landmarks']
-
-            # User overrides take precedence
-            if user_kw:
-                var_estimator_kwargs.update(user_kw)
-
-            # Condition 1: compute residuals, apply leverage correction, fit variance GP
-            logger.info("Computing residuals and fitting variance GP for condition 1...")
-            imputed1 = apply_batched(
-                lambda X: self.function_predictor1(X),
-                X_condition1,
-                batch_size=self.batch_size,
-                desc=None,
-            )
-            residuals_sq1 = (y_condition1 - imputed1) ** 2
-
-            leverage1 = self._compute_leverage(
-                self.function_predictor1, X_condition1, sigma,
-            )
-            if leverage1 is not None:
-                residuals_sq1 = residuals_sq1 / np.maximum((1 - leverage1[:, None]) ** 2, self.eps)
-
-            emp_var_estimator1 = mellon.FunctionEstimator(**var_estimator_kwargs)
-            emp_var_estimator1.fit(X_condition1, residuals_sq1)
-            self.empirical_variance_predictor1 = emp_var_estimator1.predict
-
-            # Condition 2: compute residuals, apply leverage correction, fit variance GP
-            logger.info("Computing residuals and fitting variance GP for condition 2...")
-            imputed2 = apply_batched(
-                lambda X: self.function_predictor2(X),
-                X_condition2,
-                batch_size=self.batch_size,
-                desc=None,
-            )
-            residuals_sq2 = (y_condition2 - imputed2) ** 2
-
-            leverage2 = self._compute_leverage(
-                self.function_predictor2, X_condition2, sigma,
-            )
-            if leverage2 is not None:
-                residuals_sq2 = residuals_sq2 / np.maximum((1 - leverage2[:, None]) ** 2, self.eps)
-
-            emp_var_estimator2 = mellon.FunctionEstimator(**var_estimator_kwargs)
-            emp_var_estimator2.fit(X_condition2, residuals_sq2)
-            self.empirical_variance_predictor2 = emp_var_estimator2.predict
-
-            logger.info("Empirical variance estimators fitted successfully.")
+            if not hasattr(self.function_predictor1, 'obs_variance'):
+                raise ValueError(
+                    "use_empirical_variance=True requires predictors fitted with "
+                    "obs_variance=True. Pre-computed predictors must support obs_variance()."
+                )
+            self.empirical_variance_predictor1 = self.function_predictor1.obs_variance
+            self.empirical_variance_predictor2 = self.function_predictor2.obs_variance
 
         # Handle sample-specific variance if enabled and sample indices are provided
         if self.use_sample_variance and have_sample_indices:

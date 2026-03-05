@@ -72,7 +72,6 @@ def compute_differential_expression(
     store_posterior_covariance: bool = False,
     allow_single_condition_variance: bool = False,
     use_empirical_variance: bool = False,
-    empirical_variance_kwargs: Optional[Dict] = None,
     progress: bool = True,
     null_genes: Union[int, List[int], str, None] = "auto",
     null_seed: Optional[int] = 42,
@@ -119,18 +118,12 @@ def compute_differential_expression(
         If True, allows variance estimation with only one condition having multiple samples.
         By default False, which requires both conditions to have multiple samples.
     use_empirical_variance : bool, optional
-        Whether to estimate per-gene empirical variance from squared residuals.
-        When True, fits additional GP models to squared residuals, then uses
-        the predictions to adjust Mahalanobis distances and z-scores. This captures
-        gene-specific heteroscedastic noise without requiring biological replicates.
-        By default False.
-    empirical_variance_kwargs : dict, optional
-        Additional keyword arguments passed to the variance FunctionEstimator,
-        overriding defaults. By default the variance GP reuses the expression
-        GP's covariance function (including its length scale) and landmarks.
-        Use this dict to override any parameter, e.g. ``{'ls': 5.0}`` for a
-        custom length scale, or ``{'sigma': 2.0}`` for a different noise level.
-        By default None.
+        Whether to estimate per-gene empirical variance from GP residuals.
+        When True, the expression GP is fitted with ``obs_variance=True``,
+        which computes leverage-corrected squared residuals and smooths them
+        with a second GP to produce an input-dependent noise surface.
+        This captures gene-specific heteroscedastic noise without requiring
+        biological replicates. By default False.
     sigma : float, optional
         Noise level for function estimator, by default 1.0.
     ls : float, optional
@@ -873,7 +866,6 @@ def compute_differential_expression(
         n_landmarks=n_landmarks,
         use_sample_variance=use_sample_variance,
         use_empirical_variance=use_empirical_variance,
-        empirical_variance_kwargs=empirical_variance_kwargs,
         eps=eps,  # Pass the eps parameter
         jit_compile=jit_compile,
         random_state=random_state,
@@ -1652,7 +1644,6 @@ def compute_differential_expression(
             "sample_col": sample_col,  # Keep this for documentation in the AnnData object
             "use_sample_variance": use_sample_variance,  # This is now inferred from sample_col
             "use_empirical_variance": use_empirical_variance,
-            "empirical_variance_kwargs": empirical_variance_kwargs,
             "sigma": sigma,
             "ls": ls,
             "ls_factor": ls_factor,
