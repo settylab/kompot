@@ -253,7 +253,7 @@ class DifferentialExpression:
     def empirical_variance_predictor1(self):
         """Empirical (obs) variance predictor for condition 1."""
         if self.model1 and self.model1.has_empirical_variance:
-            return self.model1.predictor.obs_variance
+            return self.model1._obs_variance_func
         return None
 
     @empirical_variance_predictor1.setter
@@ -264,7 +264,7 @@ class DifferentialExpression:
     def empirical_variance_predictor2(self):
         """Empirical (obs) variance predictor for condition 2."""
         if self.model2 and self.model2.has_empirical_variance:
-            return self.model2.predictor.obs_variance
+            return self.model2._obs_variance_func
         return None
 
     @empirical_variance_predictor2.setter

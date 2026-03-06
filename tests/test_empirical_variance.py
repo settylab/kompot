@@ -400,6 +400,71 @@ class TestEmpiricalPlusSampleVariance:
             f"combined={np.mean(d_both[-2:]):.3f}, sv_only={np.mean(d_sv[-2:]):.3f}"
         )
 
+    def test_per_sample_empirical_variance_uses_per_sample_gps(self):
+        """With sample_indices, empirical variance should be computed per
+        sample (averaged) rather than across all pooled cells, to avoid
+        double-counting between-sample variance."""
+        rng = np.random.RandomState(77)
+        n_per_sample = 30
+        n_samples = 3
+        n_cells = n_per_sample * n_samples
+        n_genes = 4
+        n_features = 3
+
+        X = rng.randn(n_cells, n_features)
+        # Within-sample noise is small
+        y_base = np.sin(X[:, :1]) * np.ones((1, n_genes))
+        y = y_base + rng.randn(n_cells, n_genes) * 0.3
+
+        # Add large between-sample shifts (this is sample variance, not
+        # aleatoric noise)
+        sample_indices = np.repeat(np.arange(n_samples), n_per_sample)
+        for s in range(n_samples):
+            mask = sample_indices == s
+            y[mask] += rng.randn(n_genes) * 5.0  # large sample shift
+
+        from kompot.differential import ExpressionModel
+
+        # Per-sample empirical variance (correct: captures within-sample noise)
+        model_per = ExpressionModel(
+            use_empirical_variance=True, n_landmarks=15, batch_size=0,
+        )
+        model_per.fit(X, y, ls_factor=10.0, sample_indices=sample_indices)
+        assert model_per._within_sample_obs_var_predictor is not None
+        var_per = model_per.obs_variance(X[:5], progress=False)
+
+        # Pooled empirical variance (wrong: captures between-sample variance too)
+        model_pooled = ExpressionModel(
+            use_empirical_variance=True, n_landmarks=15, batch_size=0,
+        )
+        model_pooled.fit(X, y, ls_factor=10.0, sample_indices=None)
+        assert model_pooled._within_sample_obs_var_predictor is None
+        var_pooled = model_pooled.obs_variance(X[:5], progress=False)
+
+        # Pooled variance should be substantially larger because it includes
+        # between-sample variance that the per-sample approach correctly excludes
+        assert np.mean(var_pooled) > np.mean(var_per) * 1.5, (
+            f"Pooled variance ({np.mean(var_pooled):.3f}) should be much larger "
+            f"than per-sample variance ({np.mean(var_per):.3f}) when between-sample "
+            f"shifts are large"
+        )
+
+    def test_per_sample_predictors_not_created_without_samples(self):
+        """Without sample_indices, should use the standard pooled obs_variance."""
+        rng = np.random.RandomState(88)
+        n, g, d = 50, 4, 3
+        X = rng.randn(n, d)
+        y = rng.randn(n, g)
+
+        from kompot.differential import ExpressionModel
+
+        model = ExpressionModel(
+            use_empirical_variance=True, n_landmarks=15, batch_size=0,
+        )
+        model.fit(X, y, ls_factor=10.0)
+        assert model._within_sample_obs_var_predictor is None
+        assert model.has_empirical_variance
+
 
 # ===== AnnData wrapper =====
 

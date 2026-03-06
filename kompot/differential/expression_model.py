@@ -70,6 +70,7 @@ class ExpressionModel:
         self._estimator = None
         self._predictor = function_predictor
         self._sample_variance_predictor = variance_predictor
+        self._within_sample_obs_var_predictor = None
         self._sigma = None
 
     # ------------------------------------------------------------------
@@ -154,7 +155,14 @@ class ExpressionModel:
         else:
             estimator_defaults["ls_factor"] = ls_factor
 
-        if self.use_empirical_variance:
+        # When sample_indices are provided, obs_variance is computed per
+        # sample to avoid double-counting the between-sample variance that
+        # the SampleVarianceEstimator already captures.
+        per_sample_empirical = (
+            self.use_empirical_variance and sample_indices is not None
+        )
+
+        if self.use_empirical_variance and not per_sample_empirical:
             estimator_defaults["obs_variance"] = True
 
         # ---- fit mellon GP ----
@@ -164,7 +172,7 @@ class ExpressionModel:
         self._predictor = self._estimator.predict
 
         # ---- empirical variance validation ----
-        if self.use_empirical_variance:
+        if self.use_empirical_variance and not per_sample_empirical:
             if not hasattr(self._predictor, "obs_variance"):
                 raise ValueError(
                     "use_empirical_variance=True requires predictors fitted with "
@@ -206,6 +214,38 @@ class ExpressionModel:
                     "Sample variance estimation failed for this condition."
                 )
                 self._sample_variance_predictor = None
+
+        # ---- per-sample empirical variance ----
+        # Fit per-sample GPs and use their loo_residuals_squared to get
+        # within-sample LOO-corrected squared residuals.  These are residuals
+        # relative to each sample's own GP mean, so they capture only
+        # within-sample noise without between-sample variance.  The pooled
+        # squared residuals are then smoothed with a single variance GP.
+        if per_sample_empirical:
+            unique_samples = np.unique(sample_indices)
+            logger.info(
+                f"Computing per-sample empirical variance "
+                f"({len(unique_samples)} samples)..."
+            )
+            per_sample_kw = estimator_defaults.copy()
+            per_sample_kw.pop("obs_variance", None)
+
+            # Collect LOO-corrected squared residuals from per-sample GPs
+            all_loo_sq = np.empty_like(y)
+            for sid in unique_samples:
+                mask = sample_indices == sid
+                sample_est = mellon.FunctionEstimator(**per_sample_kw)
+                sample_est.fit(X[mask], y[mask])
+                all_loo_sq[mask] = sample_est.predict.loo_residuals_squared(
+                    X[mask], y[mask], sigma=sigma,
+                )
+
+            # Smooth pooled within-sample squared residuals with a single GP
+            var_kw = estimator_defaults.copy()
+            var_kw.pop("obs_variance", None)
+            var_est = mellon.FunctionEstimator(**var_kw)
+            var_est.fit(X, all_loo_sq)
+            self._within_sample_obs_var_predictor = var_est.predict
 
         return self
 
@@ -274,13 +314,17 @@ class ExpressionModel:
         """Smoothed aleatoric noise, shape ``(n_points, n_genes)``.
 
         Returns scalar ``0`` when empirical variance is disabled.
+        When per-sample predictors are available (fitted with
+        ``sample_indices``), returns the mean of per-sample estimates
+        to avoid double-counting between-sample variance.
         """
         if not self.has_empirical_variance:
             return 0
         bs = batch_size if batch_size is not None else self.batch_size
+        func = self._obs_variance_func
         return np.maximum(
             apply_batched(
-                lambda Xb: self._predictor.obs_variance(Xb),
+                func,
                 X,
                 batch_size=bs,
                 show_progress=progress,
@@ -288,6 +332,15 @@ class ExpressionModel:
             ),
             self.eps,
         )
+
+    @property
+    def _obs_variance_func(self):
+        """Return the callable for empirical (obs) variance."""
+        if self._within_sample_obs_var_predictor is not None:
+            return self._within_sample_obs_var_predictor
+        if self._predictor is not None and hasattr(self._predictor, "obs_variance"):
+            return self._predictor.obs_variance
+        return None
 
     def sample_variance(self, X, diag=True, batch_size=None, progress=True):
         """Biological-replicate variance.
@@ -365,8 +418,11 @@ class ExpressionModel:
     @property
     def has_empirical_variance(self) -> bool:
         """Whether empirical (obs) variance is available."""
+        if not self.use_empirical_variance:
+            return False
+        if self._within_sample_obs_var_predictor is not None:
+            return True
         return (
-            self.use_empirical_variance
-            and self._predictor is not None
+            self._predictor is not None
             and hasattr(self._predictor, "obs_variance")
         )
