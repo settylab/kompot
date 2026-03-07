@@ -69,10 +69,9 @@ def embedding(
         All other parameters are passed directly to scanpy.pl.embedding.
         See scanpy.pl.embedding documentation for details on available parameters.
         
-        Special handling for list parameters:
-        - layer: When layer is a list, creates multiple panels with each layer plotted in a separate
-          subplot. This only works when color is not a list and mgroups is not used.
-        
+        When ``layer`` is a list, each layer is plotted in a separate panel
+        (only when ``color`` is not a list and ``mgroups`` is not used).
+
     Returns
     -------
     Whatever scanpy.pl.embedding returns based on your kwargs.

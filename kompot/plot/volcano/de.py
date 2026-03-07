@@ -98,14 +98,10 @@ def volcano_de(
         Cannot be used together with significance_threshold. If not specified (None), will use
         DE classification from is_de column when available. Ignored if `highlight_genes` is provided.
     highlight_genes : list of str, dict of {str: str}, or list of dict, optional
-        Can be:
-        - A list of specific gene names to highlight on the plot
-        - A dictionary where keys are gene names and values are colors
-        - A list of dictionaries, each containing:
-          - 'genes': list of gene names (required)
-          - 'name': group name for the legend (optional)
-          - 'color': color for this group (optional)
-        If provided, this will override the `n_top_genes` parameter.
+        Genes to highlight. Can be a list of gene names, a dict mapping
+        gene names to colors, or a list of dicts with keys ``'genes'``
+        (required), ``'name'`` (optional), and ``'color'`` (optional).
+        If provided, overrides ``n_top_genes``.
     background_color_key : str, optional
         Key in adata.var to use for coloring background genes. Can be continuous or categorical.
     background_cmap : str or Colormap, optional
@@ -191,16 +187,12 @@ def volcano_de(
         "ptp", or a custom column name from adata.var. When using FDR or ptp values, they are 
         -log10 transformed for display.
     significance_threshold : float or dict, optional
-        Significance threshold for the y-axis values. Can be:
-        - float: Single threshold for the current y_axis_type, shown as horizontal line
-        - dict: Multiple thresholds with keys corresponding to y_axis_type values
-                (e.g., {"local_fdr": 0.05, "ptp": 0.01}). Cells must pass ALL thresholds.
-                No threshold line is drawn when using dict format.
-        The interpretation depends on y_axis_type (or dict keys):
-        - "mahalanobis": minimum distance for significance
-        - "local_fdr"/"tail_fdr": maximum FDR for significance (e.g., 0.05)
-        - "ptp": maximum p-value for significance (e.g., 0.01)
-        - custom column: threshold applied to the raw column values
+        Significance threshold for the y-axis values. A float sets a single
+        threshold shown as a horizontal line. A dict maps y-axis types to
+        thresholds (e.g., ``{"local_fdr": 0.05, "ptp": 0.01}``); cells must
+        pass all thresholds, and no threshold line is drawn. For
+        ``"mahalanobis"`` this is a minimum distance; for ``"local_fdr"``,
+        ``"tail_fdr"``, and ``"ptp"`` it is a maximum value.
     update_de_classification : bool, optional
         Whether to update the differential expression classification column based on the new
         significance threshold. Applicable for FDR and ptp y_axis_types (default: False).
