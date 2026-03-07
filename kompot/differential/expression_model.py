@@ -5,11 +5,46 @@ import logging
 from typing import Optional, Any
 
 import mellon
+from mellon.base_cov import Covariance
+from mellon.cov import Matern52, Linear
 
 from ..batch_utils import apply_batched
 from .sample_variance_estimator import SampleVarianceEstimator
 
 logger = logging.getLogger("kompot")
+
+
+class Matern52Linear(Covariance):
+    """Matern-5/2 + Linear covariance function.
+
+    Combines a Matern-5/2 kernel with a linear kernel.  The Matern-5/2
+    component captures local smoothness while the linear component
+    allows the GP to model global linear trends in gene expression
+    across the cell-state space, which improves extrapolation behaviour.
+
+    Parameters
+    ----------
+    ls : float
+        Length scale shared by both components.
+    active_dims : array-like, optional
+        Indices of active input dimensions.
+    """
+
+    def __init__(self, ls=1.0, active_dims=None):
+        super().__init__(active_dims=active_dims)
+        self.ls = ls
+        self._matern = Matern52(ls=ls, active_dims=active_dims)
+        self._linear = Linear(ls=ls, active_dims=active_dims)
+        self._combined = self._matern + self._linear
+
+    def k(self, x, y):
+        return self._combined.k(x, y)
+
+    def k_grad(self, x):
+        return self._combined.k_grad(x)
+
+    def diag(self, x):
+        return self._combined.diag(x)
 
 
 class ExpressionModel:
@@ -128,6 +163,7 @@ class ExpressionModel:
             "optimizer": "advi",
             "predictor_with_uncertainty": True,
             "n_landmarks": self.n_landmarks,
+            "cov_func_curry": Matern52Linear,
         }
 
         mellon_kwargs = {
