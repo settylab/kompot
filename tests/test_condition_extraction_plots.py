@@ -165,7 +165,8 @@ class TestVolcanoDaConditionExtraction:
         from kompot.plot.volcano.da import volcano_da
 
         adata, fn = _make_da_adata("Young", "Old", result_key="age_da")
-        fig, ax = volcano_da(adata, return_fig=True)
+        fig = volcano_da(adata, return_fig=True)
+        ax = fig.axes[0]
         xlabel = ax.get_xlabel()
         assert "Young" in xlabel and "Old" in xlabel
         plt.close(fig)
@@ -177,7 +178,8 @@ class TestVolcanoDaConditionExtraction:
         adata, fn = _make_da_adata(
             "Pre-treatment", "Post-treatment", result_key="treat_da"
         )
-        fig, ax = volcano_da(adata, return_fig=True)
+        fig = volcano_da(adata, return_fig=True)
+        ax = fig.axes[0]
         xlabel = ax.get_xlabel()
         # run_info params stores the original unsanitized names
         assert "Pre-treatment" in xlabel
@@ -191,7 +193,8 @@ class TestVolcanoDaConditionExtraction:
         adata, fn = _make_da_adata(
             "Healthy", "Disease", result_key="run2_da", extra_run="run1_da"
         )
-        fig, ax = volcano_da(adata, return_fig=True)
+        fig = volcano_da(adata, return_fig=True)
+        ax = fig.axes[0]
         xlabel = ax.get_xlabel()
         assert "Healthy" in xlabel and "Disease" in xlabel
         plt.close(fig)
@@ -203,7 +206,8 @@ class TestVolcanoDaConditionExtraction:
         adata, fn = _make_da_adata(
             "Wild Type", "Knock Out", result_key="wt_ko_da"
         )
-        fig, ax = volcano_da(adata, return_fig=True)
+        fig = volcano_da(adata, return_fig=True)
+        ax = fig.axes[0]
         xlabel = ax.get_xlabel()
         assert "Wild Type" in xlabel
         assert "Knock Out" in xlabel
@@ -223,7 +227,8 @@ class TestVolcanoDeConditionExtraction:
         from kompot.plot.volcano.de import volcano_de
 
         adata, fn = _make_de_adata("Young", "Old", result_key="age_de")
-        fig, ax = volcano_de(adata, return_fig=True)
+        fig = volcano_de(adata, return_fig=True)
+        ax = fig.axes[0]
         xlabel = ax.get_xlabel()
         assert "Young" in xlabel and "Old" in xlabel
         plt.close(fig)
@@ -235,7 +240,8 @@ class TestVolcanoDeConditionExtraction:
         adata, fn = _make_de_adata(
             "Pre-treatment", "Post-treatment", result_key="treat_de"
         )
-        fig, ax = volcano_de(adata, return_fig=True)
+        fig = volcano_de(adata, return_fig=True)
+        ax = fig.axes[0]
         xlabel = ax.get_xlabel()
         assert "Pre-treatment" in xlabel
         assert "Post-treatment" in xlabel
@@ -248,7 +254,8 @@ class TestVolcanoDeConditionExtraction:
         adata, fn = _make_de_adata(
             "Healthy", "Disease", result_key="run2_de", extra_run="run1_de"
         )
-        fig, ax = volcano_de(adata, return_fig=True)
+        fig = volcano_de(adata, return_fig=True)
+        ax = fig.axes[0]
         xlabel = ax.get_xlabel()
         assert "Healthy" in xlabel and "Disease" in xlabel
         plt.close(fig)
@@ -260,7 +267,8 @@ class TestVolcanoDeConditionExtraction:
         adata, fn = _make_de_adata(
             "Wild Type", "Knock Out", result_key="wt_ko_de"
         )
-        fig, ax = volcano_de(adata, return_fig=True)
+        fig = volcano_de(adata, return_fig=True)
+        ax = fig.axes[0]
         xlabel = ax.get_xlabel()
         assert "Wild Type" in xlabel
         assert "Knock Out" in xlabel
@@ -280,12 +288,12 @@ class TestMultiVolcanoDaConditionExtraction:
         from kompot.plot.volcano.multi_da import multi_volcano_da
 
         adata, fn = _make_da_adata("Young", "Old", result_key="age_da")
-        fig, axes = multi_volcano_da(
+        fig = multi_volcano_da(
             adata, groupby="cell_type", return_fig=True
         )
-        # The bottom plot should have xlabel with conditions
-        bottom_ax = axes[-1]
-        xlabel = bottom_ax.get_xlabel()
+        # Find the axis that has the xlabel with conditions
+        xlabels = [ax.get_xlabel() for ax in fig.axes]
+        xlabel = next((x for x in xlabels if "Log Fold Change" in x), "")
         assert "Young" in xlabel and "Old" in xlabel
         plt.close(fig)
 
@@ -296,11 +304,11 @@ class TestMultiVolcanoDaConditionExtraction:
         adata, fn = _make_da_adata(
             "Pre-treatment", "Post-treatment", result_key="treat_da"
         )
-        fig, axes = multi_volcano_da(
+        fig = multi_volcano_da(
             adata, groupby="cell_type", return_fig=True
         )
-        bottom_ax = axes[-1]
-        xlabel = bottom_ax.get_xlabel()
+        xlabels = [ax.get_xlabel() for ax in fig.axes]
+        xlabel = next((x for x in xlabels if "Log Fold Change" in x), "")
         assert "Pre-treatment" in xlabel
         assert "Post-treatment" in xlabel
         plt.close(fig)
@@ -312,11 +320,11 @@ class TestMultiVolcanoDaConditionExtraction:
         adata, fn = _make_da_adata(
             "Wild Type", "Knock Out", result_key="wt_ko_da"
         )
-        fig, axes = multi_volcano_da(
+        fig = multi_volcano_da(
             adata, groupby="cell_type", return_fig=True
         )
-        bottom_ax = axes[-1]
-        xlabel = bottom_ax.get_xlabel()
+        xlabels = [ax.get_xlabel() for ax in fig.axes]
+        xlabel = next((x for x in xlabels if "Log Fold Change" in x), "")
         assert "Wild Type" in xlabel
         assert "Knock Out" in xlabel
         plt.close(fig)
@@ -335,12 +343,13 @@ class TestDirectionBarplotConditionExtraction:
         from kompot.plot.heatmap.direction_plot import direction_barplot
 
         adata, fn = _make_da_adata("Young", "Old", result_key="age_da")
-        fig, ax = direction_barplot(
+        fig = direction_barplot(
             adata,
             category_column="cell_type",
             direction_column=fn["direction_key"],
             return_fig=True,
         )
+        ax = fig.axes[0]
         title = ax.get_title()
         assert "Young" in title and "Old" in title
         plt.close(fig)
@@ -352,12 +361,13 @@ class TestDirectionBarplotConditionExtraction:
         adata, fn = _make_da_adata(
             "Pre-treatment", "Post-treatment", result_key="treat_da"
         )
-        fig, ax = direction_barplot(
+        fig = direction_barplot(
             adata,
             category_column="cell_type",
             direction_column=fn["direction_key"],
             return_fig=True,
         )
+        ax = fig.axes[0]
         title = ax.get_title()
         assert "Pre-treatment" in title
         assert "Post-treatment" in title
@@ -370,12 +380,13 @@ class TestDirectionBarplotConditionExtraction:
         adata, fn = _make_da_adata(
             "Wild Type", "Knock Out", result_key="wt_ko_da"
         )
-        fig, ax = direction_barplot(
+        fig = direction_barplot(
             adata,
             category_column="cell_type",
             direction_column=fn["direction_key"],
             return_fig=True,
         )
+        ax = fig.axes[0]
         title = ax.get_title()
         assert "Wild Type" in title
         assert "Knock Out" in title
@@ -388,12 +399,13 @@ class TestDirectionBarplotConditionExtraction:
         adata, fn = _make_da_adata(
             "Pre-treatment", "Post-treatment", result_key="infer_da"
         )
-        fig, ax = direction_barplot(
+        fig = direction_barplot(
             adata,
             category_column="cell_type",
             # direction_column NOT provided - should be inferred from run_info
             return_fig=True,
         )
+        ax = fig.axes[0]
         title = ax.get_title()
         assert "Pre-treatment" in title
         assert "Post-treatment" in title

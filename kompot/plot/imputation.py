@@ -34,6 +34,7 @@ def plot_imputation(
     cmap_std: str = "magma",
     figsize_per_panel: tuple = (3.5, 3.0),
     title: Optional[str] = None,
+    save: Optional[str] = None,
     return_fig: bool = False,
     **kwargs,
 ) -> Optional[Figure]:
@@ -324,9 +325,10 @@ def plot_imputation(
     fig._kompot_nrows = n_rows
     fig._kompot_ncols = n_genes
 
+    if save is not None:
+        fig.savefig(save, bbox_inches="tight", dpi=300)
     if return_fig:
         return fig
-    plt.show()
     return None
 
 

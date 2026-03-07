@@ -106,29 +106,27 @@ class TestVolcanoDE:
     
     def test_basic_functionality(self):
         """Test basic functionality of volcano_de."""
-        fig, ax = volcano_de(
+        fig = volcano_de(
             self.adata,
             lfc_key='de_run1_mean_lfc_A_to_B',
             score_key='de_run1_mahalanobis_A_to_B',
             return_fig=True
         )
         assert fig is not None
-        assert ax is not None
         
         # Test with run_id parameter
-        fig, ax = volcano_de(
+        fig = volcano_de(
             self.adata,
             run_id=0,
             return_fig=True
         )
         assert fig is not None
-        assert ax is not None
     
     def test_highlight_genes_parameter(self):
         """Test different formats of highlight_genes parameter."""
         # Test with list of gene names
         genes_to_highlight = self.adata.var_names[:5].tolist()
-        fig, ax = volcano_de(
+        fig = volcano_de(
             self.adata,
             lfc_key='de_run1_mean_lfc_A_to_B',
             score_key='de_run1_mahalanobis_A_to_B',
@@ -136,11 +134,10 @@ class TestVolcanoDE:
             return_fig=True
         )
         assert fig is not None
-        assert ax is not None
         
         # Test with dict mapping genes to colors
         gene_color_dict = {gene: '#FF5733' for gene in self.adata.var_names[:3]}
-        fig, ax = volcano_de(
+        fig = volcano_de(
             self.adata,
             lfc_key='de_run1_mean_lfc_A_to_B',
             score_key='de_run1_mahalanobis_A_to_B',
@@ -148,7 +145,6 @@ class TestVolcanoDE:
             return_fig=True
         )
         assert fig is not None
-        assert ax is not None
         
         # Test with list of dictionaries format
         highlight_groups = [
@@ -163,7 +159,7 @@ class TestVolcanoDE:
                 'color': '#33FF57'
             }
         ]
-        fig, ax = volcano_de(
+        fig = volcano_de(
             self.adata,
             lfc_key='de_run1_mean_lfc_A_to_B',
             score_key='de_run1_mahalanobis_A_to_B',
@@ -171,14 +167,13 @@ class TestVolcanoDE:
             return_fig=True
         )
         assert fig is not None
-        assert ax is not None
         
         # Test with list of lists format
         list_of_lists = [
             self.adata.var_names[:3].tolist(),
             self.adata.var_names[5:8].tolist()
         ]
-        fig, ax = volcano_de(
+        fig = volcano_de(
             self.adata,
             lfc_key='de_run1_mean_lfc_A_to_B',
             score_key='de_run1_mahalanobis_A_to_B',
@@ -186,11 +181,10 @@ class TestVolcanoDE:
             return_fig=True
         )
         assert fig is not None
-        assert ax is not None
         
         # Test with single string (gene name)
         single_gene = self.adata.var_names[0]
-        fig, ax = volcano_de(
+        fig = volcano_de(
             self.adata,
             lfc_key='de_run1_mean_lfc_A_to_B',
             score_key='de_run1_mahalanobis_A_to_B',
@@ -198,11 +192,10 @@ class TestVolcanoDE:
             return_fig=True
         )
         assert fig is not None
-        assert ax is not None
     
     def test_categorical_background(self):
         """Test volcano_de with categorical background coloring."""
-        fig, ax = volcano_de(
+        fig = volcano_de(
             self.adata,
             lfc_key='de_run1_mean_lfc_A_to_B',
             score_key='de_run1_mahalanobis_A_to_B',
@@ -210,10 +203,9 @@ class TestVolcanoDE:
             return_fig=True
         )
         assert fig is not None
-        assert ax is not None
         
         # Test with custom colormap
-        fig, ax = volcano_de(
+        fig = volcano_de(
             self.adata,
             lfc_key='de_run1_mean_lfc_A_to_B',
             score_key='de_run1_mahalanobis_A_to_B',
@@ -222,7 +214,6 @@ class TestVolcanoDE:
             return_fig=True
         )
         assert fig is not None
-        assert ax is not None
         
         # Test with color_discrete_map
         color_map = {
@@ -230,7 +221,7 @@ class TestVolcanoDE:
             'category_2': '#33FF57',
             'category_3': '#3357FF'
         }
-        fig, ax = volcano_de(
+        fig = volcano_de(
             self.adata,
             lfc_key='de_run1_mean_lfc_A_to_B',
             score_key='de_run1_mahalanobis_A_to_B',
@@ -239,12 +230,11 @@ class TestVolcanoDE:
             return_fig=True
         )
         assert fig is not None
-        assert ax is not None
         
         # Test with custom colormap object
         colors = [(1, 0, 0), (0, 1, 0), (0, 0, 1)]  # R, G, B
         custom_cmap = ListedColormap(colors, name='custom')
-        fig, ax = volcano_de(
+        fig = volcano_de(
             self.adata,
             lfc_key='de_run1_mean_lfc_A_to_B',
             score_key='de_run1_mahalanobis_A_to_B',
@@ -253,11 +243,10 @@ class TestVolcanoDE:
             return_fig=True
         )
         assert fig is not None
-        assert ax is not None
     
     def test_continuous_background(self):
         """Test volcano_de with continuous background coloring."""
-        fig, ax = volcano_de(
+        fig = volcano_de(
             self.adata,
             lfc_key='de_run1_mean_lfc_A_to_B',
             score_key='de_run1_mahalanobis_A_to_B',
@@ -265,10 +254,9 @@ class TestVolcanoDE:
             return_fig=True
         )
         assert fig is not None
-        assert ax is not None
         
         # Test with custom colormap
-        fig, ax = volcano_de(
+        fig = volcano_de(
             self.adata,
             lfc_key='de_run1_mean_lfc_A_to_B',
             score_key='de_run1_mahalanobis_A_to_B',
@@ -277,10 +265,9 @@ class TestVolcanoDE:
             return_fig=True
         )
         assert fig is not None
-        assert ax is not None
         
         # Test with vmin, vmax, vcenter
-        fig, ax = volcano_de(
+        fig = volcano_de(
             self.adata,
             lfc_key='de_run1_mean_lfc_A_to_B',
             score_key='de_run1_mahalanobis_A_to_B',
@@ -289,10 +276,9 @@ class TestVolcanoDE:
             return_fig=True
         )
         assert fig is not None
-        assert ax is not None
         
         # Test with percentile strings
-        fig, ax = volcano_de(
+        fig = volcano_de(
             self.adata,
             lfc_key='de_run1_mean_lfc_A_to_B',
             score_key='de_run1_mahalanobis_A_to_B',
@@ -301,13 +287,12 @@ class TestVolcanoDE:
             return_fig=True
         )
         assert fig is not None
-        assert ax is not None
     
     def test_layout_and_styling_options(self):
         """Test layout and styling options of volcano_de."""
         # Test with custom figure size
         # Note: The actual size may differ due to internal adjustments for legends
-        fig, ax = volcano_de(
+        fig = volcano_de(
             self.adata,
             lfc_key='de_run1_mean_lfc_A_to_B',
             score_key='de_run1_mahalanobis_A_to_B',
@@ -315,11 +300,10 @@ class TestVolcanoDE:
             return_fig=True
         )
         assert fig is not None
-        assert ax is not None
         # Skip exact size check as volcano_de may adjust size for legend
         
         # Test with custom title and axis labels
-        fig, ax = volcano_de(
+        fig = volcano_de(
             self.adata,
             lfc_key='de_run1_mean_lfc_A_to_B',
             score_key='de_run1_mahalanobis_A_to_B',
@@ -329,13 +313,13 @@ class TestVolcanoDE:
             return_fig=True
         )
         assert fig is not None
-        assert ax is not None
+        ax = fig.axes[0]
         assert ax.get_title() == 'Custom Volcano Plot'
         assert ax.get_xlabel() == 'Custom X Label'
         assert ax.get_ylabel() == 'Custom Y Label'
         
         # Test with custom tick settings
-        fig, ax = volcano_de(
+        fig = volcano_de(
             self.adata,
             lfc_key='de_run1_mean_lfc_A_to_B',
             score_key='de_run1_mahalanobis_A_to_B',
@@ -344,10 +328,9 @@ class TestVolcanoDE:
             return_fig=True
         )
         assert fig is not None
-        assert ax is not None
         
         # Test with grid off
-        fig, ax = volcano_de(
+        fig = volcano_de(
             self.adata,
             lfc_key='de_run1_mean_lfc_A_to_B',
             score_key='de_run1_mahalanobis_A_to_B',
@@ -355,10 +338,9 @@ class TestVolcanoDE:
             return_fig=True
         )
         assert fig is not None
-        assert ax is not None
         
         # Test with custom grid settings
-        fig, ax = volcano_de(
+        fig = volcano_de(
             self.adata,
             lfc_key='de_run1_mean_lfc_A_to_B',
             score_key='de_run1_mahalanobis_A_to_B',
@@ -367,12 +349,11 @@ class TestVolcanoDE:
             return_fig=True
         )
         assert fig is not None
-        assert ax is not None
     
     def test_legend_options(self):
         """Test legend options for volcano_de."""
         # Test with legend off
-        fig, ax = volcano_de(
+        fig = volcano_de(
             self.adata,
             lfc_key='de_run1_mean_lfc_A_to_B',
             score_key='de_run1_mahalanobis_A_to_B',
@@ -380,10 +361,9 @@ class TestVolcanoDE:
             return_fig=True
         )
         assert fig is not None
-        assert ax is not None
         
         # Test with legend location
-        fig, ax = volcano_de(
+        fig = volcano_de(
             self.adata,
             lfc_key='de_run1_mean_lfc_A_to_B',
             score_key='de_run1_mahalanobis_A_to_B',
@@ -391,10 +371,9 @@ class TestVolcanoDE:
             return_fig=True
         )
         assert fig is not None
-        assert ax is not None
         
         # Test with legend font size
-        fig, ax = volcano_de(
+        fig = volcano_de(
             self.adata,
             lfc_key='de_run1_mean_lfc_A_to_B',
             score_key='de_run1_mahalanobis_A_to_B',
@@ -403,10 +382,9 @@ class TestVolcanoDE:
             return_fig=True
         )
         assert fig is not None
-        assert ax is not None
         
         # Test with legend columns
-        fig, ax = volcano_de(
+        fig = volcano_de(
             self.adata,
             lfc_key='de_run1_mean_lfc_A_to_B',
             score_key='de_run1_mahalanobis_A_to_B',
@@ -414,12 +392,11 @@ class TestVolcanoDE:
             return_fig=True
         )
         assert fig is not None
-        assert ax is not None
     
     def test_point_and_text_styling(self):
         """Test point and text styling options."""
         # Test with custom point sizes and colors
-        fig, ax = volcano_de(
+        fig = volcano_de(
             self.adata,
             lfc_key='de_run1_mean_lfc_A_to_B',
             score_key='de_run1_mahalanobis_A_to_B',
@@ -431,10 +408,9 @@ class TestVolcanoDE:
             return_fig=True
         )
         assert fig is not None
-        assert ax is not None
         
         # Test with text options
-        fig, ax = volcano_de(
+        fig = volcano_de(
             self.adata,
             lfc_key='de_run1_mean_lfc_A_to_B',
             score_key='de_run1_mahalanobis_A_to_B',
@@ -444,10 +420,9 @@ class TestVolcanoDE:
             return_fig=True
         )
         assert fig is not None
-        assert ax is not None
         
         # Test with gene_labels=False
-        fig, ax = volcano_de(
+        fig = volcano_de(
             self.adata,
             lfc_key='de_run1_mean_lfc_A_to_B',
             score_key='de_run1_mahalanobis_A_to_B',
@@ -455,12 +430,11 @@ class TestVolcanoDE:
             return_fig=True
         )
         assert fig is not None
-        assert ax is not None
     
     def test_gene_labels_parameter(self):
         """Test the gene_labels parameter with different input types."""
         # Test with gene_labels=True (default behavior - shows highlighted gene names)
-        fig, ax = volcano_de(
+        fig = volcano_de(
             self.adata,
             lfc_key='de_run1_mean_lfc_A_to_B',
             score_key='de_run1_mahalanobis_A_to_B',
@@ -469,15 +443,15 @@ class TestVolcanoDE:
             return_fig=True
         )
         assert fig is not None
-        assert ax is not None
         
         # Check that text annotations were added (for highlighted genes)
+        ax = fig.axes[0]
         annotations = [child for child in ax.get_children() if hasattr(child, 'get_text')]
         # Should have some annotations since gene_labels=True and we have highlighted genes
         assert len(annotations) > 0
         
         # Test with gene_labels=False (no gene names shown)
-        fig, ax = volcano_de(
+        fig = volcano_de(
             self.adata,
             lfc_key='de_run1_mean_lfc_A_to_B',
             score_key='de_run1_mahalanobis_A_to_B',
@@ -486,9 +460,9 @@ class TestVolcanoDE:
             return_fig=True
         )
         assert fig is not None
-        assert ax is not None
         
         # Check that no text annotations were added
+        ax = fig.axes[0]
         annotations = [child for child in ax.get_children() if hasattr(child, 'get_text')]
         # Should have no gene name annotations when gene_labels=False
         gene_annotations = [ann for ann in annotations if hasattr(ann, 'get_text') and ann.get_text() in self.adata.var_names]
@@ -496,7 +470,7 @@ class TestVolcanoDE:
         
         # Test with gene_labels as list of specific gene names
         genes_to_show = ['gene_0', 'gene_5', 'gene_10']
-        fig, ax = volcano_de(
+        fig = volcano_de(
             self.adata,
             lfc_key='de_run1_mean_lfc_A_to_B',
             score_key='de_run1_mahalanobis_A_to_B',
@@ -505,9 +479,9 @@ class TestVolcanoDE:
             return_fig=True
         )
         assert fig is not None
-        assert ax is not None
         
         # Check that annotations exist for the specified genes
+        ax = fig.axes[0]
         annotations = [child for child in ax.get_children() if hasattr(child, 'get_text')]
         annotation_texts = [ann.get_text() for ann in annotations if hasattr(ann, 'get_text')]
         
@@ -517,7 +491,7 @@ class TestVolcanoDE:
         
         # Test with gene_labels as list containing non-existent genes
         genes_with_invalid = ['gene_0', 'nonexistent_gene', 'gene_5']
-        fig, ax = volcano_de(
+        fig = volcano_de(
             self.adata,
             lfc_key='de_run1_mean_lfc_A_to_B',
             score_key='de_run1_mahalanobis_A_to_B',
@@ -525,9 +499,9 @@ class TestVolcanoDE:
             return_fig=True
         )
         assert fig is not None
-        assert ax is not None
         
         # Check that valid genes are annotated, invalid ones are ignored
+        ax = fig.axes[0]
         annotations = [child for child in ax.get_children() if hasattr(child, 'get_text')]
         annotation_texts = [ann.get_text() for ann in annotations if hasattr(ann, 'get_text')]
         
@@ -539,7 +513,7 @@ class TestVolcanoDE:
         highlight_genes_list = ['gene_1', 'gene_2', 'gene_3']
         gene_labels_list = ['gene_0', 'gene_4', 'gene_8']  # Different genes
         
-        fig, ax = volcano_de(
+        fig = volcano_de(
             self.adata,
             lfc_key='de_run1_mean_lfc_A_to_B',
             score_key='de_run1_mahalanobis_A_to_B',
@@ -548,9 +522,9 @@ class TestVolcanoDE:
             return_fig=True
         )
         assert fig is not None
-        assert ax is not None
         
         # Check that genes from gene_labels list are annotated (regardless of highlighting)
+        ax = fig.axes[0]
         annotations = [child for child in ax.get_children() if hasattr(child, 'get_text')]
         annotation_texts = [ann.get_text() for ann in annotations if hasattr(ann, 'get_text')]
         
@@ -559,7 +533,7 @@ class TestVolcanoDE:
             assert gene in annotation_texts
         
         # Test with empty gene_labels list
-        fig, ax = volcano_de(
+        fig = volcano_de(
             self.adata,
             lfc_key='de_run1_mean_lfc_A_to_B',
             score_key='de_run1_mahalanobis_A_to_B',
@@ -568,9 +542,9 @@ class TestVolcanoDE:
             return_fig=True
         )
         assert fig is not None
-        assert ax is not None
         
         # Should have no gene annotations with empty list
+        ax = fig.axes[0]
         annotations = [child for child in ax.get_children() if hasattr(child, 'get_text')]
         gene_annotations = [ann for ann in annotations if hasattr(ann, 'get_text') and ann.get_text() in self.adata.var_names]
         assert len(gene_annotations) == 0
@@ -579,7 +553,7 @@ class TestVolcanoDE:
         highlight_dict = {'gene_1': '#FF0000', 'gene_2': '#00FF00'}
         gene_labels_list = ['gene_0', 'gene_1', 'gene_9']  # gene_1 overlaps with highlight
         
-        fig, ax = volcano_de(
+        fig = volcano_de(
             self.adata,
             lfc_key='de_run1_mean_lfc_A_to_B',
             score_key='de_run1_mahalanobis_A_to_B',
@@ -588,9 +562,9 @@ class TestVolcanoDE:
             return_fig=True
         )
         assert fig is not None
-        assert ax is not None
         
         # All genes in gene_labels should be annotated
+        ax = fig.axes[0]
         annotations = [child for child in ax.get_children() if hasattr(child, 'get_text')]
         annotation_texts = [ann.get_text() for ann in annotations if hasattr(ann, 'get_text')]
         
@@ -626,7 +600,7 @@ class TestVolcanoDE:
             )
         
         # Test with invalid highlight_genes entries
-        fig, ax = volcano_de(
+        fig = volcano_de(
             self.adata,
             lfc_key='de_run1_mean_lfc_A_to_B',
             score_key='de_run1_mahalanobis_A_to_B',
@@ -634,7 +608,6 @@ class TestVolcanoDE:
             return_fig=True
         )
         assert fig is not None
-        assert ax is not None
         
         # Test with empty highlight groups
         empty_highlight_groups = [
@@ -644,7 +617,7 @@ class TestVolcanoDE:
                 'color': '#FF5733'
             }
         ]
-        fig, ax = volcano_de(
+        fig = volcano_de(
             self.adata,
             lfc_key='de_run1_mean_lfc_A_to_B',
             score_key='de_run1_mahalanobis_A_to_B',
@@ -652,7 +625,6 @@ class TestVolcanoDE:
             return_fig=True
         )
         assert fig is not None
-        assert ax is not None
     
     def test_with_external_ax(self):
         """Test using an external axes for plotting."""

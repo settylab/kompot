@@ -572,24 +572,9 @@ class TestLeverageCorrection:
         )
         de.fit(X, y, X, y, sigma=1.0, ls_factor=10.0)
 
-        h = np.asarray(de.function_predictor1.leverage(X, sigma=1.0))
+        h = np.asarray(de.function_predictor1.leverage(X))
         assert np.all(h >= 0), f"Negative leverage: {h.min()}"
         assert np.all(h < 1), f"Leverage >= 1: {h.max()}"
-
-    def test_leverage_depends_on_sigma(self, synth_data):
-        """Leverage should decrease as sigma increases (more smoothing)."""
-        X, y = synth_data
-        de = DifferentialExpression(
-            use_empirical_variance=True, n_landmarks=20, batch_size=0,
-        )
-        de.fit(X, y, X, y, sigma=1.0, ls_factor=10.0)
-
-        h_low = np.asarray(de.function_predictor1.leverage(X, sigma=0.5))
-        h_high = np.asarray(de.function_predictor1.leverage(X, sigma=2.0))
-        assert np.mean(h_low) > np.mean(h_high), (
-            f"Lower sigma should give higher leverage: "
-            f"mean(h|sigma=0.5)={np.mean(h_low):.4f}, mean(h|sigma=2.0)={np.mean(h_high):.4f}"
-        )
 
     def test_leverage_trace_bounded_by_landmarks(self, synth_data):
         """tr(H) = sum of leverages should be <= number of landmarks."""
@@ -600,7 +585,7 @@ class TestLeverageCorrection:
         )
         de.fit(X, y, X, y, sigma=1.0, ls_factor=10.0)
 
-        h = np.asarray(de.function_predictor1.leverage(X, sigma=1.0))
+        h = np.asarray(de.function_predictor1.leverage(X))
         assert h.sum() <= m + 0.1, (
             f"tr(H)={h.sum():.2f} should be <= m={m}"
         )
@@ -615,7 +600,7 @@ class TestLeverageCorrection:
         raw_sq = (y - imputed) ** 2
 
         # loo_residuals_squared returns leverage-corrected squared residuals
-        corrected_sq = np.asarray(est.predict.loo_residuals_squared(X, y, sigma=1.0))
+        corrected_sq = np.asarray(est.predict.loo_residuals_squared(X, y))
 
         assert np.all(corrected_sq >= raw_sq - 1e-10), (
             "Corrected residuals should be >= uncorrected (h >= 0)"
@@ -641,7 +626,7 @@ class TestLeverageCorrection:
             imputed = np.asarray(est.predict(X))
             raw_sq = (y - imputed) ** 2
 
-            corrected_sq = np.asarray(est.predict.loo_residuals_squared(X, y, sigma=1.0))
+            corrected_sq = np.asarray(est.predict.loo_residuals_squared(X, y))
 
             true_var = sigma_true ** 2
             raw_biases.append((raw_sq.mean() - true_var) / true_var)
@@ -708,7 +693,7 @@ class TestObsVarianceIntegration:
 
         smoothed = np.asarray(de.empirical_variance_predictor1(X))
         raw_hc3 = np.asarray(
-            de.function_predictor1.loo_residuals_squared(X, y, sigma=1.0)
+            de.function_predictor1.loo_residuals_squared(X, y)
         )
 
         # Smoothed should have lower coefficient of variation per gene

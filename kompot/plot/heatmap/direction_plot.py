@@ -126,7 +126,7 @@ def direction_barplot(
     save: Optional[str] = None,
     run_id: int = -1,
     **kwargs,
-) -> Optional[Tuple[plt.Figure, plt.Axes]]:
+) -> Optional[plt.Figure]:
     """Create a barplot showing the direction of change distribution across categories.
 
     This function creates a stacked or grouped barplot showing the distribution of
@@ -352,15 +352,8 @@ def direction_barplot(
         )
         plt.tight_layout()
 
-    # Save figure if requested
     if save is not None:
-        plt.savefig(save, bbox_inches="tight", dpi=300)
-
-    # Return figure if requested
+        fig.savefig(save, bbox_inches="tight", dpi=300)
     if return_fig:
-        return fig, ax
-    elif save is None:
-        # Only show if not saving and not returning
-        plt.show()
-    
+        return fig
     return None

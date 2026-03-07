@@ -273,7 +273,7 @@ class ExpressionModel:
                 sample_est = mellon.FunctionEstimator(**per_sample_kw)
                 sample_est.fit(X[mask], y[mask])
                 all_loo_sq[mask] = sample_est.predict.loo_residuals_squared(
-                    X[mask], y[mask], sigma=sigma,
+                    X[mask], y[mask],
                 )
 
             # Smooth pooled within-sample squared residuals with a single GP

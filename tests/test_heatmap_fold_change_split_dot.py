@@ -324,13 +324,10 @@ class TestHeatmapWithFoldChangeMode:
         
         # Check that it works
         assert result is not None
-        assert isinstance(result, tuple) and len(result) >= 2
-        fig, ax = result[:2]
-        
-        # Check that the figure and axis exist
+        fig = result
         assert fig is not None
-        assert ax is not None
-        
+        ax = fig.axes[0]
+
         # Check that we have the right number of cells
         assert len(ax.patches) > 0
     
@@ -360,7 +357,7 @@ class TestHeatmapWithFoldChangeMode:
         
         # Check that it works
         assert result is not None
-        assert isinstance(result, tuple) and len(result) >= 2
+        assert isinstance(result, plt.Figure)
     
     def test_heatmap_fold_change_mode_with_standard_scale_warning(self):
         """Test that standard_scale is ignored in fold_change_mode."""
@@ -385,7 +382,7 @@ class TestHeatmapWithFoldChangeMode:
         
         # Check that it works despite the warning
         assert result is not None
-        assert isinstance(result, tuple) and len(result) >= 2
+        assert isinstance(result, plt.Figure)
     
     def test_heatmap_fold_change_mode_with_clustering(self):
         """Test the heatmap with fold_change_mode=True and clustering."""
@@ -409,14 +406,11 @@ class TestHeatmapWithFoldChangeMode:
             return_fig=True
         )
         
-        # Check that it works and returns dendrogram axes
+        # Check that it works
         assert result is not None
-        assert isinstance(result, tuple)
-        # Handle unpacking based on namedtuple pattern
-        fig, ax, dendrogram_axes = result[:3]
-        
-        # Check that dendrograms were created
-        assert 'row' in dendrogram_axes or 'col' in dendrogram_axes
+        fig = result
+        # Check that dendrograms were created (multiple axes present)
+        assert len(fig.axes) > 1
 
 
 class TestHeatmapWithSplitDotMode:
@@ -490,13 +484,10 @@ class TestHeatmapWithSplitDotMode:
         
         # Check that it works
         assert result is not None
-        assert isinstance(result, tuple) and len(result) >= 2
-        fig, ax = result[:2]
-        
-        # Check that the figure and axis exist
-        assert fig is not None
-        assert ax is not None
-        
+        assert isinstance(result, plt.Figure)
+        fig = result
+        ax = fig.axes[0]
+
         # Check that we have patches (wedges for the dots)
         assert len(ax.patches) > 0
     
@@ -522,7 +513,7 @@ class TestHeatmapWithSplitDotMode:
         
         # Check that it works
         assert result is not None
-        assert isinstance(result, tuple) and len(result) >= 2
+        assert isinstance(result, plt.Figure)
     
     def test_heatmap_split_dot_mode_with_standard_scale(self):
         """Test the split dot mode with z-scoring."""
@@ -548,7 +539,7 @@ class TestHeatmapWithSplitDotMode:
         
         # Check that it works
         assert result is not None
-        assert isinstance(result, tuple) and len(result) >= 2
+        assert isinstance(result, plt.Figure)
     
     def test_heatmap_split_dot_mode_with_clustering(self):
         """Test the heatmap with split_dot_mode=True and clustering."""
@@ -574,7 +565,7 @@ class TestHeatmapWithSplitDotMode:
         
         # Check that it works and returns dendrogram axes
         assert result is not None
-        assert isinstance(result, tuple) and len(result) >= 3
+        assert isinstance(result, plt.Figure)
     
     def test_heatmap_split_dot_mode_with_uneven_groups(self):
         """Test split dot mode with uneven group sizes."""
@@ -618,7 +609,7 @@ class TestHeatmapWithSplitDotMode:
         
         # Check that it works
         assert result is not None
-        assert isinstance(result, tuple) and len(result) >= 2
+        assert isinstance(result, plt.Figure)
 
 
 class TestHeatmapEdgeCases:
@@ -660,7 +651,7 @@ class TestHeatmapEdgeCases:
         
         # Check that it works
         assert result is not None
-        assert isinstance(result, tuple) and len(result) >= 2
+        assert isinstance(result, plt.Figure)
     
     def test_fold_change_with_title_and_layout_config(self):
         """Test fold change mode with custom title and layout config."""
@@ -686,7 +677,7 @@ class TestHeatmapEdgeCases:
         
         # Check that it works
         assert result is not None
-        assert isinstance(result, tuple) and len(result) >= 2
+        assert isinstance(result, plt.Figure)
     
     def test_fold_change_with_colorbar_kwargs(self):
         """Test fold change mode with custom colorbar kwargs."""
@@ -715,7 +706,7 @@ class TestHeatmapEdgeCases:
         
         # Check that it works
         assert result is not None
-        assert isinstance(result, tuple) and len(result) >= 2
+        assert isinstance(result, plt.Figure)
     
     def test_split_dot_mode_with_custom_conditions(self):
         """Test split dot mode with custom condition names."""
@@ -735,7 +726,7 @@ class TestHeatmapEdgeCases:
         
         # Check that it works
         assert result is not None
-        assert isinstance(result, tuple) and len(result) >= 2
+        assert isinstance(result, plt.Figure)
     
     def test_invalid_modes_combination(self):
         """Test that fold_change_mode and split_dot_mode can't both be True."""
@@ -755,4 +746,4 @@ class TestHeatmapEdgeCases:
         
         # Check that it still works (should fall back to fold_change_mode)
         assert result is not None
-        assert isinstance(result, tuple) and len(result) >= 2
+        assert isinstance(result, plt.Figure)
