@@ -33,6 +33,16 @@ from .batch_utils import batch_process, apply_batched
 # Import resource estimation utilities
 from .resource_estimation import dry_run_differential_expression
 
+# Import settings dataclasses
+from .settings import (
+    GPSettings,
+    FDRSettings,
+    FilterSettings,
+    StorageSettings,
+    OutputSettings,
+    _settings_to_kwargs,
+)
+
 # Now import submodules - after the classes are imported
 from . import plot
 from . import anndata
@@ -48,6 +58,85 @@ from .anndata import (
     cleanup,
     get_field_status
 )
+
+
+def de(
+    adata,
+    groupby: str,
+    condition1: str,
+    condition2: str,
+    obsm_key: str = "DM_EigenVectors",
+    layer=None,
+    genes=None,
+    sample_col=None,
+    gp: "GPSettings | None" = None,
+    fdr: "FDRSettings | None" = None,
+    filter: "FilterSettings | None" = None,
+    storage: "StorageSettings | None" = None,
+    output: "OutputSettings | None" = None,
+    **function_kwargs,
+):
+    """Differential expression — simplified interface.
+
+    Wraps :func:`compute_differential_expression` with grouped settings
+    objects so that the most common call is just::
+
+        kompot.de(adata, "condition", "Young", "Old")
+
+    Advanced options are available through the settings dataclasses
+    (:class:`GPSettings`, :class:`FDRSettings`, :class:`FilterSettings`,
+    :class:`StorageSettings`, :class:`OutputSettings`).  Any field left
+    at its default is equivalent to omitting it entirely.  Extra
+    ``**function_kwargs`` are forwarded to mellon's
+    :class:`~mellon.FunctionEstimator`.
+
+    Parameters
+    ----------
+    adata : AnnData
+        AnnData object containing cells from both conditions.
+    groupby : str
+        Column in ``adata.obs`` with condition labels.
+    condition1, condition2 : str
+        Labels identifying the two conditions.
+    obsm_key : str
+        Key in ``adata.obsm`` for cell-state coordinates.
+    layer : str, optional
+        Layer with expression data (``None`` → ``adata.X``).
+    genes : list of str, optional
+        Subset of genes to analyse.
+    sample_col : str, optional
+        Column with biological-replicate labels.
+    gp : GPSettings, optional
+        GP model parameters.
+    fdr : FDRSettings, optional
+        FDR / null-distribution parameters.
+    filter : FilterSettings, optional
+        Cell filtering and group-subsetting.
+    storage : StorageSettings, optional
+        Where and how results are stored.
+    output : OutputSettings, optional
+        Return-value and progress-bar control.
+    **function_kwargs
+        Forwarded to :class:`~mellon.FunctionEstimator`.
+
+    Returns
+    -------
+    See :func:`compute_differential_expression`.
+    """
+    kw = _settings_to_kwargs(gp=gp, fdr=fdr, filter=filter,
+                             storage=storage, output=output)
+    return compute_differential_expression(
+        adata,
+        groupby=groupby,
+        condition1=condition1,
+        condition2=condition2,
+        obsm_key=obsm_key,
+        layer=layer,
+        genes=genes,
+        sample_col=sample_col,
+        **kw,
+        **function_kwargs,
+    )
 
 # Configure logging
 LOGGING_CONFIG = {
@@ -87,6 +176,12 @@ __all__ = [
 
     # Core differential analysis classes
     "DifferentialAbundance", "DifferentialExpression", "ExpressionModel", "Matern52Linear", "SampleVarianceEstimator",
+
+    # Simplified interface
+    "de",
+
+    # Settings dataclasses
+    "GPSettings", "FDRSettings", "FilterSettings", "StorageSettings", "OutputSettings",
 
     # Utility functions
     "compute_mahalanobis_distance", "find_landmarks",
