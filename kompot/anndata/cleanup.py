@@ -39,7 +39,8 @@ def cleanup(
         - If int: Cleans up single run
         - If list: Cleans up specified runs
     analysis_type : str, default 'de'
-        Type of analysis: 'de' for differential expression or 'da' for differential abundance
+        Type of analysis: 'de' for differential expression, 'da' for
+        differential abundance, or 'impute' for expression imputation
     keep_layers : bool or list of str, optional
         - If None (default): Remove all layers from specified run(s)
         - If False: Remove all layers from specified run(s)
@@ -76,60 +77,61 @@ def cleanup(
     AnnData or None
         If inplace=False, returns modified copy. If inplace=True, returns None.
 
-    Field Types
-    -----------
-    **Layer field types:**
-        - 'imputed': Imputed expression for each condition
-        - 'fold_change': Log fold change for each cell and gene
-        - 'fold_change_zscores': Z-scores of log fold changes (requires store_additional_stats=True)
-        - 'std_with_sample_var': Posterior standard deviations with sample variance
+    Notes
+    -----
+    Layer field types:
 
-    **Var field types:**
-        - 'mean_log_fold_change': Mean log fold change values
-        - 'mahalanobis': Mahalanobis distances
-        - 'ptp': Posterior tail probability (requires store_additional_stats=True)
-        - 'mahalanobis_pvalue': P-values from empirical null (requires store_additional_stats=True)
-        - 'mahalanobis_local_fdr': Local FDR values (primary significance measure)
-        - 'mahalanobis_tail_fdr': Tail-based FDR values (requires store_additional_stats=True)
-        - 'is_de': Boolean indicator of differential expression
-        - 'weighted_mean_log_fold_change': Weighted mean log fold change (with differential abundance)
+    - ``'imputed'``: Imputed expression for each condition
+    - ``'fold_change'``: Log fold change for each cell and gene
+    - ``'fold_change_zscores'``: Z-scores of log fold changes
+    - ``'std_with_sample_var'``: Posterior standard deviations with sample variance
 
-    **Obs field types:**
-        - 'std': Posterior standard deviations (without sample variance, same for all genes)
+    Var field types:
 
-    **Obsp field types:**
-        - 'covariance': Posterior covariance matrices for fold changes
+    - ``'mean_log_fold_change'``: Mean log fold change values
+    - ``'mahalanobis'``: Mahalanobis distances
+    - ``'ptp'``: Posterior tail probability
+    - ``'mahalanobis_pvalue'``: P-values from empirical null
+    - ``'mahalanobis_local_fdr'``: Local FDR values
+    - ``'mahalanobis_tail_fdr'``: Tail-based FDR values
+    - ``'is_de'``: Boolean indicator of differential expression
+    - ``'weighted_mean_log_fold_change'``: Weighted mean log fold change
 
-    **Varm field types:**
-        - 'mean_log_fold_change': Mean log fold change per group (when using groups parameter)
-        - 'mahalanobis': Mahalanobis distances per group
-        - 'weighted_mean_log_fold_change': Weighted mean log fold change per group
+    Obs field types:
+
+    - ``'std'``: Posterior standard deviations
+
+    Obsp field types:
+
+    - ``'covariance'``: Posterior covariance matrices for fold changes
+
+    Varm field types:
+
+    - ``'mean_log_fold_change'``: Mean log fold change per group
+    - ``'mahalanobis'``: Mahalanobis distances per group
+    - ``'weighted_mean_log_fold_change'``: Weighted mean log fold change per group
 
     Examples
     --------
-    # Remove all layers from all runs (default behavior)
-    cleanup(adata)
+    >>> cleanup(adata)  # Remove all layers from all runs
 
-    # Remove layers from specific run
-    cleanup(adata, run_ids=0)
+    >>> cleanup(adata, run_ids=0)  # Remove layers from specific run
 
-    # Remove layers from multiple specific runs
-    cleanup(adata, run_ids=[0, 2, 5])
+    >>> cleanup(adata, run_ids=[0, 2, 5])  # Multiple runs
 
-    # Keep only fold change layer, remove everything else large
-    cleanup(adata, keep_layers=['fold_change'])
+    >>> cleanup(adata, keep_layers=['fold_change'])  # Keep only fold change
 
-    # Remove all layers and obsp covariance matrices
-    cleanup(adata, keep_layers=False, keep_obsp_fields=False)
+    >>> # Remove all layers and obsp covariance matrices
+    >>> cleanup(adata, keep_layers=False, keep_obsp_fields=False)
 
-    # Keep only essential statistical fields from run 0
-    cleanup(
-        adata,
-        run_ids=0,
-        keep_layers=False,
-        keep_var_fields=['mahalanobis', 'mahalanobis_local_fdr', 'is_de', 'mean_log_fold_change'],
-        keep_obs_fields=False
-    )
+    >>> # Keep only essential statistical fields from run 0
+    >>> cleanup(
+    ...     adata,
+    ...     run_ids=0,
+    ...     keep_layers=False,
+    ...     keep_var_fields=['mahalanobis', 'mahalanobis_local_fdr', 'is_de', 'mean_log_fold_change'],
+    ...     keep_obs_fields=False,
+    ... )
 
     Notes
     -----
@@ -139,6 +141,10 @@ def cleanup(
     - This does NOT modify the run history - deleted fields are marked as missing
     - Use RunInfo to check which fields are present vs deleted
     """
+    # For impute analysis, default to keeping the main result (imputed layer)
+    if analysis_type == 'impute' and keep_layers is None:
+        keep_layers = ['imputed']
+
     if not inplace:
         adata = adata.copy()
 
@@ -366,7 +372,7 @@ def get_field_status(
     run_id : int, optional
         Run ID to check. If None, uses most recent run.
     analysis_type : str, default 'de'
-        Type of analysis: 'de' or 'da'
+        Type of analysis: 'de', 'da', or 'impute'
 
     Returns
     -------

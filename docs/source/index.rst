@@ -13,8 +13,8 @@
    :maxdepth: 2
    :caption: API Reference:
 
-   Differential Analysis <differential>
-   AnnData Integration <anndata>
+   AnnData Interface <simplified>
+   Model Classes <differential>
    Plotting <plotting>
    Utilities <utils>
 
@@ -26,6 +26,7 @@
    Getting Started <notebooks/01_getting_started.ipynb>
    Advanced Differential Expression <notebooks/02_differential_expression_detailed.ipynb>
    Sample Variance Analysis <notebooks/03_sample_variance.ipynb>
+   Gene Expression Imputation <notebooks/04_expression_model.ipynb>
 
 .. |doi| image:: https://zenodo.org/badge/944121568.svg
    :target: https://zenodo.org/badge/latestdoi/944121568
@@ -63,7 +64,7 @@ Kompot is a Python package for differential abundance and gene expression analys
 Overview
 --------
 
-Kompot implements methodologies from the Mellon package for computing differential abundance and gene expression, with a focus on using Mahalanobis distance as a measure of differential expression significance. It leverages JAX for efficient computations and provides a scikit-learn like API with `.fit()` and `.predict()` methods.
+Kompot implements methodologies from the Mellon package for computing differential abundance and gene expression, with a focus on using Mahalanobis distance as a measure of differential expression significance. It leverages JAX for efficient computations and provides a scikit-learn like API with ``.fit()`` and ``.predict()`` methods.
 
 Key features:
 
@@ -111,8 +112,22 @@ For optional dependencies and JAX GPU support, see the :doc:`installation guide 
 Quick Start
 -----------
 
-Python API
-^^^^^^^^^^
+.. code-block:: python
+
+   import kompot
+
+   # Minimal call — uses sensible defaults
+   kompot.de(adata, "condition", "Young", "Old")
+
+   # Customize GP and FDR settings
+   kompot.de(
+       adata, "condition", "Young", "Old",
+       sample_col="donor_id",
+       gp=kompot.GPSettings(sigma=0.5, use_empirical_variance=True),
+       fdr=kompot.FDRSettings(threshold=0.01),
+   )
+
+See :doc:`simplified` for the full API and all available settings.
 
 **New to Kompot?** Start with the :doc:`Getting Started <notebooks/01_getting_started>` tutorial for a comprehensive introduction to differential abundance and expression analysis.
 
@@ -120,6 +135,7 @@ Python API
 
 - :doc:`Advanced Differential Expression <notebooks/02_differential_expression_detailed>` - Parameter customization, multiple comparisons, and visualization options
 - :doc:`Sample Variance Analysis <notebooks/03_sample_variance>` - Accounting for biological replicates in multi-sample studies
+- :doc:`Gene Expression Imputation <notebooks/04_expression_model>` - GP imputation, uncertainty decomposition, and CITE-seq validation
 
 Command-Line Interface
 ^^^^^^^^^^^^^^^^^^^^^^^
@@ -132,8 +148,8 @@ Command-Line Interface
    kompot dm input.h5ad -o input_dm.h5ad --pca-key X_pca
 
    # Run differential expression
-   kompot de input_dm.h5ad -o results.h5ad \\
-     --groupby condition --condition1 control --condition2 treatment \\
+   kompot de input_dm.h5ad -o results.h5ad \
+     --groupby condition --condition1 control --condition2 treatment \
      --obsm-key DM_EigenVectors
 
 See the :doc:`CLI documentation <cli>` for complete usage and examples.
