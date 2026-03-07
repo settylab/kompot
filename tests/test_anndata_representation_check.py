@@ -338,7 +338,7 @@ def test_compute_de_with_check_representation_true_and_filter():
     
     # Replace the apply_cell_filter function with a mock that returns filtered mask and details
     # This function internally calls refine_filter_for_underrepresentation
-    with patch('kompot.anndata.differential_expression.apply_cell_filter') as mock_apply:
+    with patch('kompot.anndata._de_helpers.apply_cell_filter') as mock_apply:
         # Set up the mock to return a valid mask and filter details with underrepresentation
         filter_mask = np.ones(adata.n_obs, dtype=bool)
         filter_details = {
