@@ -68,7 +68,7 @@ def compute_differential_expression(
     return_full_results: bool = False,
     store_posterior_covariance: bool = False,
     allow_single_condition_variance: bool = False,
-    use_empirical_variance: bool = False,
+    use_empirical_variance: bool = True,
     progress: bool = True,
     null_genes: Union[int, List[int], str, None] = "auto",
     null_seed: Optional[int] = 42,

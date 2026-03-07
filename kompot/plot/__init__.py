@@ -97,6 +97,15 @@ except (ImportError, TypeError) as e:
         raise ImportError("Embedding plotting function unavailable due to scanpy compatibility issues. "
                          "Please update scanpy or use Python 3.9-3.11 instead of 3.12.")
 
+try:
+    from .imputation import plot_imputation
+    __all__.append("plot_imputation")
+except (ImportError, TypeError) as e:
+    logger.warning(f"Could not import imputation plotting functions due to: {e}")
+
+    def plot_imputation(*args, **kwargs):
+        raise ImportError("Imputation plot unavailable due to missing dependencies.")
+
 # Import StringDB report class
 try:
     from .stringdb import StringDBReport

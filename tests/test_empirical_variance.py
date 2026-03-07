@@ -531,8 +531,8 @@ class TestAnnDataEmpiricalVariance:
         assert model.empirical_variance_predictor1 is not None
         assert model.empirical_variance_predictor2 is not None
 
-    def test_default_is_off(self, tiny_adata, fast_de_params):
-        """Default should be use_empirical_variance=False."""
+    def test_default_is_on(self, tiny_adata, fast_de_params):
+        """Default should be use_empirical_variance=True."""
         from kompot.anndata.differential_expression import compute_differential_expression
 
         result = compute_differential_expression(
@@ -546,8 +546,8 @@ class TestAnnDataEmpiricalVariance:
         )
 
         model = result["model"]
-        assert model.use_empirical_variance is False
-        assert model.empirical_variance_predictor1 is None
+        assert model.use_empirical_variance is True
+        assert model.empirical_variance_predictor1 is not None
 
 
 # ===== Leverage correction =====
@@ -614,8 +614,8 @@ class TestLeverageCorrection:
         imputed = np.asarray(est.predict(X))
         raw_sq = (y - imputed) ** 2
 
-        # empirical_variance returns r^2 / (1-h)^2
-        corrected_sq = np.asarray(est.predict.empirical_variance(X, y, sigma=1.0))
+        # loo_residuals_squared returns leverage-corrected squared residuals
+        corrected_sq = np.asarray(est.predict.loo_residuals_squared(X, y, sigma=1.0))
 
         assert np.all(corrected_sq >= raw_sq - 1e-10), (
             "Corrected residuals should be >= uncorrected (h >= 0)"
@@ -641,7 +641,7 @@ class TestLeverageCorrection:
             imputed = np.asarray(est.predict(X))
             raw_sq = (y - imputed) ** 2
 
-            corrected_sq = np.asarray(est.predict.empirical_variance(X, y, sigma=1.0))
+            corrected_sq = np.asarray(est.predict.loo_residuals_squared(X, y, sigma=1.0))
 
             true_var = sigma_true ** 2
             raw_biases.append((raw_sq.mean() - true_var) / true_var)
@@ -708,7 +708,7 @@ class TestObsVarianceIntegration:
 
         smoothed = np.asarray(de.empirical_variance_predictor1(X))
         raw_hc3 = np.asarray(
-            de.function_predictor1.empirical_variance(X, y, sigma=1.0)
+            de.function_predictor1.loo_residuals_squared(X, y, sigma=1.0)
         )
 
         # Smoothed should have lower coefficient of variation per gene

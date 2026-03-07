@@ -20,20 +20,11 @@ Differential Expression
    # Minimal call
    kompot.de(adata, "condition", "Young", "Old")
 
-   # With biological replicates
-   kompot.de(adata, "condition", "Young", "Old", sample_col="donor_id")
-
    # Customise GP noise and FDR threshold
    kompot.de(
        adata, "condition", "Young", "Old",
        gp=kompot.GPSettings(sigma=0.5),
        fdr=kompot.FDRSettings(threshold=0.01),
-   )
-
-   # Enable empirical variance for heteroscedastic noise
-   kompot.de(
-       adata, "condition", "Young", "Old",
-       gp=kompot.GPSettings(use_empirical_variance=True),
    )
 
    # Filter to specific cell types
@@ -45,11 +36,12 @@ Differential Expression
        ),
    )
 
-   # Store extra statistics and control output
+   # Sample variance for biological replicates (limit to top genes)
    kompot.de(
        adata, "condition", "Young", "Old",
-       storage=kompot.StorageSettings(store_additional_stats=True),
-       output=kompot.OutputSettings(progress=False),
+       sample_col="donor_id",
+       genes=top_genes,  # e.g. top 200 from a previous run
+       fdr=kompot.FDRSettings(null_genes=0),
    )
 
 .. autofunction:: kompot.de
@@ -58,7 +50,18 @@ Differential Expression
 Differential Abundance
 ----------------------
 
-.. autofunction:: kompot.compute_differential_abundance
+.. code-block:: python
+
+   # Minimal call
+   kompot.da(adata, "condition", "Young", "Old")
+
+   # Adjust significance thresholds
+   kompot.da(
+       adata, "condition", "Young", "Old",
+       threshold=kompot.DAThresholdSettings(ptp_threshold=0.01),
+   )
+
+.. autofunction:: kompot.da
 
 
 Expression Imputation
@@ -76,7 +79,7 @@ default is equivalent to omitting it — you only override what you need.
 GPSettings
 ^^^^^^^^^^
 
-Controls the Gaussian Process model for expression fitting.
+Controls the Gaussian Process model.
 
 .. autoclass:: kompot.GPSettings
    :members:
@@ -85,16 +88,25 @@ Controls the Gaussian Process model for expression fitting.
 FDRSettings
 ^^^^^^^^^^^
 
-Controls false-discovery-rate estimation.
+Controls false-discovery-rate estimation (DE only).
 
 .. autoclass:: kompot.FDRSettings
+   :members:
+   :undoc-members:
+
+DAThresholdSettings
+^^^^^^^^^^^^^^^^^^^
+
+Significance thresholds for differential abundance.
+
+.. autoclass:: kompot.DAThresholdSettings
    :members:
    :undoc-members:
 
 FilterSettings
 ^^^^^^^^^^^^^^
 
-Controls cell filtering and group subsetting.
+Controls cell filtering and group subsetting (DE only).
 
 .. autoclass:: kompot.FilterSettings
    :members:

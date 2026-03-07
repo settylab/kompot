@@ -1,4 +1,4 @@
-"""Settings dataclasses for the ``kompot.de()`` interface.
+"""Settings dataclasses for the ``kompot.de()`` and ``kompot.da()`` interfaces.
 
 These group related parameters into discoverable objects with sensible
 defaults.  Override only what you need::
@@ -30,7 +30,7 @@ class GPSettings:
     ls_factor : float
         Multiplier applied to the automatically inferred length scale.
     n_landmarks : int, optional
-        Number of landmarks for the Nyström approximation.
+        Number of landmarks for the Nystrom approximation.
     landmarks : np.ndarray, optional
         Pre-computed landmark coordinates.
     use_empirical_variance : bool
@@ -50,7 +50,7 @@ class GPSettings:
     ls_factor: float = 10.0
     n_landmarks: Optional[int] = 5000
     landmarks: Optional[np.ndarray] = None
-    use_empirical_variance: bool = False
+    use_empirical_variance: bool = True
     batch_size: int = 100
     eps: float = 1e-8
     jit_compile: bool = False
@@ -78,6 +78,22 @@ class FDRSettings:
 
 
 @dataclass
+class DAThresholdSettings:
+    """Significance thresholds for differential abundance.
+
+    Parameters
+    ----------
+    lfc_threshold : float
+        Log fold change threshold for significance classification.
+    ptp_threshold : float
+        Posterior tail probability threshold for significance.
+    """
+
+    lfc_threshold: float = 1.0
+    ptp_threshold: float = 0.05
+
+
+@dataclass
 class FilterSettings:
     """Cell-filtering and group-subsetting parameters.
 
@@ -85,7 +101,7 @@ class FilterSettings:
     ----------
     cell_filter : optional
         Specification for cells to include (boolean column name, dict
-        of column→values, etc.).
+        of column->values, etc.).
     groups : optional
         Column or specification for per-group analyses.
     min_cells : int
@@ -122,13 +138,14 @@ class StorageSettings:
     ----------
     result_key : str
         Key prefix used in ``adata.var``, ``adata.layers``, ``adata.uns``.
+        Defaults to ``"kompot_de"`` for DE and ``"kompot_da"`` for DA.
     overwrite : bool, optional
         ``None`` (default) warns, ``True`` silently overwrites,
         ``False`` raises on conflict.
     store_landmarks : bool
         Persist landmarks in ``adata.uns`` for future reuse.
     store_posterior_covariance : bool
-        Store the (n_cells × n_cells) posterior covariance in ``adata.obsp``.
+        Store the (n_cells x n_cells) posterior covariance in ``adata.obsp``.
     store_additional_stats : bool
         Store extra columns (p-values, tail FDR, PTP, z-scores).
     store_arrays_on_disk : bool, optional
@@ -139,7 +156,7 @@ class StorageSettings:
         Fraction of RAM before triggering disk storage.
     """
 
-    result_key: str = "kompot_de"
+    result_key: Optional[str] = None
     overwrite: Optional[bool] = None
     store_landmarks: bool = False
     store_posterior_covariance: bool = False
@@ -151,7 +168,7 @@ class StorageSettings:
 
 @dataclass
 class OutputSettings:
-    """Control what ``de()`` returns and how it behaves.
+    """Control what ``de()`` / ``da()`` returns and how it behaves.
 
     Parameters
     ----------
@@ -160,9 +177,9 @@ class OutputSettings:
     inplace : bool
         Write results into the AnnData object.
     return_full_results : bool
-        Return the full results dict (model, table, landmarks, …).
+        Return the full results dict (model, table, landmarks, ...).
     compute_mahalanobis : bool
-        Compute per-gene Mahalanobis distances.
+        Compute per-gene Mahalanobis distances (DE only).
     allow_single_condition_variance : bool
         Allow sample-variance estimation when only one condition has
         multiple samples.
@@ -218,7 +235,8 @@ def _settings_to_kwargs(
         kw["check_representation"] = filter.check_representation
 
     if storage is not None:
-        kw["result_key"] = storage.result_key
+        if storage.result_key is not None:
+            kw["result_key"] = storage.result_key
         kw["overwrite"] = storage.overwrite
         kw["store_landmarks"] = storage.store_landmarks
         kw["store_posterior_covariance"] = storage.store_posterior_covariance
@@ -234,5 +252,42 @@ def _settings_to_kwargs(
         kw["compute_mahalanobis"] = output.compute_mahalanobis
         kw["allow_single_condition_variance"] = output.allow_single_condition_variance
         kw["progress"] = output.progress
+
+    return kw
+
+
+def _da_settings_to_kwargs(
+    gp: Optional[GPSettings] = None,
+    threshold: Optional[DAThresholdSettings] = None,
+    storage: Optional[StorageSettings] = None,
+    output: Optional[OutputSettings] = None,
+) -> dict:
+    """Flatten settings objects into the kwargs expected by
+    ``compute_differential_abundance``."""
+    kw: dict = {}
+
+    if gp is not None:
+        kw["ls_factor"] = gp.ls_factor
+        kw["n_landmarks"] = gp.n_landmarks
+        kw["landmarks"] = gp.landmarks
+        kw["batch_size"] = gp.batch_size
+        kw["jit_compile"] = gp.jit_compile
+        kw["random_state"] = gp.random_state
+
+    if threshold is not None:
+        kw["log_fold_change_threshold"] = threshold.lfc_threshold
+        kw["ptp_threshold"] = threshold.ptp_threshold
+
+    if storage is not None:
+        if storage.result_key is not None:
+            kw["result_key"] = storage.result_key
+        kw["overwrite"] = storage.overwrite
+        kw["store_landmarks"] = storage.store_landmarks
+
+    if output is not None:
+        kw["copy"] = output.copy
+        kw["inplace"] = output.inplace
+        kw["return_full_results"] = output.return_full_results
+        kw["allow_single_condition_variance"] = output.allow_single_condition_variance
 
     return kw

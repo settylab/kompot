@@ -80,7 +80,7 @@ class ExpressionModel:
     def __init__(
         self,
         n_landmarks: Optional[int] = None,
-        use_empirical_variance: bool = False,
+        use_empirical_variance: bool = True,
         eps: float = 1e-8,
         random_state: Optional[int] = None,
         batch_size: int = 500,

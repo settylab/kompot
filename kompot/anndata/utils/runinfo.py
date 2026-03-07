@@ -15,10 +15,10 @@ logger = logging.getLogger("kompot")
 
 class RunInfo:
     """
-    Class for accessing run information for differential analysis.
-    
+    Class for accessing run information for differential analysis or imputation.
+
     Provides access to run history, parameters, and result fields.
-    
+
     Attributes
     ----------
     adata : AnnData
@@ -28,7 +28,7 @@ class RunInfo:
     adjusted_run_id : int
         Actual run ID after adjusting for negative indexing
     analysis_type : str
-        Type of analysis: 'de' for differential expression or 'da' for differential abundance
+        Type of analysis: 'de', 'da', or 'impute'
     storage_key : str
         Key for accessing the analysis data in adata.uns
     run_info : dict
@@ -60,14 +60,14 @@ class RunInfo:
             Run ID to retrieve. Negative indices count from the end.
             If None, uses the most recent run (-1).
         analysis_type : str, optional
-            Type of analysis: 'de' for differential expression or 
-            'da' for differential abundance. If None, attempts to detect.
+            Type of analysis: 'de', 'da', or 'impute'. If None, attempts
+            to detect from ``adata.uns``.
         """
         self.adata = adata
         if run_id is None:
             run_id = -1  # Default to most recent run
         self.run_id = run_id
-        
+
         # Detect analysis type if not provided
         if analysis_type is None:
             # Try to detect from uns keys
@@ -75,12 +75,20 @@ class RunInfo:
                 analysis_type = 'de'
             elif 'kompot_da' in adata.uns and 'run_history' in adata.uns['kompot_da']:
                 analysis_type = 'da'
+            elif 'kompot_impute' in adata.uns and 'run_history' in adata.uns['kompot_impute']:
+                analysis_type = 'impute'
             else:
-                raise ValueError("Could not detect analysis type. Please specify 'de' or 'da'.")
-                
-        if analysis_type not in ['de', 'da']:
-            raise ValueError(f"Invalid analysis_type: {analysis_type}. Must be 'de' or 'da'.")
-            
+                raise ValueError(
+                    "Could not detect analysis type. "
+                    "Please specify 'de', 'da', or 'impute'."
+                )
+
+        if analysis_type not in ('de', 'da', 'impute'):
+            raise ValueError(
+                f"Invalid analysis_type: {analysis_type}. "
+                "Must be 'de', 'da', or 'impute'."
+            )
+
         self.analysis_type = analysis_type
         self.storage_key = f"kompot_{analysis_type}"
         
@@ -401,12 +409,20 @@ class RunInfo:
             Dictionary with run summary
         """
         # Get basic information without field data
+        if self.analysis_type == 'impute':
+            cond = self.params.get('condition', None)
+            conditions_str = cond if cond else 'all cells'
+        else:
+            conditions_str = (
+                f"{self.params.get('condition1', 'unknown')} to "
+                f"{self.params.get('condition2', 'unknown')}"
+            )
         summary = {
             'run_id': self.run_id,
             'adjusted_run_id': self.adjusted_run_id,
             'analysis_type': self.analysis_type,
             'timestamp': self.timestamp,
-            'conditions': f"{self.params.get('condition1', 'unknown')} to {self.params.get('condition2', 'unknown')}",
+            'conditions': conditions_str,
             'obsm_key': self.params.get('obsm_key', 'unknown'),
             'layer': self.params.get('layer', None),
             'uses_sample_variance': self.params.get('use_sample_variance', False),

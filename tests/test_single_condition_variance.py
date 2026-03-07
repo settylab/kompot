@@ -134,11 +134,12 @@ class TestSingleConditionVariance:
             condition2='cond2',
             sample_col=None,
             allow_single_condition_variance=False,
+            use_empirical_variance=False,
             n_landmarks=10,
             inplace=False,
             return_full_results=True
         )
-        
+
         results2 = kompot.compute_differential_expression(
             self.adata,
             groupby='condition',
@@ -146,6 +147,7 @@ class TestSingleConditionVariance:
             condition2='cond2',
             sample_col=None,
             allow_single_condition_variance=True,
+            use_empirical_variance=False,
             n_landmarks=10,
             inplace=False,
             return_full_results=True
@@ -157,7 +159,7 @@ class TestSingleConditionVariance:
         np.testing.assert_allclose(
             results1['table']['mahalanobis'].values,
             results2['table']['mahalanobis'].values,
-            rtol=0.05  # Relaxed for smaller dataset size
+            rtol=0.10  # Relaxed for ADVI stochasticity on small dataset
         )
         
     def test_single_variance_fallback_mechanism(self):

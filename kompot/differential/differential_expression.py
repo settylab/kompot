@@ -50,7 +50,7 @@ class DifferentialExpression:
         self,
         n_landmarks: Optional[int] = None,
         use_sample_variance: Optional[bool] = None,
-        use_empirical_variance: bool = False,
+        use_empirical_variance: bool = True,
         eps: float = 1e-8,  # Increased default epsilon for better numerical stability
         jit_compile: bool = False,
         function_predictor1: Optional[Any] = None,
@@ -691,18 +691,6 @@ class DifferentialExpression:
                 # Use gene-specific covariance matrices (3D tensor)
                 logger.debug(f"Computing Mahalanobis distances for {fold_change_transposed.shape[0]:,} genes with gene-specific covariance matrices...")
 
-                # When both sample variance (3D tensor) and empirical variance (diagonal)
-                # are available, add diag(emp_var) to each gene's covariance slice
-                if empirical_diag_var is not None:
-                    logger.debug("Adding empirical diagonal variance to gene-specific covariance matrices...")
-                    n_points_cov = gene_specific_covariance.shape[0]
-                    # empirical_diag_var shape: (n_genes, n_points)
-                    for g in tqdm(range(gene_specific_covariance.shape[2]),
-                                  desc="Adding empirical variance to gene covariances",
-                                  disable=not progress):
-                        diag_indices = np.arange(n_points_cov)
-                        gene_specific_covariance[diag_indices, diag_indices, g] += empirical_diag_var[g]
-
                 # Note: batch_size is not used for gene-specific covariance (processes one gene at a time)
                 # Memory is dominated by the covariance tensor: (n_points, n_points, n_genes)
                 logger.debug(f"Gene-specific covariance: batch_size is not used (processes genes sequentially)")
@@ -712,7 +700,8 @@ class DifferentialExpression:
                     batch_size=None,  # Ignored for gene-specific covariance
                     jit_compile=self.jit_compile,
                     eps=self.eps,
-                    progress=progress
+                    progress=progress,
+                    diagonal_variance=empirical_diag_var,
                 )
 
                 logger.debug(f"Successfully computed Mahalanobis distances for {len(mahalanobis_distances):,} genes using gene-specific covariance")
