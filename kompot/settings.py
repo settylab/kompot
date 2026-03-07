@@ -1,8 +1,7 @@
-"""Settings dataclasses for kompot's public API.
+"""Settings dataclasses for the ``kompot.de()`` interface.
 
 These group related parameters into discoverable objects with sensible
-defaults.  Users can override individual fields while the rest stay at
-their defaults::
+defaults.  Override only what you need::
 
     kompot.de(adata, "condition", "Young", "Old",
               gp=GPSettings(sigma=0.5))

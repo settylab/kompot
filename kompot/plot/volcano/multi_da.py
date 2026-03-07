@@ -179,10 +179,10 @@ def multi_volcano_da(
         Controls the height of the background plot as a fraction of the y-axis range (default: 0.6).
         Higher values make the KDE/violin taller, lower values make it shorter.
     background_kwargs : dict, optional
-        Additional parameters for the background density plot. Options include:
-        - For KDE: "bw_method" (bandwidth method), "show_2d_kde" (bool), "contour_levels" (int),
-          "contour_cmap" (colormap name), "contour_alpha" (float)
-        - For violin: "showmeans" (bool), "showmedians" (bool), "showextrema" (bool)
+        Additional parameters for the background density plot. For KDE:
+        ``"bw_method"``, ``"show_2d_kde"``, ``"contour_levels"``,
+        ``"contour_cmap"``, ``"contour_alpha"``. For violin:
+        ``"showmeans"``, ``"showmedians"``, ``"showextrema"``.
     save : str, optional
         Path to save figure. If None, figure is not saved
     show : bool, optional

@@ -76,10 +76,9 @@ def de(
     output: "OutputSettings | None" = None,
     **function_kwargs,
 ):
-    """Differential expression — simplified interface.
+    """Run differential expression analysis on an AnnData object.
 
-    Wraps :func:`compute_differential_expression` with grouped settings
-    objects so that the most common call is just::
+    The most common call is just::
 
         kompot.de(adata, "condition", "Young", "Old")
 
@@ -177,7 +176,7 @@ __all__ = [
     # Core differential analysis classes
     "DifferentialAbundance", "DifferentialExpression", "ExpressionModel", "Matern52Linear", "SampleVarianceEstimator",
 
-    # Simplified interface
+    # AnnData interface
     "de",
 
     # Settings dataclasses
