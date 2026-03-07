@@ -116,11 +116,19 @@ Quick Start
 
    import kompot
 
-   # Differential expression
+   # Minimal call — uses sensible defaults
    kompot.de(adata, "condition", "Young", "Old")
 
    # Differential abundance
    kompot.da(adata, "condition", "Young", "Old")
+
+   # Customize GP and FDR settings
+   kompot.de(
+       adata, "condition", "Young", "Old",
+       sample_col="donor_id",
+       gp=kompot.GPSettings(sigma=0.5, use_empirical_variance=True),
+       fdr=kompot.FDRSettings(threshold=0.01),
+   )
 
 See :doc:`simplified` for the full API and all available settings.
 

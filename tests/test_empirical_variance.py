@@ -664,7 +664,8 @@ class TestObsVarianceIntegration:
         de.fit(X, y, X, y, ls_factor=10.0)
 
         # obs_variance uses the same cov_func as the expression GP
-        expr_ls = de.function_predictor1.cov_func.ls
+        cf = de.function_predictor1.cov_func
+        expr_ls = cf.left.ls if hasattr(cf, "left") else cf.ls
         assert expr_ls > 0, "Expression GP should have a positive length scale"
         # Calling the variance predictor should produce the same result
         # as calling obs_variance on the expression predictor directly

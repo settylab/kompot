@@ -192,24 +192,27 @@ class TestDifferentialExpressionFit:
         
         de = DifferentialExpression(use_sample_variance=None, use_empirical_variance=False)
 
-        with patch('kompot.differential.expression_model.mellon') as mock_mellon:
+        with patch('kompot.differential.expression_model.mellon') as mock_mellon, \
+             patch('kompot.differential.expression_model._build_matern52_linear') as mock_build:
             mock_estimator = MagicMock()
             mock_predictor = MagicMock()
+            mock_predictor.cov_func.ls = 1.0  # real float so kernel rebuild works
             mock_estimator.predict = mock_predictor
             mock_mellon.FunctionEstimator.return_value = mock_estimator
-            
-            with patch('kompot.differential.differential_expression.SampleVarianceEstimator') as mock_sve:
+            mock_build.return_value = MagicMock()
+
+            with patch('kompot.differential.expression_model.SampleVarianceEstimator') as mock_sve:
                 mock_variance_estimator = MagicMock()
                 mock_variance_predictor = MagicMock()
                 mock_variance_estimator.predict = mock_variance_predictor
                 mock_sve.return_value = mock_variance_estimator
-                
+
                 de.fit(
                     X1, expr1, X2, expr2,
                     condition1_sample_indices=indices1,
                     condition2_sample_indices=indices2
                 )
-                
+
                 assert de.use_sample_variance == True
                 assert de.variance_predictor1 is not None
                 assert de.variance_predictor2 is not None
@@ -233,7 +236,7 @@ class TestDifferentialExpressionFit:
             mock_estimator.predict = mock_predictor
             mock_mellon.FunctionEstimator.return_value = mock_estimator
             
-            with patch('kompot.differential.differential_expression.SampleVarianceEstimator') as mock_sve:
+            with patch('kompot.differential.expression_model.SampleVarianceEstimator') as mock_sve:
                 # Mock successful estimator for condition 1, failed for condition 2
                 mock_variance_estimator1 = MagicMock()
                 mock_variance_predictor1 = MagicMock()
