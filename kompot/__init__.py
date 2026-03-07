@@ -23,7 +23,7 @@ mellon.logger.setLevel(logging.WARNING)
 # Import core functionality directly - using relative imports
 from .differential.differential_abundance import DifferentialAbundance
 from .differential.differential_expression import DifferentialExpression
-from .differential.expression_model import ExpressionModel, Matern52Linear
+from .differential.expression_model import ExpressionModel
 from .differential.sample_variance_estimator import SampleVarianceEstimator
 
 # Import utility functions
@@ -174,7 +174,7 @@ __all__ = [
     "DensityEstimator", "FunctionEstimator", "Predictor",
 
     # Core differential analysis classes
-    "DifferentialAbundance", "DifferentialExpression", "ExpressionModel", "Matern52Linear", "SampleVarianceEstimator",
+    "DifferentialAbundance", "DifferentialExpression", "ExpressionModel", "SampleVarianceEstimator",
 
     # AnnData interface
     "de",
