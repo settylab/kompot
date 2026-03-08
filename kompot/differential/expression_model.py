@@ -5,95 +5,12 @@ import logging
 from typing import Optional, Any
 
 import mellon
-from mellon.base_cov import Covariance
-from mellon.cov import Matern52, Linear
+from mellon.cov import Matern52
 
 from ..batch_utils import apply_batched
 from .sample_variance_estimator import SampleVarianceEstimator
 
 logger = logging.getLogger("kompot")
-
-
-class CenteredLinear(Covariance):
-    """Linear kernel with built-in centering.
-
-    Computes ``k(x, y) = (x - mu) . (y - mu) / ls`` where ``mu`` is the
-    training-data centroid.  This makes the kernel shift-invariant: adding
-    a constant offset to all coordinates does not change the kernel matrix.
-
-    Without centering the linear kernel models ``f(x) = beta . x`` (through
-    the origin), so with noise the GP regularises towards zero everywhere,
-    which is wrong when the data centroid is far from the origin.  Centering
-    gives ``f(x) = beta . (x - mu)``, equivalent to linear regression with
-    a free intercept where only the slope is regularised.
-
-    Parameters
-    ----------
-    ls : float
-        Amplitude scaling (divides the dot product).
-    mu : array-like
-        Centroid to subtract, shape ``(n_features,)``.
-    active_dims : array-like, optional
-        Indices of active input dimensions.
-    """
-
-    def __init__(self, ls=1.0, mu=None, active_dims=None):
-        super().__init__(active_dims=active_dims)
-        self.ls = ls
-        self.mu = np.asarray(mu) if mu is not None else None
-
-    def k(self, x, y):
-        from jax.numpy import einsum
-        from mellon.base_cov import select_active_dims
-        x = select_active_dims(x, self.active_dims)
-        y = select_active_dims(y, self.active_dims)
-        if self.mu is not None:
-            x = x - self.mu
-            y = y - self.mu
-        return einsum("ij,kj->ik", x, y) / self.ls
-
-    def diag(self, x):
-        from jax.numpy import sum as jsum
-        from mellon.base_cov import select_active_dims
-        x = select_active_dims(x, self.active_dims)
-        if self.mu is not None:
-            x = x - self.mu
-        return jsum(x * x, axis=-1) / self.ls
-
-
-def _build_matern52_linear(X, ls):
-    """Build a Matern-5/2 + CenteredLinear covariance function.
-
-    The Linear component centers coordinates by the training-data centroid
-    and normalises its amplitude by ``mean(||x - mu||^2)`` so that its
-    diagonal contribution is ~1.0 on average, matching the Matern-5/2.
-    This decouples the Matern length-scale from the Linear amplitude
-    and makes the kernel shift-invariant.
-
-    Parameters
-    ----------
-    X : np.ndarray
-        Training coordinates, used to compute the centroid and normalisation.
-    ls : float
-        Length scale for the Matern-5/2 component.
-
-    Returns
-    -------
-    cov_func : mellon.Covariance
-        ``Matern52(ls) + CenteredLinear(ls=mean(||x-mu||^2), mu=mu)``.
-    """
-    X = np.asarray(X)
-    mu = X.mean(axis=0)
-    ls_linear = float(np.mean(np.sum((X - mu) ** 2, axis=1)))
-    if ls_linear == 0:
-        ls_linear = 1.0  # degenerate case: constant coordinates
-    cov_func = Matern52(ls=ls) + CenteredLinear(ls=ls_linear, mu=mu)
-    logger.debug(
-        "Matern52+CenteredLinear: ls_matern=%.4f, ls_linear=%.4f "
-        "(mean||x-mu||^2)",
-        ls, ls_linear,
-    )
-    return cov_func
 
 
 class ExpressionModel:
@@ -236,10 +153,7 @@ class ExpressionModel:
 
         # ---- covariance function ----
         # Unless the caller provides an explicit cov_func or cov_func_curry,
-        # build a Matern52 + Linear kernel.  The coordinates are centered so
-        # the Linear component is shift-invariant, and its amplitude is
-        # normalized by mean(||x-mu||^2) to match the Matern52 diagonal.
-        # Matern52 is translation-invariant so centering does not affect it.
+        # build a Matern52 kernel.
         if "cov_func" not in estimator_defaults and \
                 "cov_func_curry" not in estimator_defaults:
             from mellon.parameters import compute_nn_distances, compute_ls
@@ -249,7 +163,7 @@ class ExpressionModel:
             else:
                 _nn = compute_nn_distances(X)
                 _ls = compute_ls(_nn) * ls_factor
-            estimator_defaults["cov_func"] = _build_matern52_linear(X, _ls)
+            estimator_defaults["cov_func"] = Matern52(ls=_ls)
             estimator_defaults["ls"] = _ls
         else:
             if ls is not None:
@@ -289,12 +203,11 @@ class ExpressionModel:
                 # Rebuild kernel with the overridden ls when using built-in
                 if "cov_func" in sample_kw and \
                         "cov_func_curry" not in estimator_defaults:
-                    sample_kw["cov_func"] = _build_matern52_linear(
-                        X, sample_estimator_ls)
+                    sample_kw["cov_func"] = Matern52(ls=sample_estimator_ls)
             else:
                 try:
-                    sample_kw["ls"] = self._predictor.cov_func.ls
-                except AttributeError as e:
+                    sample_kw["ls"] = self.ls
+                except (AttributeError, TypeError) as e:
                     logger.warning(
                         f"Could not extract ls for sample variance: {e}"
                     )
@@ -503,14 +416,11 @@ class ExpressionModel:
 
     @property
     def ls(self):
-        """Length scale of the GP kernel (Matern component)."""
+        """Length scale of the GP kernel."""
         if self._predictor is not None and hasattr(self._predictor, "cov_func"):
             cf = self._predictor.cov_func
             if hasattr(cf, "ls"):
                 return cf.ls
-            # Combined kernel (Add): extract from the left (Matern) component
-            if hasattr(cf, "left") and hasattr(cf.left, "ls"):
-                return cf.left.ls
         return None
 
     @property
