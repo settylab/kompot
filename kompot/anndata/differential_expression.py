@@ -3,11 +3,13 @@ Differential expression analysis for AnnData objects.
 """
 
 import logging
+import warnings
 import numpy as np
 import pandas as pd
 from typing import Optional, Union, Dict, Any, List
 
 from ..differential import DifferentialExpression
+from ..settings import GPSettings, FDRSettings, FilterSettings, StorageSettings, OutputSettings
 from .utils import (
     _sanitize_name,
     generate_output_field_names,
@@ -31,161 +33,114 @@ from ._de_helpers import (
 logger = logging.getLogger("kompot")
 
 
-def compute_differential_expression(
+def de(
     adata,
     groupby: str,
     condition1: str,
     condition2: str,
     obsm_key: str = "DM_EigenVectors",
-    layer: Optional[str] = None,
-    genes: Optional[List[str]] = None,
-    n_landmarks: Optional[int] = 5000,
-    landmarks: Optional[np.ndarray] = None,
-    sample_col: Optional[str] = None,
-    sigma: float = 1.0,
-    ls: Optional[float] = None,
-    ls_factor: float = 10.0,
-    compute_mahalanobis: bool = True,
-    jit_compile: bool = False,
-    eps: float = 1e-8,
-    random_state: Optional[int] = None,
-    batch_size: int = 100,
-    store_arrays_on_disk: Optional[bool] = None,
-    disk_storage_dir: Optional[str] = None,
-    max_memory_ratio: float = 0.8,
-    cell_filter: Optional[Union[str, List[str], Dict[str, Any], List[Dict[str, Any]]]] = None,
-    groups: Optional[
-        Union[str, Dict[str, Any], List[Dict[str, Any]], pd.Series, np.ndarray, List[np.ndarray]]
-    ] = None,
-    min_cells: int = 2,
-    min_percentage: Optional[float] = None,
-    check_representation: Optional[bool] = None,
-    copy: bool = False,
-    inplace: bool = True,
-    result_key: str = "kompot_de",
-    overwrite: Optional[bool] = None,
-    store_landmarks: bool = False,
-    return_full_results: bool = False,
-    store_posterior_covariance: bool = False,
-    allow_single_condition_variance: bool = False,
-    use_empirical_variance: bool = True,
-    progress: bool = True,
-    null_genes: Union[int, List[int], str, None] = "auto",
-    null_seed: Optional[int] = 42,
-    fdr_threshold: float = 0.05,
-    store_additional_stats: bool = False,
+    layer=None,
+    genes=None,
+    sample_col=None,
+    gp: "GPSettings | None" = None,
+    fdr: "FDRSettings | None" = None,
+    filter: "FilterSettings | None" = None,
+    storage: "StorageSettings | None" = None,
+    output: "OutputSettings | None" = None,
     **function_kwargs,
-) -> Union[Dict[str, np.ndarray], Any]:
-    """
-    Compute differential expression between two conditions directly from an AnnData object.
+) -> "Union[Dict[str, np.ndarray], Any]":
+    """Run differential expression analysis on an AnnData object.
 
-    This function is a scverse-compatible wrapper around the DifferentialExpression class
-    that operates directly on AnnData objects.
+    The most common call is just::
+
+        kompot.de(adata, "condition", "Young", "Old")
+
+    Advanced options are available through the settings dataclasses
+    (:class:`~kompot.GPSettings`, :class:`~kompot.FDRSettings`,
+    :class:`~kompot.FilterSettings`, :class:`~kompot.StorageSettings`,
+    :class:`~kompot.OutputSettings`).  Any field left at its default is
+    equivalent to omitting it entirely.  Extra ``**function_kwargs`` are
+    forwarded to mellon's :class:`~mellon.FunctionEstimator`.
 
     Parameters
     ----------
     adata : AnnData
         AnnData object containing cells from both conditions.
     groupby : str
-        Column in adata.obs containing the condition labels.
-    condition1 : str
-        Label in the groupby column identifying the first condition.
-    condition2 : str
-        Label in the groupby column identifying the second condition.
-    obsm_key : str, optional
-        Key in adata.obsm containing the cell states (e.g., PCA, diffusion maps),
-        by default "DM_EigenVectors".
+        Column in ``adata.obs`` with condition labels.
+    condition1, condition2 : str
+        Labels identifying the two conditions.
+    obsm_key : str
+        Key in ``adata.obsm`` for cell-state coordinates.
     layer : str, optional
-        Layer in adata.layers containing gene expression data. If None, use adata.X,
-        by default None.
-    genes : List[str], optional
-        List of gene names to include in the analysis. If None, use all genes,
-        by default None.
-    n_landmarks : int, optional
-        Number of landmarks to use for approximation. If None, use all points,
-        by default 5000. Ignored if landmarks is provided.
-    landmarks : np.ndarray, optional
-        Pre-computed landmarks to use. If provided, n_landmarks will be ignored.
-        Shape (n_landmarks, n_features).
+        Layer with expression data (``None`` → ``adata.X``).
+    genes : list of str, optional
+        Subset of genes to analyse.
     sample_col : str, optional
-        Column name in adata.obs containing sample labels. If provided, these will be used
-        to compute sample-specific variance and will automatically enable sample variance
-        estimation.
-    allow_single_condition_variance : bool, optional
-        If True, allows variance estimation with only one condition having multiple samples.
-        By default False, which requires both conditions to have multiple samples.
-    use_empirical_variance : bool, optional
-        Whether to estimate per-gene empirical variance from GP residuals.
-        When True, the expression GP is fitted with ``obs_variance=True``,
-        which computes leverage-corrected squared residuals and smooths them
-        with a second GP to produce an input-dependent noise surface.
-        This captures gene-specific heteroscedastic noise without requiring
-        biological replicates. By default False.
-    sigma : float, optional
-        Noise level for function estimator, by default 1.0.
-    ls : float, optional
-        Length scale for the GP kernel. If None, it will be estimated, by default None.
-    ls_factor : float, optional
-        Multiplication factor to apply to length scale when it's automatically inferred,
-        by default 10.0. Only used when ls is None.
-    compute_mahalanobis : bool, optional
-        Whether to compute Mahalanobis distances for gene ranking, by default True.
-    jit_compile : bool, optional
-        Whether to use JAX just-in-time compilation, by default False.
-    eps : float, optional
-        Small constant for numerical stability in covariance matrices, by default 1e-8.
-    random_state : int, optional
-        Random seed for reproducible landmark selection when n_landmarks is specified.
-    batch_size : int, optional
-        Number of cells to process at once during prediction, by default 100.
-    store_arrays_on_disk : bool, optional
-        Whether to store large arrays on disk instead of in memory, by default None.
-    disk_storage_dir : str, optional
-        Directory to store arrays on disk.
-    max_memory_ratio : float, optional
-        Maximum fraction of available memory before triggering disk storage, by default 0.8.
-    cell_filter : str, List[str], Dict, List[Dict], optional
-        Specification for cells to include in the analysis.
-    groups : str, Dict, Dict[str, Dict], List[Dict], pd.Series, np.ndarray, List[np.ndarray], optional
-        Specification for subsetting or grouping cells for additional analysis.
-    min_cells : int, optional
-        Minimum number of cells required for a condition, by default 2.
-    min_percentage : float, optional
-        Minimum percentage of cells required for a condition within each group.
-    check_representation : None or bool, optional
-        Controls checking for underrepresentation when groups are specified.
-    copy : bool, optional
-        If True, return a copy of the AnnData object with results added, by default False.
-    inplace : bool, optional
-        If True, modify adata in place, by default True.
-    result_key : str, optional
-        Key in adata.uns where results will be stored, by default "kompot_de".
-    overwrite : bool, optional
-        Controls behavior when results with the same result_key already exist.
-    store_landmarks : bool, optional
-        Whether to store landmarks in adata.uns for future reuse, by default False.
-    return_full_results : bool, optional
-        If True, return the full results dictionary including the differential model.
-    store_posterior_covariance : bool, optional
-        Whether to store the posterior covariance matrix in adata.obsp.
-    progress : bool, optional
-        Whether to show progress bars during computation, by default True.
-    null_genes : int, List[int], None, or "auto", optional
-        Specification for generating null distribution to compute FDR-corrected p-values.
-    null_seed : int, optional
-        Random seed for reproducible null gene selection, by default 42.
-    fdr_threshold : float, optional
-        FDR threshold for identifying significantly DE genes, by default 0.05.
-    store_additional_stats : bool, optional
-        Whether to store additional statistical measures, by default False.
-    **function_kwargs : dict
-        Additional arguments to pass to the FunctionEstimator.
+        Column with biological-replicate labels.
+    gp : GPSettings, optional
+        GP model parameters (sigma, ls, n_landmarks, etc.).
+    fdr : FDRSettings, optional
+        FDR / null-distribution parameters.
+    filter : FilterSettings, optional
+        Cell filtering and group-subsetting.
+    storage : StorageSettings, optional
+        Where and how results are stored.
+    output : OutputSettings, optional
+        Return-value and progress-bar control.
+    **function_kwargs
+        Forwarded to :class:`~mellon.FunctionEstimator`.
 
     Returns
     -------
     Union[Dict[str, np.ndarray], AnnData, Tuple[Dict[str, np.ndarray], AnnData]]
-        Return value depends on ``copy`` and ``return_full_results`` parameters.
+        Return value depends on ``copy`` and ``return_full_results`` in
+        :class:`~kompot.OutputSettings`.
     """
+    # ---- Unpack settings ----
+    _gp = gp if gp is not None else GPSettings()
+    _fdr = fdr if fdr is not None else FDRSettings()
+    _filter = filter if filter is not None else FilterSettings()
+    _storage = storage if storage is not None else StorageSettings()
+    _output = output if output is not None else OutputSettings()
+
+    sigma = _gp.sigma
+    ls = _gp.ls
+    ls_factor = _gp.ls_factor
+    n_landmarks = _gp.n_landmarks
+    landmarks = _gp.landmarks
+    use_empirical_variance = _gp.use_empirical_variance
+    batch_size = _gp.batch_size
+    eps = _gp.eps
+    jit_compile = _gp.jit_compile
+    random_state = _gp.random_state
+
+    null_genes = _fdr.null_genes
+    null_seed = _fdr.null_seed
+    fdr_threshold = _fdr.threshold
+
+    cell_filter = _filter.cell_filter
+    groups = _filter.groups
+    min_cells = _filter.min_cells
+    min_percentage = _filter.min_percentage
+    check_representation = _filter.check_representation
+
+    result_key = _storage.result_key or "kompot_de"
+    overwrite = _storage.overwrite
+    store_landmarks = _storage.store_landmarks
+    store_posterior_covariance = _storage.store_posterior_covariance
+    store_additional_stats = _storage.store_additional_stats
+    store_arrays_on_disk = _storage.store_arrays_on_disk
+    disk_storage_dir = _storage.disk_storage_dir
+    max_memory_ratio = _storage.max_memory_ratio
+
+    copy = _output.copy
+    inplace = _output.inplace
+    return_full_results = _output.return_full_results
+    compute_mahalanobis = _output.compute_mahalanobis
+    allow_single_condition_variance = _output.allow_single_condition_variance
+    progress = _output.progress
+
     # ---- 0. Resolve defaults ----
     if null_genes == "auto":
         if sample_col is not None:
@@ -455,3 +410,102 @@ def compute_differential_expression(
     if return_full_results:
         return result_dict
     return None
+
+
+def compute_differential_expression(
+    adata,
+    groupby: str,
+    condition1: str,
+    condition2: str,
+    obsm_key: str = "DM_EigenVectors",
+    layer=None,
+    genes=None,
+    n_landmarks=5000,
+    landmarks=None,
+    sample_col=None,
+    sigma: float = 1.0,
+    ls=None,
+    ls_factor: float = 10.0,
+    compute_mahalanobis: bool = True,
+    jit_compile: bool = False,
+    eps: float = 1e-8,
+    random_state=None,
+    batch_size: int = 100,
+    store_arrays_on_disk=None,
+    disk_storage_dir=None,
+    max_memory_ratio: float = 0.8,
+    cell_filter=None,
+    groups=None,
+    min_cells: int = 2,
+    min_percentage=None,
+    check_representation=None,
+    copy: bool = False,
+    inplace: bool = True,
+    result_key: str = "kompot_de",
+    overwrite=None,
+    store_landmarks: bool = False,
+    return_full_results: bool = False,
+    store_posterior_covariance: bool = False,
+    allow_single_condition_variance: bool = False,
+    use_empirical_variance: bool = True,
+    progress: bool = True,
+    null_genes="auto",
+    null_seed=42,
+    fdr_threshold: float = 0.05,
+    store_additional_stats: bool = False,
+    **function_kwargs,
+):
+    """Deprecated. Use :func:`kompot.de` instead.
+
+    .. deprecated::
+        Use :func:`kompot.de` with Settings dataclasses instead.
+    """
+    warnings.warn(
+        "compute_differential_expression() is deprecated and will be removed "
+        "in a future version. Use kompot.de() instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return de(
+        adata,
+        groupby=groupby,
+        condition1=condition1,
+        condition2=condition2,
+        obsm_key=obsm_key,
+        layer=layer,
+        genes=genes,
+        sample_col=sample_col,
+        gp=GPSettings(
+            sigma=sigma, ls=ls, ls_factor=ls_factor,
+            n_landmarks=n_landmarks, landmarks=landmarks,
+            use_empirical_variance=use_empirical_variance,
+            batch_size=batch_size, eps=eps,
+            jit_compile=jit_compile, random_state=random_state,
+        ),
+        fdr=FDRSettings(
+            null_genes=null_genes, null_seed=null_seed,
+            threshold=fdr_threshold,
+        ),
+        filter=FilterSettings(
+            cell_filter=cell_filter, groups=groups,
+            min_cells=min_cells, min_percentage=min_percentage,
+            check_representation=check_representation,
+        ),
+        storage=StorageSettings(
+            result_key=result_key, overwrite=overwrite,
+            store_landmarks=store_landmarks,
+            store_posterior_covariance=store_posterior_covariance,
+            store_additional_stats=store_additional_stats,
+            store_arrays_on_disk=store_arrays_on_disk,
+            disk_storage_dir=disk_storage_dir,
+            max_memory_ratio=max_memory_ratio,
+        ),
+        output=OutputSettings(
+            copy=copy, inplace=inplace,
+            return_full_results=return_full_results,
+            compute_mahalanobis=compute_mahalanobis,
+            allow_single_condition_variance=allow_single_condition_variance,
+            progress=progress,
+        ),
+        **function_kwargs,
+    )

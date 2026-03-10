@@ -7,7 +7,8 @@ import logging
 
 import anndata as ad
 
-from ..anndata import compute_differential_expression
+from ..anndata import de
+from ..settings import GPSettings, FDRSettings, FilterSettings, StorageSettings, OutputSettings
 from .utils import load_config, merge_args_with_config, validate_anndata_path
 from .compute_config import configure_compute
 
@@ -212,7 +213,7 @@ def run_de(args):
         logger.info(f"Loading configuration from {args.config}")
         config = load_config(args.config)
 
-    # Configure compute resources (must be done AFTER mellon import in compute_differential_expression)
+    # Configure compute resources (must be done AFTER mellon import in _compute_differential_expression)
     # Extract compute config before other processing
     use_gpu = getattr(args, 'use_gpu', False)
     n_threads = getattr(args, 'threads', None)
@@ -233,29 +234,9 @@ def run_de(args):
         if v is not None and k not in ['input', 'output', 'table_output', 'config', 'func', 'verbose', 'command', 'use_gpu', 'threads']
     }
 
-    # Rename CLI args to match function parameters
-    if 'obsm_key' in args_dict:
-        args_dict['obsm_key'] = args_dict.pop('obsm_key')
-    if 'result_key' in args_dict:
-        args_dict['result_key'] = args_dict.pop('result_key')
-    if 'n_landmarks' in args_dict:
-        args_dict['n_landmarks'] = args_dict.pop('n_landmarks')
-    if 'sample_col' in args_dict:
-        args_dict['sample_col'] = args_dict.pop('sample_col')
-    if 'batch_size' in args_dict:
-        args_dict['batch_size'] = args_dict.pop('batch_size')
-    if 'fdr_threshold' in args_dict:
-        args_dict['fdr_threshold'] = args_dict.pop('fdr_threshold')
-    if 'null_genes' in args_dict:
-        args_dict['null_genes'] = args_dict.pop('null_genes')
-    if 'store_landmarks' in args_dict:
-        args_dict['store_landmarks'] = args_dict.pop('store_landmarks')
-    if 'store_additional_stats' in args_dict:
-        args_dict['store_additional_stats'] = args_dict.pop('store_additional_stats')
+    # Handle no_progress -> progress conversion
     if 'no_progress' in args_dict:
         args_dict['progress'] = not args_dict.pop('no_progress')
-    if 'use_empirical_variance' in args_dict:
-        args_dict['use_empirical_variance'] = args_dict.pop('use_empirical_variance')
 
     # Merge with config (CLI args take precedence)
     params = merge_args_with_config(args_dict, config)
@@ -277,7 +258,7 @@ def run_de(args):
         logger.info(f"  Layer: {params['layer']}")
 
     # Configure computational backend
-    # This must be called AFTER mellon import (which happens in compute_differential_expression)
+    # This must be called AFTER mellon import (which happens in _compute_differential_expression)
     # So we do a "lazy" import here to trigger mellon import, then configure
     logger.info("")
     logger.info("Configuring computational backend...")
@@ -291,13 +272,65 @@ def run_de(args):
         logger.warning("Proceeding with default configuration")
     logger.info("")
 
-    # Run analysis - use return_full_results if table output is requested
+    # Extract required params
+    groupby = params.pop('groupby')
+    condition1 = params.pop('condition1')
+    condition2 = params.pop('condition2')
+    obsm_key = params.pop('obsm_key', 'DM_EigenVectors')
+    layer = params.pop('layer', None)
+    sample_col = params.pop('sample_col', None)
+
+    # Build Settings from remaining params
+    gp_keys = {'sigma', 'ls', 'ls_factor', 'n_landmarks', 'use_empirical_variance',
+               'batch_size', 'eps', 'jit_compile', 'random_state'}
+    gp_kwargs = {k: params.pop(k) for k in list(params) if k in gp_keys}
+    gp = GPSettings(**gp_kwargs) if gp_kwargs else None
+
+    fdr_kwargs = {}
+    if 'null_genes' in params:
+        fdr_kwargs['null_genes'] = params.pop('null_genes')
+    if 'null_seed' in params:
+        fdr_kwargs['null_seed'] = params.pop('null_seed')
+    if 'fdr_threshold' in params:
+        fdr_kwargs['threshold'] = params.pop('fdr_threshold')
+    fdr = FDRSettings(**fdr_kwargs) if fdr_kwargs else None
+
+    filter_keys = {'cell_filter', 'groups', 'min_cells', 'min_percentage', 'check_representation'}
+    filter_kwargs = {k: params.pop(k) for k in list(params) if k in filter_keys}
+    filter_settings = FilterSettings(**filter_kwargs) if filter_kwargs else None
+
+    storage_keys = {'result_key', 'overwrite', 'store_landmarks', 'store_posterior_covariance',
+                    'store_additional_stats', 'store_arrays_on_disk', 'disk_storage_dir',
+                    'max_memory_ratio'}
+    storage_kwargs = {k: params.pop(k) for k in list(params) if k in storage_keys}
+    storage = StorageSettings(**storage_kwargs) if storage_kwargs else None
+
+    output_keys = {'copy', 'inplace', 'return_full_results', 'compute_mahalanobis',
+                   'allow_single_condition_variance', 'progress'}
+    output_kwargs = {k: params.pop(k) for k in list(params) if k in output_keys}
+
+    # Handle return_full_results for table output
+    if args.table_output:
+        output_kwargs['return_full_results'] = True
+    output = OutputSettings(**output_kwargs) if output_kwargs else None
+
+    # Run analysis
     try:
-        if args.table_output:
-            result_dict = compute_differential_expression(adata, return_full_results=True, **params)
-        else:
-            compute_differential_expression(adata, **params)
-            result_dict = None
+        result_dict = de(
+            adata,
+            groupby=groupby,
+            condition1=condition1,
+            condition2=condition2,
+            obsm_key=obsm_key,
+            layer=layer,
+            sample_col=sample_col,
+            gp=gp,
+            fdr=fdr,
+            filter=filter_settings,
+            storage=storage,
+            output=output,
+            **params,  # remaining params forwarded as function_kwargs
+        )
     except Exception as e:
         logger.error(f"Analysis failed: {str(e)}")
         raise

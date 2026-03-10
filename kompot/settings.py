@@ -35,7 +35,7 @@ class GPSettings:
         Pre-computed landmark coordinates.
     use_empirical_variance : bool
         Estimate per-gene heteroscedastic noise from GP residuals.
-    batch_size : int
+    batch_size : int, optional
         Number of cells processed at once during prediction.
     eps : float
         Small constant for numerical stability.
@@ -51,7 +51,7 @@ class GPSettings:
     n_landmarks: Optional[int] = 5000
     landmarks: Optional[np.ndarray] = None
     use_empirical_variance: bool = True
-    batch_size: int = 100
+    batch_size: Optional[int] = 100
     eps: float = 1e-8
     jit_compile: bool = False
     random_state: Optional[int] = None
@@ -194,100 +194,3 @@ class OutputSettings:
     allow_single_condition_variance: bool = False
     progress: bool = True
 
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-def _settings_to_kwargs(
-    gp: Optional[GPSettings] = None,
-    fdr: Optional[FDRSettings] = None,
-    filter: Optional[FilterSettings] = None,
-    storage: Optional[StorageSettings] = None,
-    output: Optional[OutputSettings] = None,
-) -> dict:
-    """Flatten settings objects into the kwargs expected by
-    ``compute_differential_expression``."""
-    kw: dict = {}
-
-    if gp is not None:
-        kw["sigma"] = gp.sigma
-        kw["ls"] = gp.ls
-        kw["ls_factor"] = gp.ls_factor
-        kw["n_landmarks"] = gp.n_landmarks
-        kw["landmarks"] = gp.landmarks
-        kw["use_empirical_variance"] = gp.use_empirical_variance
-        kw["batch_size"] = gp.batch_size
-        kw["eps"] = gp.eps
-        kw["jit_compile"] = gp.jit_compile
-        kw["random_state"] = gp.random_state
-
-    if fdr is not None:
-        kw["null_genes"] = fdr.null_genes
-        kw["null_seed"] = fdr.null_seed
-        kw["fdr_threshold"] = fdr.threshold
-
-    if filter is not None:
-        kw["cell_filter"] = filter.cell_filter
-        kw["groups"] = filter.groups
-        kw["min_cells"] = filter.min_cells
-        kw["min_percentage"] = filter.min_percentage
-        kw["check_representation"] = filter.check_representation
-
-    if storage is not None:
-        if storage.result_key is not None:
-            kw["result_key"] = storage.result_key
-        kw["overwrite"] = storage.overwrite
-        kw["store_landmarks"] = storage.store_landmarks
-        kw["store_posterior_covariance"] = storage.store_posterior_covariance
-        kw["store_additional_stats"] = storage.store_additional_stats
-        kw["store_arrays_on_disk"] = storage.store_arrays_on_disk
-        kw["disk_storage_dir"] = storage.disk_storage_dir
-        kw["max_memory_ratio"] = storage.max_memory_ratio
-
-    if output is not None:
-        kw["copy"] = output.copy
-        kw["inplace"] = output.inplace
-        kw["return_full_results"] = output.return_full_results
-        kw["compute_mahalanobis"] = output.compute_mahalanobis
-        kw["allow_single_condition_variance"] = output.allow_single_condition_variance
-        kw["progress"] = output.progress
-
-    return kw
-
-
-def _da_settings_to_kwargs(
-    gp: Optional[GPSettings] = None,
-    threshold: Optional[DAThresholdSettings] = None,
-    storage: Optional[StorageSettings] = None,
-    output: Optional[OutputSettings] = None,
-) -> dict:
-    """Flatten settings objects into the kwargs expected by
-    ``compute_differential_abundance``."""
-    kw: dict = {}
-
-    if gp is not None:
-        kw["ls_factor"] = gp.ls_factor
-        kw["n_landmarks"] = gp.n_landmarks
-        kw["landmarks"] = gp.landmarks
-        kw["batch_size"] = gp.batch_size
-        kw["jit_compile"] = gp.jit_compile
-        kw["random_state"] = gp.random_state
-
-    if threshold is not None:
-        kw["log_fold_change_threshold"] = threshold.lfc_threshold
-        kw["ptp_threshold"] = threshold.ptp_threshold
-
-    if storage is not None:
-        if storage.result_key is not None:
-            kw["result_key"] = storage.result_key
-        kw["overwrite"] = storage.overwrite
-        kw["store_landmarks"] = storage.store_landmarks
-
-    if output is not None:
-        kw["copy"] = output.copy
-        kw["inplace"] = output.inplace
-        kw["return_full_results"] = output.return_full_results
-        kw["allow_single_condition_variance"] = output.allow_single_condition_variance
-
-    return kw

@@ -131,32 +131,6 @@ Controls return values and runtime behaviour.
    :undoc-members:
 
 
-Kernels
--------
-
-Matern52Linear
-^^^^^^^^^^^^^^
-
-The default GP kernel for expression modelling.  Combines a Matern-5/2 kernel
-(local smoothness) with a Linear kernel (global trends), which improves
-extrapolation in sparse regions of the cell-state space.
-
-.. autoclass:: kompot.Matern52Linear
-   :show-inheritance:
-
-You can override the kernel via ``cov_func_curry``:
-
-.. code-block:: python
-
-   from mellon.cov import Matern52
-
-   # Use plain Matern-5/2 instead of Matern52Linear
-   kompot.de(
-       adata, "condition", "Young", "Old",
-       cov_func_curry=Matern52,
-   )
-
-
 Resource Estimation
 -------------------
 
@@ -199,4 +173,3 @@ Representation Analysis
 -----------------------
 
 .. autofunction:: kompot.check_underrepresentation
-||||||| 9967a23

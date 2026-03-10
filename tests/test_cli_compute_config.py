@@ -373,7 +373,7 @@ n_landmarks: 15
             # Just verify it was called
             pass
 
-        monkeypatch.setattr('kompot.cli.de.compute_differential_expression', mock_compute_de)
+        monkeypatch.setattr('kompot.cli.de.de', mock_compute_de)
 
         # Should run without error
         run_de(args)
@@ -421,8 +421,9 @@ n_landmarks: 15
         )
 
         # Mock compute_differential_expression to return mock results
-        def mock_compute_de(adata, return_full_results=False, **kwargs):
-            if return_full_results:
+        def mock_compute_de(adata, **kwargs):
+            _output = kwargs.get('output')
+            if _output is not None and getattr(_output, 'return_full_results', False):
                 # Return mock results
                 return {
                     "table": pd.DataFrame({
@@ -433,7 +434,7 @@ n_landmarks: 15
                 }
             return None
 
-        monkeypatch.setattr('kompot.cli.de.compute_differential_expression', mock_compute_de)
+        monkeypatch.setattr('kompot.cli.de.de', mock_compute_de)
 
         # Should run without error
         run_de(args)
@@ -481,8 +482,9 @@ n_landmarks: 15
         )
 
         # Mock compute_differential_expression
-        def mock_compute_de(adata, return_full_results=False, **kwargs):
-            if return_full_results:
+        def mock_compute_de(adata, **kwargs):
+            _output = kwargs.get('output')
+            if _output is not None and getattr(_output, 'return_full_results', False):
                 return {
                     "table": pd.DataFrame({
                         'gene': ['Gene_0'],
@@ -491,7 +493,7 @@ n_landmarks: 15
                 }
             return None
 
-        monkeypatch.setattr('kompot.cli.de.compute_differential_expression', mock_compute_de)
+        monkeypatch.setattr('kompot.cli.de.de', mock_compute_de)
 
         # Should run without error
         run_de(args)
@@ -541,7 +543,7 @@ n_landmarks: 15
         def mock_compute_de(adata, **kwargs):
             pass
 
-        monkeypatch.setattr('kompot.cli.de.compute_differential_expression', mock_compute_de)
+        monkeypatch.setattr('kompot.cli.de.de', mock_compute_de)
 
         # Should exit with error
         with pytest.raises(SystemExit) as exc_info:
@@ -589,14 +591,15 @@ n_landmarks: 15
         )
 
         # Mock compute_differential_expression
-        def mock_compute_de(adata, return_full_results=False, **kwargs):
-            if return_full_results:
+        def mock_compute_de(adata, **kwargs):
+            _output = kwargs.get('output')
+            if _output is not None and getattr(_output, 'return_full_results', False):
                 return {
                     "table": pd.DataFrame({'gene': ['Gene_0']})
                 }
             return None
 
-        monkeypatch.setattr('kompot.cli.de.compute_differential_expression', mock_compute_de)
+        monkeypatch.setattr('kompot.cli.de.de', mock_compute_de)
 
         # Should exit with error
         with pytest.raises(SystemExit) as exc_info:
@@ -792,7 +795,7 @@ n_landmarks: 15
             # Just verify it was called
             pass
 
-        monkeypatch.setattr('kompot.cli.da.compute_differential_abundance', mock_compute_da)
+        monkeypatch.setattr('kompot.cli.da.da', mock_compute_da)
 
         # Should run without error
         run_da(args)
@@ -838,8 +841,9 @@ n_landmarks: 15
         )
 
         # Mock compute_differential_abundance to return mock results
-        def mock_compute_da(adata, return_full_results=False, **kwargs):
-            if return_full_results:
+        def mock_compute_da(adata, **kwargs):
+            _output = kwargs.get('output')
+            if _output is not None and getattr(_output, 'return_full_results', False):
                 # Return mock results
                 return {
                     "table": pd.DataFrame({
@@ -850,7 +854,7 @@ n_landmarks: 15
                 }
             return None
 
-        monkeypatch.setattr('kompot.cli.da.compute_differential_abundance', mock_compute_da)
+        monkeypatch.setattr('kompot.cli.da.da', mock_compute_da)
 
         # Should run without error
         run_da(args)
@@ -896,8 +900,9 @@ n_landmarks: 15
         )
 
         # Mock compute_differential_abundance
-        def mock_compute_da(adata, return_full_results=False, **kwargs):
-            if return_full_results:
+        def mock_compute_da(adata, **kwargs):
+            _output = kwargs.get('output')
+            if _output is not None and getattr(_output, 'return_full_results', False):
                 return {
                     "table": pd.DataFrame({
                         'cell_id': ['cell_0'],
@@ -906,7 +911,7 @@ n_landmarks: 15
                 }
             return None
 
-        monkeypatch.setattr('kompot.cli.da.compute_differential_abundance', mock_compute_da)
+        monkeypatch.setattr('kompot.cli.da.da', mock_compute_da)
 
         # Should run without error
         run_da(args)
@@ -954,7 +959,7 @@ n_landmarks: 15
         def mock_compute_da(adata, **kwargs):
             pass
 
-        monkeypatch.setattr('kompot.cli.da.compute_differential_abundance', mock_compute_da)
+        monkeypatch.setattr('kompot.cli.da.da', mock_compute_da)
 
         # Should exit with error
         with pytest.raises(SystemExit) as exc_info:
@@ -1000,14 +1005,15 @@ n_landmarks: 15
         )
 
         # Mock compute_differential_abundance
-        def mock_compute_da(adata, return_full_results=False, **kwargs):
-            if return_full_results:
+        def mock_compute_da(adata, **kwargs):
+            _output = kwargs.get('output')
+            if _output is not None and getattr(_output, 'return_full_results', False):
                 return {
                     "table": pd.DataFrame({'cell_id': ['cell_0']})
                 }
             return None
 
-        monkeypatch.setattr('kompot.cli.da.compute_differential_abundance', mock_compute_da)
+        monkeypatch.setattr('kompot.cli.da.da', mock_compute_da)
 
         # Should exit with error
         with pytest.raises(SystemExit) as exc_info:
