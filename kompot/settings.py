@@ -64,8 +64,22 @@ class FDRSettings:
     Parameters
     ----------
     null_genes : int, List[int], None, or "auto"
-        Number of null genes (or explicit indices).  ``"auto"`` uses
-        2 000 when no ``sample_col`` is set and 0 otherwise.
+        Controls null-distribution calibration for FDR.
+
+        * ``"auto"`` (default) — generates 2 000 null genes by column
+          shuffling when ``sample_col`` is not set, 0 otherwise.
+        * ``int`` — number of null genes to auto-generate.  Not
+          compatible with pre-fitted predictors in
+          :class:`ModelSettings` (raises ``ValueError``).
+        * ``List[int]`` — explicit column indices of pre-baked null
+          features already present in the data.  Use this when
+          injecting pre-fitted predictors via :class:`ModelSettings`,
+          since the predictors were trained on a fixed set of features
+          and cannot cover newly generated columns.  The null features
+          are used to calibrate the FDR null distribution and are
+          then stripped from all output (table and layers contain
+          only the real genes).
+        * ``0`` or ``None`` — disable FDR estimation.
     null_seed : int, optional
         Random seed for null-gene sampling.
     threshold : float
@@ -173,6 +187,12 @@ class ModelSettings:
     When provided, these skip internal fitting for the corresponding
     component.  ``model1``/``model2`` take precedence over individual
     predictors.
+
+    When using pre-fitted predictors with FDR, null features must be
+    included in the data *before* fitting (the predictors cannot cover
+    columns that are added later).  Pass their column indices via
+    ``FDRSettings(null_genes=[...])``.  Passing ``null_genes=int``
+    with pre-fitted predictors raises ``ValueError``.
 
     Parameters
     ----------

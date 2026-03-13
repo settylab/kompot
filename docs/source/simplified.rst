@@ -139,6 +139,27 @@ Inject pre-fitted models or predictors to skip internal fitting.
    :members:
    :undoc-members:
 
+When using pre-fitted predictors with FDR estimation, null features must be
+included in the data *before* fitting the predictors — they need to go
+through the same GP smoothing pipeline as the real features.  Pass their
+column indices via ``FDRSettings(null_genes=[...])``.  The null features
+calibrate the FDR null distribution and are then stripped from all output:
+the result table and ``adata`` layers contain only the real genes.
+
+.. code-block:: python
+
+   # Assume predictors were trained on 100 real + 200 null features
+   null_indices = list(range(100, 300))
+
+   kompot.de(
+       adata, "condition", "WT", "KO",
+       model=kompot.ModelSettings(
+           function_predictor1=predictor_wt,
+           function_predictor2=predictor_ko,
+       ),
+       fdr=kompot.FDRSettings(null_genes=null_indices),
+   )
+
 
 Resource Estimation
 -------------------

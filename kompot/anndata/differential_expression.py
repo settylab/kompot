@@ -207,12 +207,50 @@ def de(
     underrep = data["underrep"]
 
     # ---- 4. Null gene augmentation ----
-    expr1, expr2, expanded_genes, null_gene_indices, use_fdr = (
-        _augment_with_null_genes(
-            adata, expr1, expr2, mask1, mask2, selected_genes,
-            null_genes, null_seed, compute_mahalanobis, layer,
-        )
+    _model = model if model is not None else ModelSettings()
+
+    # When predictors are injected, null features are already baked into
+    # the data (the predictors were trained on real + null features).
+    # Skip shuffling/appending and just split selected_genes.
+    _has_prefitted = (
+        _model.function_predictor1 is not None
+        or _model.function_predictor2 is not None
+        or _model.model1 is not None
+        or _model.model2 is not None
     )
+    if _has_prefitted and isinstance(null_genes, list) and len(null_genes) > 0:
+        # Null features are pre-existing in the data — validate indices
+        n_features = len(selected_genes)
+        bad = [i for i in null_genes if i < 0 or i >= n_features]
+        if bad:
+            raise ValueError(
+                f"null_genes indices {bad[:5]}{'...' if len(bad) > 5 else ''} "
+                f"are out of range for {n_features} features. When using "
+                f"pre-fitted predictors, null_genes must be a list of "
+                f"feature indices that are already in the data."
+            )
+        null_gene_indices = null_genes
+        expanded_genes = list(selected_genes)
+        null_set = set(null_gene_indices)
+        selected_genes = [
+            g for i, g in enumerate(expanded_genes) if i not in null_set
+        ]
+        use_fdr = compute_mahalanobis
+    elif _has_prefitted and isinstance(null_genes, int) and null_genes > 0:
+        raise ValueError(
+            "Cannot auto-generate null genes (null_genes=int) when using "
+            "pre-fitted predictors. The predictors were trained on a fixed "
+            "set of features and cannot cover newly generated null columns. "
+            "Either include null features in your data before fitting and "
+            "pass their indices as null_genes=[...], or set null_genes=0."
+        )
+    else:
+        expr1, expr2, expanded_genes, null_gene_indices, use_fdr = (
+            _augment_with_null_genes(
+                adata, expr1, expr2, mask1, mask2, selected_genes,
+                null_genes, null_seed, compute_mahalanobis, layer,
+            )
+        )
 
     # ---- 5. Resolve landmarks ----
     landmarks = _resolve_landmarks(
@@ -220,7 +258,6 @@ def de(
     )
 
     # ---- 6. Fit model ----
-    _model = model if model is not None else ModelSettings()
     diff_expression = DifferentialExpression(
         n_landmarks=n_landmarks,
         use_sample_variance=use_sample_variance,

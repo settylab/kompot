@@ -10,6 +10,7 @@ Covers:
 """
 
 import numpy as np
+import pandas as pd
 import pytest
 from unittest.mock import MagicMock
 
@@ -509,3 +510,184 @@ class TestDaWithModelSettings:
             -result_normal["table"]["lfc"].values,
             atol=1e-4,
         )
+
+
+# ---------------------------------------------------------------------------
+# 7. Null genes with pre-fitted predictors
+# ---------------------------------------------------------------------------
+
+class TestNullGenesWithPrefittedPredictors:
+
+    @pytest.fixture
+    def adata_with_signal_and_nulls(self):
+        """AnnData where real genes have a strong condition shift and null
+        features have no signal.  Returns pre-fitted predictors trained on
+        both real + null features."""
+        import anndata
+        import kompot
+
+        rng = np.random.RandomState(42)
+        n_per_cond, n_real, n_null, n_dim = 30, 6, 200, 5
+        n_cells = 2 * n_per_cond
+        n_total = n_real + n_null
+
+        X_embed = rng.randn(n_cells, n_dim)
+        # Real genes: strong shift between conditions
+        expr = rng.randn(n_cells, n_total) * 0.3
+        expr[n_per_cond:, :n_real] += 5.0  # large signal in real genes
+        # Null features: no shift (already just noise)
+
+        obs = {"condition": ["Young"] * n_per_cond + ["Old"] * n_per_cond}
+        var_names = [f"gene_{i}" for i in range(n_real)] + [
+            f"null_{i}" for i in range(n_null)
+        ]
+        adata = anndata.AnnData(
+            X=expr, obs=obs,
+            var=pd.DataFrame(index=var_names),
+            obsm={"DM_EigenVectors": X_embed},
+        )
+
+        # Fit to get predictors trained on all features
+        result = kompot.de(
+            adata.copy(),
+            "condition", "Young", "Old",
+            gp=kompot.GPSettings(n_landmarks=30, use_empirical_variance=True),
+            fdr=kompot.FDRSettings(null_genes=0),
+            output=kompot.OutputSettings(
+                compute_mahalanobis=False, return_full_results=True,
+            ),
+        )
+        de_model = result["model"]
+        null_indices = list(range(n_real, n_total))
+        return adata, de_model, null_indices, n_real, n_null
+
+    def test_prebaked_null_genes_preserves_real_gene_names(
+        self, adata_with_signal_and_nulls
+    ):
+        """The output table should contain exactly the real gene names
+        and exclude all null feature names."""
+        import kompot
+
+        adata, de_model, null_indices, n_real, n_null = (
+            adata_with_signal_and_nulls
+        )
+        n_total = n_real + n_null
+
+        result = kompot.de(
+            adata.copy(),
+            "condition", "Young", "Old",
+            gp=kompot.GPSettings(n_landmarks=30, use_empirical_variance=True),
+            fdr=kompot.FDRSettings(null_genes=null_indices),
+            output=kompot.OutputSettings(return_full_results=True),
+            model=kompot.ModelSettings(
+                function_predictor1=de_model.function_predictor1,
+                function_predictor2=de_model.function_predictor2,
+                obs_variance_predictor1=lambda Xb: np.ones(
+                    (Xb.shape[0], n_total)
+                ),
+                obs_variance_predictor2=lambda Xb: np.ones(
+                    (Xb.shape[0], n_total)
+                ),
+            ),
+        )
+
+        table = result["table"]
+        # Only real genes in the table
+        assert len(table) == n_real
+        expected_names = {f"gene_{i}" for i in range(n_real)}
+        assert set(table.index) == expected_names
+        # No null features leaked through
+        assert not any(g.startswith("null_") for g in table.index)
+        # FDR columns present
+        assert "is_de" in table.columns
+
+    def test_null_genes_calibrate_fdr(self, adata_with_signal_and_nulls):
+        """Real genes with strong signal should be called DE when null
+        features have no signal (proper FDR calibration)."""
+        import kompot
+
+        adata, de_model, null_indices, n_real, n_null = (
+            adata_with_signal_and_nulls
+        )
+        n_total = n_real + n_null
+
+        result = kompot.de(
+            adata.copy(),
+            "condition", "Young", "Old",
+            gp=kompot.GPSettings(n_landmarks=30, use_empirical_variance=True),
+            fdr=kompot.FDRSettings(null_genes=null_indices, threshold=0.05),
+            output=kompot.OutputSettings(return_full_results=True),
+            model=kompot.ModelSettings(
+                function_predictor1=de_model.function_predictor1,
+                function_predictor2=de_model.function_predictor2,
+                obs_variance_predictor1=lambda Xb: np.ones(
+                    (Xb.shape[0], n_total)
+                ),
+                obs_variance_predictor2=lambda Xb: np.ones(
+                    (Xb.shape[0], n_total)
+                ),
+            ),
+        )
+
+        table = result["table"]
+        # With strong signal in real genes and noise-only nulls,
+        # most real genes should be called significant
+        n_de = table["is_de"].sum()
+        assert n_de >= n_real // 2, (
+            f"Expected at least {n_real // 2} DE genes with strong signal, "
+            f"got {n_de}"
+        )
+
+    def test_null_genes_int_with_prefitted_raises(self):
+        """Passing null_genes=int with pre-fitted predictors should raise."""
+        import anndata
+        import kompot
+
+        rng = np.random.RandomState(42)
+        n_cells, n_genes, n_features = 60, 8, 5
+        adata = anndata.AnnData(
+            X=rng.randn(n_cells, n_genes),
+            obs={"condition": ["Young"] * 30 + ["Old"] * 30},
+            var=pd.DataFrame(index=[f"g{i}" for i in range(n_genes)]),
+            obsm={"DM_EigenVectors": rng.randn(n_cells, n_features)},
+        )
+
+        with pytest.raises(ValueError, match="Cannot auto-generate null genes"):
+            kompot.de(
+                adata,
+                "condition", "Young", "Old",
+                gp=kompot.GPSettings(n_landmarks=30, use_empirical_variance=True),
+                fdr=kompot.FDRSettings(null_genes=100),
+                output=kompot.OutputSettings(return_full_results=True),
+                model=kompot.ModelSettings(
+                    function_predictor1=lambda X: np.zeros((X.shape[0], n_genes)),
+                    function_predictor2=lambda X: np.zeros((X.shape[0], n_genes)),
+                ),
+            )
+
+    def test_null_genes_out_of_range_raises(self):
+        """Null gene indices outside the feature range should raise."""
+        import anndata
+        import kompot
+
+        rng = np.random.RandomState(42)
+        n_cells, n_genes, n_features = 60, 8, 5
+        adata = anndata.AnnData(
+            X=rng.randn(n_cells, n_genes),
+            obs={"condition": ["Young"] * 30 + ["Old"] * 30},
+            var=pd.DataFrame(index=[f"g{i}" for i in range(n_genes)]),
+            obsm={"DM_EigenVectors": rng.randn(n_cells, n_features)},
+        )
+
+        with pytest.raises(ValueError, match="out of range"):
+            kompot.de(
+                adata,
+                "condition", "Young", "Old",
+                gp=kompot.GPSettings(n_landmarks=30, use_empirical_variance=True),
+                fdr=kompot.FDRSettings(null_genes=[5, 99]),  # 99 is out of range
+                output=kompot.OutputSettings(return_full_results=True),
+                model=kompot.ModelSettings(
+                    function_predictor1=lambda X: np.zeros((X.shape[0], n_genes)),
+                    function_predictor2=lambda X: np.zeros((X.shape[0], n_genes)),
+                ),
+            )
