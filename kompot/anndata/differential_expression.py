@@ -9,7 +9,7 @@ import pandas as pd
 from typing import Optional, Union, Dict, Any, List
 
 from ..differential import DifferentialExpression
-from ..settings import GPSettings, FDRSettings, FilterSettings, StorageSettings, OutputSettings
+from ..settings import GPSettings, FDRSettings, FilterSettings, StorageSettings, OutputSettings, ModelSettings
 from .utils import (
     _sanitize_name,
     generate_output_field_names,
@@ -47,6 +47,7 @@ def de(
     filter: "FilterSettings | None" = None,
     storage: "StorageSettings | None" = None,
     output: "OutputSettings | None" = None,
+    model: "ModelSettings | None" = None,
     **function_kwargs,
 ) -> "Union[Dict[str, np.ndarray], Any]":
     """Run differential expression analysis on an AnnData object.
@@ -88,6 +89,10 @@ def de(
         Where and how results are stored.
     output : OutputSettings, optional
         Return-value and progress-bar control.
+    model : ModelSettings, optional
+        Pre-fitted models or predictors to inject.  When provided,
+        fitting is skipped for the corresponding components.
+        See :class:`~kompot.ModelSettings`.
     **function_kwargs
         Forwarded to :class:`~mellon.FunctionEstimator`.
 
@@ -215,6 +220,7 @@ def de(
     )
 
     # ---- 6. Fit model ----
+    _model = model if model is not None else ModelSettings()
     diff_expression = DifferentialExpression(
         n_landmarks=n_landmarks,
         use_sample_variance=use_sample_variance,
@@ -226,6 +232,14 @@ def de(
         store_arrays_on_disk=store_arrays_on_disk,
         disk_storage_dir=disk_storage_dir,
         max_memory_ratio=max_memory_ratio,
+        model1=_model.model1,
+        model2=_model.model2,
+        function_predictor1=_model.function_predictor1,
+        function_predictor2=_model.function_predictor2,
+        obs_variance_predictor1=_model.obs_variance_predictor1,
+        obs_variance_predictor2=_model.obs_variance_predictor2,
+        variance_predictor1=_model.variance_predictor1,
+        variance_predictor2=_model.variance_predictor2,
     )
 
     diff_expression.fit(

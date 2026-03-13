@@ -57,6 +57,8 @@ class DifferentialExpression:
         function_predictor2: Optional[Any] = None,
         variance_predictor1: Optional[Any] = None,
         variance_predictor2: Optional[Any] = None,
+        obs_variance_predictor1: Optional[Any] = None,
+        obs_variance_predictor2: Optional[Any] = None,
         random_state: Optional[int] = None,
         batch_size: int = 500,
         store_arrays_on_disk: Optional[bool] = None,
@@ -99,6 +101,12 @@ class DifferentialExpression:
         variance_predictor2 : Any, optional
             Precomputed variance predictor for condition 2. If provided, will be used for uncertainty calculation
             and will automatically enable sample variance calculation (unless explicitly disabled).
+        obs_variance_predictor1 : Any, optional
+            Precomputed empirical (aleatoric) variance predictor for condition 1.
+            When provided, the internal empirical-variance computation is skipped.
+        obs_variance_predictor2 : Any, optional
+            Precomputed empirical (aleatoric) variance predictor for condition 2.
+            When provided, the internal empirical-variance computation is skipped.
         random_state : int, optional
             Random seed for reproducible landmark selection when n_landmarks is specified.
             Controls the random selection of points when using approximation, by default None.
@@ -162,12 +170,13 @@ class DifferentialExpression:
         # ExpressionModel instances for each condition
         if model1 is not None:
             self.model1 = model1
-        elif function_predictor1 is not None:
+        elif function_predictor1 is not None or obs_variance_predictor1 is not None:
             self.model1 = ExpressionModel(
                 use_empirical_variance=use_empirical_variance,
                 eps=eps,
                 batch_size=batch_size,
                 function_predictor=function_predictor1,
+                obs_variance_predictor=obs_variance_predictor1,
                 variance_predictor=variance_predictor1,
             )
         else:
@@ -175,12 +184,13 @@ class DifferentialExpression:
 
         if model2 is not None:
             self.model2 = model2
-        elif function_predictor2 is not None:
+        elif function_predictor2 is not None or obs_variance_predictor2 is not None:
             self.model2 = ExpressionModel(
                 use_empirical_variance=use_empirical_variance,
                 eps=eps,
                 batch_size=batch_size,
                 function_predictor=function_predictor2,
+                obs_variance_predictor=obs_variance_predictor2,
                 variance_predictor=variance_predictor2,
             )
         else:
@@ -449,10 +459,13 @@ class DifferentialExpression:
 
         # Validate empirical variance for pre-fitted predictors
         if self.use_empirical_variance:
-            if not hasattr(self.function_predictor1, 'obs_variance'):
+            has_ev1 = self.model1.has_empirical_variance if self.model1 else False
+            has_ev2 = self.model2.has_empirical_variance if self.model2 else False
+            if not has_ev1 or not has_ev2:
                 raise ValueError(
                     "use_empirical_variance=True requires predictors fitted with "
-                    "obs_variance=True. Pre-computed predictors must support obs_variance()."
+                    "obs_variance=True or injected obs_variance_predictor. "
+                    "Pre-computed predictors must support obs_variance()."
                 )
 
         # Handle single-condition variance fallback

@@ -167,6 +167,42 @@ class StorageSettings:
 
 
 @dataclass
+class ModelSettings:
+    """Pre-fitted models or predictors to inject into ``de()`` or ``da()``.
+
+    When provided, these skip internal fitting for the corresponding
+    component.  ``model1``/``model2`` take precedence over individual
+    predictors.
+
+    Parameters
+    ----------
+    model1, model2 : ExpressionModel, optional
+        Full pre-fitted :class:`~kompot.ExpressionModel` for each
+        condition (DE only).  Takes precedence over individual predictors.
+    function_predictor1, function_predictor2 : callable, optional
+        Pre-fitted mellon Predictor for each condition (DE only).
+    obs_variance_predictor1, obs_variance_predictor2 : callable, optional
+        Pre-fitted empirical variance predictor for each condition (DE only).
+    variance_predictor1, variance_predictor2 : callable, optional
+        Pre-fitted sample variance predictor for each condition.
+        Signature: ``(X, diag=True/False) -> array``.
+    density_predictor1, density_predictor2 : callable, optional
+        Pre-fitted density predictor for each condition (DA only).
+    """
+
+    model1: Optional[Any] = None
+    model2: Optional[Any] = None
+    function_predictor1: Optional[Any] = None
+    function_predictor2: Optional[Any] = None
+    obs_variance_predictor1: Optional[Any] = None
+    obs_variance_predictor2: Optional[Any] = None
+    variance_predictor1: Optional[Any] = None
+    variance_predictor2: Optional[Any] = None
+    density_predictor1: Optional[Any] = None
+    density_predictor2: Optional[Any] = None
+
+
+@dataclass
 class OutputSettings:
     """Control what ``de()`` / ``da()`` returns and how it behaves.
 

@@ -41,6 +41,7 @@ from .settings import (
     FilterSettings,
     StorageSettings,
     OutputSettings,
+    ModelSettings,
 )
 
 # Now import submodules - after the classes are imported
@@ -106,7 +107,7 @@ __all__ = [
 
     # Settings dataclasses
     "GPSettings", "FDRSettings", "DAThresholdSettings",
-    "FilterSettings", "StorageSettings", "OutputSettings",
+    "FilterSettings", "StorageSettings", "OutputSettings", "ModelSettings",
 
     # Utility functions
     "compute_mahalanobis_distance", "find_landmarks",

@@ -122,6 +122,10 @@ class ExpressionModel:
         Directory for disk-backed arrays.
     function_predictor : callable, optional
         Pre-fitted mellon Predictor (skips ``fit()``).
+    obs_variance_predictor : callable, optional
+        Pre-fitted empirical (aleatoric) variance predictor.
+        When provided, the internal empirical-variance computation is
+        skipped during ``fit()``.
     variance_predictor : callable, optional
         Pre-fitted sample variance predictor.
     """
@@ -136,6 +140,7 @@ class ExpressionModel:
         store_arrays_on_disk: Optional[bool] = None,
         disk_storage_dir: Optional[str] = None,
         function_predictor: Optional[Any] = None,
+        obs_variance_predictor: Optional[Any] = None,
         variance_predictor: Optional[Any] = None,
     ):
         self.n_landmarks = n_landmarks
@@ -154,7 +159,7 @@ class ExpressionModel:
         self._estimator = None
         self._predictor = function_predictor
         self._sample_variance_predictor = variance_predictor
-        self._within_sample_obs_var_predictor = None
+        self._within_sample_obs_var_predictor = obs_variance_predictor
         self._sigma = None
 
     # ------------------------------------------------------------------
@@ -257,14 +262,20 @@ class ExpressionModel:
             else:
                 estimator_defaults["ls_factor"] = ls_factor
 
+        # Skip empirical variance computation if an obs_variance_predictor
+        # was injected at construction time.
+        obs_var_injected = self._within_sample_obs_var_predictor is not None
+
         # When sample_indices are provided, obs_variance is computed per
         # sample to avoid double-counting the between-sample variance that
         # the SampleVarianceEstimator already captures.
         per_sample_empirical = (
-            self.use_empirical_variance and sample_indices is not None
+            self.use_empirical_variance
+            and sample_indices is not None
+            and not obs_var_injected
         )
 
-        if self.use_empirical_variance and not per_sample_empirical:
+        if self.use_empirical_variance and not per_sample_empirical and not obs_var_injected:
             estimator_defaults["obs_variance"] = True
 
         # ---- fit mellon GP ----
@@ -274,7 +285,7 @@ class ExpressionModel:
         self._predictor = self._estimator.predict
 
         # ---- empirical variance validation ----
-        if self.use_empirical_variance and not per_sample_empirical:
+        if self.use_empirical_variance and not per_sample_empirical and not obs_var_injected:
             if not hasattr(self._predictor, "obs_variance"):
                 raise ValueError(
                     "use_empirical_variance=True requires predictors fitted with "
@@ -323,6 +334,7 @@ class ExpressionModel:
                 self._sample_variance_predictor = None
 
         # ---- per-sample empirical variance ----
+        # Skipped when an obs_variance_predictor was injected.
         # Fit per-sample GPs and use their loo_residuals_squared to get
         # within-sample LOO-corrected squared residuals.  These are residuals
         # relative to each sample's own GP mean, so they capture only

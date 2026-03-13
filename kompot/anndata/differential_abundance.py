@@ -9,7 +9,7 @@ import pandas as pd
 from typing import Optional, Union, Dict, Any, List, Tuple
 
 from ..differential import DifferentialAbundance
-from ..settings import GPSettings, DAThresholdSettings, StorageSettings, OutputSettings
+from ..settings import GPSettings, DAThresholdSettings, StorageSettings, OutputSettings, ModelSettings
 from .utils import generate_output_field_names
 from ._da_helpers import (
     _check_da_overwrites,
@@ -34,6 +34,7 @@ def da(
     threshold: "DAThresholdSettings | None" = None,
     storage: "StorageSettings | None" = None,
     output: "OutputSettings | None" = None,
+    model: "ModelSettings | None" = None,
     **density_kwargs,
 ) -> "Union[Dict[str, np.ndarray], Any]":
     """Run differential abundance analysis on an AnnData object.
@@ -71,6 +72,10 @@ def da(
         Where and how results are stored.
     output : OutputSettings, optional
         Return-value control.
+    model : ModelSettings, optional
+        Pre-fitted models or predictors to inject.  For DA, only
+        ``density_predictor1/2`` and ``variance_predictor1/2`` are used.
+        See :class:`~kompot.ModelSettings`.
     **density_kwargs
         Forwarded to :class:`~mellon.DensityEstimator`.
 
@@ -134,6 +139,7 @@ def da(
     landmarks = _resolve_da_landmarks(adata, landmarks, obsm_key, result_key)
 
     # ---- 4. Fit model ----
+    _model = model if model is not None else ModelSettings()
     diff_abundance = DifferentialAbundance(
         log_fold_change_threshold=log_fold_change_threshold,
         ptp_threshold=ptp_threshold,
@@ -141,6 +147,10 @@ def da(
         jit_compile=jit_compile,
         random_state=random_state,
         batch_size=batch_size,
+        density_predictor1=_model.density_predictor1,
+        density_predictor2=_model.density_predictor2,
+        variance_predictor1=_model.variance_predictor1,
+        variance_predictor2=_model.variance_predictor2,
     )
 
     diff_abundance.fit(

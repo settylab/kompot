@@ -130,6 +130,15 @@ Controls return values and runtime behaviour.
    :members:
    :undoc-members:
 
+ModelSettings
+^^^^^^^^^^^^^
+
+Inject pre-fitted models or predictors to skip internal fitting.
+
+.. autoclass:: kompot.ModelSettings
+   :members:
+   :undoc-members:
+
 
 Resource Estimation
 -------------------

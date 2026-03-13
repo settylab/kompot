@@ -4,6 +4,7 @@ All notable changes to this project will be documented in this file.
 
 ## [0.7.0]
 
+ - add `ModelSettings` dataclass for injecting pre-fitted models and predictors into `kompot.de()` and `kompot.da()`. Supports `function_predictor`, `obs_variance_predictor`, `variance_predictor`, `density_predictor`, and full `ExpressionModel` instances per condition. This enables reusing fitted models across runs or customising individual variance components without re-fitting.
  - **`kompot.de()` and `kompot.da()` are now the primary API.** Both accept Settings dataclasses (`GPSettings`, `FDRSettings`, `FilterSettings`, `StorageSettings`, `OutputSettings`) for a clean, discoverable interface. `compute_differential_expression()` and `compute_differential_abundance()` are deprecated and will be removed in a future version.
  - add `use_empirical_variance` option for differential expression: fits per-gene GP models to squared residuals to estimate heteroscedastic noise, then adjusts Mahalanobis distances via a diagonal factor trick (avoids per-gene covariance matrices). Deflates significance for high-noise genes without requiring biological replicates. When combined with `sample_col`, empirical variance is computed per sample using LOO-corrected residuals from per-sample GPs, avoiding double-counting the between-sample variance that the sample variance estimator already captures.
  - expression GP kernel now includes a linear component for better extrapolation at cell-state boundaries. Overridable via `cov_func_curry`.
