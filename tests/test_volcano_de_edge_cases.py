@@ -117,7 +117,7 @@ class TestVolcanoDEEdgeCases:
     def test_binary_categorical_coloring(self):
         """Test volcano_de with binary categorical background coloring."""
         # Test with binary categorical data (special case that might need special handling)
-        fig, ax = volcano_de(
+        fig = volcano_de(
             self.adata,
             lfc_key='de_run1_mean_lfc_A_to_B',
             score_key='de_run1_mahalanobis_A_to_B',
@@ -125,12 +125,11 @@ class TestVolcanoDEEdgeCases:
             return_fig=True
         )
         assert fig is not None
-        assert ax is not None
     
     def test_multi_categorical_pandas_categorical(self):
         """Test volcano_de with pandas Categorical type background coloring."""
         # Test with pandas Categorical data
-        fig, ax = volcano_de(
+        fig = volcano_de(
             self.adata,
             lfc_key='de_run1_mean_lfc_A_to_B',
             score_key='de_run1_mahalanobis_A_to_B',
@@ -138,12 +137,11 @@ class TestVolcanoDEEdgeCases:
             return_fig=True
         )
         assert fig is not None
-        assert ax is not None
     
     def test_boolean_background_coloring(self):
         """Test volcano_de with boolean background coloring."""
         # Boolean values should be treated as categorical
-        fig, ax = volcano_de(
+        fig = volcano_de(
             self.adata,
             lfc_key='de_run1_mean_lfc_A_to_B',
             score_key='de_run1_mahalanobis_A_to_B',
@@ -151,12 +149,11 @@ class TestVolcanoDEEdgeCases:
             return_fig=True
         )
         assert fig is not None
-        assert ax is not None
     
     def test_extreme_values_background_coloring(self):
         """Test volcano_de with extreme value background coloring."""
         # Test with extreme values, should still work with colormap normalization
-        fig, ax = volcano_de(
+        fig = volcano_de(
             self.adata,
             lfc_key='de_run1_mean_lfc_A_to_B',
             score_key='de_run1_mahalanobis_A_to_B',
@@ -164,10 +161,9 @@ class TestVolcanoDEEdgeCases:
             return_fig=True
         )
         assert fig is not None
-        assert ax is not None
         
         # Test with percentile-based vmin/vmax to handle outliers
-        fig, ax = volcano_de(
+        fig = volcano_de(
             self.adata,
             lfc_key='de_run1_mean_lfc_A_to_B',
             score_key='de_run1_mahalanobis_A_to_B',
@@ -177,26 +173,24 @@ class TestVolcanoDEEdgeCases:
             return_fig=True
         )
         assert fig is not None
-        assert ax is not None
     
     def test_missing_values_in_data(self):
         """Test volcano_de with missing values (NaNs) in the data."""
         # Data contains NaNs in the mean_lfc and mahalanobis columns
         # Function should handle these gracefully
-        fig, ax = volcano_de(
+        fig = volcano_de(
             self.adata,
             lfc_key='mean_lfc',  # Contains NaNs
             score_key='mahalanobis',  # Contains NaNs
             return_fig=True
         )
         assert fig is not None
-        assert ax is not None
     
     def test_nonexistent_highlight_genes(self):
         """Test volcano_de with highlight_genes that don't exist in the data."""
         # Test with completely non-existent genes
         highlight_genes = ['nonexistent_gene_1', 'nonexistent_gene_2', 'gene_0']
-        fig, ax = volcano_de(
+        fig = volcano_de(
             self.adata,
             lfc_key='de_run1_mean_lfc_A_to_B',
             score_key='de_run1_mahalanobis_A_to_B',
@@ -204,12 +198,11 @@ class TestVolcanoDEEdgeCases:
             return_fig=True
         )
         assert fig is not None
-        assert ax is not None
     
     def test_custom_colormap_with_binary_data(self):
         """Test volcano_de with custom colormap for binary categorical data."""
         # Test with custom colormap for binary data
-        fig, ax = volcano_de(
+        fig = volcano_de(
             self.adata,
             lfc_key='de_run1_mean_lfc_A_to_B',
             score_key='de_run1_mahalanobis_A_to_B',
@@ -218,14 +211,13 @@ class TestVolcanoDEEdgeCases:
             return_fig=True
         )
         assert fig is not None
-        assert ax is not None
         
         # Test with manually specified color map
         color_map = {
             'group_A': '#FF5733',
             'group_B': '#33FF57'
         }
-        fig, ax = volcano_de(
+        fig = volcano_de(
             self.adata,
             lfc_key='de_run1_mean_lfc_A_to_B',
             score_key='de_run1_mahalanobis_A_to_B',
@@ -234,12 +226,11 @@ class TestVolcanoDEEdgeCases:
             return_fig=True
         )
         assert fig is not None
-        assert ax is not None
     
     def test_complex_highlight_genes(self):
         """Test volcano_de with complex highlight_genes scenarios."""
         # Test with empty dict as highlight_genes (edge case)
-        fig, ax = volcano_de(
+        fig = volcano_de(
             self.adata,
             lfc_key='de_run1_mean_lfc_A_to_B',
             score_key='de_run1_mahalanobis_A_to_B',
@@ -247,7 +238,6 @@ class TestVolcanoDEEdgeCases:
             return_fig=True
         )
         assert fig is not None
-        assert ax is not None
         
         # Test with list of dicts where some are malformed
         highlight_groups = [
@@ -267,7 +257,7 @@ class TestVolcanoDEEdgeCases:
                 'color': '#3357FF'
             }
         ]
-        fig, ax = volcano_de(
+        fig = volcano_de(
             self.adata,
             lfc_key='de_run1_mean_lfc_A_to_B',
             score_key='de_run1_mahalanobis_A_to_B',
@@ -275,12 +265,11 @@ class TestVolcanoDEEdgeCases:
             return_fig=True
         )
         assert fig is not None
-        assert ax is not None
     
     def test_zero_top_genes(self):
         """Test volcano_de with n_top_genes=0."""
         # With n_top_genes=0, no genes should be highlighted
-        fig, ax = volcano_de(
+        fig = volcano_de(
             self.adata,
             lfc_key='de_run1_mean_lfc_A_to_B',
             score_key='de_run1_mahalanobis_A_to_B',
@@ -288,12 +277,11 @@ class TestVolcanoDEEdgeCases:
             return_fig=True
         )
         assert fig is not None
-        assert ax is not None
         
     def test_no_gene_labels(self):
         """Test volcano_de with gene_labels=False."""
         # With gene_labels=False, no gene names should be shown
-        fig, ax = volcano_de(
+        fig = volcano_de(
             self.adata,
             lfc_key='de_run1_mean_lfc_A_to_B',
             score_key='de_run1_mahalanobis_A_to_B',
@@ -301,12 +289,11 @@ class TestVolcanoDEEdgeCases:
             return_fig=True
         )
         assert fig is not None
-        assert ax is not None
     
     def test_invalid_percentile_strings(self):
         """Test volcano_de with invalid percentile strings for vmin/vmax."""
         # Test with invalid percentile string format
-        fig, ax = volcano_de(
+        fig = volcano_de(
             self.adata,
             lfc_key='de_run1_mean_lfc_A_to_B',
             score_key='de_run1_mahalanobis_A_to_B',
@@ -316,4 +303,3 @@ class TestVolcanoDEEdgeCases:
             return_fig=True
         )
         assert fig is not None
-        assert ax is not None

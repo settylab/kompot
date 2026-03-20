@@ -211,7 +211,7 @@ class TestPlotGeneExpressionParameters:
 
             # Should work without basis (use cell index)
             if result is not None:
-                fig, axs = result
+                fig = result
                 assert fig is not None
                 plt.close(fig)
         except Exception:
@@ -229,7 +229,7 @@ class TestPlotGeneExpressionParameters:
             )
 
             if result is not None:
-                fig, axs = result
+                fig = result
                 assert fig is not None
                 plt.close(fig)
         except Exception:
@@ -247,7 +247,7 @@ class TestPlotGeneExpressionParameters:
             )
 
             if result is not None:
-                fig, axs = result
+                fig = result
                 assert fig is not None
                 plt.close(fig)
         except Exception:
@@ -265,7 +265,7 @@ class TestPlotGeneExpressionParameters:
             )
 
             if result is not None:
-                fig, axs = result
+                fig = result
                 assert fig is not None
                 plt.close(fig)
         except Exception:
@@ -282,7 +282,7 @@ class TestPlotGeneExpressionParameters:
             )
 
             if result is not None:
-                fig, axs = result
+                fig = result
                 assert fig is not None
                 plt.close(fig)
         except Exception:
@@ -300,7 +300,7 @@ class TestPlotGeneExpressionParameters:
             )
 
             if result is not None:
-                fig, axs = result
+                fig = result
                 assert fig is not None
                 plt.close(fig)
         except Exception:
@@ -335,12 +335,8 @@ class TestPlotGeneExpressionParameters:
             )
 
             if result is not None:
-                assert isinstance(result, tuple)
-                assert len(result) == 2
-                fig, axs = result
-                assert fig is not None
-                assert axs is not None
-                plt.close(fig)
+                assert isinstance(result, plt.Figure)
+                plt.close(result)
         except Exception:
             pass
 
@@ -410,7 +406,7 @@ class TestPlotGeneExpressionLayerInference:
             )
 
             if result is not None:
-                fig, axs = result
+                fig = result
                 plt.close(fig)
         except Exception:
             pass
@@ -441,7 +437,7 @@ class TestPlotGeneExpressionLayerInference:
             )
 
             if result is not None:
-                fig, axs = result
+                fig = result
                 plt.close(fig)
         except Exception:
             pass
@@ -493,7 +489,7 @@ class TestPlotGeneExpressionConditionExtraction:
             )
 
             if result is not None:
-                fig, axs = result
+                fig = result
                 plt.close(fig)
         except Exception:
             pass
@@ -517,7 +513,7 @@ class TestPlotGeneExpressionConditionExtraction:
 
             # Should use default condition names
             if result is not None:
-                fig, axs = result
+                fig = result
                 plt.close(fig)
         except Exception:
             pass
@@ -581,7 +577,7 @@ class TestPlotGeneExpressionRunID:
             )
 
             if result is not None:
-                fig, axs = result
+                fig = result
                 plt.close(fig)
         except Exception:
             pass
@@ -597,7 +593,7 @@ class TestPlotGeneExpressionRunID:
             )
 
             if result is not None:
-                fig, axs = result
+                fig = result
                 plt.close(fig)
         except Exception:
             pass
@@ -692,7 +688,7 @@ class TestConditionExtractionPriority:
         adata, fn = self._make_adata_with_run_info("Young", "Old")
         result = plot_gene_expression(adata, "gene_0", return_fig=True)
         assert result is not None
-        fig, _ = result
+        fig = result
         plt.close(fig)
 
     def test_simple_conditions_custom_result_key(self):
@@ -700,9 +696,9 @@ class TestConditionExtractionPriority:
         adata, fn = self._make_adata_with_run_info("Young", "Old", result_key="my_de")
         result = plot_gene_expression(adata, "gene_0", return_fig=True)
         assert result is not None
-        fig, axs = result
-        # The condition2 panel title must mention 'Old', not be 'Not available'
-        panel_title = axs[1, 0].get_title()
+        fig = result
+        # axes[2] is the condition2 imputed panel (row=1, col=0 in 2x2 grid)
+        panel_title = fig.axes[2].get_title()
         assert "Old" in panel_title
         assert "Not available" not in panel_title
         plt.close(fig)
@@ -716,10 +712,10 @@ class TestConditionExtractionPriority:
         )
         result = plot_gene_expression(adata, "gene_0", return_fig=True)
         assert result is not None
-        fig, axs = result
-        # Both imputed panels should be available
-        assert "Not available" not in axs[0, 1].get_title()
-        assert "Not available" not in axs[1, 0].get_title()
+        fig = result
+        # axes[1]=cond1 imputed, axes[2]=cond2 imputed
+        assert "Not available" not in fig.axes[1].get_title()
+        assert "Not available" not in fig.axes[2].get_title()
         plt.close(fig)
 
     def test_multiword_conditions_with_spaces(self):
@@ -729,9 +725,9 @@ class TestConditionExtractionPriority:
         )
         result = plot_gene_expression(adata, "gene_0", return_fig=True)
         assert result is not None
-        fig, axs = result
-        assert "Not available" not in axs[0, 1].get_title()
-        assert "Not available" not in axs[1, 0].get_title()
+        fig = result
+        assert "Not available" not in fig.axes[1].get_title()
+        assert "Not available" not in fig.axes[2].get_title()
         plt.close(fig)
 
     # ---- multiple runs with different result_key ----
@@ -743,10 +739,10 @@ class TestConditionExtractionPriority:
         )
         result = plot_gene_expression(adata, "gene_0", return_fig=True)
         assert result is not None
-        fig, axs = result
+        fig = result
         # Both panels should be available (not 'Not available')
-        assert "Not available" not in axs[0, 1].get_title()
-        assert "Not available" not in axs[1, 0].get_title()
+        assert "Not available" not in fig.axes[1].get_title()
+        assert "Not available" not in fig.axes[2].get_title()
         plt.close(fig)
 
     def test_two_runs_multiword_correct_prefix(self):
@@ -756,9 +752,9 @@ class TestConditionExtractionPriority:
         )
         result = plot_gene_expression(adata, "gene_0", return_fig=True)
         assert result is not None
-        fig, axs = result
-        assert "Not available" not in axs[0, 1].get_title()
-        assert "Not available" not in axs[1, 0].get_title()
+        fig = result
+        assert "Not available" not in fig.axes[1].get_title()
+        assert "Not available" not in fig.axes[2].get_title()
         plt.close(fig)
 
     # ---- no run_info at all ----
@@ -777,8 +773,8 @@ class TestConditionExtractionPriority:
             adata, "gene_0", lfc_key="my_lfc", score_key="my_score", return_fig=True
         )
         assert result is not None
-        fig, axs = result
+        fig = result
         # With no run_info and no layers, imputed panels must say 'Not available'
-        assert "Not available" in axs[0, 1].get_title()
-        assert "Not available" in axs[1, 0].get_title()
+        assert "Not available" in fig.axes[1].get_title()
+        assert "Not available" in fig.axes[2].get_title()
         plt.close(fig)

@@ -51,7 +51,6 @@ def volcano_da(
     ax: Optional[plt.Axes] = None,
     palette: Optional[Union[str, List[str], Dict[str, str]]] = None,
     save: Optional[str] = None,
-    show: bool = None,
     return_fig: bool = False,
     run_id: int = -1,
     legend_ncol: Optional[int] = None,
@@ -64,7 +63,7 @@ def volcano_da(
     vmin: Optional[float] = None,
     vmax: Optional[float] = None,
     **kwargs
-) -> Union[None, Tuple[plt.Figure, plt.Axes]]:
+) -> Optional[plt.Figure]:
     """
     Create a volcano plot for differential abundance results.
     
@@ -548,12 +547,8 @@ def volcano_da(
     if ax.get_figure().get_axes() == [ax]:  # Only adjust if this is the only plot
         fig.subplots_adjust(left=0.1, right=0.9, top=0.9, bottom=0.1)
     
-    # Save figure if path provided
-    if save:
-        plt.savefig(save, dpi=300, bbox_inches="tight")
-    
-    # Show or return
+    if save is not None:
+        fig.savefig(save, bbox_inches="tight", dpi=300)
     if return_fig:
-        return fig, ax
-    elif show or (show is None and save is None):
-        plt.show()
+        return fig
+    return None

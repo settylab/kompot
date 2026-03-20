@@ -174,11 +174,15 @@ def compute_mahalanobis_distances(
             # Extract the difference vector and covariance matrix for this gene
             gene_diff = diffs[g]
             gene_cov = covariance[:, :, g]
-            
-            # Convert to numpy arrays to ensure consistent handling with JAX version
+
+            # Convert to numpy (materializes Dask slices when using disk-backed storage)
             gene_diff_np = np.array(gene_diff)
             gene_cov_np = np.array(gene_cov)
-            
+
+            # Add per-gene empirical (diagonal) variance if provided
+            if diagonal_variance is not None:
+                gene_cov_np = gene_cov_np + np.diag(np.asarray(diagonal_variance[g]))
+
             # Add a small diagonal term for numerical stability (same as JAX version)
             gene_cov_reg = gene_cov_np + np.eye(gene_cov_np.shape[0]) * eps
             

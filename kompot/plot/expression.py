@@ -97,7 +97,7 @@ def plot_gene_expression(
     save: Optional[str] = None,
     return_fig: bool = False,
     **kwargs
-) -> Optional[Tuple[plt.Figure, plt.Axes]]:
+) -> Optional[plt.Figure]:
     """
     Visualize expression patterns for a specific gene across conditions.
     
@@ -613,13 +613,8 @@ def plot_gene_expression(
     # Adjust layout
     plt.tight_layout()
     
-    # Save figure if path provided
-    if save:
-        plt.savefig(save, dpi=300, bbox_inches="tight")
-        
-    # Return figure and axes if requested
+    if save is not None:
+        fig.savefig(save, bbox_inches="tight", dpi=300)
     if return_fig:
-        return fig, axs
-    elif save is None:
-        # Only show if not saving and not returning
-        plt.show()
+        return fig
+    return None

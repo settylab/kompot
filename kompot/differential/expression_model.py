@@ -5,12 +5,96 @@ import logging
 from typing import Optional, Any
 
 import mellon
+from mellon.base_cov import Covariance
 from mellon.cov import Matern52
 
 from ..batch_utils import apply_batched
 from .sample_variance_estimator import SampleVarianceEstimator
 
 logger = logging.getLogger("kompot")
+
+
+class CenteredLinear(Covariance):
+    """Linear kernel with built-in centering.
+
+    Computes ``k(x, y) = (x - mu) . (y - mu) / ls`` where ``mu`` is the
+    training-data centroid.  This makes the kernel shift-invariant: adding
+    a constant offset to all coordinates does not change the kernel matrix.
+
+    Without centering the linear kernel models ``f(x) = beta . x`` (through
+    the origin), so with noise the GP regularises towards zero everywhere,
+    which is wrong when the data centroid is far from the origin.  Centering
+    gives ``f(x) = beta . (x - mu)``, equivalent to linear regression with
+    a free intercept where only the slope is regularised.
+
+    Parameters
+    ----------
+    ls : float
+        Amplitude scaling (divides the dot product).
+    mu : array-like
+        Centroid to subtract, shape ``(n_features,)``.
+    active_dims : array-like, optional
+        Indices of active input dimensions.
+    """
+
+    def __init__(self, ls=1.0, mu=None, active_dims=None):
+        super().__init__(active_dims=active_dims)
+        self.ls = ls
+        self.mu = np.asarray(mu) if mu is not None else None
+
+    def k(self, x, y):
+        from jax.numpy import einsum
+        from mellon.base_cov import select_active_dims
+        x = select_active_dims(x, self.active_dims)
+        y = select_active_dims(y, self.active_dims)
+        if self.mu is not None:
+            x = x - self.mu
+            y = y - self.mu
+        return einsum("ij,kj->ik", x, y) / self.ls
+
+    def diag(self, x):
+        from jax.numpy import sum as jsum
+        from mellon.base_cov import select_active_dims
+        x = select_active_dims(x, self.active_dims)
+        if self.mu is not None:
+            x = x - self.mu
+        return jsum(x * x, axis=-1) / self.ls
+
+
+def _build_matern52_linear(X, ls):
+    """Build a Matern-5/2 + CenteredLinear covariance function.
+
+    The Linear component centers coordinates by the training-data centroid
+    and normalises its amplitude by ``mean(||x - mu||^2)`` so that its
+    diagonal contribution is ~1.0 on average, matching the Matern-5/2.
+    This decouples the Matern length-scale from the Linear amplitude
+    and makes the kernel shift-invariant.
+
+    Parameters
+    ----------
+    X : np.ndarray
+        Training coordinates, used to compute the centroid and normalisation.
+    ls : float
+        Length scale for the Matern-5/2 component.
+
+    Returns
+    -------
+    cov_func : mellon.Covariance
+        ``Matern52(ls) + CenteredLinear(ls=mean(||x-mu||^2), mu=mu)``.
+    """
+    X = np.asarray(X)
+    mu = X.mean(axis=0)
+    ls_linear = float(np.mean(np.sum((X - mu) ** 2, axis=1)))
+    if ls_linear == 0:
+        ls_linear = 1.0  # degenerate case: constant coordinates
+    cov_func = Matern52(ls=ls) + CenteredLinear(ls=ls_linear, mu=mu)
+    logger.debug(
+        "Matern52+CenteredLinear: ls_matern=%.4f, ls_linear=%.4f "
+        "(mean||x-mu||^2)",
+        ls, ls_linear,
+    )
+    return cov_func
+
 
 
 class ExpressionModel:
@@ -39,6 +123,10 @@ class ExpressionModel:
         Directory for disk-backed arrays.
     function_predictor : callable, optional
         Pre-fitted mellon Predictor (skips ``fit()``).
+    obs_variance_predictor : callable, optional
+        Pre-fitted empirical (aleatoric) variance predictor.
+        When provided, the internal empirical-variance computation is
+        skipped during ``fit()``.
     variance_predictor : callable, optional
         Pre-fitted sample variance predictor.
     """
@@ -46,13 +134,14 @@ class ExpressionModel:
     def __init__(
         self,
         n_landmarks: Optional[int] = None,
-        use_empirical_variance: bool = False,
+        use_empirical_variance: bool = True,
         eps: float = 1e-8,
         random_state: Optional[int] = None,
         batch_size: int = 500,
         store_arrays_on_disk: Optional[bool] = None,
         disk_storage_dir: Optional[str] = None,
         function_predictor: Optional[Any] = None,
+        obs_variance_predictor: Optional[Any] = None,
         variance_predictor: Optional[Any] = None,
     ):
         self.n_landmarks = n_landmarks
@@ -71,7 +160,7 @@ class ExpressionModel:
         self._estimator = None
         self._predictor = function_predictor
         self._sample_variance_predictor = variance_predictor
-        self._within_sample_obs_var_predictor = None
+        self._within_sample_obs_var_predictor = obs_variance_predictor
         self._sigma = None
 
     # ------------------------------------------------------------------
@@ -171,14 +260,20 @@ class ExpressionModel:
             else:
                 estimator_defaults["ls_factor"] = ls_factor
 
+        # Skip empirical variance computation if an obs_variance_predictor
+        # was injected at construction time.
+        obs_var_injected = self._within_sample_obs_var_predictor is not None
+
         # When sample_indices are provided, obs_variance is computed per
         # sample to avoid double-counting the between-sample variance that
         # the SampleVarianceEstimator already captures.
         per_sample_empirical = (
-            self.use_empirical_variance and sample_indices is not None
+            self.use_empirical_variance
+            and sample_indices is not None
+            and not obs_var_injected
         )
 
-        if self.use_empirical_variance and not per_sample_empirical:
+        if self.use_empirical_variance and not per_sample_empirical and not obs_var_injected:
             estimator_defaults["obs_variance"] = True
 
         # ---- fit mellon GP ----
@@ -188,7 +283,7 @@ class ExpressionModel:
         self._predictor = self._estimator.predict
 
         # ---- empirical variance validation ----
-        if self.use_empirical_variance and not per_sample_empirical:
+        if self.use_empirical_variance and not per_sample_empirical and not obs_var_injected:
             if not hasattr(self._predictor, "obs_variance"):
                 raise ValueError(
                     "use_empirical_variance=True requires predictors fitted with "
@@ -236,6 +331,7 @@ class ExpressionModel:
                 self._sample_variance_predictor = None
 
         # ---- per-sample empirical variance ----
+        # Skipped when an obs_variance_predictor was injected.
         # Fit per-sample GPs and use their loo_residuals_squared to get
         # within-sample LOO-corrected squared residuals.  These are residuals
         # relative to each sample's own GP mean, so they capture only
@@ -257,7 +353,7 @@ class ExpressionModel:
                 sample_est = mellon.FunctionEstimator(**per_sample_kw)
                 sample_est.fit(X[mask], y[mask])
                 all_loo_sq[mask] = sample_est.predict.loo_residuals_squared(
-                    X[mask], y[mask], sigma=sigma,
+                    X[mask], y[mask],
                 )
 
             # Smooth pooled within-sample squared residuals with a single GP
@@ -416,11 +512,14 @@ class ExpressionModel:
 
     @property
     def ls(self):
-        """Length scale of the GP kernel."""
+        """Length scale of the GP kernel (Matern component)."""
         if self._predictor is not None and hasattr(self._predictor, "cov_func"):
             cf = self._predictor.cov_func
             if hasattr(cf, "ls"):
                 return cf.ls
+            # Combined kernel (Add): extract from the left (Matern) component
+            if hasattr(cf, "left") and hasattr(cf.left, "ls"):
+                return cf.left.ls
         return None
 
     @property
