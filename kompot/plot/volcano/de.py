@@ -75,7 +75,7 @@ def volcano_de(
     de_column: Optional[str] = None,
     show_thresholds: bool = True,
     **kwargs,
-) -> Union[None, Tuple[plt.Figure, plt.Axes]]:
+) -> Optional[plt.Figure]:
     """
     Create a volcano plot from Kompot differential expression results.
 
@@ -1347,15 +1347,8 @@ def volcano_de(
         # Standard spacing when no sidebar is needed
         plt.subplots_adjust(left=0.1, right=0.9, top=0.9, bottom=0.1)
 
-    # Save figure if path provided
-    if save:
-        plt.savefig(save, dpi=300, bbox_inches="tight")
-
-    # Return figure and axes if requested
+    if save is not None:
+        fig.savefig(save, bbox_inches="tight", dpi=300)
     if return_fig:
-        return fig, ax
-    elif save is None:
-        # Only show if not saving and not returning
-        # Check if the current backend allows for interactive display
-        if plt.get_backend().lower() not in ["agg", "pdf", "svg", "ps", "cairo", "template"]:
-            plt.show()
+        return fig
+    return None

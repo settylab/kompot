@@ -3,11 +3,13 @@ Differential abundance analysis for AnnData objects.
 """
 
 import logging
+import warnings
 import numpy as np
 import pandas as pd
 from typing import Optional, Union, Dict, Any, List, Tuple
 
 from ..differential import DifferentialAbundance
+from ..settings import GPSettings, DAThresholdSettings, StorageSettings, OutputSettings, ModelSettings
 from .utils import generate_output_field_names
 from ._da_helpers import (
     _check_da_overwrites,
@@ -21,89 +23,93 @@ from ._da_helpers import (
 logger = logging.getLogger("kompot")
 
 
-def compute_differential_abundance(
+def da(
     adata,
     groupby: str,
     condition1: str,
     condition2: str,
     obsm_key: str = "DM_EigenVectors",
-    n_landmarks: Optional[int] = None,
-    landmarks: Optional[np.ndarray] = None,
-    sample_col: Optional[str] = None,
-    log_fold_change_threshold: float = 1.0,
-    ptp_threshold: float = 0.05,
-    ls_factor: float = 10.0,
-    jit_compile: bool = False,
-    random_state: Optional[int] = None,
-    copy: bool = False,
-    inplace: bool = True,
-    result_key: str = "kompot_da",
-    batch_size: Optional[int] = None,
-    overwrite: Optional[bool] = None,
-    store_landmarks: bool = False,
-    return_full_results: bool = False,
-    allow_single_condition_variance: bool = False,
+    sample_col=None,
+    gp: "GPSettings | None" = None,
+    threshold: "DAThresholdSettings | None" = None,
+    storage: "StorageSettings | None" = None,
+    output: "OutputSettings | None" = None,
+    model: "ModelSettings | None" = None,
     **density_kwargs,
-) -> Union[Dict[str, np.ndarray], Any]:
-    """
-    Compute differential abundance between two conditions directly from an AnnData object.
+) -> "Union[Dict[str, np.ndarray], Any]":
+    """Run differential abundance analysis on an AnnData object.
 
-    This function is a scverse-compatible wrapper around the DifferentialAbundance class
-    that operates directly on AnnData objects.
+    The most common call is just::
+
+        kompot.da(adata, "condition", "Young", "Old")
+
+    Advanced options are available through the settings dataclasses
+    (:class:`~kompot.GPSettings`, :class:`~kompot.DAThresholdSettings`,
+    :class:`~kompot.StorageSettings`, :class:`~kompot.OutputSettings`).
+    Any field left at its default is equivalent to omitting it entirely.
+    Extra ``**density_kwargs`` are forwarded to mellon's
+    :class:`~mellon.DensityEstimator`.
 
     Parameters
     ----------
     adata : AnnData
         AnnData object containing cells from both conditions.
     groupby : str
-        Column in adata.obs containing the condition labels.
-    condition1 : str
-        Label in the groupby column identifying the first condition.
-    condition2 : str
-        Label in the groupby column identifying the second condition.
-    obsm_key : str, optional
-        Key in adata.obsm containing the cell states, by default "DM_EigenVectors".
-    n_landmarks : int, optional
-        Number of landmarks to use for approximation, by default None.
-    landmarks : np.ndarray, optional
-        Pre-computed landmarks to use.
+        Column in ``adata.obs`` with condition labels.
+    condition1, condition2 : str
+        Labels identifying the two conditions.
+    obsm_key : str
+        Key in ``adata.obsm`` for cell-state coordinates.
     sample_col : str, optional
-        Column name in adata.obs containing sample labels.
-    allow_single_condition_variance : bool, optional
-        If True, allows variance estimation with only one condition having
-        multiple samples. By default False.
-    log_fold_change_threshold : float, optional
-        Threshold for considering a log fold change significant, by default 1.0.
-    ptp_threshold : float, optional
-        Threshold for considering a PTP significant, by default 0.05.
-    ls_factor : float, optional
-        Multiplication factor for auto-inferred length scale, by default 10.0.
-    jit_compile : bool, optional
-        Whether to use JAX JIT compilation, by default False.
-    random_state : int, optional
-        Random seed for reproducible landmark selection.
-    copy : bool, optional
-        If True, return a copy of the AnnData, by default False.
-    inplace : bool, optional
-        If True, modify adata in place, by default True.
-    result_key : str, optional
-        Key in adata.uns where results will be stored, by default "kompot_da".
-    batch_size : int, optional
-        Number of samples to process at once during density estimation.
-    overwrite : bool, optional
-        Controls behavior when results already exist.
-    store_landmarks : bool, optional
-        Whether to store landmarks in adata.uns, by default False.
-    return_full_results : bool, optional
-        If True, return the full results dictionary, by default False.
-    **density_kwargs : dict
-        Additional arguments to pass to the DensityEstimator.
+        Column with biological-replicate labels.
+    gp : GPSettings, optional
+        GP model parameters (``ls_factor``, ``n_landmarks``,
+        ``landmarks``, ``batch_size``, ``jit_compile``,
+        ``random_state``).
+    threshold : DAThresholdSettings, optional
+        Significance thresholds for abundance changes.
+    storage : StorageSettings, optional
+        Where and how results are stored.
+    output : OutputSettings, optional
+        Return-value control.
+    model : ModelSettings, optional
+        Pre-fitted models or predictors to inject.  For DA, only
+        ``density_predictor1/2`` and ``variance_predictor1/2`` are used.
+        See :class:`~kompot.ModelSettings`.
+    **density_kwargs
+        Forwarded to :class:`~mellon.DensityEstimator`.
 
     Returns
     -------
     Union[Dict[str, np.ndarray], AnnData, Tuple[Dict[str, np.ndarray], AnnData]]
-        Return value depends on ``copy`` and ``return_full_results`` parameters.
+        Return value depends on ``copy`` and ``return_full_results`` in
+        :class:`~kompot.OutputSettings`.
     """
+    # ---- Unpack settings ----
+    # DA has different defaults than GPSettings for n_landmarks (None vs 5000)
+    # and batch_size (None vs 100), so unpack with DA-specific defaults.
+    n_landmarks = gp.n_landmarks if gp is not None else None
+    landmarks = gp.landmarks if gp is not None else None
+    ls_factor = gp.ls_factor if gp is not None else 10.0
+    batch_size = gp.batch_size if gp is not None else None
+    jit_compile = gp.jit_compile if gp is not None else False
+    random_state = gp.random_state if gp is not None else None
+
+    _threshold = threshold if threshold is not None else DAThresholdSettings()
+    log_fold_change_threshold = _threshold.lfc_threshold
+    ptp_threshold = _threshold.ptp_threshold
+
+    _storage = storage if storage is not None else StorageSettings()
+    result_key = _storage.result_key or "kompot_da"
+    overwrite = _storage.overwrite
+    store_landmarks = _storage.store_landmarks
+
+    _output = output if output is not None else OutputSettings()
+    copy = _output.copy
+    inplace = _output.inplace
+    return_full_results = _output.return_full_results
+    allow_single_condition_variance = _output.allow_single_condition_variance
+
     # ---- 0. Field names & overwrite check ----
     field_names = generate_output_field_names(
         result_key=result_key,
@@ -133,6 +139,7 @@ def compute_differential_abundance(
     landmarks = _resolve_da_landmarks(adata, landmarks, obsm_key, result_key)
 
     # ---- 4. Fit model ----
+    _model = model if model is not None else ModelSettings()
     diff_abundance = DifferentialAbundance(
         log_fold_change_threshold=log_fold_change_threshold,
         ptp_threshold=ptp_threshold,
@@ -140,6 +147,10 @@ def compute_differential_abundance(
         jit_compile=jit_compile,
         random_state=random_state,
         batch_size=batch_size,
+        density_predictor1=_model.density_predictor1,
+        density_predictor2=_model.density_predictor2,
+        variance_predictor1=_model.variance_predictor1,
+        variance_predictor2=_model.variance_predictor2,
     )
 
     diff_abundance.fit(
@@ -230,3 +241,72 @@ def compute_differential_abundance(
     if return_full_results:
         return result_dict
     return None
+
+
+def compute_differential_abundance(
+    adata,
+    groupby: str,
+    condition1: str,
+    condition2: str,
+    obsm_key: str = "DM_EigenVectors",
+    n_landmarks=None,
+    landmarks=None,
+    sample_col=None,
+    log_fold_change_threshold: float = 1.0,
+    ptp_threshold: float = 0.05,
+    ls_factor: float = 10.0,
+    jit_compile: bool = False,
+    random_state=None,
+    copy: bool = False,
+    inplace: bool = True,
+    result_key: str = "kompot_da",
+    batch_size=None,
+    overwrite=None,
+    store_landmarks: bool = False,
+    return_full_results: bool = False,
+    allow_single_condition_variance: bool = False,
+    **density_kwargs,
+):
+    """Deprecated. Use :func:`kompot.da` instead.
+
+    .. deprecated::
+        Use :func:`kompot.da` with Settings dataclasses instead.
+    """
+    warnings.warn(
+        "compute_differential_abundance() is deprecated and will be removed "
+        "in a future version. Use kompot.da() instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return da(
+        adata,
+        groupby=groupby,
+        condition1=condition1,
+        condition2=condition2,
+        obsm_key=obsm_key,
+        sample_col=sample_col,
+        gp=GPSettings(
+            n_landmarks=n_landmarks,
+            landmarks=landmarks,
+            ls_factor=ls_factor,
+            batch_size=batch_size,
+            jit_compile=jit_compile,
+            random_state=random_state,
+        ),
+        threshold=DAThresholdSettings(
+            lfc_threshold=log_fold_change_threshold,
+            ptp_threshold=ptp_threshold,
+        ),
+        storage=StorageSettings(
+            result_key=result_key,
+            overwrite=overwrite,
+            store_landmarks=store_landmarks,
+        ),
+        output=OutputSettings(
+            copy=copy,
+            inplace=inplace,
+            return_full_results=return_full_results,
+            allow_single_condition_variance=allow_single_condition_variance,
+        ),
+        **density_kwargs,
+    )

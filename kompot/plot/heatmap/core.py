@@ -66,7 +66,7 @@ def heatmap(
     return_fig: bool = False,
     return_data: bool = False,
     save: Optional[str] = None,
-    run_id: Optional[int] = None,
+    run_id: int = -1,
     condition_column: Optional[str] = None,
     observed: bool = True,
     condition1: Optional[str] = None,
@@ -78,9 +78,7 @@ def heatmap(
     split_dot_mode: bool = False,  # Whether to use split dots instead of split tiles
     max_cell_count: Optional[int] = None,  # Upper limit for cell count used for dot sizing (None = use actual max)
     **kwargs,
-) -> Union[
-    None, Tuple[plt.Figure, plt.Axes], Tuple[plt.Figure, plt.Axes, Dict[str, plt.Axes]]
-]:
+):
     """
     Create a heatmap visualizing gene expression data for two conditions.
     
@@ -1633,33 +1631,19 @@ def heatmap(
             if key not in ['label_kwargs', 'locator', 'formatter'] and hasattr(cbar, key):
                 setattr(cbar, key, value)
 
-    # Save figure if path provided
-    if save:
-        plt.savefig(save, dpi=300, bbox_inches="tight")
+    if save is not None:
+        fig.savefig(save, bbox_inches="tight", dpi=300)
 
-    # Define a single namedtuple to capture all possible outputs.
-    HeatmapResult = namedtuple("HeatmapResult", [
-        "fig", "ax", "dendrogram_axes", "cond1_means", "cond2_means", "fold_changes"
-    ])
-
-    # Early exit: if neither figure nor data is requested, return nothing.
-    if not (return_fig or return_data):
-        return
-
-    # Set the results based on requested outputs.
-    result_fig = fig if return_fig else None
-    result_ax = ax if return_fig else None
-    result_dendrogram_axes = dendrogram_axes if (return_fig and dendrogram and len(dendrogram_axes) > 0) else None
-    result_cond1_means = cond1_means if return_data else None
-    result_cond2_means = cond2_means if return_data else None
-    result_fold_changes = fold_changes if (return_data and fold_change_mode) else None
-
-    # Return the unified result.
-    return HeatmapResult(
-        result_fig,
-        result_ax,
-        result_dendrogram_axes,
-        result_cond1_means,
-        result_cond2_means,
-        result_fold_changes
-    )
+    if return_data:
+        HeatmapResult = namedtuple("HeatmapResult", [
+            "fig", "cond1_means", "cond2_means", "fold_changes"
+        ])
+        return HeatmapResult(
+            fig if return_fig else None,
+            cond1_means,
+            cond2_means,
+            fold_changes if fold_change_mode else None,
+        )
+    if return_fig:
+        return fig
+    return None

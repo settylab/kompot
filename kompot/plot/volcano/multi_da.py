@@ -62,7 +62,6 @@ def multi_volcano_da(
     background_height_factor: float = 0.6,  # Height of background plot as fraction of y-axis range
     background_kwargs: Optional[Dict[str, Any]] = None,  # Additional kwargs for the background plot
     save: Optional[str] = None,
-    show: bool = None,
     return_fig: bool = False,
     run_id: int = -1,
     update_direction: bool = False,
@@ -72,7 +71,7 @@ def multi_volcano_da(
     vmin: Optional[float] = None,
     vmax: Optional[float] = None,
     **kwargs
-) -> Union[None, Tuple[plt.Figure, List[plt.Axes]]]:
+) -> Optional[plt.Figure]:
     """
     Create multiple volcano plots for differential abundance results, one per group.
     
@@ -979,12 +978,8 @@ def multi_volcano_da(
     # Adjust spacing between subplots
     plt.subplots_adjust(hspace=0.1)
     
-    # Save figure if path provided
-    if save:
-        plt.savefig(save, dpi=300, bbox_inches="tight")
-    
-    # Return figure and axes if requested
+    if save is not None:
+        fig.savefig(save, bbox_inches="tight", dpi=300)
     if return_fig:
-        return fig, axes
-    elif show or (show is None and save is None):
-        plt.show()
+        return fig
+    return None

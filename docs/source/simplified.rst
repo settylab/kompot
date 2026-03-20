@@ -20,20 +20,11 @@ Differential Expression
    # Minimal call
    kompot.de(adata, "condition", "Young", "Old")
 
-   # With biological replicates
-   kompot.de(adata, "condition", "Young", "Old", sample_col="donor_id")
-
    # Customise GP noise and FDR threshold
    kompot.de(
        adata, "condition", "Young", "Old",
        gp=kompot.GPSettings(sigma=0.5),
        fdr=kompot.FDRSettings(threshold=0.01),
-   )
-
-   # Enable empirical variance for heteroscedastic noise
-   kompot.de(
-       adata, "condition", "Young", "Old",
-       gp=kompot.GPSettings(use_empirical_variance=True),
    )
 
    # Filter to specific cell types
@@ -45,11 +36,12 @@ Differential Expression
        ),
    )
 
-   # Store extra statistics and control output
+   # Sample variance for biological replicates (limit to top genes)
    kompot.de(
        adata, "condition", "Young", "Old",
-       storage=kompot.StorageSettings(store_additional_stats=True),
-       output=kompot.OutputSettings(progress=False),
+       sample_col="donor_id",
+       genes=top_genes,  # e.g. top 200 from a previous run
+       fdr=kompot.FDRSettings(null_genes=0),
    )
 
 .. autofunction:: kompot.de
@@ -58,7 +50,18 @@ Differential Expression
 Differential Abundance
 ----------------------
 
-.. autofunction:: kompot.compute_differential_abundance
+.. code-block:: python
+
+   # Minimal call
+   kompot.da(adata, "condition", "Young", "Old")
+
+   # Adjust significance thresholds
+   kompot.da(
+       adata, "condition", "Young", "Old",
+       threshold=kompot.DAThresholdSettings(ptp_threshold=0.01),
+   )
+
+.. autofunction:: kompot.da
 
 
 Expression Imputation
@@ -76,7 +79,7 @@ default is equivalent to omitting it — you only override what you need.
 GPSettings
 ^^^^^^^^^^
 
-Controls the Gaussian Process model for expression fitting.
+Controls the Gaussian Process model.
 
 .. autoclass:: kompot.GPSettings
    :members:
@@ -85,16 +88,25 @@ Controls the Gaussian Process model for expression fitting.
 FDRSettings
 ^^^^^^^^^^^
 
-Controls false-discovery-rate estimation.
+Controls false-discovery-rate estimation (DE only).
 
 .. autoclass:: kompot.FDRSettings
+   :members:
+   :undoc-members:
+
+DAThresholdSettings
+^^^^^^^^^^^^^^^^^^^
+
+Significance thresholds for differential abundance.
+
+.. autoclass:: kompot.DAThresholdSettings
    :members:
    :undoc-members:
 
 FilterSettings
 ^^^^^^^^^^^^^^
 
-Controls cell filtering and group subsetting.
+Controls cell filtering and group subsetting (DE only).
 
 .. autoclass:: kompot.FilterSettings
    :members:
@@ -118,30 +130,34 @@ Controls return values and runtime behaviour.
    :members:
    :undoc-members:
 
+ModelSettings
+^^^^^^^^^^^^^
 
-Kernels
--------
+Inject pre-fitted models or predictors to skip internal fitting.
 
-Matern52Linear
-^^^^^^^^^^^^^^
+.. autoclass:: kompot.ModelSettings
+   :members:
+   :undoc-members:
 
-The default GP kernel for expression modelling.  Combines a Matern-5/2 kernel
-(local smoothness) with a Linear kernel (global trends), which improves
-extrapolation in sparse regions of the cell-state space.
-
-.. autoclass:: kompot.Matern52Linear
-   :show-inheritance:
-
-You can override the kernel via ``cov_func_curry``:
+When using pre-fitted predictors with FDR estimation, null features must be
+included in the data *before* fitting the predictors — they need to go
+through the same GP smoothing pipeline as the real features.  Pass their
+column indices via ``FDRSettings(null_genes=[...])``.  The null features
+calibrate the FDR null distribution and are then stripped from all output:
+the result table and ``adata`` layers contain only the real genes.
 
 .. code-block:: python
 
-   from mellon.cov import Matern52
+   # Assume predictors were trained on 100 real + 200 null features
+   null_indices = list(range(100, 300))
 
-   # Use plain Matern-5/2 instead of Matern52Linear
    kompot.de(
-       adata, "condition", "Young", "Old",
-       cov_func_curry=Matern52,
+       adata, "condition", "WT", "KO",
+       model=kompot.ModelSettings(
+           function_predictor1=predictor_wt,
+           function_predictor2=predictor_ko,
+       ),
+       fdr=kompot.FDRSettings(null_genes=null_indices),
    )
 
 

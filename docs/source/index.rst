@@ -119,6 +119,9 @@ Quick Start
    # Minimal call — uses sensible defaults
    kompot.de(adata, "condition", "Young", "Old")
 
+   # Differential abundance
+   kompot.da(adata, "condition", "Young", "Old")
+
    # Customize GP and FDR settings
    kompot.de(
        adata, "condition", "Young", "Old",

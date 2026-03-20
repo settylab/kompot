@@ -37,7 +37,7 @@ def impute_expression(
     sigma: float = 1.0,
     ls: Optional[float] = None,
     ls_factor: float = 10.0,
-    use_empirical_variance: bool = False,
+    use_empirical_variance: bool = True,
     eps: float = 1e-8,
     random_state: Optional[int] = None,
     batch_size: int = 500,
@@ -49,9 +49,11 @@ def impute_expression(
 ) -> Optional[Union[Dict[str, Any], Any]]:
     """Impute gene expression for a single condition using GP smoothing.
 
-    Fits an :class:`ExpressionModel` on the selected cells and stores the
-    imputed values, posterior standard deviations, and (optionally) empirical
-    and sample variance layers in ``adata``.
+    Fits an :class:`ExpressionModel` on the selected cells and evaluates it
+    on **all** cells in ``adata``. This means every cell gets an imputed value
+    and uncertainty estimate, even if it was not part of the training condition.
+    Stores the imputed values, posterior standard deviations, and (optionally)
+    empirical and sample variance layers in ``adata``.
 
     Parameters
     ----------
@@ -166,7 +168,8 @@ def impute_expression(
             logger.warning(msg + " Overwriting.")
 
     # --- Extract data ---
-    X = adata.obsm[obsm_key][mask]
+    X_all = adata.obsm[obsm_key]
+    X_train = X_all[mask]
 
     if layer is not None:
         if layer not in adata.layers:
@@ -212,15 +215,17 @@ def impute_expression(
         batch_size=batch_size,
     )
     model.fit(
-        X, y,
+        X_train, y,
         sigma=sigma, ls=ls, ls_factor=ls_factor,
         sample_indices=sample_indices,
         **function_kwargs,
     )
 
-    # --- Predict ---
-    imputed = model.predict(X, batch_size=batch_size, progress=progress)
-    std_vals = model.std(X, batch_size=batch_size, progress=progress)
+    # --- Predict on all cells ---
+    # The model is trained on the condition cells but evaluated everywhere,
+    # so every cell gets an imputed value and uncertainty estimate.
+    imputed = np.asarray(model.predict(X_all, batch_size=batch_size, progress=progress))
+    std_vals = np.asarray(model.std(X_all, batch_size=batch_size, progress=progress))
     # Broadcast (n, 1) to (n, n_genes) when only GP covariance is present
     n_genes_fitted = imputed.shape[1]
     if isinstance(std_vals, np.ndarray) and std_vals.ndim == 2 and std_vals.shape[1] == 1 and n_genes_fitted > 1:
@@ -230,36 +235,69 @@ def impute_expression(
     n_all_genes = adata.n_vars
     n_cells = adata.n_obs
 
-    def _expand_layer(values, mask, n_cells, n_genes):
-        """Place values into a full (n_cells, n_genes) array."""
+    def _expand_genes(values, n_cells, n_genes):
+        """Place gene-subset values into a full (n_cells, n_genes) array."""
         out = np.full((n_cells, n_genes), np.nan)
-        if genes is not None:
-            out[np.ix_(np.where(mask)[0], gene_idx)] = values
-        else:
-            out[mask] = values
+        out[:, gene_idx] = values
         return out
 
-    adata.layers[field_names["imputed_key"]] = _expand_layer(
-        imputed, mask, n_cells, n_all_genes
-    )
-    adata.layers[field_names["std_key"]] = _expand_layer(
-        std_vals, mask, n_cells, n_all_genes
-    )
+    if genes is not None:
+        adata.layers[field_names["imputed_key"]] = _expand_genes(
+            imputed, n_cells, n_all_genes
+        )
+        adata.layers[field_names["std_key"]] = _expand_genes(
+            std_vals, n_cells, n_all_genes
+        )
+    else:
+        adata.layers[field_names["imputed_key"]] = imputed
+        adata.layers[field_names["std_key"]] = std_vals
 
     if use_empirical_variance:
-        obs_var = model.obs_variance(X, batch_size=batch_size, progress=progress)
-        adata.layers[field_names["obs_variance_key"]] = _expand_layer(
-            obs_var, mask, n_cells, n_all_genes
-        )
+        obs_var = np.asarray(model.obs_variance(X_all, batch_size=batch_size, progress=progress))
+        if genes is not None:
+            adata.layers[field_names["obs_variance_key"]] = _expand_genes(
+                obs_var, n_cells, n_all_genes
+            )
+        else:
+            adata.layers[field_names["obs_variance_key"]] = obs_var
 
     if sample_col is not None and model.has_sample_variance:
-        sam_var = model.sample_variance(X, diag=True, batch_size=batch_size, progress=progress)
+        sam_var = np.asarray(model.sample_variance(X_all, diag=True, batch_size=batch_size, progress=progress))
         if isinstance(sam_var, np.ndarray):
-            adata.layers[field_names["sample_variance_key"]] = _expand_layer(
-                sam_var, mask, n_cells, n_all_genes
-            )
+            if genes is not None:
+                adata.layers[field_names["sample_variance_key"]] = _expand_genes(
+                    sam_var, n_cells, n_all_genes
+                )
+            else:
+                adata.layers[field_names["sample_variance_key"]] = sam_var
 
     # --- Metadata ---
+    # Build field_mapping for RunInfo / cleanup integration
+    field_mapping = {
+        field_names["imputed_key"]: {
+            "location": "layers",
+            "type": "imputed",
+            "description": f"GP-imputed expression for {cond_label}",
+        },
+        field_names["std_key"]: {
+            "location": "layers",
+            "type": "std",
+            "description": f"Total posterior standard deviation for {cond_label}",
+        },
+    }
+    if use_empirical_variance:
+        field_mapping[field_names["obs_variance_key"]] = {
+            "location": "layers",
+            "type": "obs_variance",
+            "description": f"Per-gene empirical (aleatoric) variance for {cond_label}",
+        }
+    if sample_col is not None and model.has_sample_variance:
+        field_mapping[field_names["sample_variance_key"]] = {
+            "location": "layers",
+            "type": "sample_variance",
+            "description": f"Biological-replicate variance for {cond_label}",
+        }
+
     run_info = {
         "timestamp": datetime.datetime.now().isoformat(),
         "analysis_type": "impute",
@@ -276,7 +314,10 @@ def impute_expression(
             "n_genes": len(selected_genes),
             "n_cells": int(mask.sum()),
             "batch_size": batch_size,
+            "result_key": result_key,
         },
+        "field_names": field_names,
+        "field_mapping": field_mapping,
         "environment": get_environment_info(),
     }
 

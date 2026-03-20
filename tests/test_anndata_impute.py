@@ -43,8 +43,8 @@ class TestImputeExpression:
         mask_a = (adata.obs["condition"] == "A").values
         # Condition A cells should have values
         assert not np.all(np.isnan(imputed[mask_a]))
-        # Condition B cells should be NaN
-        assert np.all(np.isnan(imputed[~mask_a]))
+        # All cells get imputed values (GP extrapolates to non-condition cells)
+        assert not np.all(np.isnan(imputed[~mask_a]))
 
     def test_impute_with_empirical_variance(self, adata):
         kompot.impute_expression(

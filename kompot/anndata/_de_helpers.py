@@ -367,6 +367,8 @@ def _extract_de_data(
 
     # Filter genes
     if genes is not None:
+        if len(genes) == 0:
+            raise ValueError("genes list is empty. Provide at least one gene.")
         genes_set = set(genes)
         missing_genes = [g for g in genes_set if g not in adata.var_names]
         if missing_genes:

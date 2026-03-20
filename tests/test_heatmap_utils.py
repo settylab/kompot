@@ -394,7 +394,7 @@ class TestHeatmapWithImplicitRunId:
         
         # Check that it works, even if result is None due to test data issues
         # Failures would raise an exception rather than returning None
-        assert result is None or (isinstance(result, tuple) and len(result) >= 2)
+        assert result is None or isinstance(result, plt.Figure)
     
     def test_heatmap_with_groupby_and_explicit_parameters(self):
         """Test the heatmap function with groupby and explicit parameters."""
@@ -413,7 +413,7 @@ class TestHeatmapWithImplicitRunId:
         
         # Check that it works, even if result is None due to test data issues
         # Failures would raise an exception rather than returning None
-        assert result is None or (isinstance(result, tuple) and len(result) >= 2)
+        assert result is None or isinstance(result, plt.Figure)
 
     def test_heatmap_with_fold_change_mode(self):
         """Test the heatmap function in fold change mode."""
@@ -438,4 +438,4 @@ class TestHeatmapWithImplicitRunId:
         
         # Check that it works, even if result is None due to test data issues
         # Failures would raise an exception rather than returning None
-        assert result is None or (isinstance(result, tuple) and len(result) >= 2)
+        assert result is None or isinstance(result, plt.Figure)

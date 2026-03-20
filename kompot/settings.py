@@ -1,4 +1,4 @@
-"""Settings dataclasses for the ``kompot.de()`` interface.
+"""Settings dataclasses for the ``kompot.de()`` and ``kompot.da()`` interfaces.
 
 These group related parameters into discoverable objects with sensible
 defaults.  Override only what you need::
@@ -30,12 +30,12 @@ class GPSettings:
     ls_factor : float
         Multiplier applied to the automatically inferred length scale.
     n_landmarks : int, optional
-        Number of landmarks for the Nyström approximation.
+        Number of landmarks for the Nystrom approximation.
     landmarks : np.ndarray, optional
         Pre-computed landmark coordinates.
     use_empirical_variance : bool
         Estimate per-gene heteroscedastic noise from GP residuals.
-    batch_size : int
+    batch_size : int, optional
         Number of cells processed at once during prediction.
     eps : float
         Small constant for numerical stability.
@@ -50,8 +50,8 @@ class GPSettings:
     ls_factor: float = 10.0
     n_landmarks: Optional[int] = 5000
     landmarks: Optional[np.ndarray] = None
-    use_empirical_variance: bool = False
-    batch_size: int = 100
+    use_empirical_variance: bool = True
+    batch_size: Optional[int] = 100
     eps: float = 1e-8
     jit_compile: bool = False
     random_state: Optional[int] = None
@@ -64,8 +64,22 @@ class FDRSettings:
     Parameters
     ----------
     null_genes : int, List[int], None, or "auto"
-        Number of null genes (or explicit indices).  ``"auto"`` uses
-        2 000 when no ``sample_col`` is set and 0 otherwise.
+        Controls null-distribution calibration for FDR.
+
+        * ``"auto"`` (default) — generates 2 000 null genes by column
+          shuffling when ``sample_col`` is not set, 0 otherwise.
+        * ``int`` — number of null genes to auto-generate.  Not
+          compatible with pre-fitted predictors in
+          :class:`ModelSettings` (raises ``ValueError``).
+        * ``List[int]`` — explicit column indices of pre-baked null
+          features already present in the data.  Use this when
+          injecting pre-fitted predictors via :class:`ModelSettings`,
+          since the predictors were trained on a fixed set of features
+          and cannot cover newly generated columns.  The null features
+          are used to calibrate the FDR null distribution and are
+          then stripped from all output (table and layers contain
+          only the real genes).
+        * ``0`` or ``None`` — disable FDR estimation.
     null_seed : int, optional
         Random seed for null-gene sampling.
     threshold : float
@@ -78,6 +92,22 @@ class FDRSettings:
 
 
 @dataclass
+class DAThresholdSettings:
+    """Significance thresholds for differential abundance.
+
+    Parameters
+    ----------
+    lfc_threshold : float
+        Log fold change threshold for significance classification.
+    ptp_threshold : float
+        Posterior tail probability threshold for significance.
+    """
+
+    lfc_threshold: float = 1.0
+    ptp_threshold: float = 0.05
+
+
+@dataclass
 class FilterSettings:
     """Cell-filtering and group-subsetting parameters.
 
@@ -85,7 +115,7 @@ class FilterSettings:
     ----------
     cell_filter : optional
         Specification for cells to include (boolean column name, dict
-        of column→values, etc.).
+        of column->values, etc.).
     groups : optional
         Column or specification for per-group analyses.
     min_cells : int
@@ -122,13 +152,14 @@ class StorageSettings:
     ----------
     result_key : str
         Key prefix used in ``adata.var``, ``adata.layers``, ``adata.uns``.
+        Defaults to ``"kompot_de"`` for DE and ``"kompot_da"`` for DA.
     overwrite : bool, optional
         ``None`` (default) warns, ``True`` silently overwrites,
         ``False`` raises on conflict.
     store_landmarks : bool
         Persist landmarks in ``adata.uns`` for future reuse.
     store_posterior_covariance : bool
-        Store the (n_cells × n_cells) posterior covariance in ``adata.obsp``.
+        Store the (n_cells x n_cells) posterior covariance in ``adata.obsp``.
     store_additional_stats : bool
         Store extra columns (p-values, tail FDR, PTP, z-scores).
     store_arrays_on_disk : bool, optional
@@ -139,7 +170,7 @@ class StorageSettings:
         Fraction of RAM before triggering disk storage.
     """
 
-    result_key: str = "kompot_de"
+    result_key: Optional[str] = None
     overwrite: Optional[bool] = None
     store_landmarks: bool = False
     store_posterior_covariance: bool = False
@@ -150,8 +181,50 @@ class StorageSettings:
 
 
 @dataclass
+class ModelSettings:
+    """Pre-fitted models or predictors to inject into ``de()`` or ``da()``.
+
+    When provided, these skip internal fitting for the corresponding
+    component.  ``model1``/``model2`` take precedence over individual
+    predictors.
+
+    When using pre-fitted predictors with FDR, null features must be
+    included in the data *before* fitting (the predictors cannot cover
+    columns that are added later).  Pass their column indices via
+    ``FDRSettings(null_genes=[...])``.  Passing ``null_genes=int``
+    with pre-fitted predictors raises ``ValueError``.
+
+    Parameters
+    ----------
+    model1, model2 : ExpressionModel, optional
+        Full pre-fitted :class:`~kompot.ExpressionModel` for each
+        condition (DE only).  Takes precedence over individual predictors.
+    function_predictor1, function_predictor2 : callable, optional
+        Pre-fitted mellon Predictor for each condition (DE only).
+    obs_variance_predictor1, obs_variance_predictor2 : callable, optional
+        Pre-fitted empirical variance predictor for each condition (DE only).
+    variance_predictor1, variance_predictor2 : callable, optional
+        Pre-fitted sample variance predictor for each condition.
+        Signature: ``(X, diag=True/False) -> array``.
+    density_predictor1, density_predictor2 : callable, optional
+        Pre-fitted density predictor for each condition (DA only).
+    """
+
+    model1: Optional[Any] = None
+    model2: Optional[Any] = None
+    function_predictor1: Optional[Any] = None
+    function_predictor2: Optional[Any] = None
+    obs_variance_predictor1: Optional[Any] = None
+    obs_variance_predictor2: Optional[Any] = None
+    variance_predictor1: Optional[Any] = None
+    variance_predictor2: Optional[Any] = None
+    density_predictor1: Optional[Any] = None
+    density_predictor2: Optional[Any] = None
+
+
+@dataclass
 class OutputSettings:
-    """Control what ``de()`` returns and how it behaves.
+    """Control what ``de()`` / ``da()`` returns and how it behaves.
 
     Parameters
     ----------
@@ -160,9 +233,9 @@ class OutputSettings:
     inplace : bool
         Write results into the AnnData object.
     return_full_results : bool
-        Return the full results dict (model, table, landmarks, …).
+        Return the full results dict (model, table, landmarks, ...).
     compute_mahalanobis : bool
-        Compute per-gene Mahalanobis distances.
+        Compute per-gene Mahalanobis distances (DE only).
     allow_single_condition_variance : bool
         Allow sample-variance estimation when only one condition has
         multiple samples.
@@ -177,62 +250,3 @@ class OutputSettings:
     allow_single_condition_variance: bool = False
     progress: bool = True
 
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-def _settings_to_kwargs(
-    gp: Optional[GPSettings] = None,
-    fdr: Optional[FDRSettings] = None,
-    filter: Optional[FilterSettings] = None,
-    storage: Optional[StorageSettings] = None,
-    output: Optional[OutputSettings] = None,
-) -> dict:
-    """Flatten settings objects into the kwargs expected by
-    ``compute_differential_expression``."""
-    kw: dict = {}
-
-    if gp is not None:
-        kw["sigma"] = gp.sigma
-        kw["ls"] = gp.ls
-        kw["ls_factor"] = gp.ls_factor
-        kw["n_landmarks"] = gp.n_landmarks
-        kw["landmarks"] = gp.landmarks
-        kw["use_empirical_variance"] = gp.use_empirical_variance
-        kw["batch_size"] = gp.batch_size
-        kw["eps"] = gp.eps
-        kw["jit_compile"] = gp.jit_compile
-        kw["random_state"] = gp.random_state
-
-    if fdr is not None:
-        kw["null_genes"] = fdr.null_genes
-        kw["null_seed"] = fdr.null_seed
-        kw["fdr_threshold"] = fdr.threshold
-
-    if filter is not None:
-        kw["cell_filter"] = filter.cell_filter
-        kw["groups"] = filter.groups
-        kw["min_cells"] = filter.min_cells
-        kw["min_percentage"] = filter.min_percentage
-        kw["check_representation"] = filter.check_representation
-
-    if storage is not None:
-        kw["result_key"] = storage.result_key
-        kw["overwrite"] = storage.overwrite
-        kw["store_landmarks"] = storage.store_landmarks
-        kw["store_posterior_covariance"] = storage.store_posterior_covariance
-        kw["store_additional_stats"] = storage.store_additional_stats
-        kw["store_arrays_on_disk"] = storage.store_arrays_on_disk
-        kw["disk_storage_dir"] = storage.disk_storage_dir
-        kw["max_memory_ratio"] = storage.max_memory_ratio
-
-    if output is not None:
-        kw["copy"] = output.copy
-        kw["inplace"] = output.inplace
-        kw["return_full_results"] = output.return_full_results
-        kw["compute_mahalanobis"] = output.compute_mahalanobis
-        kw["allow_single_condition_variance"] = output.allow_single_condition_variance
-        kw["progress"] = output.progress
-
-    return kw
