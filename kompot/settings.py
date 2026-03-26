@@ -50,7 +50,7 @@ class GPSettings:
     ls_factor: float = 10.0
     n_landmarks: Optional[int] = 5000
     landmarks: Optional[np.ndarray] = None
-    use_empirical_variance: bool = True
+    use_empirical_variance: bool = False
     batch_size: Optional[int] = 100
     eps: float = 1e-8
     jit_compile: bool = False
