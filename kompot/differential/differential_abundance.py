@@ -209,7 +209,6 @@ class DifferentialAbundance:
             estimator_defaults = {
                 'd_method': 'fractal',
                 'predictor_with_uncertainty': True,
-                'optimizer': 'advi',
             }
             
             # Add ls_factor to estimator_defaults if ls is not already specified
@@ -468,31 +467,35 @@ class DifferentialAbundance:
         
         # Apply batched processing to the expensive operations
         log_density_condition1 = apply_batched(
-            compute_density1, 
-            X_new, 
-            batch_size=batch_size, 
-            desc="Computing density (condition 1)" if progress else None
+            compute_density1,
+            X_new,
+            batch_size=batch_size,
+            show_progress=progress,
+            desc="Computing density (condition 1)",
         )
-        
+
         log_density_condition2 = apply_batched(
-            compute_density2, 
-            X_new, 
+            compute_density2,
+            X_new,
             batch_size=batch_size,
-            desc="Computing density (condition 2)" if progress else None
+            show_progress=progress,
+            desc="Computing density (condition 2)",
         )
-        
+
         log_density_uncertainty_condition1 = apply_batched(
-            compute_uncertainty1, 
-            X_new, 
+            compute_uncertainty1,
+            X_new,
             batch_size=batch_size,
-            desc="Computing uncertainty (condition 1)" if progress else None
+            show_progress=progress,
+            desc="Computing uncertainty (condition 1)",
         )
-        
+
         log_density_uncertainty_condition2 = apply_batched(
-            compute_uncertainty2, 
-            X_new, 
+            compute_uncertainty2,
+            X_new,
             batch_size=batch_size,
-            desc="Computing uncertainty (condition 2)" if progress else None
+            show_progress=progress,
+            desc="Computing uncertainty (condition 2)",
         )
         
         # Compute sample variance if enabled
@@ -503,7 +506,8 @@ class DifferentialAbundance:
                     compute_sample_variance1,
                     X_new,
                     batch_size=batch_size,
-                    desc="Computing sample variance (condition 1)" if progress else None
+                    show_progress=progress,
+                    desc="Computing sample variance (condition 1)",
                 )
                 # Add sample variance to uncertainty
                 # For density, sample_variance1 will be of shape (n_cells, 1)
@@ -517,7 +521,8 @@ class DifferentialAbundance:
                     compute_sample_variance2,
                     X_new,
                     batch_size=batch_size,
-                    desc="Computing sample variance (condition 2)" if progress else None
+                    show_progress=progress,
+                    desc="Computing sample variance (condition 2)",
                 )
                 # Add sample variance to uncertainty
                 sample_variance2 = sample_variance2.flatten()

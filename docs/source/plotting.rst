@@ -25,6 +25,11 @@ Direction Plots
 
 .. autofunction:: kompot.plot.direction_barplot
 
+Imputation Plots
+-----------------
+
+.. autofunction:: kompot.plot.plot_imputation
+
 Embedding Plots
 ---------------
 

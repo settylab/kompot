@@ -112,7 +112,7 @@ class TestDifferentialExpressionFit:
         de = DifferentialExpression(n_landmarks=8, batch_size=50)
         
         # Mock mellon to avoid heavy computation
-        with patch('kompot.differential.differential_expression.mellon') as mock_mellon:
+        with patch('kompot.differential.expression_model.mellon') as mock_mellon:
             mock_estimator = MagicMock()
             mock_predictor = MagicMock()
             mock_estimator.predict = mock_predictor
@@ -135,9 +135,9 @@ class TestDifferentialExpressionFit:
         X1, X2, expr1, expr2 = create_de_test_data()
         landmarks = np.random.rand(10, 6)
         
-        de = DifferentialExpression()
+        de = DifferentialExpression(use_empirical_variance=False)
         
-        with patch('kompot.differential.differential_expression.mellon') as mock_mellon:
+        with patch('kompot.differential.expression_model.mellon') as mock_mellon:
             mock_estimator = MagicMock()
             mock_predictor = MagicMock()
             mock_estimator.predict = mock_predictor
@@ -157,9 +157,9 @@ class TestDifferentialExpressionFit:
         
         X1, X2, expr1, expr2 = create_de_test_data()
         
-        de = DifferentialExpression()
+        de = DifferentialExpression(use_empirical_variance=False)
         
-        with patch('kompot.differential.differential_expression.mellon') as mock_mellon:
+        with patch('kompot.differential.expression_model.mellon') as mock_mellon:
             # Mock parameter computation functions
             mock_mellon.parameters.compute_d_factal.return_value = 1.5
             mock_mellon.parameters.compute_nn_distances.return_value = np.array([0.1, 0.2, 0.3])
@@ -190,26 +190,29 @@ class TestDifferentialExpressionFit:
         indices1 = np.array([0] * 10 + [1] * 10)
         indices2 = np.array([0] * 12 + [1] * 12)
         
-        de = DifferentialExpression(use_sample_variance=None)
-        
-        with patch('kompot.differential.differential_expression.mellon') as mock_mellon:
+        de = DifferentialExpression(use_sample_variance=None, use_empirical_variance=False)
+
+        with patch('kompot.differential.expression_model.mellon') as mock_mellon, \
+             patch('kompot.differential.expression_model._build_matern52_linear') as mock_build:
             mock_estimator = MagicMock()
             mock_predictor = MagicMock()
+            mock_predictor.cov_func.ls = 1.0  # real float so kernel rebuild works
             mock_estimator.predict = mock_predictor
             mock_mellon.FunctionEstimator.return_value = mock_estimator
-            
-            with patch('kompot.differential.differential_expression.SampleVarianceEstimator') as mock_sve:
+            mock_build.return_value = MagicMock()
+
+            with patch('kompot.differential.expression_model.SampleVarianceEstimator') as mock_sve:
                 mock_variance_estimator = MagicMock()
                 mock_variance_predictor = MagicMock()
                 mock_variance_estimator.predict = mock_variance_predictor
                 mock_sve.return_value = mock_variance_estimator
-                
+
                 de.fit(
                     X1, expr1, X2, expr2,
                     condition1_sample_indices=indices1,
                     condition2_sample_indices=indices2
                 )
-                
+
                 assert de.use_sample_variance == True
                 assert de.variance_predictor1 is not None
                 assert de.variance_predictor2 is not None
@@ -225,15 +228,15 @@ class TestDifferentialExpressionFit:
         indices1 = np.array([0] * 12 + [1] * 13)
         indices2 = np.array([0] * 15 + [1] * 15)
         
-        de = DifferentialExpression()
+        de = DifferentialExpression(use_empirical_variance=False)
         
-        with patch('kompot.differential.differential_expression.mellon') as mock_mellon:
+        with patch('kompot.differential.expression_model.mellon') as mock_mellon:
             mock_estimator = MagicMock()
             mock_predictor = MagicMock()
             mock_estimator.predict = mock_predictor
             mock_mellon.FunctionEstimator.return_value = mock_estimator
             
-            with patch('kompot.differential.differential_expression.SampleVarianceEstimator') as mock_sve:
+            with patch('kompot.differential.expression_model.SampleVarianceEstimator') as mock_sve:
                 # Mock successful estimator for condition 1, failed for condition 2
                 mock_variance_estimator1 = MagicMock()
                 mock_variance_predictor1 = MagicMock()
@@ -272,7 +275,7 @@ class TestDifferentialExpressionPredict:
         except ImportError as e:
             pytest.skip(f"Could not import DifferentialExpression: {e}")
         
-        de = DifferentialExpression()
+        de = DifferentialExpression(use_empirical_variance=False)
         X_test = np.random.rand(10, 5)
         
         with pytest.raises(ValueError, match="Model not fitted"):
@@ -285,7 +288,7 @@ class TestDifferentialExpressionPredict:
         except ImportError as e:
             pytest.skip(f"Could not import DifferentialExpression: {e}")
         
-        de = DifferentialExpression()
+        de = DifferentialExpression(use_empirical_variance=False)
         
         # Mock function predictors
         mock_predictor1 = MagicMock()
@@ -300,7 +303,7 @@ class TestDifferentialExpressionPredict:
         
         X_test = np.random.rand(3, 5)
         
-        with patch('kompot.differential.differential_expression.apply_batched') as mock_batch:
+        with patch('kompot.differential.expression_model.apply_batched') as mock_batch:
             with patch('kompot.differential.differential_expression.compute_mahalanobis_distances') as mock_mahal:
                 with patch('kompot.differential.differential_expression.jax_stats.chi2.sf') as mock_chi2:
                     mock_batch.side_effect = lambda func, X, **kwargs: func(X)
@@ -331,14 +334,14 @@ class TestDifferentialExpressionPredict:
         except ImportError as e:
             pytest.skip(f"Could not import DifferentialExpression: {e}")
         
-        de = DifferentialExpression(use_sample_variance=True)
-        
+        de = DifferentialExpression(use_sample_variance=True, use_empirical_variance=False)
+
         # Mock all predictors
         mock_function_predictor1 = MagicMock()
         mock_function_predictor2 = MagicMock()
         mock_variance_predictor1 = MagicMock()
         mock_variance_predictor2 = MagicMock()
-        
+
         mock_function_predictor1.return_value = np.array([[1.0, 2.0], [1.5, 2.5]])
         mock_function_predictor2.return_value = np.array([[1.5, 3.0], [2.0, 3.5]])
         mock_function_predictor1.covariance.return_value = np.array([[0.1, 0.2], [0.15, 0.25]])
@@ -347,7 +350,7 @@ class TestDifferentialExpressionPredict:
         mock_function_predictor2.uncertainty.return_value = np.array([[0.12, 0.22], [0.17, 0.27]])
         mock_variance_predictor1.return_value = np.array([[0.05, 0.08], [0.06, 0.09]])
         mock_variance_predictor2.return_value = np.array([[0.07, 0.10], [0.08, 0.11]])
-        
+
         de.function_predictor1 = mock_function_predictor1
         de.function_predictor2 = mock_function_predictor2
         de.variance_predictor1 = mock_variance_predictor1
@@ -355,7 +358,7 @@ class TestDifferentialExpressionPredict:
         
         X_test = np.random.rand(2, 4)
         
-        with patch('kompot.differential.differential_expression.apply_batched') as mock_batch:
+        with patch('kompot.differential.expression_model.apply_batched') as mock_batch:
             with patch('kompot.differential.differential_expression.compute_mahalanobis_distances') as mock_mahal:
                 mock_batch.side_effect = lambda func, X, **kwargs: func(X)
                 mock_mahal.return_value = np.array([0.3, 0.7])
@@ -377,7 +380,7 @@ class TestDifferentialExpressionPredict:
         except ImportError as e:
             pytest.skip(f"Could not import DifferentialExpression: {e}")
         
-        de = DifferentialExpression()
+        de = DifferentialExpression(use_empirical_variance=False)
         
         # Mock predictors with strong signal
         mock_predictor1 = MagicMock()
@@ -394,7 +397,7 @@ class TestDifferentialExpressionPredict:
         
         X_test = np.random.rand(2, 3)
         
-        with patch('kompot.differential.differential_expression.apply_batched') as mock_batch:
+        with patch('kompot.differential.expression_model.apply_batched') as mock_batch:
             with patch('kompot.differential.differential_expression.compute_mahalanobis_distances') as mock_mahal:
                 mock_batch.side_effect = lambda func, X, **kwargs: func(X)
                 mock_mahal.return_value = np.array([0.1, 0.1])
@@ -432,7 +435,7 @@ class TestDifferentialExpressionMemoryManagement:
             
             X1, X2, expr1, expr2 = create_de_test_data()
             
-            with patch('kompot.differential.differential_expression.mellon') as mock_mellon:
+            with patch('kompot.differential.expression_model.mellon') as mock_mellon:
                 mock_estimator = MagicMock()
                 mock_predictor = MagicMock()
                 mock_estimator.predict = mock_predictor
@@ -462,7 +465,7 @@ class TestDifferentialExpressionMemoryManagement:
             
             X1, X2, expr1, expr2 = create_de_test_data()
             
-            with patch('kompot.differential.differential_expression.mellon') as mock_mellon:
+            with patch('kompot.differential.expression_model.mellon') as mock_mellon:
                 mock_estimator = MagicMock()
                 mock_predictor = MagicMock()
                 mock_estimator.predict = mock_predictor
@@ -486,7 +489,7 @@ class TestDifferentialExpressionErrorHandling:
         except ImportError as e:
             pytest.skip(f"Could not import DifferentialExpression: {e}")
         
-        de = DifferentialExpression()
+        de = DifferentialExpression(use_empirical_variance=False)
         
         X1 = np.random.rand(20, 5)
         X2 = np.random.rand(25, 5)
@@ -520,7 +523,7 @@ class TestDifferentialExpressionErrorHandling:
         except ImportError as e:
             pytest.skip(f"Could not import DifferentialExpression: {e}")
         
-        de = DifferentialExpression()
+        de = DifferentialExpression(use_empirical_variance=False)
         
         # Mock function predictors
         mock_predictor1 = MagicMock()
@@ -537,7 +540,7 @@ class TestDifferentialExpressionErrorHandling:
         
         X_test = np.random.rand(1, 4)
         
-        with patch('kompot.differential.differential_expression.apply_batched') as mock_batch:
+        with patch('kompot.differential.expression_model.apply_batched') as mock_batch:
             with patch('kompot.differential.differential_expression.compute_mahalanobis_distances') as mock_mahal:
                 # Mock JAX memory error
                 mock_mahal.side_effect = Exception("RESOURCE_EXHAUSTED")
@@ -561,7 +564,7 @@ class TestDifferentialExpressionBatching:
         except ImportError as e:
             pytest.skip(f"Could not import DifferentialExpression: {e}")
         
-        de = DifferentialExpression(batch_size=2)  # Small batch size
+        de = DifferentialExpression(batch_size=2, use_empirical_variance=False)  # Small batch size
         
         # Mock predictors
         mock_predictor1 = MagicMock()
@@ -587,7 +590,7 @@ class TestDifferentialExpressionBatching:
         
         X_test = np.random.rand(5, 4)  # 5 cells, should require multiple batches
         
-        with patch('kompot.differential.differential_expression.apply_batched') as mock_batch:
+        with patch('kompot.differential.expression_model.apply_batched') as mock_batch:
             with patch('kompot.differential.differential_expression.compute_mahalanobis_distances') as mock_mahal:
                 with patch('kompot.differential.differential_expression.jax_stats.chi2.sf') as mock_chi2:
                     mock_batch.side_effect = lambda func, X, **kwargs: func(X)

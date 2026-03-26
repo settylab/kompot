@@ -123,7 +123,7 @@ def test_direction_barplot_normalization_options():
     )
     
     # Test with index normalization (default)
-    fig, ax = direction_barplot(
+    fig = direction_barplot(
         adata,
         category_column='cell_type',
         run_id=-1,
@@ -133,12 +133,12 @@ def test_direction_barplot_normalization_options():
     
     # Check results
     assert fig is not None
-    assert ax is not None
+    assert fig is not None
     
     plt.close('all')
     
     # Test with columns normalization
-    fig, ax = direction_barplot(
+    fig = direction_barplot(
         adata,
         category_column='cell_type',
         run_id=-1,
@@ -148,13 +148,13 @@ def test_direction_barplot_normalization_options():
     
     # Check results
     assert fig is not None
-    assert ax is not None
+    assert fig is not None
     
     plt.close('all')
     
     # Test with no normalization - using False instead of None
     # since pd.crosstab() doesn't accept None for normalize parameter
-    fig, ax = direction_barplot(
+    fig = direction_barplot(
         adata,
         category_column='cell_type',
         run_id=-1,
@@ -164,7 +164,7 @@ def test_direction_barplot_normalization_options():
     
     # Check results
     assert fig is not None
-    assert ax is not None
+    assert fig is not None
     
     plt.close('all')
 
@@ -185,7 +185,7 @@ def test_direction_barplot_stacked_vs_grouped():
     )
     
     # Test with stacked bars (default)
-    fig, ax = direction_barplot(
+    fig = direction_barplot(
         adata,
         category_column='cell_type',
         run_id=-1,
@@ -195,12 +195,12 @@ def test_direction_barplot_stacked_vs_grouped():
     
     # Check results
     assert fig is not None
-    assert ax is not None
+    assert fig is not None
     
     plt.close('all')
     
     # Test with grouped bars
-    fig, ax = direction_barplot(
+    fig = direction_barplot(
         adata,
         category_column='cell_type',
         run_id=-1,
@@ -210,7 +210,7 @@ def test_direction_barplot_stacked_vs_grouped():
     
     # Check results
     assert fig is not None
-    assert ax is not None
+    assert fig is not None
     
     plt.close('all')
 
@@ -231,7 +231,7 @@ def test_direction_barplot_sorting_options():
     )
     
     # Test sorting by 'up' direction, ascending
-    fig, ax = direction_barplot(
+    fig = direction_barplot(
         adata,
         category_column='cell_type',
         run_id=-1,
@@ -242,12 +242,12 @@ def test_direction_barplot_sorting_options():
     
     # Check results
     assert fig is not None
-    assert ax is not None
+    assert fig is not None
     
     plt.close('all')
     
     # Test sorting by 'down' direction, descending
-    fig, ax = direction_barplot(
+    fig = direction_barplot(
         adata,
         category_column='cell_type',
         run_id=-1,
@@ -258,7 +258,7 @@ def test_direction_barplot_sorting_options():
     
     # Check results
     assert fig is not None
-    assert ax is not None
+    assert fig is not None
     
     plt.close('all')
 
@@ -279,7 +279,7 @@ def test_direction_barplot_legend_customization():
     )
     
     # Test with custom legend title and location
-    fig, ax = direction_barplot(
+    fig = direction_barplot(
         adata,
         category_column='cell_type',
         run_id=-1,
@@ -290,7 +290,7 @@ def test_direction_barplot_legend_customization():
     
     # Check results
     assert fig is not None
-    assert ax is not None
+    assert fig is not None
     
     plt.close('all')
 
@@ -318,7 +318,7 @@ def test_direction_barplot_custom_colors():
     }
     
     # Test with custom colors
-    fig, ax = direction_barplot(
+    fig = direction_barplot(
         adata,
         category_column='cell_type',
         run_id=-1,
@@ -328,7 +328,7 @@ def test_direction_barplot_custom_colors():
     
     # Check results
     assert fig is not None
-    assert ax is not None
+    assert fig is not None
     
     plt.close('all')
 
@@ -349,7 +349,7 @@ def test_direction_barplot_custom_title_and_labels():
     )
     
     # Test with custom title and labels
-    fig, ax = direction_barplot(
+    fig = direction_barplot(
         adata,
         category_column='cell_type',
         run_id=-1,
@@ -361,6 +361,6 @@ def test_direction_barplot_custom_title_and_labels():
     
     # Check results
     assert fig is not None
-    assert ax is not None
+    assert fig is not None
     
     plt.close('all')

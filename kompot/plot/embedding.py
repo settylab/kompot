@@ -26,8 +26,10 @@ def embedding(
     matplotlib_scatter_kwargs: Optional[Dict[str, Any]] = None,
     mgroups: Optional[Union[List[Dict[str, Union[str, List[str]]]], Dict[str, Dict[str, Union[str, List[str]]]]]] = None,
     ncols: Optional[int] = None,
+    save: Optional[str] = None,
+    return_fig: bool = False,
     **kwargs
-) -> Any:
+) -> Optional[plt.Figure]:
     """
     Plot embeddings with group filtering capabilities.
     
@@ -69,10 +71,9 @@ def embedding(
         All other parameters are passed directly to scanpy.pl.embedding.
         See scanpy.pl.embedding documentation for details on available parameters.
         
-        Special handling for list parameters:
-        - layer: When layer is a list, creates multiple panels with each layer plotted in a separate
-          subplot. This only works when color is not a list and mgroups is not used.
-        
+        When ``layer`` is a list, each layer is plotted in a separate panel
+        (only when ``color`` is not a list and ``mgroups`` is not used).
+
     Returns
     -------
     Whatever scanpy.pl.embedding returns based on your kwargs.
@@ -103,8 +104,7 @@ def embedding(
             raise ValueError("Cannot use layer as a list when color is also a list.")
         
         # Extract relevant parameters for subplot creation
-        user_return_fig = kwargs.get('return_fig', False)
-        user_show = kwargs.get('show', None)
+        user_return_fig = return_fig
         
         # Get or create titles for each subplot
         titles = kwargs.pop('title', None)
@@ -213,16 +213,12 @@ def embedding(
         for i in range(len(layer_list), len(axs)):
             axs[i].axis('off')
         
-        # Handle figure showing based on user preference (don't use tight_layout as we've already set up the grid properly)
-        if user_show is None or user_show:
-            plt.show()
-        
-        # Return the figure if requested
+        if save is not None:
+            fig.savefig(save, bbox_inches="tight", dpi=300)
         if user_return_fig:
             return fig
-        else:
-            return None
-            
+        return None
+
     # Handle mgroups parameter (multiple groups in subplots)
     if mgroups is not None:
         # Check if color is a list, which is incompatible with mgroups
@@ -230,8 +226,7 @@ def embedding(
             raise ValueError("Cannot use multiple colors (list of color values) with mgroups parameter.")
         
         # Extract relevant parameters for subplot creation
-        user_return_fig = kwargs.get('return_fig', False)
-        user_show = kwargs.get('show', None)
+        user_return_fig = return_fig
         
         # If mgroups is a dictionary of dictionaries, use its keys as titles
         if isinstance(mgroups, dict):
@@ -397,19 +392,14 @@ def embedding(
         for i in range(len(mgroups_list), len(axs)):
             axs[i].axis('off')
         
-        # Handle figure showing based on user preference (don't use tight_layout as we've already set up the grid properly)
-        if user_show is None or user_show:
-            plt.show()
-        
-        # Return the figure if requested
+        if save is not None:
+            fig.savefig(save, bbox_inches="tight", dpi=300)
         if user_return_fig:
             return fig
-        else:
-            return None
+        return None
         
-    # Single plot case - process kwargs with special handling for show and return_fig
-    user_show = kwargs.pop('show', None)
-    user_return_fig = kwargs.pop('return_fig', False)
+    # Single plot case
+    user_return_fig = return_fig
     
     # Pass ncols to scanpy if it was provided but mgroups is not used
     if ncols is not None:
@@ -587,23 +577,9 @@ def embedding(
                     **matplotlib_scatter_kwargs
                 )
     
-    # Handle showing based on user preference
-    # Don't show automatically if an ax is provided (user is likely building a multi-panel figure)
-    if 'ax' in kwargs:
-        # Only show if user explicitly requested it
-        if user_show:
-            plt.show()
-    else:
-        # Normal showing behavior for standalone plots
-        if user_show is None:
-            # Default behavior is to show if not returning the figure
-            if not user_return_fig:
-                plt.show()
-        elif user_show:
-            plt.show()
-    
-    # Return according to user preference
+    if save is not None:
+        fig = result if isinstance(result, plt.Figure) else plt.gcf()
+        fig.savefig(save, bbox_inches="tight", dpi=300)
     if user_return_fig:
         return result
-    else:
-        return None
+    return None

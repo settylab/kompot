@@ -244,7 +244,6 @@ class SampleVarianceEstimator:
                 density_defaults = {
                     'd_method': 'fractal',
                     'predictor_with_uncertainty': True,
-                    'optimizer': 'advi',
                 }
                 density_defaults.update(estimator_kwargs)
                 

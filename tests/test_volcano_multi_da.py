@@ -64,7 +64,7 @@ def test_multi_volcano_da_background_plot_kde():
     )
     
     # Test with KDE background plot
-    fig, axes = multi_volcano_da(
+    fig = multi_volcano_da(
         adata,
         groupby='cell_type',
         run_id=-1,
@@ -76,8 +76,9 @@ def test_multi_volcano_da_background_plot_kde():
     
     # Check results
     assert fig is not None
+    axes = fig.axes
     assert isinstance(axes, list)
-    assert len(axes) == 3  # Should have 3 axes for Type1, Type2, Type3
+    assert len(axes) >= 3  # At least 3 axes for Type1, Type2, Type3 (may include extra axes for KDE/colorbars)
     
     plt.close('all')
 
@@ -98,7 +99,7 @@ def test_multi_volcano_da_background_plot_violin():
     )
     
     # Test with violin background plot
-    fig, axes = multi_volcano_da(
+    fig = multi_volcano_da(
         adata,
         groupby='cell_type',
         run_id=-1,
@@ -110,8 +111,9 @@ def test_multi_volcano_da_background_plot_violin():
     
     # Check results
     assert fig is not None
+    axes = fig.axes
     assert isinstance(axes, list)
-    assert len(axes) == 3  # Should have 3 axes for Type1, Type2, Type3
+    assert len(axes) >= 3  # At least 3 axes for Type1, Type2, Type3 (may include extra axes for KDE/colorbars)
     
     plt.close('all')
 
@@ -140,7 +142,7 @@ def test_multi_volcano_da_background_plot_with_custom_kwargs():
         'contour_cmap': 'Greens'
     }
     
-    fig, axes = multi_volcano_da(
+    fig = multi_volcano_da(
         adata,
         groupby='cell_type',
         run_id=-1,
@@ -151,6 +153,7 @@ def test_multi_volcano_da_background_plot_with_custom_kwargs():
     
     # Check results
     assert fig is not None
+    axes = fig.axes
     assert isinstance(axes, list)
     
     plt.close('all')
@@ -162,7 +165,7 @@ def test_multi_volcano_da_background_plot_with_custom_kwargs():
         'showextrema': True
     }
     
-    fig, axes = multi_volcano_da(
+    fig = multi_volcano_da(
         adata,
         groupby='cell_type',
         run_id=-1,
@@ -173,6 +176,7 @@ def test_multi_volcano_da_background_plot_with_custom_kwargs():
     
     # Check results
     assert fig is not None
+    axes = fig.axes
     assert isinstance(axes, list)
     
     plt.close('all')
@@ -197,7 +201,7 @@ def test_multi_volcano_da_numeric_color_options():
     adata.obs['custom_numeric'] = np.random.randn(adata.n_obs)
     
     # Test with numeric color and diverging colormap centered at 0
-    fig, axes = multi_volcano_da(
+    fig = multi_volcano_da(
         adata,
         groupby='cell_type',
         run_id=-1,
@@ -211,6 +215,7 @@ def test_multi_volcano_da_numeric_color_options():
     
     # Check results
     assert fig is not None
+    axes = fig.axes
     assert isinstance(axes, list)
     
     plt.close('all')
@@ -242,7 +247,7 @@ def test_multi_volcano_da_categorical_color_options():
     adata.uns['custom_category_colors'] = ['red', 'blue', 'green']
     
     # Test with categorical color
-    fig, axes = multi_volcano_da(
+    fig = multi_volcano_da(
         adata,
         groupby='cell_type',
         run_id=-1,
@@ -252,6 +257,7 @@ def test_multi_volcano_da_categorical_color_options():
     
     # Check results
     assert fig is not None
+    axes = fig.axes
     assert isinstance(axes, list)
     
     plt.close('all')
@@ -284,7 +290,7 @@ def test_multi_volcano_da_custom_layout():
     }
     
     # Test with custom layout
-    fig, axes = multi_volcano_da(
+    fig = multi_volcano_da(
         adata,
         groupby='cell_type',
         run_id=-1,
@@ -295,6 +301,7 @@ def test_multi_volcano_da_custom_layout():
     
     # Check results
     assert fig is not None
+    axes = fig.axes
     assert isinstance(axes, list)
     
     plt.close('all')
@@ -316,7 +323,7 @@ def test_multi_volcano_da_update_direction_with_custom_thresholds():
     )
     
     # Test with direction column update using different thresholds
-    fig, axes = multi_volcano_da(
+    fig = multi_volcano_da(
         adata,
         groupby='cell_type',
         run_id=-1,
@@ -328,6 +335,7 @@ def test_multi_volcano_da_update_direction_with_custom_thresholds():
     
     # Check results
     assert fig is not None
+    axes = fig.axes
     assert isinstance(axes, list)
     
     # Find the direction column

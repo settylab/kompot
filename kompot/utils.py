@@ -91,6 +91,7 @@ def compute_mahalanobis_distances(
     jit_compile: bool = True,
     eps: float = 1e-8,  # Increased default epsilon for better numerical stability
     progress: bool = True,
+    diagonal_variance: Optional[np.ndarray] = None,
 ) -> np.ndarray:
     """
     Compute Mahalanobis distances for multiple difference vectors efficiently.
@@ -117,7 +118,13 @@ def compute_mahalanobis_distances(
         Small constant for numerical stability, by default 1e-8.
     progress : bool, optional
         Whether to show a progress bar for calculations, by default True.
-        
+    diagonal_variance : np.ndarray, optional
+        Per-gene diagonal variance to add to the shared covariance matrix.
+        Shape (n_genes, n_points). When provided, uses a factor trick to
+        efficiently incorporate per-gene heteroscedastic noise without
+        constructing per-gene covariance matrices. Only used with 2D
+        (shared) covariance matrices. By default None.
+
     Returns
     -------
     np.ndarray
@@ -167,11 +174,15 @@ def compute_mahalanobis_distances(
             # Extract the difference vector and covariance matrix for this gene
             gene_diff = diffs[g]
             gene_cov = covariance[:, :, g]
-            
-            # Convert to numpy arrays to ensure consistent handling with JAX version
+
+            # Convert to numpy (materializes Dask slices when using disk-backed storage)
             gene_diff_np = np.array(gene_diff)
             gene_cov_np = np.array(gene_cov)
-            
+
+            # Add per-gene empirical (diagonal) variance if provided
+            if diagonal_variance is not None:
+                gene_cov_np = gene_cov_np + np.diag(np.asarray(diagonal_variance[g]))
+
             # Add a small diagonal term for numerical stability (same as JAX version)
             gene_cov_reg = gene_cov_np + np.eye(gene_cov_np.shape[0]) * eps
             
@@ -274,12 +285,12 @@ def compute_mahalanobis_distances(
                 diag_compute_fn = compute_diagonal_batch
             
             # Process in batches using apply_batched - respect progress parameter
-            desc = "Computing diagonal Mahalanobis distances" if progress else None
             distances = apply_batched(
                 diag_compute_fn,
                 diffs,
                 batch_size=batch_size,
-                desc=desc
+                show_progress=progress,
+                desc="Computing diagonal Mahalanobis distances",
             )
             
             # Post-process to handle NaN and Inf values
@@ -293,12 +304,71 @@ def compute_mahalanobis_distances(
     
     # Add a small diagonal term for numerical stability
     cov_stable = cov + jnp.eye(cov.shape[0]) * eps
-    
+
     # Try Cholesky decomposition (should work for positive definite matrices)
     try:
         logger.debug("Computing Cholesky decomposition of covariance matrix")
         chol = jnp.linalg.cholesky(cov_stable)
-        
+
+        # When diagonal_variance is provided, use the factor trick to incorporate
+        # per-gene heteroscedastic noise without per-gene covariance matrices.
+        # C_g = C + diag(v_g) => D_g^2 ≈ sum_i z_{g,i}^2 / m_{g,i}
+        # where m_{g,i} = 1 + sum_j (L^{-1})_{ij}^2 * v_{g,j}
+        if diagonal_variance is not None:
+            logger.debug("Using diagonal variance factor trick for per-gene Mahalanobis distances")
+            diag_var = jnp.array(diagonal_variance)  # shape (n_genes, n_points)
+            n_genes = diag_var.shape[0]
+            m = chol.shape[0]
+
+            # Compute L_inv and the element-wise squared matrix W
+            L_inv = jax.scipy.linalg.solve_triangular(chol, jnp.eye(m), lower=True)
+            W = L_inv ** 2  # shape (m, m)
+
+            # Process genes in batches
+            all_distances = []
+            effective_batch_size = batch_size if batch_size and batch_size > 0 else n_genes
+            n_batches = (n_genes + effective_batch_size - 1) // effective_batch_size
+            gene_iter = tqdm(range(n_batches), desc="Computing weighted Mahalanobis distances") if progress and n_batches > 1 else range(n_batches)
+
+            # Pre-compile the solve function
+            @jax.jit
+            def _solve_batch(batch_diffs):
+                return jax.vmap(lambda d: jax.scipy.linalg.solve_triangular(chol, d, lower=True))(batch_diffs)
+
+            @jax.jit
+            def _weighted_distances(solved, weights):
+                return jnp.sqrt(jnp.sum(solved ** 2 * weights, axis=1))
+
+            for b in gene_iter:
+                start = b * effective_batch_size
+                end = min(start + effective_batch_size, n_genes)
+                batch_diffs = diffs[start:end]  # (batch, m)
+                batch_var = diag_var[start:end]  # (batch, m)
+
+                # Solve triangular system: z_g = L^{-1} d_g
+                solved = _solve_batch(batch_diffs)  # (batch, m)
+
+                # Compute per-gene weights via factor trick
+                # h_{g,i} = sum_j W_{ij} * v_{g,j} = (batch_var @ W.T)
+                h = batch_var @ W.T  # (batch, m)
+                weights = 1.0 / (1.0 + h)  # (batch, m)
+
+                # Weighted Mahalanobis distance
+                batch_distances = _weighted_distances(solved, weights)
+                all_distances.append(np.array(batch_distances))
+
+            distances = np.concatenate(all_distances)
+
+            # Post-process to handle NaN and Inf values
+            invalid_mask = np.isnan(distances) | np.isinf(distances)
+            if np.any(invalid_mask):
+                n_invalid = np.sum(invalid_mask)
+                logger.warning(f"Found {n_invalid} NaN or Inf Mahalanobis distances in weighted computation. "
+                             f"These will be kept as NaN.")
+
+            return distances
+
+        # Standard path: no diagonal variance
         # Define computation function using Cholesky decomposition
         def compute_cholesky_batch(batch_diffs):
             try:
@@ -309,29 +379,29 @@ def compute_mahalanobis_distances(
             except Exception as e:
                 logger.error(f"Error in Cholesky solution: {e}. Returning NaN values.")
                 return jnp.full(batch_diffs.shape[0], np.nan)
-        
+
         # JIT compile if enabled
         if jit_compile:
             chol_compute_fn = jax.jit(compute_cholesky_batch)
         else:
             chol_compute_fn = compute_cholesky_batch
-        
+
         # Process in batches using apply_batched - respect progress parameter
-        desc = "Computing Cholesky Mahalanobis distances" if progress else None
         distances = apply_batched(
             chol_compute_fn,
             diffs,
             batch_size=batch_size,
-            desc=desc
+            show_progress=progress,
+            desc="Computing Cholesky Mahalanobis distances",
         )
-        
+
         # Post-process to handle NaN and Inf values
         invalid_mask = np.isnan(distances) | np.isinf(distances)
         if np.any(invalid_mask):
             n_invalid = np.sum(invalid_mask)
             logger.warning(f"Found {n_invalid} NaN or Inf Mahalanobis distances in Cholesky computation. "
                          f"These will be kept as NaN.")
-            
+
         return distances
     except Exception as e:
         logger.warning(f"Cholesky decomposition failed: {e}. Matrix is not positive definite. Returning NaN values.")

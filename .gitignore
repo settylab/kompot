@@ -132,3 +132,9 @@ kompot_report/
 outputs/
 *.zarr/
 wheel_contents/
+
+# Local dev environment
+lab.sh
+.jupyter/
+uv.lock
+.claude/

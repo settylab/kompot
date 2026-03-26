@@ -126,9 +126,8 @@ class TestEmbeddingPlots:
             )
         
         if result is not None:
-            fig, ax = result
+            fig = result
             assert fig is not None
-            assert ax is not None
             plt.close(fig)
         else:
             # Scanpy not available, skip assertion
@@ -149,7 +148,7 @@ class TestEmbeddingPlots:
             )
         
         if result is not None:
-            fig, ax = result
+            fig = result
             assert fig is not None
             plt.close(fig)
         
@@ -172,7 +171,7 @@ class TestEmbeddingPlots:
                 )
             
             if result is not None:
-                fig, ax = result
+                fig = result
                 assert fig is not None
                 plt.close(fig)
             
@@ -194,9 +193,9 @@ class TestEmbeddingPlots:
             )
         
         if result is not None:
-            fig, ax = result
+            fig = result
             assert fig is not None
-            assert ax.get_title() == 'Custom Embedding Plot'
+            assert fig.axes[0].get_title() == 'Custom Embedding Plot'
             plt.close(fig)
         
     def test_embedding_with_legend(self, test_adata):
@@ -215,7 +214,7 @@ class TestEmbeddingPlots:
             )
         
         if result is not None:
-            fig, ax = result
+            fig = result
             assert fig is not None
             plt.close(fig)
 
@@ -245,9 +244,8 @@ class TestVolcanoPlots:
             )
         
         if result is not None:
-            fig, ax = result
+            fig = result
             assert fig is not None
-            assert ax is not None
             plt.close(fig)
         
     def test_volcano_de_with_highlighting(self, test_adata):
@@ -270,7 +268,7 @@ class TestVolcanoPlots:
             )
         
         if result is not None:
-            fig, ax = result
+            fig = result
             assert fig is not None
             plt.close(fig)
         
@@ -290,7 +288,7 @@ class TestVolcanoPlots:
             )
         
         if result is not None:
-            fig, ax = result
+            fig = result
             assert fig is not None
             plt.close(fig)
         
@@ -309,7 +307,7 @@ class TestVolcanoPlots:
             )
         
         if result is not None:
-            fig, ax = result
+            fig = result
             assert fig is not None
             plt.close(fig)
         
@@ -330,7 +328,7 @@ class TestVolcanoPlots:
             )
         
         if result is not None:
-            fig, ax = result
+            fig = result
             assert fig is not None
             plt.close(fig)
         
@@ -348,14 +346,14 @@ class TestVolcanoPlots:
         test_adata.obs['neg_log10_ptp_B_to_C'] = np.random.uniform(0, 5, test_adata.n_obs)
         
         with patch('matplotlib.pyplot.show'):
-            fig, axes = volcano_multi_da(
+            fig = volcano_multi_da(
                 test_adata,
                 groupby='group',
                 conditions=['A', 'B', 'C']
             )
         
         assert fig is not None
-        assert len(axes) > 0
+        assert len(fig.axes) > 0
         plt.close(fig)
 
 
@@ -374,7 +372,7 @@ class TestExpressionPlots:
             pytest.skip(f"Could not import expression plot: {e}")
         
         with patch('matplotlib.pyplot.show'):
-            fig, ax = expression(
+            fig = expression(
                 test_adata,
                 gene_names=['gene_0', 'gene_1'],
                 groupby='group'
@@ -391,7 +389,7 @@ class TestExpressionPlots:
             pytest.skip(f"Could not import expression plot: {e}")
         
         with patch('matplotlib.pyplot.show'):
-            fig, ax = expression(
+            fig = expression(
                 test_adata,
                 gene_names=['gene_0'],
                 groupby='condition',
@@ -426,7 +424,7 @@ class TestHeatmapPlots:
             )
         
         if result is not None:
-            fig, ax = result
+            fig = result
             assert fig is not None
             plt.close(fig)
         
@@ -682,7 +680,7 @@ class TestPlotParameterValidation:
                     size=50  # Valid parameter
                 )
                 if result is not None:
-                    fig, ax = result
+                    fig = result
                     if fig:
                         plt.close(fig)
             except (ValueError, TypeError):
@@ -705,7 +703,7 @@ class TestPlotParameterValidation:
                     n_top_genes=-5  # Invalid negative value
                 )
                 if result is not None:
-                    fig, ax = result
+                    fig = result
                     if fig:
                         plt.close(fig)
             except ValueError:

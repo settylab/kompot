@@ -690,7 +690,7 @@ Comparison with Python API
 See Also
 --------
 
-- :doc:`Python API Documentation <anndata>`
+- :doc:`Python API Documentation <simplified>`
 - :doc:`Getting Started Tutorial <notebooks/01_getting_started>`
 - :doc:`Sample Variance Guide <notebooks/03_sample_variance>`
 - `GitHub Repository <https://github.com/settylab/kompot>`_

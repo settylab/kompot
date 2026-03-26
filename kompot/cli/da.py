@@ -6,7 +6,8 @@ import logging
 
 import anndata as ad
 
-from ..anndata import compute_differential_abundance
+from ..anndata import da
+from ..settings import GPSettings, DAThresholdSettings, StorageSettings, OutputSettings
 from .utils import load_config, merge_args_with_config, validate_anndata_path
 from .compute_config import configure_compute
 
@@ -148,6 +149,12 @@ def add_da_parser(subparsers) -> argparse.ArgumentParser:
         help='Overwrite existing results without warning'
     )
 
+    parser.add_argument(
+        '--no-progress',
+        action='store_true',
+        help='Disable progress bars'
+    )
+
     # Compute configuration
     parser.add_argument(
         '--use-gpu',
@@ -214,25 +221,9 @@ def run_da(args):
         if v is not None and k not in ['input', 'output', 'table_output', 'config', 'func', 'verbose', 'command', 'use_gpu', 'threads']
     }
 
-    # Rename CLI args to match function parameters
-    if 'obsm_key' in args_dict:
-        args_dict['obsm_key'] = args_dict.pop('obsm_key')
-    if 'result_key' in args_dict:
-        args_dict['result_key'] = args_dict.pop('result_key')
-    if 'n_landmarks' in args_dict:
-        args_dict['n_landmarks'] = args_dict.pop('n_landmarks')
-    if 'sample_col' in args_dict:
-        args_dict['sample_col'] = args_dict.pop('sample_col')
-    if 'batch_size' in args_dict:
-        args_dict['batch_size'] = args_dict.pop('batch_size')
-    if 'log_fold_change_threshold' in args_dict:
-        args_dict['log_fold_change_threshold'] = args_dict.pop('log_fold_change_threshold')
-    if 'ptp_threshold' in args_dict:
-        args_dict['ptp_threshold'] = args_dict.pop('ptp_threshold')
-    if 'ls_factor' in args_dict:
-        args_dict['ls_factor'] = args_dict.pop('ls_factor')
-    if 'store_landmarks' in args_dict:
-        args_dict['store_landmarks'] = args_dict.pop('store_landmarks')
+    # Handle no_progress -> progress conversion
+    if 'no_progress' in args_dict:
+        args_dict['progress'] = not args_dict.pop('no_progress')
 
     # Merge with config (CLI args take precedence)
     params = merge_args_with_config(args_dict, config)
@@ -266,13 +257,53 @@ def run_da(args):
         logger.warning("Proceeding with default configuration")
     logger.info("")
 
-    # Run analysis - use return_full_results if table output is requested
+    # Extract required params
+    groupby = params.pop('groupby')
+    condition1 = params.pop('condition1')
+    condition2 = params.pop('condition2')
+    obsm_key = params.pop('obsm_key', 'DM_EigenVectors')
+    sample_col = params.pop('sample_col', None)
+
+    # Build Settings from remaining params
+    gp_keys = {'n_landmarks', 'landmarks', 'ls_factor', 'batch_size',
+               'jit_compile', 'random_state'}
+    gp_kwargs = {k: params.pop(k) for k in list(params) if k in gp_keys}
+    gp = GPSettings(**gp_kwargs) if gp_kwargs else None
+
+    threshold_kwargs = {}
+    if 'log_fold_change_threshold' in params:
+        threshold_kwargs['lfc_threshold'] = params.pop('log_fold_change_threshold')
+    if 'ptp_threshold' in params:
+        threshold_kwargs['ptp_threshold'] = params.pop('ptp_threshold')
+    threshold = DAThresholdSettings(**threshold_kwargs) if threshold_kwargs else None
+
+    storage_keys = {'result_key', 'overwrite', 'store_landmarks'}
+    storage_kwargs = {k: params.pop(k) for k in list(params) if k in storage_keys}
+    storage = StorageSettings(**storage_kwargs) if storage_kwargs else None
+
+    output_keys = {'copy', 'inplace', 'return_full_results', 'allow_single_condition_variance', 'progress'}
+    output_kwargs = {k: params.pop(k) for k in list(params) if k in output_keys}
+
+    # Handle return_full_results for table output
+    if args.table_output:
+        output_kwargs['return_full_results'] = True
+    output = OutputSettings(**output_kwargs) if output_kwargs else None
+
+    # Run analysis
     try:
-        if args.table_output:
-            result_dict = compute_differential_abundance(adata, return_full_results=True, **params)
-        else:
-            compute_differential_abundance(adata, **params)
-            result_dict = None
+        result_dict = da(
+            adata,
+            groupby=groupby,
+            condition1=condition1,
+            condition2=condition2,
+            obsm_key=obsm_key,
+            sample_col=sample_col,
+            gp=gp,
+            threshold=threshold,
+            storage=storage,
+            output=output,
+            **params,  # remaining params forwarded as density_kwargs
+        )
     except Exception as e:
         logger.error(f"Analysis failed: {str(e)}")
         raise

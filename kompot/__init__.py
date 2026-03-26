@@ -23,6 +23,7 @@ mellon.logger.setLevel(logging.WARNING)
 # Import core functionality directly - using relative imports
 from .differential.differential_abundance import DifferentialAbundance
 from .differential.differential_expression import DifferentialExpression
+from .differential.expression_model import ExpressionModel
 from .differential.sample_variance_estimator import SampleVarianceEstimator
 
 # Import utility functions
@@ -32,20 +33,35 @@ from .batch_utils import batch_process, apply_batched
 # Import resource estimation utilities
 from .resource_estimation import dry_run_differential_expression
 
+# Import settings dataclasses
+from .settings import (
+    GPSettings,
+    FDRSettings,
+    DAThresholdSettings,
+    FilterSettings,
+    StorageSettings,
+    OutputSettings,
+    ModelSettings,
+)
+
 # Now import submodules - after the classes are imported
 from . import plot
 from . import anndata
 
 # Export anndata functions
 from .anndata import (
+    de,
+    da,
     compute_differential_abundance,
     compute_differential_expression,
+    impute_expression,
     check_underrepresentation,
     RunInfo,
     RunComparison,
     cleanup,
     get_field_status
 )
+
 
 # Configure logging
 LOGGING_CONFIG = {
@@ -84,7 +100,14 @@ __all__ = [
     "DensityEstimator", "FunctionEstimator", "Predictor",
 
     # Core differential analysis classes
-    "DifferentialAbundance", "DifferentialExpression", "SampleVarianceEstimator",
+    "DifferentialAbundance", "DifferentialExpression", "ExpressionModel", "SampleVarianceEstimator",
+
+    # AnnData interface
+    "de", "da",
+
+    # Settings dataclasses
+    "GPSettings", "FDRSettings", "DAThresholdSettings",
+    "FilterSettings", "StorageSettings", "OutputSettings", "ModelSettings",
 
     # Utility functions
     "compute_mahalanobis_distance", "find_landmarks",
@@ -93,8 +116,9 @@ __all__ = [
     # Resource estimation
     "dry_run_differential_expression",
 
-    # AnnData functionality
+    # AnnData functionality (deprecated, use de()/da())
     "compute_differential_abundance", "compute_differential_expression",
+    "impute_expression",
     "check_underrepresentation", "RunInfo", "RunComparison",
     "cleanup", "get_field_status",
 

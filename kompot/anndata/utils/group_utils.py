@@ -964,6 +964,9 @@ def apply_cell_filter(
     filter_details["filter_percentage"] = 100 * filter_details["filtered_cells"] / filter_details["total_cells"]
     
     if verbosity > 0:
-        logger.info(f"Using {filter_details['filtered_cells']} of {filter_details['total_cells']} cells ({filter_details['filter_percentage']:.1f}%)")
+        if filter_details["filtered_cells"] < filter_details["total_cells"]:
+            logger.info(f"Using {filter_details['filtered_cells']} of {filter_details['total_cells']} cells ({filter_details['filter_percentage']:.1f}%)")
+        else:
+            logger.debug(f"Using {filter_details['filtered_cells']} of {filter_details['total_cells']} cells ({filter_details['filter_percentage']:.1f}%)")
         
     return mask, filter_details

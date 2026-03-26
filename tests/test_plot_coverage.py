@@ -80,9 +80,8 @@ class TestVolcanoPlotsCoverage:
             )
         
         if result is not None:
-            fig, ax = result
+            fig = result
             assert fig is not None
-            assert ax is not None
             plt.close(fig)
 
     def test_volcano_de_with_highlighting(self, plot_adata):
@@ -102,7 +101,7 @@ class TestVolcanoPlotsCoverage:
             )
         
         if result is not None:
-            fig, ax = result
+            fig = result
             assert fig is not None
             plt.close(fig)
 
@@ -121,7 +120,7 @@ class TestVolcanoPlotsCoverage:
             )
         
         if result is not None:
-            fig, ax = result
+            fig = result
             assert fig is not None
             plt.close(fig)
 
@@ -145,8 +144,9 @@ class TestVolcanoPlotsCoverage:
             )
         
         if result is not None:
-            fig, ax = result
+            fig = result
             assert fig is not None
+            ax = fig.axes[0]
             assert ax.get_title() == 'Custom Title'
             assert ax.get_xlabel() == 'Custom X Label'
             assert ax.get_ylabel() == 'Custom Y Label'
@@ -170,9 +170,8 @@ class TestVolcanoPlotsCoverage:
             )
         
         if result is not None:
-            fig, ax = result
+            fig = result
             assert fig is not None
-            assert ax is not None
             plt.close(fig)
 
     def test_volcano_da_with_direction_colors(self, plot_adata):
@@ -194,7 +193,7 @@ class TestVolcanoPlotsCoverage:
             )
         
         if result is not None:
-            fig, ax = result
+            fig = result
             assert fig is not None
             plt.close(fig)
 
@@ -386,9 +385,9 @@ class TestMultiDAPlotsCoverage:
             )
         
         if result is not None:
-            fig, axes = result
+            fig = result
             assert fig is not None
-            assert len(axes) > 0
+            assert len(fig.axes) > 0
             plt.close(fig)
 
     def test_volcano_multi_da_custom_keys(self, multi_da_adata):
@@ -405,6 +404,6 @@ class TestMultiDAPlotsCoverage:
             )
         
         if result is not None:
-            fig, axes = result
+            fig = result
             assert fig is not None
             plt.close(fig)

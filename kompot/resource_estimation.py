@@ -161,7 +161,7 @@ class ResourcePlan:
                     f"High memory usage: Will use {self.memory_ratio*100:.0f}% "
                     f"({human_readable_size(self.total_memory_required)}) "
                     f"of available memory ({self.availability.memory_available_human}). "
-                    f"Consider using disk_storage_dir to offload to disk."
+                    f"Consider using storage=StorageSettings(store_arrays_on_disk=True) to offload to disk."
                 )
 
         # Check disk
@@ -184,10 +184,10 @@ class ResourcePlan:
                     error_msg += "\nSuggested locations with sufficient space:"
                     for path, free_h in suitable_alternatives:
                         error_msg += f"\n  - {path}: {free_h} available"
-                    error_msg += f"\n  Use: disk_storage_dir='{suitable_alternatives[0][0]}'"
+                    error_msg += f"\n  Use: storage=StorageSettings(disk_storage_dir='{suitable_alternatives[0][0]}')"
                 else:
                     error_msg += (
-                        "\nSolutions: (1) Use disk_storage_dir='/path/to/larger/disk', "
+                        "\nSolutions: (1) Use storage=StorageSettings(disk_storage_dir='/path/to/larger/disk'), "
                         "(2) Set TMPDIR environment variable, "
                         "(3) Reduce n_landmarks or process fewer genes"
                     )
@@ -198,7 +198,7 @@ class ResourcePlan:
                     f"High disk usage: Will use {self.disk_ratio*100:.0f}% "
                     f"({human_readable_size(self.total_disk_required)}) "
                     f"of available disk space ({self.availability.disk_available_human}). "
-                    f"Consider using a larger disk via disk_storage_dir parameter."
+                    f"Consider using a larger disk via storage=StorageSettings(disk_storage_dir=...)."
                 )
 
     def format_report(self, verbose: bool = True) -> str:
@@ -525,6 +525,9 @@ def estimate_differential_expression_resources(
     # Infer use_sample_variance from sample_col if not explicitly set
     inferred_use_sv = use_sample_variance or (kwargs.get('sample_col') is not None)
 
+    # Check for empirical variance mode
+    use_empirical_variance = kwargs.get('use_empirical_variance', False)
+
     # Estimate memory requirements
 
     # 1. Mellon's factorized precision matrices (L) - stored by each FunctionEstimator
@@ -559,6 +562,44 @@ def estimate_differential_expression_resources(
         'memory',
         shape=(n_train_cond2, n_train_cond2)
     )
+
+    # 1b. Empirical variance GP precision matrices (if use_empirical_variance)
+    # Two additional Mellon FunctionEstimators (one per condition) fitted to squared residuals.
+    # Same shape as main precision matrices since they reuse the same landmarks.
+    if use_empirical_variance:
+        plan.add_requirement(
+            f"Empirical variance GP precision matrix (condition 1, {l_desc})",
+            L_size_cond1,
+            'memory',
+            shape=(n_train_cond1, n_train_cond1)
+        )
+        plan.add_requirement(
+            f"Empirical variance GP precision matrix (condition 2, {l_desc})",
+            L_size_cond2,
+            'memory',
+            shape=(n_train_cond2, n_train_cond2)
+        )
+
+    # 1c. Temporary arrays during empirical variance fitting
+    # For each condition: imputed values (n_condition_cells, n_genes) + squared residuals (n_condition_cells, n_genes)
+    if use_empirical_variance:
+        n_cond1_cells = (adata.obs[groupby] == condition1).sum()
+        n_cond2_cells = (adata.obs[groupby] == condition2).sum()
+        fit_temp_size = (
+            estimate_array_size((n_cond1_cells, n_genes)) * 2 +  # imputed1 + residuals_sq1
+            estimate_array_size((n_cond2_cells, n_genes)) * 2    # imputed2 + residuals_sq2
+        )
+        plan.add_requirement(
+            "Temporary arrays during empirical variance fitting",
+            fit_temp_size,
+            'memory',
+            shape=f"2×({n_cond1_cells}, {n_genes}) + 2×({n_cond2_cells}, {n_genes})"
+        )
+        plan.info.append(
+            f"Empirical variance fits 2 additional GPs to squared residuals. "
+            f"Adds {human_readable_size(L_size_cond1 + L_size_cond2)} for precision matrices "
+            f"and {human_readable_size(fit_temp_size)} temporary during fitting."
+        )
 
     # 2. Gene expression predictions - stored as LAYERS in AnnData
     # These are NOT temporary - they get stored as layers
@@ -645,7 +686,7 @@ def estimate_differential_expression_resources(
     # 1. Kus = cov_func(X_batch, landmarks): (batch_cells, n_landmarks)
     # 2. Temporary result from matmul before assignment: (batch_cells, n_genes)
     # We do 3-6 operations: predict_cond1, predict_cond2, uncertainty1, uncertainty2, [sample_var1, sample_var2]
-    n_prediction_ops = 4 + (2 if inferred_use_sv else 0)
+    n_prediction_ops = 4 + (2 if inferred_use_sv else 0) + (2 if use_empirical_variance else 0)
 
     kus_size = estimate_array_size((effective_cell_batch, n_landmarks))
     temp_result_size = estimate_array_size((effective_cell_batch, n_total_genes))
@@ -673,7 +714,7 @@ def estimate_differential_expression_resources(
         smaller_temp = estimate_array_size((smaller_batch, n_landmarks)) + estimate_array_size((smaller_batch, n_total_genes))
         plan.info.append(
             f"Cell batch_size ({cell_batch_size}) processes all {n_cells} cells at once. "
-            f"Consider reducing batch_size (e.g., batch_size={smaller_batch}) to lower peak memory by "
+            f"Consider reducing via gp=GPSettings(batch_size={smaller_batch}) to lower peak memory by "
             f"{human_readable_size(total_temp_per_op - smaller_temp)}."
         )
 
@@ -698,7 +739,10 @@ def estimate_differential_expression_resources(
     #
     # These are created during computation but freed before final result is returned.
     # SLURM MaxRSS captures this peak; discrete memory measurements miss it due to GC.
-    n_intermediate_arrays = 25  # Reduced from 28 via manual optimizations (2025-10-13)
+    # Empirical variance adds 2 intermediate arrays during predict():
+    # emp_var1 and emp_var2, each (n_cells, n_total_genes)
+    n_empirical_variance_arrays = 2 if use_empirical_variance else 0
+    n_intermediate_arrays = 25 + n_empirical_variance_arrays  # base: 25 (reduced from 28 via manual optimizations 2025-10-13)
     intermediate_array_size = estimate_array_size((n_cells, n_total_genes))
     total_intermediate_memory = n_intermediate_arrays * intermediate_array_size
 
@@ -742,6 +786,17 @@ def estimate_differential_expression_resources(
             cov_size,  # Same size as covariance matrix
             'memory',
             shape=cov_matrix_shape
+        )
+
+    # 2b. Empirical variance at landmark points (during compute_mahalanobis_distances)
+    # emp_var1 + emp_var2 at landmarks: each (n_landmarks, n_total_genes), combined and transposed
+    if use_empirical_variance and compute_mahalanobis:
+        emp_var_landmark_size = estimate_array_size((n_landmarks, n_total_genes))
+        plan.add_requirement(
+            "Empirical variance at landmarks (2 conditions + combined)",
+            emp_var_landmark_size * 3,  # emp_var1, emp_var2, combined_emp_var
+            'memory',
+            shape=(n_landmarks, n_total_genes)
         )
 
     # 3. Sample variance covariance matrices (if enabled)
@@ -793,7 +848,7 @@ def estimate_differential_expression_resources(
                 total_sv = sv_cov_size * 3  # variance1 + variance2 + combined
                 plan.warnings.append(
                     f"Sample variance covariance tensors ({human_readable_size(total_sv)}) "
-                    f"will be stored in memory. Consider using disk_storage_dir for large datasets."
+                    f"will be stored in memory. Consider storage=StorageSettings(store_arrays_on_disk=True) for large datasets."
                 )
 
             if store_arrays_on_disk:
@@ -805,7 +860,7 @@ def estimate_differential_expression_resources(
                 else:
                     plan.info.append(
                         f"Disk arrays will be stored at system temp: {check_path}. "
-                        f"To use a different location, set disk_storage_dir='/path/to/disk' "
+                        f"To use a different location, set storage=StorageSettings(disk_storage_dir='/path/to/disk') "
                         f"or export TMPDIR=/path/to/disk"
                     )
 
@@ -839,14 +894,30 @@ def estimate_differential_expression_resources(
 
             plan.info.append(
                 f"Mahalanobis computation processes {total_batch_genes} genes per batch. "
-                f"Reduce batch_size to lower peak memory (currently {human_readable_size(actual_batch_mem)} for batch arrays)."
+                f"Reduce via gp=GPSettings(batch_size=...) to lower peak memory (currently {human_readable_size(actual_batch_mem)} for batch arrays)."
             )
+
+            # Empirical variance factor trick adds:
+            # - L_inv (n_landmarks, n_landmarks) - triangular solve result
+            # - W = L_inv² (n_landmarks, n_landmarks) - element-wise squared, kept for all batches
+            # - Per batch: h (batch_genes, n_landmarks) + weights (batch_genes, n_landmarks)
+            # - Full diagonal_variance array: (n_total_genes, n_landmarks) passed into the function
+            if use_empirical_variance:
+                w_matrix_size = estimate_array_size((n_landmarks, n_landmarks))
+                diag_var_size = estimate_array_size((n_total_genes, n_landmarks))
+                batch_weights_size = estimate_array_size((total_batch_genes, n_landmarks)) * 2  # h + weights
+                plan.add_requirement(
+                    "Empirical variance factor trick (W matrix + diagonal variance)",
+                    w_matrix_size + diag_var_size + batch_weights_size,
+                    'memory',
+                    shape=f"({n_landmarks}, {n_landmarks}) + ({n_total_genes}, {n_landmarks}) + 2×({total_batch_genes}, {n_landmarks})"
+                )
 
             # If batch_size is 0 or greater than genes, warn about memory
             if batch_size == 0 or batch_size >= n_total_genes:
                 plan.warnings.append(
                     f"batch_size ({batch_size}) will process all {n_total_genes} genes at once. "
-                    f"Consider reducing batch_size (e.g., batch_size=500) to lower peak memory usage."
+                    f"Consider gp=GPSettings(batch_size=500) to lower peak memory usage."
                 )
 
     # 4. Check for existing results and what will be overwritten
@@ -1004,22 +1075,9 @@ def dry_run_differential_expression(
     verbose: bool = True,
     **kwargs
 ) -> ResourcePlan:
-    """
+    """Deprecated: use ``kompot.de(..., dry_run=True)`` instead.
+
     Estimate resource requirements for differential expression analysis.
-
-    This is a planning tool that lets you explore different parameter configurations
-    and understand resource requirements BEFORE attempting an actual run. Use this to:
-
-    - Compare memory usage with/without sample_variance
-    - Decide whether to use disk_storage_dir
-    - Choose appropriate landmark subsampling
-    - Understand which fields will be created/overwritten with run_id tracking
-    - See detailed previous run information for fields that will be overwritten
-    - Check if you have sufficient resources
-
-    The actual kompot.compute_differential_expression() also checks resources,
-    but this dry-run lets you experiment with parameters without waiting for
-    the full computation.
 
     **Field Overwrite Detection:**
 
@@ -1041,7 +1099,7 @@ def dry_run_differential_expression(
     verbose : bool
         If True, print the resource plan report (default: True)
     **kwargs
-        All other parameters that would be passed to compute_differential_expression
+        All other parameters that would be passed to kompot.de()
         (use_sample_variance, sample_column, disk_storage_dir, landmarks, etc.)
 
     Returns
@@ -1117,10 +1175,17 @@ def dry_run_differential_expression(
 
     Notes
     -----
-    This function only estimates resources. The actual kompot.compute_differential_expression()
-    will perform its own checks before running. Use this dry-run to explore options and
-    make informed decisions about parameters.
+    This function only estimates resources. The actual kompot.de() will perform
+    its own checks before running. Use this dry-run to explore options and make
+    informed decisions about parameters.
     """
+    import warnings
+    warnings.warn(
+        "dry_run_differential_expression() is deprecated. "
+        "Use kompot.de(..., dry_run=True) instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     plan = estimate_differential_expression_resources(
         adata, condition1, condition2, groupby, **kwargs
     )
@@ -1209,7 +1274,7 @@ def analyze_covariance_memory_requirements(
                 f"CRITICAL: Memory usage ({plan.requirements[0].size_human}) exceeds "
                 f"{max_memory_ratio*100:.0f}% of available memory "
                 f"({plan.availability.memory_available_human}).\n"
-                f"Consider using store_arrays_on_disk=True"
+                f"Consider storage=StorageSettings(store_arrays_on_disk=True)"
                 + (" with dask installed" if DASK_AVAILABLE else " (install dask for better performance)")
             )
         elif plan.memory_ratio > max_memory_ratio * 0.5:
@@ -1217,7 +1282,7 @@ def analyze_covariance_memory_requirements(
                 f"WARNING: High memory usage detected. Arrays will use {plan.memory_ratio:.2f}x "
                 f"({plan.requirements[0].size_human}) of available memory "
                 f"({plan.availability.memory_available_human}). "
-                f"Consider using store_arrays_on_disk=True."
+                f"Consider storage=StorageSettings(store_arrays_on_disk=True)."
             )
 
     # Return in old format

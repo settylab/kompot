@@ -160,13 +160,15 @@ def compute_fdr_statistics(
         pvalues[zero_mask] = min_pval
         logger.debug(f"Set minimum p-value to {min_pval} for {np.sum(zero_mask)} zero p-values")
 
-    # Step 2: Compute tail-based FDR using Benjamini-Hochberg
-    tail_fdr_values = _benjamini_hochberg(pvalues)
+    # Step 2: Compute local FDR and tail FDR from Grenander-estimated densities.
+    # Both are derived from the same monotone density/survival function estimates
+    # (fdrtool approach), avoiding the resolution limit of BH on discrete
+    # empirical p-values (which fails when n_null << n_genes).
+    local_fdr_values, tail_fdr_values = _compute_fdr_from_densities(
+        real_mahalanobis, null_mahalanobis
+    )
 
-    # Step 3: Compute local FDR via monotone density estimation on Mahalanobis distances
-    local_fdr_values = _compute_local_fdr_monotone(real_mahalanobis, null_mahalanobis)
-
-    # Step 4: Determine significance
+    # Step 3: Determine significance using local FDR
     is_significant = local_fdr_values < fdr_threshold
 
     return pvalues, local_fdr_values, tail_fdr_values, is_significant
@@ -250,6 +252,74 @@ def _compute_local_fdr_monotone(
     )
 
     return np.clip(lfdr_func(real_distances), 0.0, 1.0)
+
+
+def _compute_fdr_from_densities(
+    real_distances: np.ndarray, null_distances: np.ndarray, n_grid: int = 500
+) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Compute local FDR and tail FDR from Grenander-estimated densities.
+
+    Uses the fdrtool approach (Strimmer, 2008):
+      local_fdr(d) = f_null(d) / f_mix(d)        [density ratio]
+      tail_Fdr(d)  = S_null(d) / S_mix(d)         [survival function ratio]
+
+    where S(d) = 1 - CDF(d) is the survival function. Both are guaranteed
+    monotonically decreasing with distance (by PAVA constraint on densities).
+    pi0 = 1 (conservative assumption that all genes are null).
+
+    Args:
+        real_distances: Mahalanobis distances for real genes
+        null_distances: Mahalanobis distances for null genes
+        n_grid: Number of grid points for density evaluation
+
+    Returns:
+        (local_fdr, tail_fdr): Tuple of arrays, one value per real gene
+    """
+    from scipy.interpolate import interp1d
+
+    if len(null_distances) < 2 or len(real_distances) < 2:
+        logger.warning("Too few distances for FDR estimation, returning fdr=1")
+        ones = np.ones(len(real_distances))
+        return ones, ones
+
+    max_dist = max(np.max(real_distances), np.max(null_distances))
+    if max_dist <= 0:
+        ones = np.ones(len(real_distances))
+        return ones, ones
+    grid = np.linspace(0, max_dist * 1.05, n_grid)
+    dg = grid[1] - grid[0]
+
+    # Estimate monotone-decreasing densities (Grenander estimator)
+    f0 = _estimate_monotone_density(null_distances, grid)
+    f_mix = _estimate_monotone_density(real_distances, grid)
+
+    eps = np.max(f_mix) * 1e-10 if np.max(f_mix) > 0 else 1e-20
+
+    # --- Local FDR: f0(d) / f_mix(d) with pi0 = 1 ---
+    raw_lfdr = np.where(f_mix > eps, f0 / f_mix, 1.0)
+    raw_lfdr = np.clip(raw_lfdr, 0.0, 1.0)
+    monotone_lfdr = _pava_decreasing(raw_lfdr)
+
+    # --- Tail FDR: S0(d) / S_mix(d) where S = survival function ---
+    # Survival function = integral of density from d to infinity
+    S0 = np.cumsum(f0[::-1])[::-1] * dg
+    S_mix = np.cumsum(f_mix[::-1])[::-1] * dg
+
+    raw_tail_fdr = np.where(S_mix > eps, S0 / S_mix, 1.0)
+    raw_tail_fdr = np.clip(raw_tail_fdr, 0.0, 1.0)
+    monotone_tail_fdr = _pava_decreasing(raw_tail_fdr)
+
+    # Interpolate to evaluate at real distances
+    lfdr_func = interp1d(grid, monotone_lfdr, kind="linear",
+                         bounds_error=False, fill_value=(1.0, 0.0))
+    tfdr_func = interp1d(grid, monotone_tail_fdr, kind="linear",
+                         bounds_error=False, fill_value=(1.0, 0.0))
+
+    local_fdr = np.clip(lfdr_func(real_distances), 0.0, 1.0)
+    tail_fdr = np.clip(tfdr_func(real_distances), 0.0, 1.0)
+
+    return local_fdr, tail_fdr
 
 
 def _estimate_monotone_density(distances: np.ndarray, grid: np.ndarray) -> np.ndarray:

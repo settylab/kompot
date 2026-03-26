@@ -49,18 +49,14 @@ Before running resource-intensive differential expression analyses, you can use 
    import kompot as kp
 
    # Run a dry run before actual computation
-   plan = kp.dry_run_differential_expression(
+   plan = kp.de(
        adata,
+       groupby='age',
        condition1='Young',
        condition2='Old',
-       groupby='age',
-       use_sample_variance=True,
-       sample_column='donor_id',
-       verbose=True
+       sample_col='donor_id',
+       dry_run=True,
    )
-
-   # Examine the report
-   print(plan.format_report(verbose=True))
 
 The dry run output shows:
 
@@ -70,8 +66,6 @@ The dry run output shows:
 - **Output Fields**: All fields that will be created, with ``[OVERWRITES run_id=X]`` markers for existing fields
 - **Warnings**: Field overwrite information showing previous run timestamp, conditions, and parameters
 - **Status**: Whether the analysis is feasible given available resources
-
-.. autofunction:: kompot.dry_run_differential_expression
 
 Utilities
 ---------

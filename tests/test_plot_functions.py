@@ -324,14 +324,13 @@ class TestPlotFunctions:
         # Test with negative run_id (-1) for latest run with explicit score_key
         # (since Mahalanobis is not computed in our tests)
         self.adata.var['test_score'] = np.random.rand(self.adata.n_vars)
-        fig, ax = volcano_de(
+        fig = volcano_de(
             self.adata,
             run_id=-1,
             score_key='test_score',  # Use test_score since mahalanobis is not computed
             return_fig=True
         )
         assert fig is not None
-        assert ax is not None
         
         # The variant below should also work by directly providing keys
         # Add a dummy score to test with
@@ -339,14 +338,14 @@ class TestPlotFunctions:
         
         de_keys = [k for k in self.adata.var.columns if 'de_run1' in k and 'lfc' in k]
         if de_keys:
-            fig, ax = volcano_de(
+            fig = volcano_de(
                 self.adata,
                 lfc_key=de_keys[0],
                 score_key='test_score',
                 return_fig=True
             )
             assert fig is not None
-            assert ax is not None
+            assert fig is not None
     
     def test_volcano_da_with_run_id(self):
         """Test volcano_da function with run_id parameter."""
@@ -355,27 +354,26 @@ class TestPlotFunctions:
             pytest.skip("kompot_run_history not found in adata.uns")
         
         # Test with negative run_id (-1) for latest run
-        fig, ax = volcano_da(
+        fig = volcano_da(
             self.adata,
             run_id=-1,
             return_fig=True
         )
         assert fig is not None
-        assert ax is not None
         
         # The variant below should also work by directly providing keys
         da_keys_lfc = [k for k in self.adata.obs.columns if 'da_run1' in k and 'lfc' in k]
         da_keys_ptp = [k for k in self.adata.obs.columns if 'da_run1' in k and 'ptp' in k]
         
         if da_keys_lfc and da_keys_ptp:
-            fig, ax = volcano_da(
+            fig = volcano_da(
                 self.adata,
                 lfc_key=da_keys_lfc[0],
                 ptp_key=da_keys_ptp[0],
                 return_fig=True
             )
             assert fig is not None
-            assert ax is not None
+            assert fig is not None
     
     def test_heatmap_with_run_id(self):
         """Test heatmap function with run_id parameter."""
@@ -427,7 +425,7 @@ class TestPlotFunctions:
         gene = self.adata.var_names[0]
         
         # Test with explicit parameters
-        fig, ax = plot_gene_expression(
+        fig = plot_gene_expression(
             self.adata, 
             gene=gene,
             lfc_key='de_run2_mean_lfc_A_to_B',
@@ -436,10 +434,10 @@ class TestPlotFunctions:
             return_fig=True
         )
         assert fig is not None
-        assert isinstance(ax, np.ndarray)  # Should return array of axes
-        
+        assert len(fig.axes) > 0
+
         # Test with run_id parameter
-        fig, ax = plot_gene_expression(
+        fig = plot_gene_expression(
             self.adata,
             gene=gene,
             run_id=-1,
@@ -447,7 +445,7 @@ class TestPlotFunctions:
             return_fig=True
         )
         assert fig is not None
-        assert isinstance(ax, np.ndarray)
+        assert len(fig.axes) > 0
     
     def test_infer_expression_keys(self):
         """Test _infer_expression_keys helper function."""
@@ -517,7 +515,7 @@ class TestPlotFunctions:
         self.adata.uns['kompot_da']['run_history'] = to_json_string(run_history)
         
         # Test with explicit parameters
-        fig, ax = direction_barplot(
+        fig = direction_barplot(
             self.adata,
             category_column='cell_type',
             direction_column='kompot_da_A_to_B_lfc_direction',
@@ -526,17 +524,15 @@ class TestPlotFunctions:
             return_fig=True
         )
         assert fig is not None
-        assert ax is not None
         
         # Test with run_id parameter
-        fig, ax = direction_barplot(
+        fig = direction_barplot(
             self.adata,
             category_column='cell_type',
             run_id=-1,
             return_fig=True
         )
         assert fig is not None
-        assert ax is not None
     
     def test_infer_direction_key(self):
         """Test _infer_direction_key helper function."""
@@ -603,13 +599,14 @@ class TestPlotFunctions:
         self.adata.obs['cell_type'] = categories
         
         # Test with negative run_id (-1) for latest run
-        fig, axes = multi_volcano_da(
+        fig = multi_volcano_da(
             self.adata,
             groupby='cell_type',
             run_id=-1,
             return_fig=True
         )
         assert fig is not None
+        axes = fig.axes
         assert isinstance(axes, list)
         assert len(axes) > 0
         
@@ -618,7 +615,7 @@ class TestPlotFunctions:
         da_keys_ptp = [k for k in self.adata.obs.columns if 'da_run1' in k and 'ptp' in k]
         
         if da_keys_lfc and da_keys_ptp:
-            fig, axes = multi_volcano_da(
+            fig = multi_volcano_da(
                 self.adata,
                 groupby='cell_type',
                 lfc_key=da_keys_lfc[0],
@@ -626,6 +623,7 @@ class TestPlotFunctions:
                 return_fig=True
             )
             assert fig is not None
+            axes = fig.axes
             assert isinstance(axes, list)
             assert len(axes) > 0
             
@@ -644,7 +642,7 @@ class TestPlotFunctions:
         self.adata.obs['custom_color'] = np.random.randn(self.adata.n_obs)
         
         # Test with various custom parameters
-        fig, axes = multi_volcano_da(
+        fig = multi_volcano_da(
             self.adata,
             groupby='cell_type',
             run_id=-1,
@@ -657,6 +655,7 @@ class TestPlotFunctions:
             return_fig=True
         )
         assert fig is not None
+        axes = fig.axes
         assert isinstance(axes, list)
         assert len(axes) > 0
         
@@ -675,7 +674,7 @@ class TestPlotFunctions:
         highlight_mask = np.random.choice([True, False], size=self.adata.n_obs, p=[0.2, 0.8])
         
         # Test with highlight_subset parameter
-        fig, axes = multi_volcano_da(
+        fig = multi_volcano_da(
             self.adata,
             groupby='cell_type',
             run_id=-1,
@@ -684,6 +683,7 @@ class TestPlotFunctions:
             return_fig=True
         )
         assert fig is not None
+        axes = fig.axes
         assert isinstance(axes, list)
         assert len(axes) > 0
         
@@ -731,7 +731,7 @@ class TestPlotFunctions:
             self.adata.uns['kompot_da']['run_history'] = to_json_string(run_history)
         
         # Test with direction column update and explicit direction column
-        fig, axes = multi_volcano_da(
+        fig = multi_volcano_da(
             self.adata,
             groupby='cell_type',
             run_id=-1,
@@ -742,6 +742,7 @@ class TestPlotFunctions:
             return_fig=True
         )
         assert fig is not None
+        axes = fig.axes
         assert isinstance(axes, list)
         assert len(axes) > 0
         

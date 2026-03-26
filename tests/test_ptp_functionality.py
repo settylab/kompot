@@ -96,7 +96,7 @@ class TestPTPFunctionality:
         adata = create_test_adata_with_ptp()
         
         # Test ptp y-axis
-        fig, ax = volcano_de(
+        fig = volcano_de(
             adata,
             lfc_key="kompot_de_mean_lfc_A_to_B",
             score_key="kompot_de_mahalanobis_A_to_B",
@@ -105,6 +105,7 @@ class TestPTPFunctionality:
             return_fig=True
         )
         
+        ax = fig.axes[0]
         assert ax.get_ylabel() == "-log10(Posterior Tail Probability)"
         plt.close(fig)
         
@@ -114,7 +115,7 @@ class TestPTPFunctionality:
         
         adata = create_test_adata_with_ptp()
         
-        fig, ax = volcano_de(
+        fig = volcano_de(
             adata,
             lfc_key="kompot_de_mean_lfc_A_to_B",
             score_key="kompot_de_mahalanobis_A_to_B",
@@ -125,6 +126,7 @@ class TestPTPFunctionality:
         )
         
         # Check that a horizontal line was added
+        ax = fig.axes[0]
         hlines = [line for line in ax.lines if hasattr(line, '_y') and len(np.unique(line._y)) == 1]
         assert len(hlines) > 0, "Expected horizontal threshold line to be present"
         
@@ -141,7 +143,7 @@ class TestPTPFunctionality:
         adata.var.loc['gene_1', 'kompot_de_ptp_A_to_B'] = 0.005  # Significant
         adata.var.loc['gene_2', 'kompot_de_ptp_A_to_B'] = 0.1    # Not significant
         
-        fig, ax = volcano_de(
+        fig = volcano_de(
             adata,
             lfc_key="kompot_de_mean_lfc_A_to_B",
             score_key="kompot_de_mahalanobis_A_to_B",
@@ -162,7 +164,7 @@ class TestPTPFunctionality:
         # Remove run history to test fallback inference
         del adata.uns['kompot_de_run_history']
         
-        fig, ax = volcano_de(
+        fig = volcano_de(
             adata,
             lfc_key='kompot_de_mean_lfc_A_to_B',
             score_key='kompot_de_mahalanobis_A_to_B',  # Should infer ptp from this
@@ -170,6 +172,7 @@ class TestPTPFunctionality:
             return_fig=True
         )
         
+        ax = fig.axes[0]
         assert ax.get_ylabel() == "-log10(Posterior Tail Probability)"
         plt.close(fig)
         
@@ -180,7 +183,7 @@ class TestPTPFunctionality:
         adata = create_test_adata_with_ptp()
         
         # Test both ptp and local_fdr
-        fig1, ax1 = volcano_de(
+        fig1 = volcano_de(
             adata,
             lfc_key="kompot_de_mean_lfc_A_to_B",
             score_key="kompot_de_mahalanobis_A_to_B",
@@ -188,8 +191,8 @@ class TestPTPFunctionality:
             significance_threshold=0.05,
             return_fig=True
         )
-        
-        fig2, ax2 = volcano_de(
+
+        fig2 = volcano_de(
             adata,
             lfc_key="kompot_de_mean_lfc_A_to_B",
             score_key="kompot_de_mahalanobis_A_to_B",
@@ -197,11 +200,13 @@ class TestPTPFunctionality:
             significance_threshold=0.05,
             return_fig=True
         )
-        
+
         # Both should work without errors
+        ax1 = fig1.axes[0]
+        ax2 = fig2.axes[0]
         assert ax1.get_ylabel() == "-log10(Posterior Tail Probability)"
         assert ax2.get_ylabel() == "-log10(Local FDR)"
-        
+
         plt.close(fig1)
         plt.close(fig2)
         
@@ -212,7 +217,7 @@ class TestPTPFunctionality:
         adata = create_test_adata_with_ptp()
         
         # Test using ptp column directly
-        fig, ax = volcano_de(
+        fig = volcano_de(
             adata,
             lfc_key="kompot_de_mean_lfc_A_to_B",
             score_key="kompot_de_mahalanobis_A_to_B",
@@ -233,7 +238,7 @@ class TestPTPFunctionality:
         del adata.var['kompot_de_ptp_A_to_B']
         
         # Should fall back to mahalanobis when ptp not found
-        fig, ax = volcano_de(
+        fig = volcano_de(
             adata,
             lfc_key="kompot_de_mean_lfc_A_to_B",
             score_key="kompot_de_mahalanobis_A_to_B",
@@ -251,7 +256,7 @@ class TestPTPFunctionality:
         adata = create_test_adata_with_ptp()
         
         # Test with significance_threshold
-        fig, ax = volcano_de(
+        fig = volcano_de(
             adata,
             lfc_key="kompot_de_mean_lfc_A_to_B",
             score_key="kompot_de_mahalanobis_A_to_B",
@@ -263,7 +268,7 @@ class TestPTPFunctionality:
         plt.close(fig)
         
         # Test with mahalanobis threshold
-        fig, ax = volcano_de(
+        fig = volcano_de(
             adata,
             lfc_key="kompot_de_mean_lfc_A_to_B",
             score_key="kompot_de_mahalanobis_A_to_B",
