@@ -9,6 +9,7 @@ import pprint
 
 from .json_utils import from_json_string, get_json_metadata, set_json_metadata
 from .field_tracking import get_run_from_history, validate_field_run_id
+from .params import params_get as _pg
 
 logger = logging.getLogger("kompot")
 
@@ -410,12 +411,12 @@ class RunInfo:
         """
         # Get basic information without field data
         if self.analysis_type == 'impute':
-            cond = self.params.get('condition', None)
+            cond = _pg(self.params, 'condition', None)
             conditions_str = cond if cond else 'all cells'
         else:
             conditions_str = (
-                f"{self.params.get('condition1', 'unknown')} to "
-                f"{self.params.get('condition2', 'unknown')}"
+                f"{_pg(self.params, 'condition1', 'unknown')} to "
+                f"{_pg(self.params, 'condition2', 'unknown')}"
             )
         summary = {
             'run_id': self.run_id,
@@ -423,9 +424,9 @@ class RunInfo:
             'analysis_type': self.analysis_type,
             'timestamp': self.timestamp,
             'conditions': conditions_str,
-            'obsm_key': self.params.get('obsm_key', 'unknown'),
-            'layer': self.params.get('layer', None),
-            'uses_sample_variance': self.params.get('use_sample_variance', False),
+            'obsm_key': _pg(self.params, 'obsm_key', 'unknown'),
+            'layer': _pg(self.params, 'layer', None),
+            'uses_sample_variance': _pg(self.params, 'use_sample_variance', False),
             'field_count': sum(len(fields) for fields in self.adata_fields.values()) if self.adata_fields else 0,
             'overwritten_field_count': len(self.overwritten_fields) if hasattr(self, 'overwritten_fields') else 0,
             'overwritten_fields': self.overwritten_fields if hasattr(self, 'overwritten_fields') else [],
@@ -453,10 +454,50 @@ class RunInfo:
         # We'll use it to enhance field listings instead
         return summary
     
+    def to_settings(self) -> Dict[str, Any]:
+        """Reconstruct Settings dataclass objects from stored parameters.
+
+        Returns
+        -------
+        dict
+            ``{"gp": GPSettings(…), "fdr": FDRSettings(…), …}`` —
+            only Settings that were recorded for this run.
+
+        Examples
+        --------
+        >>> run = kompot.RunInfo(adata, run_id=0, analysis_type="de")
+        >>> settings = run.to_settings()
+        >>> settings["gp"].sigma
+        1.0
+        """
+        from .params import reconstruct_settings
+        return reconstruct_settings(self.params)
+
+    def call_args(self) -> Dict[str, Any]:
+        """Build kwargs that reproduce this run via ``da()`` / ``de()``.
+
+        The returned dict contains top-level arguments (``groupby``,
+        ``condition1``, …) and Settings objects (``gp``, ``fdr``, …).
+        All values are mutable — edit them before passing to ``de()``
+        or ``da()``::
+
+            kwargs = run.call_args()
+            kwargs["fdr"].threshold = 0.01   # tighten FDR
+            kompot.de(adata, **kwargs)
+
+        Returns
+        -------
+        dict
+            Ready for ``kompot.de(adata, **result)`` or
+            ``kompot.da(adata, **result)``.
+        """
+        from .params import params_to_call_args
+        return params_to_call_args(self.params, self.analysis_type)
+
     def get_raw_data(self) -> Dict[str, Any]:
         """
         Get the raw run info data without any processing.
-        
+
         Returns
         -------
         Dict[str, Any]
@@ -1018,12 +1059,12 @@ class RunComparison:
             'run1': {
                 'run_id': self.run1.adjusted_run_id,
                 'timestamp': self.summary1['timestamp'],
-                'result_key': self.run1.params.get('result_key', 'unknown')
+                'result_key': _pg(self.run1.params, 'result_key', 'unknown')
             },
             'run2': {
                 'run_id': self.run2.adjusted_run_id,
                 'timestamp': self.summary2['timestamp'],
-                'result_key': self.run2.params.get('result_key', 'unknown')
+                'result_key': _pg(self.run2.params, 'result_key', 'unknown')
             },
             'parameters': {
                 'same_count': len(self.param_comparison['same']),
@@ -1317,8 +1358,8 @@ class RunComparison:
             html.append("<tr>")
             html.append(f"<td>{aspect}</td>")
             
-            val1 = self.run1.params.get(aspect, self.summary1.get(aspect, '-'))
-            val2 = self.run2.params.get(aspect, self.summary2.get(aspect, '-'))
+            val1 = _pg(self.run1.params, aspect, self.summary1.get(aspect, '-'))
+            val2 = _pg(self.run2.params, aspect, self.summary2.get(aspect, '-'))
             
             row_class = "" if val1 == val2 else "diff-changed"
             html.append(f"<td class='{row_class}'>{val1}</td>")

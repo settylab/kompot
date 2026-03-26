@@ -105,9 +105,10 @@ def _check_overwrites(
     if prev_run:
         prev_timestamp = prev_run.get("timestamp", "unknown time")
         prev_params = prev_run.get("params", {})
+        from .utils.params import params_get as _pg
         prev_conditions = (
-            f"{prev_params.get('condition1', 'unknown')} to "
-            f"{prev_params.get('condition2', 'unknown')}"
+            f"{_pg(prev_params, 'condition1', 'unknown')} to "
+            f"{_pg(prev_params, 'condition2', 'unknown')}"
         )
         message += (
             f" Previous run was at {prev_timestamp} comparing {prev_conditions}."
@@ -118,7 +119,7 @@ def _check_overwrites(
             if len(existing_fields) > 5:
                 field_list += f" and {len(existing_fields) - 5} more fields"
 
-            prev_sample_var = prev_params.get("use_sample_variance", False)
+            prev_sample_var = _pg(prev_params, "use_sample_variance", False)
 
             # Check parameter match
             params_match = True
@@ -126,7 +127,7 @@ def _check_overwrites(
                 "groupby", "condition1", "condition2", "obsm_key", "layer", "ls_factor",
             ]:
                 curr_val = locals().get(param_name)
-                prev_val = prev_params.get(param_name)
+                prev_val = _pg(prev_params, param_name)
                 if curr_val != prev_val:
                     params_match = False
                     logger.debug(
@@ -168,7 +169,7 @@ def _check_overwrites(
         # Check for partial rerun
         if prev_run:
             prev_params = prev_run.get("params", {})
-            prev_sample_var = prev_params.get("use_sample_variance", False)
+            prev_sample_var = _pg(prev_params, "use_sample_variance", False)
 
             # Re-check params_match for the overwrite-is-None branch
             params_match = True
@@ -176,7 +177,7 @@ def _check_overwrites(
                 "groupby", "condition1", "condition2", "obsm_key", "layer", "ls_factor",
             ]:
                 curr_val = locals().get(param_name)
-                prev_val = prev_params.get(param_name)
+                prev_val = _pg(prev_params, param_name)
                 if curr_val != prev_val:
                     params_match = False
 

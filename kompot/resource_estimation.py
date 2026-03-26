@@ -978,10 +978,11 @@ def estimate_differential_expression_resources(
         if prev_run:
             prev_timestamp = prev_run.get("timestamp", "unknown time")
             prev_params = prev_run.get("params", {})
-            prev_cond1 = prev_params.get('condition1', 'unknown')
-            prev_cond2 = prev_params.get('condition2', 'unknown')
-            prev_use_sv = prev_params.get('use_sample_variance', False)
-            prev_null_genes = prev_params.get('null_genes', None)
+            from kompot.anndata.utils.params import params_get as _pg
+            prev_cond1 = _pg(prev_params, 'condition1', 'unknown')
+            prev_cond2 = _pg(prev_params, 'condition2', 'unknown')
+            prev_use_sv = _pg(prev_params, 'use_sample_variance', False)
+            prev_null_genes = _pg(prev_params, 'null_genes', None)
 
             # Try to get the run_id from tracking metadata
             run_id = None

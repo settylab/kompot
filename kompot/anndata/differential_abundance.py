@@ -183,29 +183,33 @@ def da(
     )
 
     # ---- 8. Record run info ----
-    params_dict = {
-        "groupby": groupby,
-        "condition1": condition1,
-        "condition2": condition2,
-        "obsm_key": obsm_key,
-        "n_landmarks": n_landmarks,
-        "landmarks": landmarks is not None,
-        "sample_col": sample_col,
-        "use_sample_variance": sample_col is not None,
-        "log_fold_change_threshold": log_fold_change_threshold,
-        "ptp_threshold": ptp_threshold,
-        "ls_factor": ls_factor,
-        "jit_compile": jit_compile,
-        "random_state": random_state,
-        "used_landmarks": landmarks is not None,
-        "batch_size": batch_size,
-        "store_landmarks": store_landmarks,
-        "result_key": result_key,
-        "copy": copy,
-        "inplace": inplace,
-        "overwrite": overwrite,
-        **density_kwargs,
-    }
+    from .utils.params import build_params_dict
+    params_dict = build_params_dict(
+        top_level=dict(
+            groupby=groupby, condition1=condition1, condition2=condition2,
+            obsm_key=obsm_key, sample_col=sample_col,
+        ),
+        gp=GPSettings(
+            ls_factor=ls_factor, n_landmarks=n_landmarks,
+            batch_size=batch_size, jit_compile=jit_compile,
+            random_state=random_state,
+        ),
+        threshold=DAThresholdSettings(
+            lfc_threshold=log_fold_change_threshold,
+            ptp_threshold=ptp_threshold,
+        ),
+        storage=StorageSettings(
+            result_key=result_key, overwrite=overwrite,
+            store_landmarks=store_landmarks,
+        ),
+        output=OutputSettings(
+            copy=copy, inplace=inplace,
+            allow_single_condition_variance=allow_single_condition_variance,
+            progress=progress,
+        ),
+        extra_kwargs=density_kwargs,
+        landmarks_provided=landmarks is not None,
+    )
 
     _record_da_run_info(
         adata, field_names, condition1, condition2,
