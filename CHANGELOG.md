@@ -4,19 +4,30 @@ All notable changes to this project will be documented in this file.
 
 ## [0.7.0]
 
- - add `ModelSettings` dataclass for injecting pre-fitted models and predictors into `kompot.de()` and `kompot.da()`. Supports `function_predictor`, `obs_variance_predictor`, `variance_predictor`, `density_predictor`, and full `ExpressionModel` instances per condition. This enables reusing fitted models across runs or customising individual variance components without re-fitting.
- - **`kompot.de()` and `kompot.da()` are now the primary API.** Both accept Settings dataclasses (`GPSettings`, `FDRSettings`, `FilterSettings`, `StorageSettings`, `OutputSettings`) for a clean, discoverable interface. `compute_differential_expression()` and `compute_differential_abundance()` are deprecated and will be removed in a future version.
- - add `use_empirical_variance` option for differential expression: fits per-gene GP models to squared residuals to estimate heteroscedastic noise, then adjusts Mahalanobis distances via a diagonal factor trick (avoids per-gene covariance matrices). Deflates significance for high-noise genes without requiring biological replicates. When combined with `sample_col`, empirical variance is computed per sample using LOO-corrected residuals from per-sample GPs, avoiding double-counting the between-sample variance that the sample variance estimator already captures.
- - add `CenteredLinear` kernel: can be combined with `Matern52` via `_build_matern52_linear()` for better extrapolation at cell-state boundaries. Default kernel remains `Matern52`. Overridable via `cov_func` / `cov_func_curry`.
- - all plotting functions now return `Optional[plt.Figure]` (controlled by `return_fig` parameter) instead of `(fig, ax)` tuples. Removes `plt.show()` calls — callers control display.
- - default `null_genes` to 0 when `sample_col` is provided: FDR null distribution is not yet calibrated for the sample variance case. Explicit values still override.
- - fix local FDR numerical instability: replace statsmodels Poisson GLM (which caused overflow/divide-by-zero RuntimeWarnings) with Grenander estimator — boundary-corrected KDE + PAVA isotonic regression enforcing monotonically declining densities and local FDR with Mahalanobis distance. PAVA follows fdrtool's numerically stable incremental update. Added ground truth validation tests using exponential and gamma mixture distributions.
- - remove `statsmodels` dependency: Benjamini-Hochberg FDR correction is now implemented directly.
- - remove hardcoded `optimizer='advi'` default from density and function estimators: mellon 1.7.0 provides more accurate uncertainty without ADVI. Affects `DifferentialAbundance`, `ExpressionModel`, and `SampleVarianceEstimator`.
- - fix `--no-progress` support for DA CLI: add missing flag and wire `progress` through `OutputSettings` to `DifferentialAbundance.predict()`.
- - fix progress bar suppression in `apply_batched` callers: all call sites now pass `show_progress=progress` instead of only controlling the description string. Affects DA predict, DE empirical variance, and Mahalanobis distance computation.
- - fix `cell_filter` documentation: parameter was documented as specifying cells to exclude, but the implementation includes matching cells. Updated docstrings, CLI config template, and docs to correctly describe inclusion semantics.
- - fix missing `field_mapping` in DA run history: `append_to_run_history` was called before `field_mapping` was added to `current_run_info`, so history entries never contained it.
+### New simplified API
+
+ - **`kompot.de()` and `kompot.da()` replace the old `compute_differential_*` functions.** Related parameters are grouped into Settings dataclasses (`GPSettings`, `FDRSettings`, `FilterSettings`, `StorageSettings`, `OutputSettings`) so the common case stays simple while advanced options remain discoverable. The old functions still work but emit a deprecation warning.
+ - **`dry_run=True`** on `de()` prints a resource plan (memory, disk, field overwrites) without running the analysis. Replaces the standalone `dry_run_differential_expression()`.
+ - **`ModelSettings`** lets you inject pre-fitted predictors into `de()` / `da()` to skip fitting or reuse models across runs.
+
+### New features
+
+ - **Empirical variance** (`GPSettings(use_empirical_variance=True)`): estimates per-gene heteroscedastic noise from GP residuals and adjusts Mahalanobis distances accordingly. Works with or without biological replicates.
+ - **`CenteredLinear` kernel** for better extrapolation at cell-state boundaries (opt-in via `cov_func`; default remains Matern52).
+ - **More accurate uncertainty**: density and expression estimators now use mellon 1.7.0's default optimizer instead of ADVI.
+
+### Improvements
+
+ - Plotting functions return `Optional[plt.Figure]` (controlled by `return_fig`) instead of `(fig, ax)` tuples, and no longer call `plt.show()`.
+ - `--no-progress` flag added to the DA CLI; progress bars can now be fully suppressed in both DA and DE.
+ - FDR is disabled by default when `sample_col` is provided (not yet calibrated for sample variance). Override with `FDRSettings(null_genes=...)`.
+
+### Bug fixes
+
+ - Fix local FDR numerical instability (Grenander estimator replaces statsmodels Poisson GLM).
+ - Fix tail FDR: replace Benjamini-Hochberg on empirical p-values (which breaks when `n_null` << `n_genes`) with fdrtool-style survival function ratio `Fdr(d) = S_null(d) / S_mix(d)`.
+ - Fix `cell_filter` docs: parameter includes matching cells, not excludes.
+ - Remove `statsmodels` dependency.
 
 ## [0.6.3]
 
