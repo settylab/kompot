@@ -736,19 +736,32 @@ class RunInfo:
         html.append("<summary>All Parameters</summary>")
         html.append("<table>")
         html.append("<tr><th style='width:30%'>Parameter</th><th style='width:70%'>Value</th></tr>")
-        
-        # Add all parameters from params dictionary
-        for k, v in sorted(self.params.items()):
-            if v is not None:  # Only show non-None parameters
-                # Format the value based on type
-                if isinstance(v, bool):
-                    val_str = str(v)
-                elif isinstance(v, (list, tuple)) and len(v) > 10:
-                    val_str = f"{str(v[:10])[:-1]}, ... ({len(v)} items total)]"
-                else:
-                    val_str = str(v)
-                html.append(f"<tr><td>{k}</td><td>{val_str}</td></tr>")
-        
+
+        def _fmt_val(v):
+            if v is None:
+                return "<span style='color:#888;font-style:italic'>None</span>"
+            if isinstance(v, bool):
+                return str(v)
+            if isinstance(v, (list, tuple)) and len(v) > 10:
+                return f"{str(v[:10])[:-1]}, ... ({len(v)} items)]"
+            return str(v)
+
+        for k, v in self.params.items():
+            if isinstance(v, dict):
+                # Settings group — render as sub-header + indented rows
+                html.append(
+                    f"<tr style='background-color:rgba(0,0,0,0.04);'>"
+                    f"<td colspan='2'><strong>{k}</strong></td></tr>"
+                )
+                for sk, sv in v.items():
+                    if sv is not None:
+                        html.append(
+                            f"<tr><td style='padding-left:24px;'>{k}.{sk}</td>"
+                            f"<td>{_fmt_val(sv)}</td></tr>"
+                        )
+            elif v is not None:
+                html.append(f"<tr><td>{k}</td><td>{_fmt_val(v)}</td></tr>")
+
         html.append("</table>")
         html.append("</details>")  # Close parameters section
 
@@ -968,32 +981,42 @@ class RunComparison:
         Dict[str, Any]
             Dictionary with parameter comparison results
         """
-        # Get parameters from both runs
+        # Deep-compare, flattening nested Settings dicts into dotted keys
+        # e.g. {"gp": {"sigma": 1.0}} → {"gp.sigma": 1.0}
         params1 = self.run1.params
         params2 = self.run2.params
-        
-        # Find common, unique, and different parameters
-        common_keys = set(params1.keys()).intersection(set(params2.keys()))
-        
-        # Categorize parameters
+
+        def _flatten(d, prefix=""):
+            out = {}
+            for k, v in d.items():
+                key = f"{prefix}{k}" if prefix else k
+                if isinstance(v, dict):
+                    out.update(_flatten(v, prefix=f"{key}."))
+                else:
+                    out[key] = v
+            return out
+
+        flat1 = _flatten(params1)
+        flat2 = _flatten(params2)
+
+        common_keys = set(flat1) & set(flat2)
         same_params = {}
         different_params = {}
-        
+
         for key in common_keys:
-            if params1[key] == params2[key]:
-                same_params[key] = params1[key]
+            if flat1[key] == flat2[key]:
+                same_params[key] = flat1[key]
             else:
-                different_params[key] = {'run1': params1[key], 'run2': params2[key]}
-        
-        # Find unique parameters
-        only_in_run1 = {k: params1[k] for k in params1 if k not in params2}
-        only_in_run2 = {k: params2[k] for k in params2 if k not in params1}
-        
+                different_params[key] = {"run1": flat1[key], "run2": flat2[key]}
+
+        only_in_run1 = {k: flat1[k] for k in flat1 if k not in flat2}
+        only_in_run2 = {k: flat2[k] for k in flat2 if k not in flat1}
+
         return {
-            'same': same_params,
-            'different': different_params,
-            'only_in_run1': only_in_run1,
-            'only_in_run2': only_in_run2
+            "same": same_params,
+            "different": different_params,
+            "only_in_run1": only_in_run1,
+            "only_in_run2": only_in_run2,
         }
     
     def _compare_fields(self) -> Dict[str, Any]:
