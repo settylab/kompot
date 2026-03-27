@@ -184,8 +184,38 @@ Run Tracking
 ------------
 
 .. autoclass:: kompot.anndata.utils.RunInfo
-   :members: __init__, get_summary, get_data, compare_with
+   :members: __init__, get_summary, get_data, compare_with, to_settings, call_args
    :show-inheritance:
+
+Reproducing and Editing Runs
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Every run stores its parameters as nested Settings objects.  Use
+:meth:`~kompot.anndata.utils.RunInfo.call_args` to get a kwargs dict
+that reproduces the run — then edit it before re-running:
+
+.. code-block:: python
+
+   run = kompot.RunInfo(adata, run_id=0, analysis_type="de")
+
+   # Reproduce exactly
+   kwargs = run.call_args()
+   kompot.de(adata, **kwargs)
+
+   # Or tweak parameters first
+   kwargs = run.call_args()
+   kwargs["fdr"].threshold = 0.01          # tighten FDR
+   kwargs["condition2"] = "Mid"            # different comparison
+   kwargs["gp"].n_landmarks = 3000         # fewer landmarks
+   kompot.de(adata, **kwargs)
+
+You can also inspect the Settings objects directly:
+
+.. code-block:: python
+
+   settings = run.to_settings()
+   print(settings["gp"])       # GPSettings(sigma=1.0, ls_factor=10.0, ...)
+   print(settings["fdr"])      # FDRSettings(null_genes=2000, threshold=0.05, ...)
 
 
 Cleanup
