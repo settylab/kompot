@@ -361,10 +361,60 @@ Example: Complete Analysis
 Configuration Files
 -------------------
 
+Mapping to the Python API
+^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The Python API groups parameters into Settings dataclasses
+(``GPSettings``, ``FDRSettings``, etc.).  CLI config files use **flat
+keys** — the CLI maps them to the correct Settings automatically.
+The table below shows how config keys correspond to Python Settings:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 30 40
+
+   * - Config key
+     - Python equivalent
+     - Description
+   * - ``sigma``, ``ls``, ``ls_factor``, ``n_landmarks``, ``batch_size``, ``eps``, ``jit_compile``, ``random_state``, ``use_empirical_variance``
+     - ``gp=GPSettings(...)``
+     - GP model parameters
+   * - ``null_genes``, ``null_seed``, ``fdr_threshold``
+     - ``fdr=FDRSettings(...)``
+     - FDR / null distribution (DE)
+   * - ``log_fold_change_threshold``, ``ptp_threshold``
+     - ``threshold=DAThresholdSettings(...)``
+     - Significance thresholds (DA)
+   * - ``cell_filter``, ``groups``, ``min_cells``, ``min_percentage``, ``check_representation``
+     - ``filter=FilterSettings(...)``
+     - Cell / group filtering (DE)
+   * - ``result_key``, ``overwrite``, ``store_landmarks``, ``store_arrays_on_disk``, ``disk_storage_dir``, ``max_memory_ratio``, ``store_posterior_covariance``, ``store_additional_stats``
+     - ``storage=StorageSettings(...)``
+     - Result storage
+   * - ``copy``, ``inplace``, ``progress``, ``compute_mahalanobis``, ``allow_single_condition_variance``
+     - ``output=OutputSettings(...)``
+     - Output control
+
+For example, this config file:
+
+.. code-block:: yaml
+
+   sigma: 0.5
+   n_landmarks: 3000
+   fdr_threshold: 0.01
+
+is equivalent to:
+
+.. code-block:: python
+
+   kompot.de(adata, ...,
+       gp=GPSettings(sigma=0.5, n_landmarks=3000),
+       fdr=FDRSettings(threshold=0.01))
+
 YAML Format
 ^^^^^^^^^^^
 
-Config files use standard YAML syntax:
+Config files use standard YAML syntax with flat keys:
 
 .. code-block:: yaml
 
@@ -381,21 +431,19 @@ Config files use standard YAML syntax:
    # Sample variance
    sample_col: "sample_id"
 
-   # Performance
+   # GP parameters (→ GPSettings)
+   sigma: 1.0
+   ls_factor: 10.0
    batch_size: 100
    n_landmarks: 5000
 
-   # Significance
+   # FDR parameters (→ FDRSettings)
    fdr_threshold: 0.05
    null_genes: 2000
 
-   # Advanced parameters
-   genes: ["Gene1", "Gene2", "Gene3"]  # Analyze specific genes
-   cell_filter: {batch: "batch1"}       # Include only batch1 cells
-
-   # GP parameters
-   sigma: 1.0
-   ls_factor: 10.0
+   # Filtering (→ FilterSettings)
+   genes: ["Gene1", "Gene2", "Gene3"]
+   cell_filter: {batch: "batch1"}
 
 JSON Format
 ^^^^^^^^^^^
