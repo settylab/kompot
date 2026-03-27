@@ -241,9 +241,10 @@ Boolean Flags
 .. code-block:: text
 
    --no-progress             # Disable progress bars
-   --store-landmarks         # Store landmarks for reuse
-   --store-additional-stats  # Store extra statistics
-   --overwrite               # Overwrite without warning
+   --store-landmarks           # Store landmarks for reuse
+   --store-additional-stats    # Store extra statistics
+   --use-empirical-variance   # Estimate per-gene noise from GP residuals
+   --overwrite                 # Overwrite without warning
 
 Compute Options
 ^^^^^^^^^^^^^^^
@@ -332,6 +333,7 @@ Boolean Flags
 
    --store-landmarks         # Store landmarks for reuse
    --overwrite               # Overwrite without warning
+   --no-progress             # Disable progress bars
 
 Compute Options
 ^^^^^^^^^^^^^^^
