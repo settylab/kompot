@@ -1353,3 +1353,374 @@ class TestMultiVolcanoDaAdditional:
             return_fig=True,
         )
         assert fig is not None
+
+
+# ===========================================================================
+# Additional targeted tests for deeper coverage
+# ===========================================================================
+
+class TestFieldInferenceOverwrites:
+    """More targeted tests for field_inference.py overwrite detection."""
+
+    def test_check_overwrites_with_tracking_data(self):
+        """Lines 310-315, 321, 325-328, 344-346, 350-354, 363-366: full overwrite path."""
+        from kompot.plot.field_inference import _check_for_overwrites
+        adata = _make_da_adata(condition1="CondA", condition2="CondB")
+        lfc_col = [c for c in adata.obs.columns if "log_fold_change" in c][0]
+        direction_col = [c for c in adata.obs.columns if "direction" in c][0]
+
+        # Set up field tracking with a DIFFERENT run_id than the latest
+        adata.uns["kompot_da"]["anndata_fields"] = json.dumps({
+            "obs": {lfc_col: 99}  # run_id=99, but latest is 0
+        })
+
+        warnings_list = []
+        fields = {"lfc_key": lfc_col}
+        _check_for_overwrites(adata, "da", fields, warnings_list)
+        # Should detect the mismatch
+        assert any("overwritten" in w.lower() or "written by" in w.lower() for w in warnings_list)
+
+    def test_check_overwrites_location_not_in_tracking(self):
+        """Line 321: location not in tracking -> early return."""
+        from kompot.plot.field_inference import _check_for_overwrites
+        adata = _make_da_adata()
+        lfc_col = [c for c in adata.obs.columns if "log_fold_change" in c][0]
+        # Only has "var" key, but DA needs "obs"
+        adata.uns["kompot_da"]["anndata_fields"] = json.dumps({
+            "var": {lfc_col: 0}
+        })
+        warnings_list = []
+        _check_for_overwrites(adata, "da", {"lfc_key": lfc_col}, warnings_list)
+        # Should return early without adding warnings
+        assert len(warnings_list) == 0
+
+    def test_check_overwrites_location_tracking_as_string(self):
+        """Lines 325-328: location_tracking is a JSON string."""
+        from kompot.plot.field_inference import _check_for_overwrites
+        adata = _make_da_adata()
+        lfc_col = [c for c in adata.obs.columns if "log_fold_change" in c][0]
+        adata.uns["kompot_da"]["anndata_fields"] = json.dumps({
+            "obs": json.dumps({lfc_col: 0})  # Nested JSON string
+        })
+        warnings_list = []
+        _check_for_overwrites(adata, "da", {"lfc_key": lfc_col}, warnings_list)
+
+    def test_check_overwrites_invalid_tracking(self):
+        """Lines 313-315: exception accessing tracking data."""
+        from kompot.plot.field_inference import _check_for_overwrites
+        adata = _make_da_adata()
+        lfc_col = [c for c in adata.obs.columns if "log_fold_change" in c][0]
+        # Set a value that will cause from_json_string to raise
+        adata.uns["kompot_da"]["anndata_fields"] = "{invalid json"
+        warnings_list = []
+        _check_for_overwrites(adata, "da", {"lfc_key": lfc_col}, warnings_list)
+
+    def test_check_overwrites_multiple_writers(self):
+        """Lines 362-366: multiple potential writers."""
+        from kompot.plot.field_inference import _check_for_overwrites
+        adata = _make_da_adata()
+        lfc_col = [c for c in adata.obs.columns if "log_fold_change" in c][0]
+        # Add a second run to history with same field_names
+        run_history = json.loads(adata.uns["kompot_da"]["run_history"])
+        run_history.append({
+            "timestamp": "2025-02-01T00:00:00",
+            "params": {"condition1": "CondA", "condition2": "CondB"},
+            "field_names": {"lfc_key": lfc_col},
+            "adjusted_run_id": 1,
+        })
+        adata.uns["kompot_da"]["run_history"] = json.dumps(run_history)
+        adata.uns["kompot_da"]["anndata_fields"] = json.dumps({
+            "obs": {lfc_col: 1}
+        })
+        warnings_list = []
+        _check_for_overwrites(adata, "da", {"lfc_key": lfc_col}, warnings_list)
+        # Should detect multiple writers
+        assert any("written by" in w.lower() for w in warnings_list)
+
+    def test_get_run_from_history_error(self):
+        """Lines 77-79: error accessing run history."""
+        from kompot.plot.field_inference import infer_fields_from_run_info
+        adata = _make_da_adata()
+        # Corrupt the run history
+        adata.uns["kompot_da"]["run_history"] = "not valid json {{{"
+        result = infer_fields_from_run_info(adata, analysis_type="da", strict=False)
+        assert isinstance(result, dict)
+
+    def test_de_field_mapping(self):
+        """Lines 122-123: DE field mapping path."""
+        from kompot.plot.field_inference import infer_fields_from_run_info
+        adata = _make_de_adata()
+        result = infer_fields_from_run_info(
+            adata, analysis_type="de", strict=False
+        )
+        assert "mean_lfc_key" in result
+        assert "mahalanobis_key" in result
+
+    def test_fallback_with_condition_filtering(self):
+        """Lines 250-258: fallback with condition-based filtering."""
+        from kompot.plot.field_inference import _fallback_field_inference
+        # Create mock data_section with columns
+        data = pd.DataFrame({
+            "kompot_da_A_to_B_lfc": [1.0],
+            "kompot_da_C_to_D_lfc": [2.0],
+        })
+        result = _fallback_field_inference(
+            data, "lfc_key", "da",
+            condition1="A", condition2="B",
+            result_key=None, strict=False,
+        )
+        assert result == "kompot_da_A_to_B_lfc"
+
+    def test_fallback_with_result_key_filtering(self):
+        """Lines 262-266: fallback with result_key filtering."""
+        from kompot.plot.field_inference import _fallback_field_inference
+        data = pd.DataFrame({
+            "kompot_da_A_to_B_lfc": [1.0],
+            "kompot_da_C_to_B_lfc": [2.0],
+        })
+        result = _fallback_field_inference(
+            data, "lfc_key", "da",
+            condition1=None, condition2=None,
+            result_key="kompot_da_A", strict=False,
+        )
+        assert result is not None
+
+    def test_fallback_unknown_field_type(self):
+        """Line 230: unknown field_type returns None."""
+        from kompot.plot.field_inference import _fallback_field_inference
+        data = pd.DataFrame({"col": [1.0]})
+        result = _fallback_field_inference(
+            data, "unknown_field", "da", None, None, None, False
+        )
+        assert result is None
+
+    def test_get_comparison_specific_fields(self):
+        """Lines 437-462: get_comparison_specific_fields."""
+        from kompot.plot.field_inference import get_comparison_specific_fields
+        adata = _make_da_adata(condition1="CondA", condition2="CondB")
+        fields = get_comparison_specific_fields(
+            adata, "da", "CondA", "CondB"
+        )
+        assert isinstance(fields, dict)
+
+    def test_fallback_strict_multiple_candidates(self):
+        """Line 280: strict mode returns None for multiple candidates."""
+        from kompot.plot.field_inference import _fallback_field_inference
+        data = pd.DataFrame({
+            "kompot_da_A_to_B_lfc": [1.0],
+            "kompot_da_C_to_D_lfc": [2.0],
+        })
+        result = _fallback_field_inference(
+            data, "lfc_key", "da",
+            condition1=None, condition2=None,
+            result_key=None, strict=True,
+        )
+        # With strict=True and multiple candidates, should return None
+        assert result is None
+
+
+class TestResourceEstimationDeepCoverage:
+    """Deeper coverage for resource_estimation.py."""
+
+    def test_check_availability_insufficient_memory(self):
+        """Lines 153-158: insufficient memory triggers error."""
+        from kompot.resource_estimation import ResourcePlan, ResourceAvailability
+        plan = ResourcePlan()
+        plan.availability = ResourceAvailability(
+            memory_total=1024, memory_available=512,
+            disk_path="/tmp", disk_total=100 * 1024**3, disk_available=50 * 1024**3,
+        )
+        plan.add_requirement("Big array", 1024, "memory")  # > 512 available
+        plan.check_availability()
+        assert any("Insufficient memory" in e for e in plan.errors)
+
+    def test_check_availability_high_memory_warning(self):
+        """Lines 159-165: high memory usage generates warning."""
+        from kompot.resource_estimation import ResourcePlan, ResourceAvailability
+        plan = ResourcePlan()
+        plan.availability = ResourceAvailability(
+            memory_total=1024**3, memory_available=1024**3,
+            disk_path="/tmp", disk_total=100 * 1024**3, disk_available=50 * 1024**3,
+        )
+        # Use 90% of memory (above 80% threshold)
+        plan.add_requirement("Big array", int(0.9 * 1024**3), "memory")
+        plan.check_availability()
+        assert any("High memory usage" in w for w in plan.warnings)
+
+    def test_check_availability_insufficient_disk(self):
+        """Lines 169-195: insufficient disk triggers error with suggestions."""
+        from kompot.resource_estimation import ResourcePlan, ResourceAvailability
+        plan = ResourcePlan()
+        plan.availability = ResourceAvailability(
+            memory_total=16 * 1024**3, memory_available=8 * 1024**3,
+            disk_path="/tmp", disk_total=1024, disk_available=512,
+        )
+        plan.add_requirement("Huge file", 1024, "disk")
+        plan.check_availability()
+        assert any("Insufficient disk" in e for e in plan.errors)
+
+    def test_check_availability_high_disk_warning(self):
+        """Lines 196-202: high disk usage generates warning."""
+        from kompot.resource_estimation import ResourcePlan, ResourceAvailability
+        plan = ResourcePlan()
+        plan.availability = ResourceAvailability(
+            memory_total=16 * 1024**3, memory_available=8 * 1024**3,
+            disk_path="/tmp", disk_total=1024**3, disk_available=1024**3,
+        )
+        plan.add_requirement("Large file", int(0.95 * 1024**3), "disk")
+        plan.check_availability()
+        assert any("High disk usage" in w for w in plan.warnings)
+
+    def test_format_report_no_availability(self):
+        """Lines 233-240: format_report without availability -> 0% ratio."""
+        from kompot.resource_estimation import ResourcePlan
+        plan = ResourcePlan()
+        plan.add_requirement("Test", 1024, "memory")
+        plan.add_requirement("Disk", 2048, "disk")
+        report = plan.format_report()
+        assert "0%" in report
+
+    def test_resource_requirement_properties(self):
+        """Line 53-55: ResourceRequirement.size_human property."""
+        from kompot.resource_estimation import ResourceRequirement
+        req = ResourceRequirement(
+            name="Test", size_bytes=1024**2, resource_type="memory"
+        )
+        assert "MB" in req.size_human
+
+    def test_resource_availability_properties(self):
+        """Lines 68-81: ResourceAvailability properties."""
+        from kompot.resource_estimation import ResourceAvailability
+        avail = ResourceAvailability(
+            memory_total=16 * 1024**3,
+            memory_available=8 * 1024**3,
+            disk_path="/tmp",
+            disk_total=100 * 1024**3,
+            disk_available=50 * 1024**3,
+        )
+        assert "GB" in avail.memory_total_human
+        assert "GB" in avail.memory_available_human
+        assert "GB" in avail.disk_total_human
+        assert "GB" in avail.disk_available_human
+
+    def test_is_feasible(self):
+        """Line 121: is_feasible property."""
+        from kompot.resource_estimation import ResourcePlan
+        plan = ResourcePlan()
+        assert plan.is_feasible is True
+        plan.errors.append("Fatal")
+        assert plan.is_feasible is False
+
+
+class TestUtilsDeepCoverage:
+    """Deeper coverage for utils.py."""
+
+    def test_dask_import_branch(self):
+        """Lines 27-31: DASK_AVAILABLE import branch."""
+        from kompot.utils import KOMPOT_COLORS
+        # Just verify the module loaded properly
+        assert KOMPOT_COLORS is not None
+
+    def test_mahalanobis_no_jit(self):
+        """Lines 283, 285: jit_compile=False path."""
+        from kompot.utils import compute_mahalanobis_distances
+        n = 15
+        diffs = np.random.randn(5, n)
+        cov = np.diag(np.ones(n) * 2.0)
+        result = compute_mahalanobis_distances(
+            diffs, cov, jit_compile=False, progress=False
+        )
+        assert result.shape == (5,)
+
+    def test_mahalanobis_diagonal_variance(self):
+        """Lines 317-369: diagonal_variance factor trick."""
+        from kompot.utils import compute_mahalanobis_distances
+        n_points = 5
+        n_genes = 3
+        diffs = np.random.randn(n_genes, n_points)
+        cov = np.eye(n_points).astype(np.float64)
+        diag_var = np.abs(np.random.randn(n_genes, n_points)).astype(np.float64)
+        result = compute_mahalanobis_distances(
+            diffs, cov, progress=False, diagonal_variance=diag_var
+        )
+        assert result.shape == (n_genes,)
+        assert not np.any(np.isnan(result))
+
+    def test_mahalanobis_gene_specific_with_diag_var(self):
+        """Lines 183-184: gene-specific 3D cov with diagonal_variance."""
+        from kompot.utils import compute_mahalanobis_distances
+        n_points = 5
+        n_genes = 2
+        diffs = np.random.randn(n_genes, n_points)
+        cov = np.zeros((n_points, n_points, n_genes))
+        for g in range(n_genes):
+            cov[:, :, g] = np.eye(n_points)
+        diag_var = np.abs(np.random.randn(n_genes, n_points))
+        result = compute_mahalanobis_distances(
+            diffs, cov, progress=False, diagonal_variance=diag_var
+        )
+        assert result.shape == (n_genes,)
+
+    def test_mahalanobis_cholesky_no_jit(self):
+        """Line 387: Cholesky path without JIT."""
+        from kompot.utils import compute_mahalanobis_distances
+        diffs = np.random.randn(3, 5)
+        cov = np.eye(5)
+        result = compute_mahalanobis_distances(
+            diffs, cov, jit_compile=False, progress=False
+        )
+        assert result.shape == (3,)
+
+
+class TestImputationDeep:
+    """Deeper coverage for imputation.py."""
+
+    def _make_imputation_adata(self, with_std=True, with_obs_var=True):
+        rng = np.random.RandomState(42)
+        n_obs, n_vars = 50, 8
+        X = rng.randn(n_obs, n_vars).astype(np.float32)
+        adata = AnnData(X=X)
+        adata.var_names = [f"gene_{i}" for i in range(n_vars)]
+        adata.obs_names = [f"cell_{i}" for i in range(n_obs)]
+        adata.obsm["X_umap"] = rng.randn(n_obs, 2).astype(np.float32)
+        cond = "treated"
+        prefix = "kompot_impute"
+        adata.layers[f"{prefix}_{cond}_imputed"] = rng.randn(n_obs, n_vars).astype(np.float32)
+        if with_std:
+            adata.layers[f"{prefix}_{cond}_std"] = np.abs(rng.randn(n_obs, n_vars)).astype(np.float32)
+        if with_obs_var:
+            adata.layers[f"{prefix}_{cond}_obs_variance"] = np.abs(rng.randn(n_obs, n_vars)).astype(np.float32)
+        return adata
+
+    def test_detect_condition_label_error(self):
+        """Lines 361-371: _detect_condition_label raises when no matching layers."""
+        from kompot.plot.imputation import _detect_condition_label
+        adata = AnnData(np.random.randn(5, 3))
+        with pytest.raises(ValueError, match="No imputation layers"):
+            _detect_condition_label(adata, "kompot_impute")
+
+    def test_get_raw_sparse(self):
+        """Lines 335-343: _get_raw with sparse matrix."""
+        from kompot.plot.imputation import _get_raw
+        from scipy.sparse import csr_matrix
+        adata = AnnData(csr_matrix(np.random.randn(10, 5)))
+        adata.var_names = [f"g{i}" for i in range(5)]
+        result = _get_raw(adata, "g0", layer=None)
+        assert result.shape == (10,)
+
+    def test_scatter_fallback(self):
+        """Lines 346-358: _scatter_fallback."""
+        from kompot.plot.imputation import _scatter_fallback
+        fig, ax = plt.subplots()
+        xy = np.random.randn(20, 2)
+        values = np.random.randn(20)
+        _scatter_fallback(ax, xy, values, cmap="viridis", n_obs=20)
+        # Should not raise
+
+    def test_embedding_dim_too_small(self):
+        """Line 97: embedding has < 2 dimensions."""
+        from kompot.plot.imputation import plot_imputation
+        adata = self._make_imputation_adata()
+        adata.obsm["X_1d"] = np.random.randn(adata.n_obs, 1)
+        with pytest.raises(ValueError, match="2 dimensions"):
+            plot_imputation(adata, basis="X_1d")

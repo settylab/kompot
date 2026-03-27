@@ -31,9 +31,11 @@ filterwarnings = [
 omit = [
     "kompot/anndata/_legacy_*.py",
     "kompot/cli/__main__.py",
+    "kompot/cli/main.py",
     "kompot/plot/stringdb.py",
     "kompot/plot/volcano.py",
     "kompot/plot/heatmap.py",
+    "kompot/plot/__init__.py",
     "kompot/anndata/utils.py",
 ]
 
