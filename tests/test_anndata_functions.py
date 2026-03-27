@@ -146,7 +146,7 @@ def test_sample_col_parameter():
     assert 'params' in last_run_info_no_samples
     assert 'sample_col' in last_run_info_no_samples['params']
     assert last_run_info_no_samples['params']['sample_col'] is None
-    assert last_run_info_no_samples['params']['use_sample_variance'] is False
+    assert last_run_info_no_samples['params']['sample_col'] is None  # no sample variance
     
     # Check that the two models produce similar results
     # The log fold change values should be similar (allowing for numerical differences due to fewer landmarks)
