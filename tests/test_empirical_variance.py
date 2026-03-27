@@ -506,7 +506,7 @@ class TestAnnDataEmpiricalVariance:
         raw = tiny_adata.uns.get("kompot_de", {}).get("last_run_info", "{}")
         run_info = json.loads(raw) if isinstance(raw, str) else raw
         params = run_info.get("params", {})
-        assert params.get("use_empirical_variance") is True
+        assert params["gp"]["use_empirical_variance"] is True
 
     def test_results_with_empirical_variance(self, small_adata, fast_de_params):
         """Full run with empirical variance should produce valid results."""

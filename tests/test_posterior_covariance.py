@@ -104,8 +104,7 @@ def test_posterior_covariance_storage():
     
     # Check that the parameter was stored in run info
     assert 'params' in last_run_info
-    assert 'store_posterior_covariance' in last_run_info['params']
-    assert last_run_info['params']['store_posterior_covariance'] is True
+    assert last_run_info['params']['storage']['store_posterior_covariance'] is True
 
 
 def test_posterior_covariance_with_landmarks():
@@ -134,9 +133,8 @@ def test_posterior_covariance_with_landmarks():
     
     # Check that the parameter was stored in run info
     assert 'params' in last_run_info
-    assert 'store_posterior_covariance' in last_run_info['params']
-    assert last_run_info['params']['store_posterior_covariance'] is True
-    
+    assert last_run_info['params']['storage']['store_posterior_covariance'] is True
+
     # Verify the posterior covariance key is in the run info
     assert 'posterior_covariance_key' in last_run_info
     
@@ -177,9 +175,8 @@ def test_posterior_covariance_with_sample_variance():
     
     # Check that the parameter was stored in run info
     assert 'params' in last_run_info
-    assert 'store_posterior_covariance' in last_run_info['params']
-    assert last_run_info['params']['store_posterior_covariance'] is True
-    
+    assert last_run_info['params']['storage']['store_posterior_covariance'] is True
+
     # Verify that the posterior_covariance_key is not in the run info
     assert 'posterior_covariance_key' not in last_run_info
     

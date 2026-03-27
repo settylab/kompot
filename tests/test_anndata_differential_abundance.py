@@ -139,8 +139,7 @@ def test_compute_differential_abundance_with_custom_ls_factor():
     
     assert last_run_info is not None
     assert 'params' in last_run_info
-    assert 'ls_factor' in last_run_info['params']
-    assert last_run_info['params']['ls_factor'] == 20.0
+    assert last_run_info['params']['gp']['ls_factor'] == 20.0
 
 
 def test_compute_differential_abundance_with_random_state():

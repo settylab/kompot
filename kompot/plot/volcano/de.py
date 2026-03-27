@@ -569,6 +569,8 @@ def volcano_de(
 
     de_data = pd.DataFrame(data_dict)
 
+    bg_color_is_categorical = False
+
     # If color is provided, add it to the dataframe
     if color is not None and color in adata.var.columns:
         de_data["bg_color"] = adata.var[color].values

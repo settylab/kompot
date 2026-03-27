@@ -318,7 +318,7 @@ def test_compute_de_with_check_representation_true():
     
     # Make sure the cell_filter parameter is recorded
     assert 'params' in run_info
-    assert 'cell_filter' in run_info['params']
+    assert 'cell_filter' in run_info['params']['filter']
 
 
 def test_compute_de_with_check_representation_true_and_filter():

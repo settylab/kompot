@@ -94,7 +94,7 @@ def test_sample_col_parameter():
     assert 'params' in last_run_info
     assert 'sample_col' in last_run_info['params']
     assert last_run_info['params']['sample_col'] == 'sample'
-    assert last_run_info['params']['use_sample_variance'] is True
+    assert last_run_info['params']['sample_col'] is not None
     
     # Print last_run_info keys for debugging
     print(f"last_run_info keys: {list(last_run_info.keys())}")

@@ -117,7 +117,7 @@ def test_runcomparison_html_representation():
     assert '</div>' in html
     
     # Verify that comparison includes the different parameter
-    assert 'log_fold_change_threshold' in html
+    assert 'lfc_threshold' in html
 
 
 def test_field_tracking_display():
@@ -165,7 +165,7 @@ def test_field_tracking_display():
     
     # Verify comparison HTML contains key elements
     assert "Parameter Differences" in comparison_html
-    assert "log_fold_change_threshold" in comparison_html
+    assert "lfc_threshold" in comparison_html
     assert "Field Differences" in comparison_html
 
 
@@ -207,7 +207,7 @@ def test_field_ownership_in_comparison():
     
     # We should have parameter differences for log_fold_change_threshold
     assert "Parameter Differences" in html
-    assert "log_fold_change_threshold" in html
+    assert "lfc_threshold" in html
     assert "All Parameter Differences" in html
 
 
