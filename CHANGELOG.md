@@ -16,18 +16,25 @@ All notable changes to this project will be documented in this file.
  - **`CenteredLinear` kernel** for better extrapolation at cell-state boundaries (opt-in via `cov_func`; default remains Matern52).
  - **More accurate uncertainty**: density and expression estimators now use mellon 1.7.0's default optimizer instead of ADVI.
 
+### Run history and reproducibility
+
+ - Run parameters are now stored grouped by Settings dataclass, making them directly reconstructible.
+ - **`RunInfo.call_args()`** returns a kwargs dict that reproduces the run — edit it and pass to `de()`/`da()` to re-run with tweaked parameters.
+ - **`RunInfo.to_settings()`** returns the Settings objects from a previous run for inspection.
+
 ### Improvements
 
  - Plotting functions return `Optional[plt.Figure]` (controlled by `return_fig`) instead of `(fig, ax)` tuples, and no longer call `plt.show()`.
+ - Consistent parameter naming across plot functions: `background_color_key` → `color`, `de_column` → `direction_column`, `embedding_key` → `basis`.
  - `--no-progress` flag added to the DA CLI; progress bars can now be fully suppressed in both DA and DE.
  - FDR is disabled by default when `sample_col` is provided (not yet calibrated for sample variance). Override with `FDRSettings(null_genes=...)`.
+ - Remove `statsmodels` dependency.
 
 ### Bug fixes
 
  - Fix local FDR numerical instability (Grenander estimator replaces statsmodels Poisson GLM).
  - Fix tail FDR: replace Benjamini-Hochberg on empirical p-values (which breaks when `n_null` << `n_genes`) with fdrtool-style survival function ratio `Fdr(d) = S_null(d) / S_mix(d)`.
  - Fix `cell_filter` docs: parameter includes matching cells, not excludes.
- - Remove `statsmodels` dependency.
 
 ## [0.6.3]
 
