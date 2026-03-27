@@ -121,7 +121,7 @@ class TestVolcanoDEEdgeCases:
             self.adata,
             lfc_key='de_run1_mean_lfc_A_to_B',
             score_key='de_run1_mahalanobis_A_to_B',
-            background_color_key='binary_category',
+            color='binary_category',
             return_fig=True
         )
         assert fig is not None
@@ -133,7 +133,7 @@ class TestVolcanoDEEdgeCases:
             self.adata,
             lfc_key='de_run1_mean_lfc_A_to_B',
             score_key='de_run1_mahalanobis_A_to_B',
-            background_color_key='multi_category',
+            color='multi_category',
             return_fig=True
         )
         assert fig is not None
@@ -145,7 +145,7 @@ class TestVolcanoDEEdgeCases:
             self.adata,
             lfc_key='de_run1_mean_lfc_A_to_B',
             score_key='de_run1_mahalanobis_A_to_B',
-            background_color_key='boolean_flag',
+            color='boolean_flag',
             return_fig=True
         )
         assert fig is not None
@@ -157,7 +157,7 @@ class TestVolcanoDEEdgeCases:
             self.adata,
             lfc_key='de_run1_mean_lfc_A_to_B',
             score_key='de_run1_mahalanobis_A_to_B',
-            background_color_key='extreme_vals',
+            color='extreme_vals',
             return_fig=True
         )
         assert fig is not None
@@ -167,7 +167,7 @@ class TestVolcanoDEEdgeCases:
             self.adata,
             lfc_key='de_run1_mean_lfc_A_to_B',
             score_key='de_run1_mahalanobis_A_to_B',
-            background_color_key='extreme_vals',
+            color='extreme_vals',
             vmin='p5',
             vmax='p95',
             return_fig=True
@@ -206,7 +206,7 @@ class TestVolcanoDEEdgeCases:
             self.adata,
             lfc_key='de_run1_mean_lfc_A_to_B',
             score_key='de_run1_mahalanobis_A_to_B',
-            background_color_key='binary_category',
+            color='binary_category',
             background_cmap='Set2',  # Different colormap
             return_fig=True
         )
@@ -221,7 +221,7 @@ class TestVolcanoDEEdgeCases:
             self.adata,
             lfc_key='de_run1_mean_lfc_A_to_B',
             score_key='de_run1_mahalanobis_A_to_B',
-            background_color_key='binary_category',
+            color='binary_category',
             color_discrete_map=color_map,
             return_fig=True
         )
@@ -297,7 +297,7 @@ class TestVolcanoDEEdgeCases:
             self.adata,
             lfc_key='de_run1_mean_lfc_A_to_B',
             score_key='de_run1_mahalanobis_A_to_B',
-            background_color_key='extreme_vals',
+            color='extreme_vals',
             vmin='invalid_format',  # Should fallback to data min
             vmax='p95',
             return_fig=True

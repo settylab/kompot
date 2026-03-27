@@ -213,7 +213,7 @@ class TestPlotImputation:
         fig = kompot.plot.plot_imputation(
             adata_with_impute,
             genes=["gene_0", "gene_1"],
-            embedding_key="X_umap",
+            basis="X_umap",
             condition="all",
             return_fig=True,
         )
@@ -225,7 +225,7 @@ class TestPlotImputation:
         fig = kompot.plot.plot_imputation(
             adata_with_impute,
             genes=["gene_0"],
-            embedding_key="X_umap",
+            basis="X_umap",
             return_fig=True,
         )
         assert fig is not None
@@ -235,7 +235,7 @@ class TestPlotImputation:
         fig = kompot.plot.plot_imputation(
             adata_with_impute,
             genes=["gene_0"],
-            embedding_key="X_umap",
+            basis="X_umap",
             condition="all",
             show_obs_variance=True,
             return_fig=True,
@@ -257,7 +257,7 @@ class TestPlotImputation:
             fig = kompot.plot.plot_imputation(
                 adata_with_impute,
                 genes=["gene_0"],
-                embedding_key="X_umap",
+                basis="X_umap",
                 condition="A",
                 show_obs_variance=True,
                 return_fig=True,
@@ -273,14 +273,14 @@ class TestPlotImputation:
         with pytest.raises(ValueError, match="not found in adata.obsm"):
             kompot.plot.plot_imputation(
                 adata_with_impute, genes=["gene_0"],
-                embedding_key="nonexistent",
+                basis="nonexistent",
             )
 
     def test_plot_imputation_missing_layer_raises(self, adata_with_impute):
         with pytest.raises(ValueError, match="No imputation layers found"):
             kompot.plot.plot_imputation(
                 adata_with_impute, genes=["gene_0"],
-                embedding_key="X_umap",
+                basis="X_umap",
                 result_key="nonexistent_key",
             )
 

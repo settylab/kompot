@@ -160,7 +160,7 @@ class TestVolcanoFDRBasicFunctionality:
             score_key="kompot_de_A_to_B_mahalanobis",
             y_axis_type="local_fdr",
             n_top_genes=0,  # Don't highlight any genes
-            background_color_key=None,  # Disable automatic coloring to get single scatter
+            color=None,  # Disable automatic coloring to get single scatter
             ax=ax,
             show_legend=False,
         )
@@ -250,7 +250,7 @@ class TestVolcanoFDRColoring:
             lfc_key="kompot_de_A_to_B_mean_lfc",
             score_key="kompot_de_A_to_B_mahalanobis",
             y_axis_type="local_fdr",
-            background_color_key="custom_category",
+            color="custom_category",
             ax=ax,
             show_legend=False,
         )
@@ -268,7 +268,7 @@ class TestVolcanoFDRColoring:
 
         plt.close(fig)
 
-    def test_de_column_detection(self):
+    def test_direction_column_detection(self):
         """Test automatic DE column detection."""
         adata, _ = create_test_anndata_with_fdr()
 
@@ -482,7 +482,7 @@ class TestVolcanoFDRErrorHandling:
         assert ax.get_ylabel() in ["Mahalanobis Distance", "-log10(Local FDR)"]
         plt.close(fig)
 
-    def test_missing_de_column(self):
+    def test_missing_direction_column(self):
         """Test handling when DE boolean column is missing."""
         adata, _ = create_test_anndata_with_fdr()
 

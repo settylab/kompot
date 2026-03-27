@@ -114,7 +114,7 @@ class TestVolcanoPlotsCoverage:
                 plot_adata,
                 lfc_key='log_fold_change_A_to_B',
                 score_key='zscore_A_to_B',
-                background_color_key='pvalue_A_to_B',
+                color='pvalue_A_to_B',
                 gene_labels=False,
                 return_fig=True
             )

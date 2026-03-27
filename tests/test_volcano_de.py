@@ -199,7 +199,7 @@ class TestVolcanoDE:
             self.adata,
             lfc_key='de_run1_mean_lfc_A_to_B',
             score_key='de_run1_mahalanobis_A_to_B',
-            background_color_key='gene_category',
+            color='gene_category',
             return_fig=True
         )
         assert fig is not None
@@ -209,7 +209,7 @@ class TestVolcanoDE:
             self.adata,
             lfc_key='de_run1_mean_lfc_A_to_B',
             score_key='de_run1_mahalanobis_A_to_B',
-            background_color_key='gene_category',
+            color='gene_category',
             background_cmap='Set1',
             return_fig=True
         )
@@ -225,7 +225,7 @@ class TestVolcanoDE:
             self.adata,
             lfc_key='de_run1_mean_lfc_A_to_B',
             score_key='de_run1_mahalanobis_A_to_B',
-            background_color_key='gene_category',
+            color='gene_category',
             color_discrete_map=color_map,
             return_fig=True
         )
@@ -238,7 +238,7 @@ class TestVolcanoDE:
             self.adata,
             lfc_key='de_run1_mean_lfc_A_to_B',
             score_key='de_run1_mahalanobis_A_to_B',
-            background_color_key='gene_category',
+            color='gene_category',
             background_cmap=custom_cmap,
             return_fig=True
         )
@@ -250,7 +250,7 @@ class TestVolcanoDE:
             self.adata,
             lfc_key='de_run1_mean_lfc_A_to_B',
             score_key='de_run1_mahalanobis_A_to_B',
-            background_color_key='gene_expression',
+            color='gene_expression',
             return_fig=True
         )
         assert fig is not None
@@ -260,7 +260,7 @@ class TestVolcanoDE:
             self.adata,
             lfc_key='de_run1_mean_lfc_A_to_B',
             score_key='de_run1_mahalanobis_A_to_B',
-            background_color_key='gene_expression',
+            color='gene_expression',
             background_cmap='viridis',
             return_fig=True
         )
@@ -271,7 +271,7 @@ class TestVolcanoDE:
             self.adata,
             lfc_key='de_run1_mean_lfc_A_to_B',
             score_key='de_run1_mahalanobis_A_to_B',
-            background_color_key='gene_expression',
+            color='gene_expression',
             vmin=3, vmax=7, vcenter=5,
             return_fig=True
         )
@@ -282,7 +282,7 @@ class TestVolcanoDE:
             self.adata,
             lfc_key='de_run1_mean_lfc_A_to_B',
             score_key='de_run1_mahalanobis_A_to_B',
-            background_color_key='gene_expression',
+            color='gene_expression',
             vmin='p10', vmax='p90',
             return_fig=True
         )
@@ -647,7 +647,7 @@ class TestVolcanoDE:
             self.adata,
             lfc_key='de_run1_mean_lfc_A_to_B',
             score_key='de_run1_mahalanobis_A_to_B',
-            background_color_key='gene_expression',
+            color='gene_expression',
             ax=external_ax
         )
         

@@ -34,7 +34,7 @@ def volcano_de(
     condition2: Optional[str] = None,
     n_top_genes: Optional[int] = None,
     highlight_genes: Optional[Union[List[str], Dict[str, str], List[Dict[str, Any]]]] = None,
-    background_color_key: Optional[str] = None,
+    color: Optional[str] = None,
     background_cmap: Union[str, Colormap] = None,  # Will be auto-selected based on data type
     color_discrete_map: Optional[Dict[str, str]] = None,
     vmin: Optional[Union[float, str]] = None,
@@ -72,7 +72,7 @@ def volcano_de(
     y_axis_type: str = "mahalanobis",  # "mahalanobis", "local_fdr", "tail_fdr", "log10_ptp", or custom column name
     significance_threshold: Optional[Union[float, Dict[str, float]]] = None,
     update_de_classification: bool = False,
-    de_column: Optional[str] = None,
+    direction_column: Optional[str] = None,
     show_thresholds: bool = True,
     **kwargs,
 ) -> Optional[plt.Figure]:
@@ -102,12 +102,12 @@ def volcano_de(
         gene names to colors, or a list of dicts with keys ``'genes'``
         (required), ``'name'`` (optional), and ``'color'`` (optional).
         If provided, overrides ``n_top_genes``.
-    background_color_key : str, optional
+    color : str, optional
         Key in adata.var to use for coloring background genes. Can be continuous or categorical.
     background_cmap : str or Colormap, optional
         Colormap to use for background coloring. Default is for continuous 'Spectral_r'.
     color_discrete_map : dict, optional
-        Mapping of category values to colors for categorical background_color_key.
+        Mapping of category values to colors for categorical color.
         If not provided, colors will be selected from the colormap.
     vmin : float or str, optional
         Minimum value for colormap normalization. If a string starting with 'p' followed by a number,
@@ -141,7 +141,7 @@ def volcano_de(
     color_down : str, optional
         Color for down-regulated genes
     color_background : str, optional
-        Color for background genes when not using background_color_key
+        Color for background genes when not using color
     alpha_background : float, optional
         Alpha value for background genes (default: 1.0)
     point_size : float, optional
@@ -196,7 +196,7 @@ def volcano_de(
     update_de_classification : bool, optional
         Whether to update the differential expression classification column based on the new
         significance threshold. Applicable for FDR and ptp y_axis_types (default: False).
-    de_column : str, optional
+    direction_column : str, optional
         Name of the differential expression boolean column to update if update_de_classification=True.
         If None, tries to infer from the score_key.
     show_thresholds : bool, optional
@@ -524,23 +524,23 @@ def volcano_de(
         logger.info(f"Applied {y_axis_type} transformation to y-axis data")
 
     # Determine DE column for potential use
-    inferred_de_column = None
-    if de_column is None:
+    inferred_direction_column = None
+    if direction_column is None:
         # First try to get DE column from run info
         if run_info and "fdr_keys" in run_info and run_info["fdr_keys"]:
-            inferred_de_column = run_info["fdr_keys"].get("is_de_key")
-            logger.debug(f"Found is_de key from run info: {inferred_de_column}")
+            inferred_direction_column = run_info["fdr_keys"].get("is_de_key")
+            logger.debug(f"Found is_de key from run info: {inferred_direction_column}")
         
         # Fallback to string manipulation if run info doesn't have it
-        if inferred_de_column is None:
+        if inferred_direction_column is None:
             if significance_key and "mahalanobis" in significance_key:
-                inferred_de_column = significance_key.replace("mahalanobis_local_fdr", "is_de").replace(
+                inferred_direction_column = significance_key.replace("mahalanobis_local_fdr", "is_de").replace(
                     "mahalanobis_tail_fdr", "is_de"
                 )
             elif original_score_key and "mahalanobis" in original_score_key:
-                inferred_de_column = original_score_key.replace("mahalanobis", "is_de")
+                inferred_direction_column = original_score_key.replace("mahalanobis", "is_de")
     else:
-        inferred_de_column = de_column
+        inferred_direction_column = direction_column
 
     # Note: Removed automatic background coloring for DE columns
     # DE highlighting is now handled consistently through the highlight_groups system below
@@ -569,12 +569,12 @@ def volcano_de(
 
     de_data = pd.DataFrame(data_dict)
 
-    # If background_color_key is provided, add it to the dataframe
-    if background_color_key is not None and background_color_key in adata.var.columns:
-        de_data["bg_color"] = adata.var[background_color_key].values
+    # If color is provided, add it to the dataframe
+    if color is not None and color in adata.var.columns:
+        de_data["bg_color"] = adata.var[color].values
 
         # Determine if background color is categorical or continuous
-        bg_values = adata.var[background_color_key]
+        bg_values = adata.var[color]
         if (
             isinstance(bg_values.dtype, pd.CategoricalDtype)
             or bg_values.dtype == "object"
@@ -582,7 +582,7 @@ def volcano_de(
             or bg_values.dtype == "bool"
         ):
             bg_color_is_categorical = True
-            categories = adata.var[background_color_key].unique()
+            categories = adata.var[color].unique()
             logger.info(
                 f"Using categorical coloring for background with {len(categories):,} categories"
             )
@@ -745,11 +745,11 @@ def volcano_de(
                         continue
 
                     # Use provided color or auto-generate
-                    color = group.get("color")
+                    group_color = group.get("color")
                     name = group.get("name", f"Group {i+1}")
 
                     # Add group to list
-                    highlight_groups.append({"genes": valid_genes, "color": color, "name": name})
+                    highlight_groups.append({"genes": valid_genes, "color": group_color, "name": name})
                     logger.info(f"Added highlight group '{name}' with {len(valid_genes)} genes")
             elif all(isinstance(item, (str, int)) for item in highlight_genes):
                 # If highlight_genes is a list of strings or numbers, interpret as gene names
@@ -937,10 +937,10 @@ def volcano_de(
                 # Common logic for both float and dict formats
                 if len(significant_genes) > 0:
                     # Update DE classification if requested and we have a DE column
-                    if update_de_classification and inferred_de_column and inferred_de_column in adata.var.columns:
-                        old_count = np.sum(adata.var[inferred_de_column])
-                        adata.var[inferred_de_column] = significant_mask
-                        new_count = np.sum(adata.var[inferred_de_column])
+                    if update_de_classification and inferred_direction_column and inferred_direction_column in adata.var.columns:
+                        old_count = np.sum(adata.var[inferred_direction_column])
+                        adata.var[inferred_direction_column] = significant_mask
+                        new_count = np.sum(adata.var[inferred_direction_column])
                         if isinstance(significance_threshold, dict):
                             logger.info(f"Updated DE classification: {old_count} → {new_count} significant genes with multiple thresholds")
                         else:
@@ -986,12 +986,12 @@ def volcano_de(
             # Regular DE column logic (when no other highlighting mechanism is specified or failed)
             # Use DE column for highlighting when no threshold is specified, regardless of background coloring
             elif (
-                inferred_de_column
-                and inferred_de_column in adata.var.columns
+                inferred_direction_column
+                and inferred_direction_column in adata.var.columns
                 and highlight_genes is None  # Only use DE column if no specific genes highlighted
             ):
                 # Get genes marked as DE by filtering de_data using gene names
-                is_de_mask = de_data["gene"].isin(adata.var_names[adata.var[inferred_de_column]])
+                is_de_mask = de_data["gene"].isin(adata.var_names[adata.var[inferred_direction_column]])
                 de_genes_df = de_data[is_de_mask]
                 de_genes = de_genes_df["gene"].tolist()
                 
@@ -1025,7 +1025,7 @@ def volcano_de(
             else:
                 # Fallback to top genes approach if DE column not found
                 fallback_n = n_top_genes or 10  # Use 10 as fallback if n_top_genes is None
-                logger.info(f"DE column '{inferred_de_column}' not found. Falling back to top {fallback_n} genes by score.")
+                logger.info(f"DE column '{inferred_direction_column}' not found. Falling back to top {fallback_n} genes by score.")
                 top_genes = de_data.sort_values("sort_val", ascending=False).head(fallback_n)
                 highlight_groups.append(
                     {"genes": top_genes["gene"].tolist(), "name": f"Top {fallback_n} genes"}
@@ -1033,7 +1033,7 @@ def volcano_de(
                 logger.info(f"Highlighting top {fallback_n:,} genes by {sort_key or score_key}")
 
     # Plot background genes
-    if background_color_key is not None:
+    if color is not None:
         if bg_color_is_categorical:
             # Create a scatter plot for each category to add to legend
             for category, color in category_colors.items():
@@ -1091,7 +1091,7 @@ def volcano_de(
                 cbar = fig.colorbar(scatter, cax=cax, orientation="vertical")
 
                 # Adjust label and ticks for better visibility
-                cbar.set_label(background_color_key, fontsize=10)
+                cbar.set_label(color, fontsize=10)
                 cbar.ax.tick_params(labelsize=8)
     else:
         # Standard background coloring
@@ -1301,7 +1301,7 @@ def volcano_de(
 
     # Prepare to handle legend placement in coordination with the colorbar
     # Will place them both in a split sidebar when using continuous background colors
-    has_continuous_colorbar = background_color_key is not None and not bg_color_is_categorical
+    has_continuous_colorbar = color is not None and not bg_color_is_categorical
 
     # Add legend with appropriate styling
     if show_legend and legend_loc != "none":

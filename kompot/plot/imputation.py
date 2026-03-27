@@ -25,7 +25,7 @@ def plot_imputation(
     adata,
     genes: Optional[List[str]] = None,
     n_top_genes: int = 6,
-    embedding_key: str = "X_umap",
+    basis: str = "X_umap",
     result_key: str = "kompot_impute",
     condition: Optional[str] = None,
     layer: Optional[str] = None,
@@ -57,7 +57,7 @@ def plot_imputation(
         Genes to plot. If *None*, selects top genes by mean imputed value.
     n_top_genes : int
         Number of genes when ``genes`` is *None*. Max 8.
-    embedding_key : str
+    basis : str
         Key in ``adata.obsm`` for 2-D coordinates.
     result_key : str
         Base key used in ``impute_expression()``.
@@ -87,12 +87,12 @@ def plot_imputation(
     Figure or None
     """
     # --- Validate embedding ---
-    if embedding_key not in adata.obsm:
+    if basis not in adata.obsm:
         raise ValueError(
-            f"'{embedding_key}' not found in adata.obsm. "
+            f"'{basis}' not found in adata.obsm. "
             f"Available: {list(adata.obsm.keys())}"
         )
-    coords = adata.obsm[embedding_key]
+    coords = adata.obsm[basis]
     if coords.shape[1] < 2:
         raise ValueError(
             f"Embedding must have >= 2 dimensions, got {coords.shape[1]}"
@@ -137,7 +137,7 @@ def plot_imputation(
 
     # --- Prepare temporary obs columns for sc.pl.embedding ---
     _tmp_keys = []
-    basis = embedding_key.replace("X_", "")
+    sc_basis = basis.replace("X_", "")
 
     for gene in genes:
         gene_idx = list(adata.var_names).index(gene)
@@ -206,7 +206,7 @@ def plot_imputation(
         if _has_scanpy:
             sc.pl.embedding(
                 adata_sub,
-                basis=basis,
+                basis=sc_basis,
                 color=gene,
                 layer=layer,
                 color_map=cmap,
@@ -217,7 +217,7 @@ def plot_imputation(
         else:
             _scatter_fallback(
                 ax,
-                adata_sub.obsm[embedding_key][:, :2],
+                adata_sub.obsm[basis][:, :2],
                 _get_raw(adata_sub, gene, layer),
                 cmap=cmap,
                 n_obs=adata_sub.n_obs,
@@ -231,7 +231,7 @@ def plot_imputation(
         if _has_scanpy:
             sc.pl.embedding(
                 adata_sub,
-                basis=basis,
+                basis=sc_basis,
                 color=key_imp,
                 color_map=cmap,
                 title="",
@@ -241,7 +241,7 @@ def plot_imputation(
         else:
             _scatter_fallback(
                 ax,
-                adata_sub.obsm[embedding_key][:, :2],
+                adata_sub.obsm[basis][:, :2],
                 np.asarray(adata_sub.obs[key_imp]),
                 cmap=cmap,
                 n_obs=adata_sub.n_obs,
@@ -257,7 +257,7 @@ def plot_imputation(
             if _has_scanpy:
                 sc.pl.embedding(
                     adata_sub,
-                    basis=basis,
+                    basis=sc_basis,
                     color=key_std,
                     color_map=cmap_std,
                     title="",
@@ -267,7 +267,7 @@ def plot_imputation(
             else:
                 _scatter_fallback(
                     ax,
-                    adata_sub.obsm[embedding_key][:, :2],
+                    adata_sub.obsm[basis][:, :2],
                     np.asarray(adata_sub.obs[key_std]),
                     cmap=cmap_std,
                     n_obs=adata_sub.n_obs,
@@ -282,7 +282,7 @@ def plot_imputation(
             if _has_scanpy:
                 sc.pl.embedding(
                     adata_sub,
-                    basis=basis,
+                    basis=sc_basis,
                     color=key_ov,
                     color_map=cmap_std,
                     title="",
@@ -292,7 +292,7 @@ def plot_imputation(
             else:
                 _scatter_fallback(
                     ax,
-                    adata_sub.obsm[embedding_key][:, :2],
+                    adata_sub.obsm[basis][:, :2],
                     np.asarray(adata_sub.obs[key_ov]),
                     cmap=cmap_std,
                     n_obs=adata_sub.n_obs,
