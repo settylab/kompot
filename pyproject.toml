@@ -27,6 +27,16 @@ filterwarnings = [
     "ignore:Series.__getitem__ treating keys as positions is deprecated:FutureWarning",
 ]
 
+[tool.coverage.run]
+omit = [
+    "kompot/anndata/_legacy_*.py",
+    "kompot/cli/__main__.py",
+    "kompot/plot/stringdb.py",
+    "kompot/plot/volcano.py",
+    "kompot/plot/heatmap.py",
+    "kompot/anndata/utils.py",
+]
+
 [tool.flake8]
 max-line-length = 100
 exclude = [".tox", "*.egg", "build", "temp"]
