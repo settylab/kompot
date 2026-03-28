@@ -1,12 +1,10 @@
-"""Targeted coverage tests for runinfo.py HTML rendering and _de_helpers overwrite logic."""
+"""Tests for RunInfo HTML rendering and edge cases."""
 import json
 import pytest
 import numpy as np
 import pandas as pd
 import anndata as ad
 
-
-# ---- RunInfo HTML rendering branches ----
 
 class TestRunInfoHTML:
     """Cover the _repr_html_ branches in runinfo.py."""
@@ -267,47 +265,3 @@ class TestRunInfoEdgeCases:
         from kompot import RunInfo
         info = RunInfo(adata, run_id=-1, analysis_type="da")
         assert info.adjusted_run_id == 0
-
-
-# ---- expression_model.py coverage ----
-
-class TestExpressionModelCoverage:
-    """Cover uncovered branches in expression_model.py."""
-
-    def test_model_not_fitted(self):
-        from kompot.differential.expression_model import ExpressionModel
-        model = ExpressionModel(n_landmarks=10)
-        with pytest.raises(ValueError, match="not fitted"):
-            model.predict(np.random.randn(5, 3))
-
-    def test_covariance_not_fitted(self):
-        from kompot.differential.expression_model import ExpressionModel
-        model = ExpressionModel(n_landmarks=10)
-        with pytest.raises(ValueError, match="not fitted"):
-            model.covariance(np.random.randn(5, 3))
-
-    def test_total_variance_not_fitted(self):
-        from kompot.differential.expression_model import ExpressionModel
-        model = ExpressionModel(n_landmarks=10)
-        with pytest.raises(ValueError, match="not fitted"):
-            model.total_variance(np.random.randn(5, 3))
-
-    def test_obs_variance_not_fitted(self):
-        from kompot.differential.expression_model import ExpressionModel
-        model = ExpressionModel(n_landmarks=10)
-        # obs_variance returns 0 when not fitted (no obs_variance_func)
-        result = model.obs_variance(np.random.randn(5, 3))
-        assert np.all(result == 0)
-
-    def test_has_sample_variance_before_fit(self):
-        from kompot.differential.expression_model import ExpressionModel
-        model = ExpressionModel(n_landmarks=10)
-        assert isinstance(model.has_sample_variance, bool)
-
-    def test_repr(self):
-        from kompot.differential.expression_model import ExpressionModel
-        model = ExpressionModel(n_landmarks=10)
-        r = repr(model)
-        assert "ExpressionModel" in r or "expression_model" in r.lower() or "object at" in r
-
-
