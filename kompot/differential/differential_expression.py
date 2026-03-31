@@ -198,6 +198,7 @@ class DifferentialExpression:
 
         # Mahalanobis distances
         self.mahalanobis_distances = None
+        self._last_mahalanobis = None
         
     # ------------------------------------------------------------------
     # Backward-compatible properties delegating to model1/model2
@@ -860,6 +861,7 @@ class DifferentialExpression:
                 progress=progress,
             )
             result['mahalanobis_distances'] = mahalanobis_distances
+            self._last_mahalanobis = mahalanobis_distances
 
             if hasattr(self, '_last_mahalanobis_dof'):
                 logger.debug(f"Computing ptp with {self._last_mahalanobis_dof} degrees of freedom...")
@@ -868,3 +870,31 @@ class DifferentialExpression:
                 result['ptp'] = np.array(ptp)
 
         return result
+
+    def compute_fdr(self, null_mahalanobis, threshold=0.05, gene_names=None):
+        """Compute FDR for the last ``predict()`` using external null distances.
+
+        Parameters
+        ----------
+        null_mahalanobis : np.ndarray
+            Null Mahalanobis distances.
+        threshold : float
+            FDR threshold for the ``is_de`` column.
+        gene_names : list of str, optional
+            Gene names for the DataFrame index.
+
+        Returns
+        -------
+        pd.DataFrame
+            DataFrame with columns: ``mahalanobis``, ``pvalue``,
+            ``local_fdr``, ``tail_fdr``, ``is_de``.
+        """
+        from kompot.fdr import compute_fdr as _compute_fdr
+        if self._last_mahalanobis is None:
+            raise ValueError(
+                "No Mahalanobis distances available. "
+                "Call predict(compute_mahalanobis=True) first."
+            )
+        return _compute_fdr(
+            self._last_mahalanobis, null_mahalanobis, threshold, gene_names
+        )

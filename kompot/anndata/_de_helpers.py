@@ -585,6 +585,69 @@ def _augment_with_null_genes(
     return expr1, expr2, expanded_genes, null_gene_indices, True
 
 
+def _augment_with_external_null_expression(
+    expr1: np.ndarray,
+    expr2: np.ndarray,
+    expanded_genes: list,
+    null_gene_indices: list,
+    null_expr1: np.ndarray,
+    null_expr2: np.ndarray,
+) -> Tuple[np.ndarray, np.ndarray, list, list]:
+    """Append external null expression columns to expression matrices.
+
+    Parameters
+    ----------
+    expr1, expr2 : np.ndarray
+        Expression matrices for condition 1 and 2 (cells x genes).
+    expanded_genes : list
+        Current gene name list (real + any internal null genes).
+    null_gene_indices : list
+        Current null gene column indices.
+    null_expr1, null_expr2 : np.ndarray
+        External null expression for condition 1 and 2.
+
+    Returns
+    -------
+    (expr1, expr2, expanded_genes, null_gene_indices)
+        Updated with external null columns appended.
+    """
+    if null_expr1.shape[0] != expr1.shape[0]:
+        raise ValueError(
+            f"null_expression condition 1 has {null_expr1.shape[0]} cells "
+            f"but condition 1 has {expr1.shape[0]} cells."
+        )
+    if null_expr2.shape[0] != expr2.shape[0]:
+        raise ValueError(
+            f"null_expression condition 2 has {null_expr2.shape[0]} cells "
+            f"but condition 2 has {expr2.shape[0]} cells."
+        )
+
+    if null_expr1.ndim == 1:
+        null_expr1 = null_expr1[:, np.newaxis]
+    if null_expr2.ndim == 1:
+        null_expr2 = null_expr2[:, np.newaxis]
+
+    if null_expr1.shape[1] != null_expr2.shape[1]:
+        raise ValueError(
+            f"null_expression matrices have different numbers of columns: "
+            f"{null_expr1.shape[1]} vs {null_expr2.shape[1]}."
+        )
+
+    n_existing = expr1.shape[1]
+    n_external = null_expr1.shape[1]
+
+    expr1 = np.hstack([expr1, null_expr1])
+    expr2 = np.hstack([expr2, null_expr2])
+
+    ext_names = [f"NULL_EXT_{i}" for i in range(n_external)]
+    expanded_genes = list(expanded_genes) + ext_names
+
+    ext_indices = list(range(n_existing, n_existing + n_external))
+    null_gene_indices = list(null_gene_indices) + ext_indices
+
+    return expr1, expr2, expanded_genes, null_gene_indices
+
+
 # ---------------------------------------------------------------------------
 # 5. FDR computation (split null results)
 # ---------------------------------------------------------------------------
@@ -595,6 +658,8 @@ def _compute_fdr(
     expanded_genes: list,
     null_gene_indices: list,
     fdr_threshold: float,
+    external_null_mahalanobis: Optional[np.ndarray] = None,
+    combine_nulls: bool = False,
 ) -> dict:
     """Compute FDR statistics and strip null genes from expression_results.
 
@@ -613,7 +678,18 @@ def _compute_fdr(
 
     all_mahalanobis = expression_results["mahalanobis_distances"]
     real_mahalanobis = all_mahalanobis[:n_real]
-    null_mahalanobis = all_mahalanobis[n_real:]
+    internal_null_mahalanobis = all_mahalanobis[n_real:]
+
+    # Resolve null distribution: external, combined, or internal only
+    if external_null_mahalanobis is not None:
+        if combine_nulls and len(internal_null_mahalanobis) > 0:
+            null_mahalanobis = np.concatenate(
+                [internal_null_mahalanobis, external_null_mahalanobis]
+            )
+        else:
+            null_mahalanobis = external_null_mahalanobis
+    else:
+        null_mahalanobis = internal_null_mahalanobis
 
     pvalues, local_fdr, tail_fdr, is_significant = compute_fdr_statistics(
         real_mahalanobis=real_mahalanobis,

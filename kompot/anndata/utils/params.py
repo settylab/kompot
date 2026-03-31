@@ -64,6 +64,10 @@ def _settings_to_dict(obj) -> Dict[str, Any]:
     for k, v in d.items():
         if isinstance(v, np.ndarray):
             d[k] = f"<array shape={v.shape}>"
+        elif isinstance(v, (tuple, list)) and any(
+            isinstance(x, np.ndarray) for x in v
+        ):
+            d[k] = f"<tuple of {len(v)} arrays>"
     return d
 
 

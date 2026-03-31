@@ -20,6 +20,7 @@ from ._de_helpers import (
     _extract_de_data,
     _resolve_landmarks,
     _augment_with_null_genes,
+    _augment_with_external_null_expression,
     _compute_fdr,
     _store_de_results,
     _store_landmarks,
@@ -128,6 +129,9 @@ def de(
     null_genes = _fdr.null_genes
     null_seed = _fdr.null_seed
     fdr_threshold = _fdr.threshold
+    ext_null_mahalanobis = _fdr.null_mahalanobis
+    ext_null_expression = _fdr.null_expression
+    combine_with_internal = _fdr.combine_with_internal
 
     cell_filter = _filter.cell_filter
     groups = _filter.groups
@@ -150,6 +154,38 @@ def de(
     compute_mahalanobis = _output.compute_mahalanobis
     allow_single_condition_variance = _output.allow_single_condition_variance
     progress = _output.progress
+
+    # ---- Validate external null settings ----
+    if ext_null_mahalanobis is not None and ext_null_expression is not None:
+        raise ValueError(
+            "null_mahalanobis and null_expression are mutually exclusive. "
+            "Provide one or the other, not both."
+        )
+
+    if ext_null_expression is not None:
+        _model_check = model if model is not None else ModelSettings()
+        _has_prefitted_for_null = (
+            _model_check.function_predictor1 is not None
+            or _model_check.function_predictor2 is not None
+            or _model_check.model1 is not None
+            or _model_check.model2 is not None
+        )
+        if _has_prefitted_for_null:
+            raise ValueError(
+                "null_expression cannot be used with pre-fitted models or "
+                "predictors. The expression columns must go through the GP "
+                "fitting step, but pre-fitted predictors skip fitting."
+            )
+
+    if combine_with_internal and (null_genes is None or null_genes == 0):
+        if ext_null_mahalanobis is not None or ext_null_expression is not None:
+            warnings.warn(
+                "combine_with_internal=True but null_genes=0/None — there are "
+                "no internal null genes to combine with. Only the external null "
+                "distribution will be used.",
+                UserWarning,
+                stacklevel=2,
+            )
 
     # ---- dry run ----
     if dry_run:
@@ -190,9 +226,14 @@ def de(
         else:
             null_genes = 2000
 
+    has_external_null = (
+        ext_null_mahalanobis is not None or ext_null_expression is not None
+    )
     use_fdr = (
-        null_genes is not None
-        and null_genes != 0
+        (
+            (null_genes is not None and null_genes != 0)
+            or has_external_null
+        )
         and compute_mahalanobis
     )
     use_sample_variance = sample_col is not None
@@ -278,11 +319,30 @@ def de(
             "pass their indices as null_genes=[...], or set null_genes=0."
         )
     else:
-        expr1, expr2, expanded_genes, null_gene_indices, use_fdr = (
+        expr1, expr2, expanded_genes, null_gene_indices, _internal_use_fdr = (
             _augment_with_null_genes(
                 adata, expr1, expr2, mask1, mask2, selected_genes,
                 null_genes, null_seed, compute_mahalanobis, layer,
             )
+        )
+        # Preserve use_fdr=True when external null is provided even if
+        # internal null genes are disabled (null_genes=0).
+        if not has_external_null:
+            use_fdr = _internal_use_fdr
+
+    # ---- 4b. External null expression augmentation ----
+    if ext_null_expression is not None:
+        null_expr1, null_expr2 = ext_null_expression
+        expr1, expr2, expanded_genes, null_gene_indices = (
+            _augment_with_external_null_expression(
+                expr1, expr2, expanded_genes, null_gene_indices,
+                null_expr1, null_expr2,
+            )
+        )
+        use_fdr = compute_mahalanobis
+        logger.info(
+            f"Appended {null_expr1.shape[1] if null_expr1.ndim > 1 else 1} "
+            f"external null expression columns."
         )
 
     # ---- 5. Resolve landmarks ----
@@ -344,11 +404,15 @@ def de(
 
     # ---- 9. FDR ----
     fdr_results = {}
-    if use_fdr and null_gene_indices and compute_mahalanobis:
+    _has_null_genes = null_gene_indices and len(null_gene_indices) > 0
+    _has_ext_null = ext_null_mahalanobis is not None
+    if use_fdr and (_has_null_genes or _has_ext_null) and compute_mahalanobis:
         logger.debug("Computing FDR statistics from null distribution")
         fdr_results = _compute_fdr(
             expression_results, selected_genes, expanded_genes,
             null_gene_indices, fdr_threshold,
+            external_null_mahalanobis=ext_null_mahalanobis,
+            combine_nulls=combine_with_internal,
         )
 
     # ---- 10. Posterior covariance ----

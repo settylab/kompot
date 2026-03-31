@@ -12,9 +12,17 @@ All notable changes to this project will be documented in this file.
 
 ### New features
 
+ - **External null distributions for FDR**: supply your own null distribution instead of relying on column-shuffled null genes.
+   - `FDRSettings(null_mahalanobis=...)`: pre-computed null Mahalanobis distances (e.g., from a control-vs-control run).
+   - `FDRSettings(null_expression=(expr1, expr2))`: raw null expression matrices fitted through the same GP model.
+   - `FDRSettings(combine_with_internal=True)`: concatenate external and internal null distributions.
+ - **`kompot.compute_fdr(real_mahal, null_mahal)`**: standalone FDR computation from Mahalanobis distances (no AnnData needed). Returns a DataFrame with `mahalanobis`, `pvalue`, `local_fdr`, `tail_fdr`, `is_de`.
+ - **`kompot.extract_null_distribution(adata)`**: extract Mahalanobis distances from a DE run for reuse as a null distribution elsewhere.
+ - **`kompot.recompute_fdr(adata, null_mahalanobis)`**: recompute FDR on existing DE results with a new null distribution, updating `adata.var` in place.
+ - **`DifferentialExpression.compute_fdr(null_mahal)`**: sklearn-like method to compute FDR after `predict(compute_mahalanobis=True)`.
  - **Empirical variance** (`GPSettings(use_empirical_variance=True)`): estimates per-gene heteroscedastic noise from GP residuals and adjusts Mahalanobis distances accordingly. Works with or without biological replicates.
  - **`CenteredLinear` kernel** for better extrapolation at cell-state boundaries (opt-in via `cov_func`; default remains Matern52).
- - **More accurate uncertainty**: density and expression estimators now use mellon 1.7.0's default optimizer instead of ADVI.
+ - **More accurate uncertainty**: density estimators now use mellon 1.7.0's default Laplacian optimizer instead of ADVI.
 
 ### Run history and reproducibility
 

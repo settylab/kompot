@@ -30,7 +30,11 @@ class TestSettingsToDict:
     def test_basic_dataclass(self):
         fdr = FDRSettings(null_genes=100, null_seed=7, threshold=0.1)
         d = _settings_to_dict(fdr)
-        assert d == {"null_genes": 100, "null_seed": 7, "threshold": 0.1}
+        assert d == {
+            "null_genes": 100, "null_seed": 7, "threshold": 0.1,
+            "null_mahalanobis": None, "null_expression": None,
+            "combine_with_internal": False,
+        }
 
     def test_numpy_array_replaced(self):
         landmarks = np.zeros((50, 3))

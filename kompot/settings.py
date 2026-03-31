@@ -10,7 +10,7 @@ All settings are optional — ``None`` means "use kompot's default".
 """
 
 from dataclasses import dataclass, field, fields, asdict
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import pandas as pd
@@ -84,11 +84,31 @@ class FDRSettings:
         Random seed for null-gene sampling.
     threshold : float
         FDR threshold for the ``is_de`` boolean column.
+    null_mahalanobis : np.ndarray, optional
+        Pre-computed null Mahalanobis distances.  When provided, these
+        are used directly as the null distribution for FDR estimation,
+        bypassing internal null gene generation.  Mutually exclusive
+        with ``null_expression``.
+    null_expression : tuple of (np.ndarray, np.ndarray), optional
+        External null expression data as ``(expr1, expr2)``.  These
+        columns are appended to the expression matrices and fitted
+        through the same GP model, then their Mahalanobis distances
+        form the null distribution.  Mutually exclusive with
+        ``null_mahalanobis``.
+    combine_with_internal : bool
+        If ``True``, concatenate external null distances with
+        internally generated null distances.  If ``False`` (default),
+        the external null replaces the internal one entirely.
     """
 
     null_genes: Union[int, List[int], str, None] = "auto"
     null_seed: Optional[int] = 42
     threshold: float = 0.05
+
+    # External null distribution
+    null_mahalanobis: Optional[np.ndarray] = None
+    null_expression: Optional[Tuple[np.ndarray, np.ndarray]] = None
+    combine_with_internal: bool = False
 
 
 @dataclass

@@ -472,3 +472,176 @@ def annotate_differential_genes(
     }
 
     return de_boolean_series, summary_stats
+
+
+def recompute_fdr(
+    adata,
+    null_mahalanobis: np.ndarray,
+    threshold: float = 0.05,
+    run_id: int = -1,
+    result_key: Optional[str] = None,
+    inplace: bool = True,
+) -> pd.DataFrame:
+    """Recompute FDR for existing DE results using a new null distribution.
+
+    Reads Mahalanobis distances from ``adata.var`` for the specified run,
+    computes new FDR statistics, and optionally updates ``adata.var``
+    in place.
+
+    Parameters
+    ----------
+    adata : AnnData
+        AnnData object with existing DE results.
+    null_mahalanobis : np.ndarray
+        New null Mahalanobis distances.
+    threshold : float
+        FDR threshold for the ``is_de`` boolean column.
+    run_id : int
+        Which DE run to use (negative indices count from the end).
+    result_key : str, optional
+        Storage key prefix.  If ``None``, auto-detected from run history.
+    inplace : bool
+        If ``True``, update ``adata.var`` columns in place.
+
+    Returns
+    -------
+    pd.DataFrame
+        DataFrame with columns: ``mahalanobis``, ``pvalue``,
+        ``local_fdr``, ``tail_fdr``, ``is_de``.
+    """
+    from .utils.field_tracking import get_run_from_history
+
+    null_mahalanobis = np.asarray(null_mahalanobis, dtype=float)
+
+    # Resolve result_key and find the run
+    if result_key is None:
+        result_key = "kompot_de"
+    run_info = get_run_from_history(adata, run_id=run_id, analysis_type="de")
+    if run_info is None:
+        raise ValueError(
+            f"No DE run found with run_id={run_id} under '{result_key}'."
+        )
+
+    field_mapping = run_info.get("field_mapping", {})
+
+    # Find the mahalanobis column name
+    mahal_col = None
+    for col_name, meta in field_mapping.items():
+        if meta.get("location") == "var" and meta.get("type") == "mahalanobis":
+            mahal_col = col_name
+            break
+    if mahal_col is None:
+        # Fallback: look for a column matching the pattern
+        for col in adata.var.columns:
+            if "mahalanobis" in col.lower() and result_key in col:
+                mahal_col = col
+                break
+    if mahal_col is None:
+        raise ValueError(
+            "Could not find Mahalanobis distance column in adata.var for "
+            f"result_key='{result_key}', run_id={run_id}."
+        )
+
+    real_mahalanobis = adata.var[mahal_col].values
+    valid_mask = ~np.isnan(real_mahalanobis)
+    real_valid = real_mahalanobis[valid_mask]
+
+    pvalues, local_fdr, tail_fdr, is_significant = compute_fdr_statistics(
+        real_mahalanobis=real_valid,
+        null_mahalanobis=null_mahalanobis,
+        fdr_threshold=threshold,
+    )
+
+    # Build result DataFrame (all genes, NaN where original was NaN)
+    n_genes = len(real_mahalanobis)
+    full_pvalues = np.full(n_genes, np.nan)
+    full_local_fdr = np.full(n_genes, np.nan)
+    full_tail_fdr = np.full(n_genes, np.nan)
+    full_is_de = np.full(n_genes, False)
+
+    full_pvalues[valid_mask] = pvalues
+    full_local_fdr[valid_mask] = local_fdr
+    full_tail_fdr[valid_mask] = tail_fdr
+    full_is_de[valid_mask] = is_significant
+
+    result_df = pd.DataFrame(
+        {
+            "mahalanobis": real_mahalanobis,
+            "pvalue": full_pvalues,
+            "local_fdr": full_local_fdr,
+            "tail_fdr": full_tail_fdr,
+            "is_de": full_is_de,
+        },
+        index=adata.var_names,
+    )
+
+    if inplace:
+        # Find and update the FDR columns
+        for col_name, meta in field_mapping.items():
+            if meta.get("location") != "var":
+                continue
+            col_type = meta.get("type", "")
+            if col_type == "pvalue" and col_name in adata.var.columns:
+                adata.var[col_name] = full_pvalues
+            elif col_type == "local_fdr" and col_name in adata.var.columns:
+                adata.var[col_name] = full_local_fdr
+            elif col_type == "tail_fdr" and col_name in adata.var.columns:
+                adata.var[col_name] = full_tail_fdr
+            elif col_type == "is_de" and col_name in adata.var.columns:
+                adata.var[col_name] = full_is_de
+
+    return result_df
+
+
+def extract_null_distribution(
+    adata,
+    run_id: int = -1,
+    result_key: Optional[str] = None,
+) -> np.ndarray:
+    """Extract Mahalanobis distances from a DE run for use as null distribution.
+
+    Parameters
+    ----------
+    adata : AnnData
+        AnnData object with existing DE results.
+    run_id : int
+        Which DE run to use (negative indices count from the end).
+    result_key : str, optional
+        Storage key prefix.  If ``None``, auto-detected.
+
+    Returns
+    -------
+    np.ndarray
+        Mahalanobis distances (NaN values dropped).
+    """
+    from .utils.field_tracking import get_run_from_history
+
+    if result_key is None:
+        result_key = "kompot_de"
+    run_info = get_run_from_history(adata, run_id=run_id, analysis_type="de")
+    if run_info is None:
+        raise ValueError(
+            f"No DE run found with run_id={run_id} under '{result_key}'."
+        )
+
+    field_mapping = run_info.get("field_mapping", {})
+
+    # Find the mahalanobis column name
+    mahal_col = None
+    for col_name, meta in field_mapping.items():
+        if meta.get("location") == "var" and meta.get("type") == "mahalanobis":
+            mahal_col = col_name
+            break
+    if mahal_col is None:
+        for col in adata.var.columns:
+            if "mahalanobis" in col.lower() and result_key in col:
+                mahal_col = col
+                break
+    if mahal_col is None:
+        raise ValueError(
+            "Could not find Mahalanobis distance column in adata.var for "
+            f"result_key='{result_key}', run_id={run_id}."
+        )
+
+    distances = adata.var[mahal_col].values.astype(float)
+    return distances[~np.isnan(distances)]

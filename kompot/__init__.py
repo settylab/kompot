@@ -33,6 +33,9 @@ from .batch_utils import batch_process, apply_batched
 # Import resource estimation utilities
 from .resource_estimation import dry_run_differential_expression
 
+# Import standalone FDR function
+from .fdr import compute_fdr
+
 # Import settings dataclasses
 from .settings import (
     GPSettings,
@@ -59,7 +62,9 @@ from .anndata import (
     RunInfo,
     RunComparison,
     cleanup,
-    get_field_status
+    get_field_status,
+    recompute_fdr,
+    extract_null_distribution,
 )
 
 
@@ -115,6 +120,9 @@ __all__ = [
 
     # Resource estimation
     "dry_run_differential_expression",
+
+    # Standalone FDR
+    "compute_fdr", "recompute_fdr", "extract_null_distribution",
 
     # AnnData functionality (deprecated, use de()/da())
     "compute_differential_abundance", "compute_differential_expression",
