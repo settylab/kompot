@@ -660,11 +660,23 @@ def _compute_fdr(
     fdr_threshold: float,
     external_null_mahalanobis: Optional[np.ndarray] = None,
     combine_nulls: bool = False,
+    return_null_data: bool = False,
+    return_full_results: bool = False,
+    null_seed: Optional[int] = None,
 ) -> dict:
     """Compute FDR statistics and strip null genes from expression_results.
 
     Modifies ``expression_results`` in-place (removes null gene columns).
     Returns the fdr_results dict (empty if nothing computed).
+
+    Parameters
+    ----------
+    return_null_data : bool
+        If True, capture lightweight null metadata (table, indices, seed).
+    return_full_results : bool
+        If True, also capture full expression matrices for null genes.
+    null_seed : int, optional
+        Seed used for null gene generation (stored for reproducibility).
     """
     from .fdr_utils import compute_fdr_statistics, annotate_differential_genes
 
@@ -723,6 +735,57 @@ def _compute_fdr(
             f"Mahalanobis distance threshold for FDR < {fdr_threshold}: "
             f"{summary_stats['min_significant_mahalanobis']:.4f}"
         )
+
+    # Capture null gene data before stripping
+    if return_null_data or return_full_results:
+        null_gene_names = expanded_genes[n_real:]
+
+        # Determine provenance
+        has_internal = len(internal_null_mahalanobis) > 0
+        has_external = external_null_mahalanobis is not None
+        if has_internal and has_external and combine_nulls:
+            source = "combined"
+        elif has_external and not has_internal:
+            source = "external"
+        else:
+            source = "internal"
+
+        null_data = {
+            "mahalanobis": null_mahalanobis,
+            "gene_indices": null_gene_indices,
+            "gene_names": null_gene_names,
+            "seed": null_seed,
+            "n_null": len(null_mahalanobis),
+            "source": source,
+        }
+
+        # Build a lightweight table
+        null_table_data = {
+            "mahalanobis": internal_null_mahalanobis,
+            "mean_lfc": expression_results["mean_log_fold_change"][n_real:],
+        }
+        if "ptp" in expression_results:
+            null_table_data["ptp"] = expression_results["ptp"][n_real:]
+        null_data["table"] = pd.DataFrame(
+            null_table_data, index=null_gene_names,
+        )
+
+        # Full expression matrices (only with return_full_results)
+        if return_full_results:
+            n_total = n_real + len(null_gene_names)
+            for key in (
+                "condition1_imputed", "condition2_imputed",
+                "fold_change", "fold_change_zscores",
+                "condition1_std", "condition2_std",
+            ):
+                if key not in expression_results:
+                    continue
+                arr = expression_results[key]
+                # Only slice if the array has per-gene columns (not broadcast)
+                if arr.ndim == 2 and arr.shape[1] >= n_total:
+                    null_data[key] = arr[:, n_real:]
+
+        fdr_results["null"] = null_data
 
     # Strip null genes from expression_results
     for key in [

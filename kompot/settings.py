@@ -254,6 +254,15 @@ class OutputSettings:
         Write results into the AnnData object.
     return_full_results : bool
         Return the full results dict (model, table, landmarks, ...).
+        When True, ``result_dict["null"]`` includes the full null gene
+        expression matrices, fold changes, and imputations alongside
+        the lightweight metadata.
+    return_null_data : bool
+        Include lightweight null-distribution metadata in the returned
+        results dict (gene indices, names, seed, Mahalanobis distances)
+        without the full expression matrices.  Ignored when
+        ``return_full_results`` is True (which already includes
+        everything).
     compute_mahalanobis : bool
         Compute per-gene Mahalanobis distances (DE only).
     allow_single_condition_variance : bool
@@ -266,6 +275,7 @@ class OutputSettings:
     copy: bool = False
     inplace: bool = True
     return_full_results: bool = False
+    return_null_data: bool = False
     compute_mahalanobis: bool = True
     allow_single_condition_variance: bool = False
     progress: bool = True

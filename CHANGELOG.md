@@ -12,6 +12,7 @@ All notable changes to this project will be documented in this file.
 
 ### New features
 
+ - **Null distribution inspection**: `return_full_results=True` now includes a `"null"` key in the result dict exposing all null gene data: Mahalanobis distances, imputed expression, fold changes, z-scores, and standard deviations. A lightweight alternative (`OutputSettings(return_null_data=True)`) returns only the summary table and metadata (gene indices, names, seed, provenance) without the full expression matrices.
  - **External null distributions for FDR**: supply your own null distribution instead of relying on column-shuffled null genes.
    - `FDRSettings(null_mahalanobis=...)`: pre-computed null Mahalanobis distances (e.g., from a control-vs-control run).
    - `FDRSettings(null_expression=(expr1, expr2))`: raw null expression matrices fitted through the same GP model.

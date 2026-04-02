@@ -151,6 +151,7 @@ def de(
     copy = _output.copy
     inplace = _output.inplace
     return_full_results = _output.return_full_results
+    return_null_data = _output.return_null_data
     compute_mahalanobis = _output.compute_mahalanobis
     allow_single_condition_variance = _output.allow_single_condition_variance
     progress = _output.progress
@@ -413,6 +414,9 @@ def de(
             null_gene_indices, fdr_threshold,
             external_null_mahalanobis=ext_null_mahalanobis,
             combine_nulls=combine_with_internal,
+            return_null_data=return_null_data,
+            return_full_results=return_full_results,
+            null_seed=null_seed,
         )
 
     # ---- 10. Posterior covariance ----
@@ -434,6 +438,8 @@ def de(
         results_data["tail_fdr"] = fdr_results["tail_fdr_values"]
         results_data["is_de"] = fdr_results["is_significant"]
         result_dict["fdr_summary"] = fdr_results["summary_stats"]
+        if "null" in fdr_results:
+            result_dict["null"] = fdr_results["null"]
 
     if compute_mahalanobis and "mahalanobis_distances" in expression_results:
         results_data["mahalanobis"] = expression_results["mahalanobis_distances"]
@@ -533,6 +539,7 @@ def de(
             output=OutputSettings(
                 copy=copy, inplace=inplace,
                 return_full_results=return_full_results,
+                return_null_data=return_null_data,
                 compute_mahalanobis=compute_mahalanobis,
                 allow_single_condition_variance=allow_single_condition_variance,
                 progress=progress,
