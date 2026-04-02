@@ -212,21 +212,8 @@ class TestReturnNullDataLightweight:
     """When return_null_data=True (without return_full_results),
     result_dict should contain null metadata but NOT expression matrices."""
 
-    def test_null_key_present(self):
-        adata = _make_adata()
-        result = kompot.de(
-            adata, "condition", "A", "B",
-            gp=kompot.GPSettings(**_FAST_GP),
-            fdr=FDRSettings(null_genes=10, null_seed=42),
-            output=OutputSettings(
-                return_full_results=True,
-                return_null_data=True,
-                progress=False,
-            ),
-        )
-        assert "null" in result
-
-    def test_lightweight_has_table_and_metadata(self):
+    def test_null_key_present_without_return_full_results(self):
+        """return_null_data=True alone should return the result dict."""
         adata = _make_adata()
         result = kompot.de(
             adata, "condition", "A", "B",
@@ -236,23 +223,56 @@ class TestReturnNullDataLightweight:
                 return_full_results=False,
                 return_null_data=True,
                 progress=False,
-                inplace=False,
             ),
         )
-        # return_null_data alone requires return_full_results to get the dict
-        # With return_full_results=False and inplace=False, result is None.
-        # The null data only surfaces through the result_dict, which requires
-        # return_full_results=True. Let's test with it on.
+        assert isinstance(result, dict)
+        assert "null" in result
+        assert "table" in result  # result dict always has a table
 
-    def test_no_expression_matrices_when_lightweight(self):
-        """return_null_data=True without return_full_results should NOT
-        include the large expression matrices in the null dict."""
+    def test_lightweight_no_expression_in_null(self):
+        """return_null_data=True without return_full_results should return
+        the dict but the null entry should NOT have expression matrices."""
         adata = _make_adata()
-        # return_null_data=True but return_full_results=False:
-        # We need return_full_results=True to actually get the dict back,
-        # so the distinction is: return_null_data alone triggers lightweight,
-        # return_full_results triggers full. Test the internal _compute_fdr
-        # directly.
+        result = kompot.de(
+            adata, "condition", "A", "B",
+            gp=kompot.GPSettings(**_FAST_GP),
+            fdr=FDRSettings(null_genes=10, null_seed=42),
+            output=OutputSettings(
+                return_full_results=False,
+                return_null_data=True,
+                progress=False,
+            ),
+        )
+        null = result["null"]
+        assert isinstance(null["table"], pd.DataFrame)
+        assert null["seed"] == 42
+        for key in (
+            "condition1_imputed", "condition2_imputed",
+            "fold_change", "fold_change_zscores",
+        ):
+            assert key not in null, f"Lightweight mode should not include {key}"
+
+    def test_return_null_data_with_copy(self):
+        """return_null_data=True with copy=True returns (dict, adata)."""
+        adata = _make_adata()
+        result = kompot.de(
+            adata, "condition", "A", "B",
+            gp=kompot.GPSettings(**_FAST_GP),
+            fdr=FDRSettings(null_genes=10, null_seed=42),
+            output=OutputSettings(
+                return_full_results=False,
+                return_null_data=True,
+                copy=True,
+                progress=False,
+            ),
+        )
+        assert isinstance(result, tuple)
+        result_dict, adata_copy = result
+        assert "null" in result_dict
+
+    def test_no_expression_matrices_when_lightweight_internal(self):
+        """Test _compute_fdr directly: return_null_data without
+        return_full_results should not capture expression matrices."""
         from kompot.anndata._de_helpers import _compute_fdr
 
         n_real = 10

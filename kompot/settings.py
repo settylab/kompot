@@ -258,11 +258,11 @@ class OutputSettings:
         expression matrices, fold changes, and imputations alongside
         the lightweight metadata.
     return_null_data : bool
-        Include lightweight null-distribution metadata in the returned
-        results dict (gene indices, names, seed, Mahalanobis distances)
-        without the full expression matrices.  Ignored when
-        ``return_full_results`` is True (which already includes
-        everything).
+        Return the results dict with lightweight null-distribution
+        metadata (gene indices, names, seed, Mahalanobis distances)
+        without the full expression matrices.  When
+        ``return_full_results`` is also True, the null data
+        additionally includes the full expression matrices.
     compute_mahalanobis : bool
         Compute per-gene Mahalanobis distances (DE only).
     allow_single_condition_variance : bool

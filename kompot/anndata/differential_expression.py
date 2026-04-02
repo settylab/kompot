@@ -559,11 +559,12 @@ def de(
         )
 
     # ---- 15. Return ----
+    _return_dict = return_full_results or return_null_data
     if copy:
-        if return_full_results:
+        if _return_dict:
             return result_dict, adata
         return adata
-    if return_full_results:
+    if _return_dict:
         return result_dict
     return None
 
