@@ -5,6 +5,7 @@ import pandas as pd
 import pytest
 import anndata
 import kompot
+from kompot import GPSettings, StorageSettings, OutputSettings
 
 
 @pytest.fixture
@@ -25,10 +26,15 @@ def adata():
     return ad
 
 
+GP_FAST = GPSettings(n_landmarks=30)
+
+
 class TestImputeExpression:
 
     def test_basic_impute(self, adata):
-        kompot.impute_expression(adata, n_landmarks=30, progress=False)
+        kompot.impute_expression(
+            adata, gp=GP_FAST, output=OutputSettings(progress=False),
+        )
         assert "kompot_impute_all_imputed" in adata.layers
         assert "kompot_impute_all_std" in adata.layers
         assert not np.all(np.isnan(adata.layers["kompot_impute_all_imputed"]))
@@ -37,7 +43,7 @@ class TestImputeExpression:
     def test_impute_with_condition(self, adata):
         kompot.impute_expression(
             adata, groupby="condition", condition="A",
-            n_landmarks=30, progress=False,
+            gp=GP_FAST, output=OutputSettings(progress=False),
         )
         imputed = adata.layers["kompot_impute_A_imputed"]
         mask_a = (adata.obs["condition"] == "A").values
@@ -48,8 +54,9 @@ class TestImputeExpression:
 
     def test_impute_with_empirical_variance(self, adata):
         kompot.impute_expression(
-            adata, use_empirical_variance=True,
-            n_landmarks=30, progress=False,
+            adata,
+            gp=GPSettings(n_landmarks=30, use_empirical_variance=True),
+            output=OutputSettings(progress=False),
         )
         assert "kompot_impute_all_obs_variance" in adata.layers
         assert not np.all(np.isnan(adata.layers["kompot_impute_all_obs_variance"]))
@@ -58,14 +65,14 @@ class TestImputeExpression:
         kompot.impute_expression(
             adata, groupby="condition", condition="A",
             sample_col="sample",
-            n_landmarks=30, progress=False,
+            gp=GP_FAST, output=OutputSettings(progress=False),
         )
         assert "kompot_impute_A_sample_variance" in adata.layers
 
     def test_return_full_results(self, adata):
         result = kompot.impute_expression(
-            adata, n_landmarks=30, progress=False,
-            return_full_results=True,
+            adata, gp=GP_FAST,
+            output=OutputSettings(progress=False, return_full_results=True),
         )
         assert isinstance(result, dict)
         assert "model" in result
@@ -73,23 +80,32 @@ class TestImputeExpression:
         assert "field_names" in result
 
     def test_overwrite_false_raises(self, adata):
-        kompot.impute_expression(adata, n_landmarks=30, progress=False)
+        kompot.impute_expression(
+            adata, gp=GP_FAST, output=OutputSettings(progress=False),
+        )
         with pytest.raises(ValueError, match="already exist"):
             kompot.impute_expression(
-                adata, n_landmarks=30, progress=False, overwrite=False,
+                adata, gp=GP_FAST,
+                output=OutputSettings(progress=False),
+                storage=StorageSettings(overwrite=False),
             )
 
     def test_overwrite_true_succeeds(self, adata):
-        kompot.impute_expression(adata, n_landmarks=30, progress=False)
         kompot.impute_expression(
-            adata, n_landmarks=30, progress=False, overwrite=True,
+            adata, gp=GP_FAST, output=OutputSettings(progress=False),
+        )
+        kompot.impute_expression(
+            adata, gp=GP_FAST,
+            output=OutputSettings(progress=False),
+            storage=StorageSettings(overwrite=True),
         )
         assert "kompot_impute_all_imputed" in adata.layers
 
     def test_genes_subset(self, adata):
         genes = ["gene_0", "gene_1"]
         kompot.impute_expression(
-            adata, genes=genes, n_landmarks=30, progress=False,
+            adata, genes=genes,
+            gp=GP_FAST, output=OutputSettings(progress=False),
         )
         imputed = adata.layers["kompot_impute_all_imputed"]
         # Selected genes should have values
@@ -108,7 +124,26 @@ class TestImputeExpression:
             kompot.impute_expression(adata, condition="A")
 
     def test_uns_metadata_stored(self, adata):
-        kompot.impute_expression(adata, n_landmarks=30, progress=False)
+        kompot.impute_expression(
+            adata, gp=GP_FAST, output=OutputSettings(progress=False),
+        )
         assert "kompot_impute" in adata.uns
         uns = adata.uns["kompot_impute"]
         assert "last_run_info" in uns
+
+    def test_copy_returns_adata(self, adata):
+        result = kompot.impute_expression(
+            adata, gp=GP_FAST,
+            output=OutputSettings(progress=False, copy=True),
+        )
+        assert isinstance(result, anndata.AnnData)
+        assert "kompot_impute_all_imputed" in result.layers
+        # Original should not be modified
+        assert "kompot_impute_all_imputed" not in adata.layers
+
+    def test_deprecated_compute_imputed_expression(self, adata):
+        with pytest.warns(DeprecationWarning, match="deprecated"):
+            kompot.compute_imputed_expression(
+                adata, n_landmarks=30, progress=False,
+            )
+        assert "kompot_impute_all_imputed" in adata.layers

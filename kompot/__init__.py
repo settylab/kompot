@@ -58,6 +58,7 @@ from .anndata import (
     compute_differential_abundance,
     compute_differential_expression,
     impute_expression,
+    compute_imputed_expression,
     check_underrepresentation,
     RunInfo,
     RunComparison,
@@ -126,7 +127,7 @@ __all__ = [
 
     # AnnData functionality (deprecated, use de()/da())
     "compute_differential_abundance", "compute_differential_expression",
-    "impute_expression",
+    "impute_expression", "compute_imputed_expression",
     "check_underrepresentation", "RunInfo", "RunComparison",
     "cleanup", "get_field_status",
 

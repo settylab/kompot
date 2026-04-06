@@ -6,6 +6,7 @@ import pytest
 import anndata
 
 import kompot
+from kompot import GPSettings, StorageSettings, OutputSettings
 from kompot.anndata.utils.runinfo import RunInfo, RunComparison
 from kompot.anndata.cleanup import cleanup, get_field_status
 
@@ -25,16 +26,15 @@ def adata_with_impute():
     ad.obsm["X_umap"] = rng.randn(n_cells, 2)
     ad.var_names = [f"gene_{i}" for i in range(n_genes)]
 
+    gp_fast = GPSettings(n_landmarks=30, use_empirical_variance=True)
+    out = OutputSettings(progress=False)
+
     # Run 0: all cells
-    kompot.impute_expression(
-        ad, n_landmarks=30, progress=False,
-        use_empirical_variance=True,
-    )
+    kompot.impute_expression(ad, gp=gp_fast, output=out)
     # Run 1: condition A only
     kompot.impute_expression(
         ad, groupby="condition", condition="A",
-        n_landmarks=30, progress=False,
-        overwrite=True,
+        gp=gp_fast, output=out, storage=StorageSettings(overwrite=True),
     )
     return ad
 
