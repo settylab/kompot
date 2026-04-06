@@ -6,10 +6,23 @@ import logging
 import warnings
 import numpy as np
 import pandas as pd
-from typing import Optional, Union, Dict, Any, List, Tuple
+from typing import Union, Dict, Any
 
 from ..differential import DifferentialAbundance
-from ..settings import GPSettings, DAThresholdSettings, StorageSettings, OutputSettings, ModelSettings
+from ..settings import (
+    GPSettings,
+    DAThresholdSettings,
+    StorageSettings,
+    OutputSettings,
+    ModelSettings,
+)
+from ..validation import (
+    validate_obsm_key,
+    validate_groupby,
+    validate_conditions,
+    validate_sample_col,
+    validate_landmarks_shape,
+)
 from .utils import generate_output_field_names
 from ._da_helpers import (
     _check_da_overwrites,
@@ -111,6 +124,18 @@ def da(
     allow_single_condition_variance = _output.allow_single_condition_variance
     progress = _output.progress
 
+    # ---- Validate inputs ----
+    validate_obsm_key(adata, obsm_key)
+    validate_groupby(adata, groupby)
+    validate_conditions(adata, groupby, condition1, condition2)
+    validate_sample_col(adata, sample_col)
+    if landmarks is not None:
+        validate_landmarks_shape(
+            landmarks,
+            obsm_key,
+            adata.obsm[obsm_key].shape[1],
+        )
+
     # ---- 0. Field names & overwrite check ----
     field_names = generate_output_field_names(
         result_key=result_key,
@@ -122,9 +147,16 @@ def da(
     )
 
     _check_da_overwrites(
-        adata, result_key, field_names, sample_col, overwrite,
-        groupby=groupby, condition1=condition1, condition2=condition2,
-        obsm_key=obsm_key, ls_factor=ls_factor,
+        adata,
+        result_key,
+        field_names,
+        sample_col,
+        overwrite,
+        groupby=groupby,
+        condition1=condition1,
+        condition2=condition2,
+        obsm_key=obsm_key,
+        ls_factor=ls_factor,
     )
 
     # ---- 1. Copy if requested ----
@@ -133,7 +165,12 @@ def da(
 
     # ---- 2. Extract data ----
     data = _extract_da_data(
-        adata, groupby, condition1, condition2, obsm_key, sample_col,
+        adata,
+        groupby,
+        condition1,
+        condition2,
+        obsm_key,
+        sample_col,
     )
 
     # ---- 3. Resolve landmarks ----
@@ -179,19 +216,29 @@ def da(
 
     # ---- 7. Store results ----
     _store_da_results(
-        adata, abundance_results, field_names, condition1, condition2,
+        adata,
+        abundance_results,
+        field_names,
+        condition1,
+        condition2,
     )
 
     # ---- 8. Record run info ----
     from .utils.params import build_params_dict
+
     params_dict = build_params_dict(
         top_level=dict(
-            groupby=groupby, condition1=condition1, condition2=condition2,
-            obsm_key=obsm_key, sample_col=sample_col,
+            groupby=groupby,
+            condition1=condition1,
+            condition2=condition2,
+            obsm_key=obsm_key,
+            sample_col=sample_col,
         ),
         gp=GPSettings(
-            ls_factor=ls_factor, n_landmarks=n_landmarks,
-            batch_size=batch_size, jit_compile=jit_compile,
+            ls_factor=ls_factor,
+            n_landmarks=n_landmarks,
+            batch_size=batch_size,
+            jit_compile=jit_compile,
             random_state=random_state,
         ),
         threshold=DAThresholdSettings(
@@ -199,11 +246,13 @@ def da(
             ptp_threshold=ptp_threshold,
         ),
         storage=StorageSettings(
-            result_key=result_key, overwrite=overwrite,
+            result_key=result_key,
+            overwrite=overwrite,
             store_landmarks=store_landmarks,
         ),
         output=OutputSettings(
-            copy=copy, inplace=inplace,
+            copy=copy,
+            inplace=inplace,
             allow_single_condition_variance=allow_single_condition_variance,
             progress=progress,
         ),
@@ -212,8 +261,13 @@ def da(
     )
 
     _record_da_run_info(
-        adata, field_names, condition1, condition2,
-        sample_col, result_key, params_dict,
+        adata,
+        field_names,
+        condition1,
+        condition2,
+        sample_col,
+        result_key,
+        params_dict,
     )
 
     # ---- 9. Build result dict ----

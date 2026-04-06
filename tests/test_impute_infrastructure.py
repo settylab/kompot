@@ -18,9 +18,11 @@ def adata_with_impute():
     n_cells, n_features, n_genes = 80, 5, 8
     X_obsm = rng.randn(n_cells, n_features)
     X_expr = rng.randn(n_cells, n_genes)
-    obs = pd.DataFrame({
-        "condition": ["A"] * 40 + ["B"] * 40,
-    })
+    obs = pd.DataFrame(
+        {
+            "condition": ["A"] * 40 + ["B"] * 40,
+        }
+    )
     ad = anndata.AnnData(X=X_expr, obs=obs)
     ad.obsm["DM_EigenVectors"] = X_obsm
     ad.obsm["X_umap"] = rng.randn(n_cells, 2)
@@ -33,14 +35,17 @@ def adata_with_impute():
     kompot.impute_expression(ad, gp=gp_fast, output=out)
     # Run 1: condition A only
     kompot.impute_expression(
-        ad, groupby="condition", condition="A",
-        gp=gp_fast, output=out, storage=StorageSettings(overwrite=True),
+        ad,
+        groupby="condition",
+        condition="A",
+        gp=gp_fast,
+        output=out,
+        storage=StorageSettings(overwrite=True),
     )
     return ad
 
 
 class TestRunInfoImpute:
-
     def test_auto_detect_impute(self, adata_with_impute):
         """RunInfo auto-detects impute when only impute runs exist."""
         # Remove DE/DA keys if present
@@ -128,7 +133,6 @@ class TestRunInfoImpute:
 
 
 class TestCleanupImpute:
-
     def test_cleanup_keeps_imputed_by_default(self, adata_with_impute):
         """Default impute cleanup keeps imputed layers, removes std/obs_variance."""
         ad = adata_with_impute
@@ -179,7 +183,6 @@ class TestCleanupImpute:
 
 
 class TestGetFieldStatusImpute:
-
     def test_field_status_all_present(self, adata_with_impute):
         status = get_field_status(adata_with_impute, run_id=0, analysis_type="impute")
         assert "layers" in status
@@ -208,7 +211,6 @@ class TestGetFieldStatusImpute:
 
 
 class TestPlotImputation:
-
     def test_plot_imputation_basic(self, adata_with_impute):
         fig = kompot.plot.plot_imputation(
             adata_with_impute,
@@ -272,14 +274,16 @@ class TestPlotImputation:
     def test_plot_imputation_missing_embedding_raises(self, adata_with_impute):
         with pytest.raises(ValueError, match="not found in adata.obsm"):
             kompot.plot.plot_imputation(
-                adata_with_impute, genes=["gene_0"],
+                adata_with_impute,
+                genes=["gene_0"],
                 basis="nonexistent",
             )
 
     def test_plot_imputation_missing_layer_raises(self, adata_with_impute):
         with pytest.raises(ValueError, match="No imputation layers found"):
             kompot.plot.plot_imputation(
-                adata_with_impute, genes=["gene_0"],
+                adata_with_impute,
+                genes=["gene_0"],
                 basis="X_umap",
                 result_key="nonexistent_key",
             )

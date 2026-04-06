@@ -9,15 +9,21 @@ from typing import Optional, Union, Dict, Any, List
 from scipy import sparse
 
 try:
-    import anndata
+    import anndata  # noqa: F401
 except ImportError:
     raise ImportError("Please install anndata: pip install anndata")
 
 from ..differential.expression_model import ExpressionModel
 from ..settings import GPSettings, StorageSettings, OutputSettings, ModelSettings
+from ..validation import (
+    validate_obsm_key,
+    validate_groupby,
+    validate_layer,
+    validate_genes,
+    validate_sample_col,
+)
 from .utils import (
     _sanitize_name,
-    generate_output_field_names,
     detect_output_field_overwrite,
     get_environment_info,
     append_to_run_history,
@@ -126,25 +132,16 @@ def impute_expression(
         adata = adata.copy()
 
     # --- Validate inputs ---
-    if obsm_key not in adata.obsm:
-        avail = list(adata.obsm.keys())
-        msg = f"Key '{obsm_key}' not found in adata.obsm. Available: {avail}"
-        if obsm_key == "DM_EigenVectors":
-            msg += (
-                "\n\nCompute diffusion maps with Palantir:\n"
-                "  palantir.utils.run_diffusion_maps(adata)\n"
-                "Or specify a different obsm_key such as 'X_pca'."
-            )
-        raise ValueError(msg)
+    validate_obsm_key(adata, obsm_key)
+    validate_layer(adata, layer)
+    validate_genes(adata, genes)
+    validate_sample_col(adata, sample_col)
 
     if condition is not None and groupby is None:
         raise ValueError("'groupby' is required when 'condition' is specified.")
 
-    if groupby is not None and groupby not in adata.obs:
-        raise ValueError(
-            f"Column '{groupby}' not found in adata.obs. "
-            f"Available: {list(adata.obs.columns)}"
-        )
+    if groupby is not None:
+        validate_groupby(adata, groupby)
 
     # --- Build cell mask ---
     if groupby is not None and condition is not None:
@@ -160,8 +157,9 @@ def impute_expression(
 
     # --- Build field names ---
     cond_label = _sanitize_name(condition) if condition else "all"
-    field_names = _impute_field_names(result_key, cond_label,
-                                      use_empirical_variance, sample_col is not None)
+    field_names = _impute_field_names(
+        result_key, cond_label, use_empirical_variance, sample_col is not None
+    )
 
     # --- Overwrite detection ---
     all_fields = field_names["all_patterns"]
@@ -209,8 +207,9 @@ def impute_expression(
         missing = [g for g in genes if g not in adata.var_names]
         if missing:
             raise ValueError(f"Genes not found: {missing[:10]}")
-        gene_idx = [list(adata.var_names).index(g) for g in genes
-                    if g in set(adata.var_names)]
+        gene_idx = [
+            list(adata.var_names).index(g) for g in genes if g in set(adata.var_names)
+        ]
         selected_genes = [adata.var_names[i] for i in gene_idx]
         y = y[:, gene_idx]
     else:
@@ -220,9 +219,7 @@ def impute_expression(
     sample_indices = None
     if sample_col is not None:
         if sample_col not in adata.obs:
-            raise ValueError(
-                f"Column '{sample_col}' not found in adata.obs."
-            )
+            raise ValueError(f"Column '{sample_col}' not found in adata.obs.")
         sample_indices = adata.obs[sample_col][mask].values
         n_samples = len(np.unique(sample_indices))
         logger.info(f"Using sample column '{sample_col}': {n_samples} sample(s)")
@@ -240,8 +237,11 @@ def impute_expression(
             batch_size=batch_size,
         )
         expr_model.fit(
-            X_train, y,
-            sigma=sigma, ls=ls, ls_factor=ls_factor,
+            X_train,
+            y,
+            sigma=sigma,
+            ls=ls,
+            ls_factor=ls_factor,
             sample_indices=sample_indices,
             **function_kwargs,
         )
@@ -249,11 +249,20 @@ def impute_expression(
     # --- Predict on all cells ---
     # The model is trained on the condition cells but evaluated everywhere,
     # so every cell gets an imputed value and uncertainty estimate.
-    imputed = np.asarray(expr_model.predict(X_all, batch_size=batch_size, progress=progress))
-    std_vals = np.asarray(expr_model.std(X_all, batch_size=batch_size, progress=progress))
+    imputed = np.asarray(
+        expr_model.predict(X_all, batch_size=batch_size, progress=progress)
+    )
+    std_vals = np.asarray(
+        expr_model.std(X_all, batch_size=batch_size, progress=progress)
+    )
     # Broadcast (n, 1) to (n, n_genes) when only GP covariance is present
     n_genes_fitted = imputed.shape[1]
-    if isinstance(std_vals, np.ndarray) and std_vals.ndim == 2 and std_vals.shape[1] == 1 and n_genes_fitted > 1:
+    if (
+        isinstance(std_vals, np.ndarray)
+        and std_vals.ndim == 2
+        and std_vals.shape[1] == 1
+        and n_genes_fitted > 1
+    ):
         std_vals = np.broadcast_to(std_vals, (std_vals.shape[0], n_genes_fitted)).copy()
 
     # --- Store in adata ---
@@ -279,7 +288,9 @@ def impute_expression(
             adata.layers[field_names["std_key"]] = std_vals
 
         if use_empirical_variance:
-            obs_var = np.asarray(expr_model.obs_variance(X_all, batch_size=batch_size, progress=progress))
+            obs_var = np.asarray(
+                expr_model.obs_variance(X_all, batch_size=batch_size, progress=progress)
+            )
             if genes is not None:
                 adata.layers[field_names["obs_variance_key"]] = _expand_genes(
                     obs_var, n_cells, n_all_genes
@@ -288,7 +299,11 @@ def impute_expression(
                 adata.layers[field_names["obs_variance_key"]] = obs_var
 
         if sample_col is not None and expr_model.has_sample_variance:
-            sam_var = np.asarray(expr_model.sample_variance(X_all, diag=True, batch_size=batch_size, progress=progress))
+            sam_var = np.asarray(
+                expr_model.sample_variance(
+                    X_all, diag=True, batch_size=batch_size, progress=progress
+                )
+            )
             if isinstance(sam_var, np.ndarray):
                 if genes is not None:
                     adata.layers[field_names["sample_variance_key"]] = _expand_genes(
@@ -409,14 +424,18 @@ def compute_imputed_expression(
         genes=genes,
         sample_col=sample_col,
         gp=GPSettings(
-            sigma=sigma, ls=ls, ls_factor=ls_factor,
+            sigma=sigma,
+            ls=ls,
+            ls_factor=ls_factor,
             n_landmarks=n_landmarks,
             use_empirical_variance=use_empirical_variance,
-            batch_size=batch_size, eps=eps,
+            batch_size=batch_size,
+            eps=eps,
             random_state=random_state,
         ),
         storage=StorageSettings(
-            result_key=result_key, overwrite=overwrite,
+            result_key=result_key,
+            overwrite=overwrite,
         ),
         output=OutputSettings(
             return_full_results=return_full_results,
@@ -429,6 +448,7 @@ def compute_imputed_expression(
 # ------------------------------------------------------------------
 # helpers
 # ------------------------------------------------------------------
+
 
 def _impute_field_names(
     result_key: str,
@@ -449,7 +469,9 @@ def _impute_field_names(
         layers.append(field_names["obs_variance_key"])
 
     if has_sample_col:
-        field_names["sample_variance_key"] = f"{result_key}_{cond_label}_sample_variance"
+        field_names["sample_variance_key"] = (
+            f"{result_key}_{cond_label}_sample_variance"
+        )
         layers.append(field_names["sample_variance_key"])
 
     field_names["all_patterns"] = {"layers": layers}

@@ -1,4 +1,5 @@
-"""Settings dataclasses for the ``kompot.de()`` and ``kompot.da()`` interfaces.
+"""Settings dataclasses for the ``kompot.de()``, ``kompot.da()``, and
+``kompot.impute_expression()`` interfaces.
 
 These group related parameters into discoverable objects with sensible
 defaults.  Override only what you need::
@@ -7,13 +8,25 @@ defaults.  Override only what you need::
               gp=GPSettings(sigma=0.5))
 
 All settings are optional — ``None`` means "use kompot's default".
+
+Every dataclass validates its fields at construction time via
+``__post_init__``, so typos and out-of-range values are caught
+immediately instead of deep inside mellon or JAX.
 """
 
-from dataclasses import dataclass, field, fields, asdict
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import pandas as pd
+
+from .validation import (
+    validate_positive_float,
+    validate_positive_int,
+    validate_non_negative_float,
+    validate_probability,
+    validate_bool,
+)
 
 
 @dataclass
@@ -55,6 +68,31 @@ class GPSettings:
     eps: float = 1e-8
     jit_compile: bool = False
     random_state: Optional[int] = None
+
+    def __post_init__(self):
+        validate_positive_float(self.sigma, "sigma")
+        validate_positive_float(self.ls, "ls", optional=True)
+        validate_positive_float(self.ls_factor, "ls_factor")
+        validate_positive_int(self.n_landmarks, "n_landmarks", optional=True)
+        validate_bool(self.use_empirical_variance, "use_empirical_variance")
+        validate_positive_int(self.batch_size, "batch_size", optional=True)
+        validate_positive_float(self.eps, "eps")
+        validate_bool(self.jit_compile, "jit_compile")
+        if self.landmarks is not None:
+            lm = np.asarray(self.landmarks)
+            if lm.ndim != 2:
+                raise ValueError(
+                    f"'landmarks' must be a 2-D array "
+                    f"(got {lm.ndim}-D with shape {lm.shape})."
+                )
+        if self.random_state is not None:
+            if not isinstance(self.random_state, int) or isinstance(
+                self.random_state, bool
+            ):
+                raise TypeError(
+                    f"'random_state' must be an integer "
+                    f"(got {type(self.random_state).__name__})."
+                )
 
 
 @dataclass
@@ -110,6 +148,42 @@ class FDRSettings:
     null_expression: Optional[Tuple[np.ndarray, np.ndarray]] = None
     combine_with_internal: bool = False
 
+    def __post_init__(self):
+        # null_genes: "auto", int >= 0, list of ints, or None
+        ng = self.null_genes
+        if ng is not None:
+            if isinstance(ng, str):
+                if ng != "auto":
+                    raise ValueError(
+                        f"'null_genes' string value must be 'auto' (got '{ng}')."
+                    )
+            elif isinstance(ng, (list, tuple)):
+                for i, idx in enumerate(ng):
+                    if not isinstance(idx, int) or isinstance(idx, bool):
+                        raise TypeError(
+                            f"'null_genes[{i}]' must be an integer "
+                            f"(got {type(idx).__name__})."
+                        )
+                    if idx < 0:
+                        raise ValueError(f"'null_genes[{i}]' must be >= 0 (got {idx}).")
+            elif isinstance(ng, (int, np.integer)) and not isinstance(ng, bool):
+                if ng < 0:
+                    raise ValueError(f"'null_genes' must be >= 0 (got {ng}).")
+            else:
+                raise TypeError(
+                    f"'null_genes' must be 'auto', an integer, a list of "
+                    f"integers, or None (got {type(ng).__name__})."
+                )
+
+        validate_probability(self.threshold, "threshold")
+        validate_bool(self.combine_with_internal, "combine_with_internal")
+
+        if self.null_mahalanobis is not None and self.null_expression is not None:
+            raise ValueError(
+                "'null_mahalanobis' and 'null_expression' are mutually "
+                "exclusive. Provide one or the other, not both."
+            )
+
 
 @dataclass
 class DAThresholdSettings:
@@ -125,6 +199,10 @@ class DAThresholdSettings:
 
     lfc_threshold: float = 1.0
     ptp_threshold: float = 0.05
+
+    def __post_init__(self):
+        validate_non_negative_float(self.lfc_threshold, "lfc_threshold")
+        validate_probability(self.ptp_threshold, "ptp_threshold")
 
 
 @dataclass
@@ -163,6 +241,17 @@ class FilterSettings:
     min_percentage: Optional[float] = None
     check_representation: Optional[bool] = None
 
+    def __post_init__(self):
+        validate_positive_int(self.min_cells, "min_cells")
+        if self.min_percentage is not None:
+            validate_positive_float(self.min_percentage, "min_percentage")
+            if self.min_percentage > 100:
+                raise ValueError(
+                    f"'min_percentage' must be <= 100 (got {self.min_percentage})."
+                )
+        if self.check_representation is not None:
+            validate_bool(self.check_representation, "check_representation")
+
 
 @dataclass
 class StorageSettings:
@@ -198,6 +287,30 @@ class StorageSettings:
     store_arrays_on_disk: Optional[bool] = None
     disk_storage_dir: Optional[str] = None
     max_memory_ratio: float = 0.8
+
+    def __post_init__(self):
+        if self.result_key is not None and not isinstance(self.result_key, str):
+            raise TypeError(
+                f"'result_key' must be a string (got {type(self.result_key).__name__})."
+            )
+        if self.overwrite is not None:
+            validate_bool(self.overwrite, "overwrite")
+        validate_bool(self.store_landmarks, "store_landmarks")
+        validate_bool(self.store_posterior_covariance, "store_posterior_covariance")
+        validate_bool(self.store_additional_stats, "store_additional_stats")
+        if self.store_arrays_on_disk is not None:
+            validate_bool(self.store_arrays_on_disk, "store_arrays_on_disk")
+        if self.disk_storage_dir is not None:
+            if not isinstance(self.disk_storage_dir, str):
+                raise TypeError(
+                    f"'disk_storage_dir' must be a string "
+                    f"(got {type(self.disk_storage_dir).__name__})."
+                )
+        validate_positive_float(self.max_memory_ratio, "max_memory_ratio")
+        if self.max_memory_ratio > 1.0:
+            raise ValueError(
+                f"'max_memory_ratio' must be <= 1.0 (got {self.max_memory_ratio})."
+            )
 
 
 @dataclass
@@ -241,6 +354,24 @@ class ModelSettings:
     density_predictor1: Optional[Any] = None
     density_predictor2: Optional[Any] = None
 
+    def __post_init__(self):
+        # Validate that predictors are callable when provided
+        for name in (
+            "function_predictor1",
+            "function_predictor2",
+            "obs_variance_predictor1",
+            "obs_variance_predictor2",
+            "variance_predictor1",
+            "variance_predictor2",
+            "density_predictor1",
+            "density_predictor2",
+        ):
+            val = getattr(self, name)
+            if val is not None and not callable(val):
+                raise TypeError(
+                    f"'{name}' must be callable (got {type(val).__name__})."
+                )
+
 
 @dataclass
 class OutputSettings:
@@ -280,3 +411,14 @@ class OutputSettings:
     allow_single_condition_variance: bool = False
     progress: bool = True
 
+    def __post_init__(self):
+        validate_bool(self.copy, "copy")
+        validate_bool(self.inplace, "inplace")
+        validate_bool(self.return_full_results, "return_full_results")
+        validate_bool(self.return_null_data, "return_null_data")
+        validate_bool(self.compute_mahalanobis, "compute_mahalanobis")
+        validate_bool(
+            self.allow_single_condition_variance,
+            "allow_single_condition_variance",
+        )
+        validate_bool(self.progress, "progress")

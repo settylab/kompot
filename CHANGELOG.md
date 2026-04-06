@@ -33,6 +33,7 @@ All notable changes to this project will be documented in this file.
 
 ### Improvements
 
+ - **Input validation at construction time**: all Settings dataclasses now validate fields in `__post_init__`. Invalid values like `GPSettings(sigma=-1)` or `FDRSettings(threshold=1.5)` raise immediately with a clear message instead of failing deep inside mellon or JAX. The public API functions (`de()`, `da()`, `impute_expression()`) also validate AnnData inputs upfront (obsm key shape, condition existence, `condition1 != condition2`, gene names, landmarks dimensions).
  - Plotting functions return `Optional[plt.Figure]` (controlled by `return_fig`) instead of `(fig, ax)` tuples, and no longer call `plt.show()`.
  - Consistent parameter naming across plot functions: `background_color_key` → `color`, `de_column` → `direction_column`, `embedding_key` → `basis`.
  - `RunInfo` HTML display now shows parameters hierarchically by Settings group (`gp.sigma`, `fdr.threshold`, …) instead of a flat list.

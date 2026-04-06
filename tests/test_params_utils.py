@@ -2,7 +2,6 @@
 
 import pytest
 import numpy as np
-from dataclasses import fields
 
 from kompot.settings import (
     GPSettings,
@@ -31,8 +30,11 @@ class TestSettingsToDict:
         fdr = FDRSettings(null_genes=100, null_seed=7, threshold=0.1)
         d = _settings_to_dict(fdr)
         assert d == {
-            "null_genes": 100, "null_seed": 7, "threshold": 0.1,
-            "null_mahalanobis": None, "null_expression": None,
+            "null_genes": 100,
+            "null_seed": 7,
+            "threshold": 0.1,
+            "null_mahalanobis": None,
+            "null_expression": None,
             "combine_with_internal": False,
         }
 
@@ -44,11 +46,9 @@ class TestSettingsToDict:
         # Other fields should be preserved
         assert d["sigma"] == 1.0
 
-    def test_numpy_1d_array(self):
-        landmarks = np.arange(10)
-        gp = GPSettings(landmarks=landmarks)
-        d = _settings_to_dict(gp)
-        assert d["landmarks"] == "<array shape=(10,)>"
+    def test_numpy_1d_array_rejected(self):
+        with pytest.raises(ValueError, match="2-D array"):
+            GPSettings(landmarks=np.arange(10))
 
     def test_none_values_preserved(self):
         gp = GPSettings(ls=None, landmarks=None)

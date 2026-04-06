@@ -6,14 +6,28 @@ import logging
 import warnings
 import numpy as np
 import pandas as pd
-from typing import Optional, Union, Dict, Any, List
+from typing import Union, Dict, Any
 
 from ..differential import DifferentialExpression
-from ..settings import GPSettings, FDRSettings, FilterSettings, StorageSettings, OutputSettings, ModelSettings
+from ..settings import (
+    GPSettings,
+    FDRSettings,
+    FilterSettings,
+    StorageSettings,
+    OutputSettings,
+    ModelSettings,
+)
+from ..validation import (
+    validate_obsm_key,
+    validate_groupby,
+    validate_conditions,
+    validate_layer,
+    validate_genes,
+    validate_sample_col,
+    validate_landmarks_shape,
+)
 from .utils import (
-    _sanitize_name,
-    generate_output_field_names,
-    apply_cell_filter,  # re-exported for backward compat (tests may patch this)
+    generate_output_field_names,  # re-exported for backward compat (tests may patch this)
 )
 from ._de_helpers import (
     _check_overwrites,
@@ -156,6 +170,20 @@ def de(
     allow_single_condition_variance = _output.allow_single_condition_variance
     progress = _output.progress
 
+    # ---- Validate inputs ----
+    validate_obsm_key(adata, obsm_key)
+    validate_groupby(adata, groupby)
+    validate_conditions(adata, groupby, condition1, condition2)
+    validate_layer(adata, layer)
+    validate_genes(adata, genes)
+    validate_sample_col(adata, sample_col)
+    if landmarks is not None:
+        validate_landmarks_shape(
+            landmarks,
+            obsm_key,
+            adata.obsm[obsm_key].shape[1],
+        )
+
     # ---- Validate external null settings ----
     if ext_null_mahalanobis is not None and ext_null_expression is not None:
         raise ValueError(
@@ -191,25 +219,40 @@ def de(
     # ---- dry run ----
     if dry_run:
         from ..resource_estimation import estimate_differential_expression_resources
+
         plan = estimate_differential_expression_resources(
-            adata, condition1, condition2, groupby,
-            obsm_key=obsm_key, layer=layer, genes=genes,
-            sample_col=sample_col, n_landmarks=n_landmarks,
-            landmarks=landmarks, sigma=sigma, ls=ls,
-            ls_factor=ls_factor, batch_size=batch_size, eps=eps,
+            adata,
+            condition1,
+            condition2,
+            groupby,
+            obsm_key=obsm_key,
+            layer=layer,
+            genes=genes,
+            sample_col=sample_col,
+            n_landmarks=n_landmarks,
+            landmarks=landmarks,
+            sigma=sigma,
+            ls=ls,
+            ls_factor=ls_factor,
+            batch_size=batch_size,
+            eps=eps,
             use_empirical_variance=use_empirical_variance,
-            null_genes=null_genes, null_seed=null_seed,
+            null_genes=null_genes,
+            null_seed=null_seed,
             fdr_threshold=fdr_threshold,
             compute_mahalanobis=compute_mahalanobis,
-            result_key=result_key, overwrite=overwrite,
+            result_key=result_key,
+            overwrite=overwrite,
             store_landmarks=store_landmarks,
             store_posterior_covariance=store_posterior_covariance,
             store_additional_stats=store_additional_stats,
             store_arrays_on_disk=store_arrays_on_disk,
             disk_storage_dir=disk_storage_dir,
             max_memory_ratio=max_memory_ratio,
-            cell_filter=cell_filter, groups=groups,
-            min_cells=min_cells, min_percentage=min_percentage,
+            cell_filter=cell_filter,
+            groups=groups,
+            min_cells=min_cells,
+            min_percentage=min_percentage,
             allow_single_condition_variance=allow_single_condition_variance,
             **function_kwargs,
         )
@@ -221,8 +264,7 @@ def de(
         if sample_col is not None:
             null_genes = 0
             logger.info(
-                "Defaulting null_genes=0 (FDR disabled) because sample_col is "
-                "provided."
+                "Defaulting null_genes=0 (FDR disabled) because sample_col is provided."
             )
         else:
             null_genes = 2000
@@ -231,12 +273,8 @@ def de(
         ext_null_mahalanobis is not None or ext_null_expression is not None
     )
     use_fdr = (
-        (
-            (null_genes is not None and null_genes != 0)
-            or has_external_null
-        )
-        and compute_mahalanobis
-    )
+        (null_genes is not None and null_genes != 0) or has_external_null
+    ) and compute_mahalanobis
     use_sample_variance = sample_col is not None
 
     # ---- 1. Field names & overwrite check ----
@@ -251,10 +289,22 @@ def de(
     all_patterns = field_names["all_patterns"]
 
     _check_overwrites(
-        adata, result_key, field_names, all_patterns, sample_col, overwrite,
-        compute_mahalanobis, use_fdr, store_additional_stats, groups,
-        groupby=groupby, condition1=condition1, condition2=condition2,
-        obsm_key=obsm_key, layer=layer, ls_factor=ls_factor,
+        adata,
+        result_key,
+        field_names,
+        all_patterns,
+        sample_col,
+        overwrite,
+        compute_mahalanobis,
+        use_fdr,
+        store_additional_stats,
+        groups,
+        groupby=groupby,
+        condition1=condition1,
+        condition2=condition2,
+        obsm_key=obsm_key,
+        layer=layer,
+        ls_factor=ls_factor,
     )
 
     # ---- 2. Copy if requested ----
@@ -263,8 +313,18 @@ def de(
 
     # ---- 3. Extract data from AnnData ----
     data = _extract_de_data(
-        adata, groupby, condition1, condition2, obsm_key, layer, genes,
-        sample_col, cell_filter, groups, min_cells, min_percentage,
+        adata,
+        groupby,
+        condition1,
+        condition2,
+        obsm_key,
+        layer,
+        genes,
+        sample_col,
+        cell_filter,
+        groups,
+        min_cells,
+        min_percentage,
         check_representation,
     )
 
@@ -307,9 +367,7 @@ def de(
         null_gene_indices = null_genes
         expanded_genes = list(selected_genes)
         null_set = set(null_gene_indices)
-        selected_genes = [
-            g for i, g in enumerate(expanded_genes) if i not in null_set
-        ]
+        selected_genes = [g for i, g in enumerate(expanded_genes) if i not in null_set]
         use_fdr = compute_mahalanobis
     elif _has_prefitted and isinstance(null_genes, int) and null_genes > 0:
         raise ValueError(
@@ -322,8 +380,16 @@ def de(
     else:
         expr1, expr2, expanded_genes, null_gene_indices, _internal_use_fdr = (
             _augment_with_null_genes(
-                adata, expr1, expr2, mask1, mask2, selected_genes,
-                null_genes, null_seed, compute_mahalanobis, layer,
+                adata,
+                expr1,
+                expr2,
+                mask1,
+                mask2,
+                selected_genes,
+                null_genes,
+                null_seed,
+                compute_mahalanobis,
+                layer,
             )
         )
         # Preserve use_fdr=True when external null is provided even if
@@ -336,8 +402,12 @@ def de(
         null_expr1, null_expr2 = ext_null_expression
         expr1, expr2, expanded_genes, null_gene_indices = (
             _augment_with_external_null_expression(
-                expr1, expr2, expanded_genes, null_gene_indices,
-                null_expr1, null_expr2,
+                expr1,
+                expr2,
+                expanded_genes,
+                null_gene_indices,
+                null_expr1,
+                null_expr2,
             )
         )
         use_fdr = compute_mahalanobis
@@ -348,7 +418,11 @@ def de(
 
     # ---- 5. Resolve landmarks ----
     landmarks = _resolve_landmarks(
-        adata, landmarks, n_landmarks, obsm_key, result_key,
+        adata,
+        landmarks,
+        n_landmarks,
+        obsm_key,
+        result_key,
     )
 
     # ---- 6. Fit model ----
@@ -374,8 +448,13 @@ def de(
     )
 
     diff_expression.fit(
-        X1, expr1, X2, expr2,
-        sigma=sigma, ls=ls, ls_factor=ls_factor,
+        X1,
+        expr1,
+        X2,
+        expr2,
+        sigma=sigma,
+        ls=ls,
+        ls_factor=ls_factor,
         landmarks=landmarks,
         condition1_sample_indices=condition1_sample_indices,
         condition2_sample_indices=condition2_sample_indices,
@@ -410,8 +489,11 @@ def de(
     if use_fdr and (_has_null_genes or _has_ext_null) and compute_mahalanobis:
         logger.debug("Computing FDR statistics from null distribution")
         fdr_results = _compute_fdr(
-            expression_results, selected_genes, expanded_genes,
-            null_gene_indices, fdr_threshold,
+            expression_results,
+            selected_genes,
+            expanded_genes,
+            null_gene_indices,
+            fdr_threshold,
             external_null_mahalanobis=ext_null_mahalanobis,
             combine_nulls=combine_with_internal,
             return_null_data=return_null_data,
@@ -424,8 +506,13 @@ def de(
     if can_store_covariance:
         logger.info("Computing posterior covariance matrix for storing in obsp...")
         posterior_cov_key = _store_posterior_covariance(
-            adata, diff_expression, X_for_prediction, filter_mask,
-            field_names, condition1, condition2,
+            adata,
+            diff_expression,
+            X_for_prediction,
+            filter_mask,
+            field_names,
+            condition1,
+            condition2,
         )
 
     # ---- 11. Build result dict ----
@@ -460,9 +547,16 @@ def de(
     # ---- 12. Store results in adata ----
     if inplace:
         _store_de_results(
-            adata, expression_results, fdr_results, field_names,
-            selected_genes, filter_mask, sample_col,
-            compute_mahalanobis, use_fdr, store_additional_stats,
+            adata,
+            expression_results,
+            fdr_results,
+            field_names,
+            selected_genes,
+            filter_mask,
+            sample_col,
+            compute_mahalanobis,
+            use_fdr,
+            store_additional_stats,
         )
 
         # ---- 13. Groups ----
@@ -472,23 +566,44 @@ def de(
 
         if groups is not None:
             group_results, subset_masks, subset_names = _compute_group_results(
-                adata, diff_expression, groups, filter_mask,
-                field_names, selected_genes, expanded_genes,
-                null_gene_indices, obsm_key, compute_mahalanobis,
-                use_fdr, store_additional_stats, fdr_threshold, progress,
+                adata,
+                diff_expression,
+                groups,
+                filter_mask,
+                field_names,
+                selected_genes,
+                expanded_genes,
+                null_gene_indices,
+                obsm_key,
+                compute_mahalanobis,
+                use_fdr,
+                store_additional_stats,
+                fdr_threshold,
+                progress,
             )
 
         # ---- 14. Field mapping & run info ----
         field_mapping = _build_field_mapping(
-            field_names, condition1, condition2, sample_col,
-            compute_mahalanobis, use_fdr, fdr_results,
-            store_additional_stats, fdr_threshold,
+            field_names,
+            condition1,
+            condition2,
+            sample_col,
+            compute_mahalanobis,
+            use_fdr,
+            fdr_results,
+            store_additional_stats,
+            fdr_threshold,
         )
 
         if groups is not None and subset_names:
             _add_group_field_mapping(
-                field_mapping, adata, field_names, subset_names,
-                compute_mahalanobis, use_fdr, null_gene_indices,
+                field_mapping,
+                adata,
+                field_names,
+                subset_names,
+                compute_mahalanobis,
+                use_fdr,
+                null_gene_indices,
                 store_additional_stats,
             )
 
@@ -505,30 +620,43 @@ def de(
 
         # Build params dict for recording
         from .utils.params import build_params_dict
+
         params_dict = build_params_dict(
             top_level=dict(
-                groupby=groupby, condition1=condition1, condition2=condition2,
-                obsm_key=obsm_key, layer=layer, genes=genes,
+                groupby=groupby,
+                condition1=condition1,
+                condition2=condition2,
+                obsm_key=obsm_key,
+                layer=layer,
+                genes=genes,
                 sample_col=sample_col,
             ),
             gp=GPSettings(
-                sigma=sigma, ls=ls, ls_factor=ls_factor,
+                sigma=sigma,
+                ls=ls,
+                ls_factor=ls_factor,
                 n_landmarks=n_landmarks,
                 use_empirical_variance=use_empirical_variance,
-                batch_size=batch_size, eps=eps, jit_compile=jit_compile,
+                batch_size=batch_size,
+                eps=eps,
+                jit_compile=jit_compile,
                 random_state=random_state,
             ),
             fdr=FDRSettings(
-                null_genes=null_genes, null_seed=null_seed,
+                null_genes=null_genes,
+                null_seed=null_seed,
                 threshold=fdr_threshold,
             ),
             filter=FilterSettings(
-                cell_filter=cell_filter, groups=groups,
-                min_cells=min_cells, min_percentage=min_percentage,
+                cell_filter=cell_filter,
+                groups=groups,
+                min_cells=min_cells,
+                min_percentage=min_percentage,
                 check_representation=check_representation,
             ),
             storage=StorageSettings(
-                result_key=result_key, overwrite=overwrite,
+                result_key=result_key,
+                overwrite=overwrite,
                 store_landmarks=store_landmarks,
                 store_posterior_covariance=store_posterior_covariance,
                 store_additional_stats=store_additional_stats,
@@ -537,7 +665,8 @@ def de(
                 max_memory_ratio=max_memory_ratio,
             ),
             output=OutputSettings(
-                copy=copy, inplace=inplace,
+                copy=copy,
+                inplace=inplace,
                 return_full_results=return_full_results,
                 return_null_data=return_null_data,
                 compute_mahalanobis=compute_mahalanobis,
@@ -549,12 +678,30 @@ def de(
         )
 
         _record_de_run_info(
-            adata, diff_expression, field_names, field_mapping, all_patterns,
-            selected_genes, condition1, condition2, sample_col,
-            compute_mahalanobis, use_fdr, fdr_results, fdr_threshold,
-            store_additional_stats, store_landmarks, store_posterior_covariance,
-            store_arrays_on_disk, result_key, groups, subset_names,
-            subset_masks, auto_filter, underrep, posterior_cov_key,
+            adata,
+            diff_expression,
+            field_names,
+            field_mapping,
+            all_patterns,
+            selected_genes,
+            condition1,
+            condition2,
+            sample_col,
+            compute_mahalanobis,
+            use_fdr,
+            fdr_results,
+            fdr_threshold,
+            store_additional_stats,
+            store_landmarks,
+            store_posterior_covariance,
+            store_arrays_on_disk,
+            result_key,
+            groups,
+            subset_names,
+            subset_masks,
+            auto_filter,
+            underrep,
+            posterior_cov_key,
             params_dict=params_dict,
         )
 
@@ -633,23 +780,32 @@ def compute_differential_expression(
         genes=genes,
         sample_col=sample_col,
         gp=GPSettings(
-            sigma=sigma, ls=ls, ls_factor=ls_factor,
-            n_landmarks=n_landmarks, landmarks=landmarks,
+            sigma=sigma,
+            ls=ls,
+            ls_factor=ls_factor,
+            n_landmarks=n_landmarks,
+            landmarks=landmarks,
             use_empirical_variance=use_empirical_variance,
-            batch_size=batch_size, eps=eps,
-            jit_compile=jit_compile, random_state=random_state,
+            batch_size=batch_size,
+            eps=eps,
+            jit_compile=jit_compile,
+            random_state=random_state,
         ),
         fdr=FDRSettings(
-            null_genes=null_genes, null_seed=null_seed,
+            null_genes=null_genes,
+            null_seed=null_seed,
             threshold=fdr_threshold,
         ),
         filter=FilterSettings(
-            cell_filter=cell_filter, groups=groups,
-            min_cells=min_cells, min_percentage=min_percentage,
+            cell_filter=cell_filter,
+            groups=groups,
+            min_cells=min_cells,
+            min_percentage=min_percentage,
             check_representation=check_representation,
         ),
         storage=StorageSettings(
-            result_key=result_key, overwrite=overwrite,
+            result_key=result_key,
+            overwrite=overwrite,
             store_landmarks=store_landmarks,
             store_posterior_covariance=store_posterior_covariance,
             store_additional_stats=store_additional_stats,
@@ -658,7 +814,8 @@ def compute_differential_expression(
             max_memory_ratio=max_memory_ratio,
         ),
         output=OutputSettings(
-            copy=copy, inplace=inplace,
+            copy=copy,
+            inplace=inplace,
             return_full_results=return_full_results,
             compute_mahalanobis=compute_mahalanobis,
             allow_single_condition_variance=allow_single_condition_variance,
