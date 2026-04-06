@@ -14,7 +14,8 @@ import pytest
 import pandas as pd
 import anndata as ad
 import matplotlib
-matplotlib.use('Agg')  # Non-interactive backend for testing
+
+matplotlib.use("Agg")  # Non-interactive backend for testing
 import matplotlib.pyplot as plt
 
 # Import the functions to test
@@ -32,65 +33,56 @@ class TestInferExpressionKeys:
         n_genes = 20
 
         X = np.random.randn(n_cells, n_genes)
-        conditions = ['A'] * 25 + ['B'] * 25
-        samples = ['s1'] * 12 + ['s2'] * 13 + ['s3'] * 12 + ['s4'] * 13
+        conditions = ["A"] * 25 + ["B"] * 25
+        samples = ["s1"] * 12 + ["s2"] * 13 + ["s3"] * 12 + ["s4"] * 13
 
         self.adata = ad.AnnData(X)
-        self.adata.obs['condition'] = pd.Categorical(conditions)
-        self.adata.obs['sample'] = pd.Categorical(samples)
-        self.adata.var_names = [f'gene_{i}' for i in range(n_genes)]
-        self.adata.obsm['X_pca'] = np.random.randn(n_cells, 10)
-        self.adata.obsm['DM_EigenVectors'] = self.adata.obsm['X_pca'].copy()
+        self.adata.obs["condition"] = pd.Categorical(conditions)
+        self.adata.obs["sample"] = pd.Categorical(samples)
+        self.adata.var_names = [f"gene_{i}" for i in range(n_genes)]
+        self.adata.obsm["X_pca"] = np.random.randn(n_cells, 10)
+        self.adata.obsm["DM_EigenVectors"] = self.adata.obsm["X_pca"].copy()
 
     def test_infer_keys_both_provided(self):
         """Test when both lfc_key and score_key are explicitly provided."""
         lfc_key, score_key = _infer_expression_keys(
-            self.adata,
-            lfc_key='custom_lfc',
-            score_key='custom_score'
+            self.adata, lfc_key="custom_lfc", score_key="custom_score"
         )
 
         # Should return exactly what was provided
-        assert lfc_key == 'custom_lfc'
-        assert score_key == 'custom_score'
+        assert lfc_key == "custom_lfc"
+        assert score_key == "custom_score"
 
     def test_infer_keys_from_run_info(self):
         """Test key inference from run_info when keys not provided."""
         # First run DE to create run_info
         compute_differential_expression(
             self.adata,
-            groupby='condition',
-            condition1='A',
-            condition2='B',
-            sample_col='sample',
+            groupby="condition",
+            condition1="A",
+            condition2="B",
+            sample_col="sample",
             n_landmarks=10,
             null_genes=None,
-            progress=False
+            progress=False,
         )
 
         # Now infer keys without providing them
         lfc_key, score_key = _infer_expression_keys(
-            self.adata,
-            run_id=-1,
-            lfc_key=None,
-            score_key=None,
-            strict=False
+            self.adata, run_id=-1, lfc_key=None, score_key=None, strict=False
         )
 
         # Should successfully infer keys
         assert lfc_key is not None
         assert score_key is not None
-        assert 'mean_lfc' in lfc_key or 'lfc' in lfc_key.lower()
+        assert "mean_lfc" in lfc_key or "lfc" in lfc_key.lower()
 
     def test_infer_keys_strict_mode(self):
         """Test that strict mode raises error when keys can't be inferred."""
         # AnnData without DE results
         with pytest.raises(Exception):  # Should raise when keys can't be inferred
             _infer_expression_keys(
-                self.adata,
-                lfc_key=None,
-                score_key=None,
-                strict=True
+                self.adata, lfc_key=None, score_key=None, strict=True
             )
 
 
@@ -104,45 +96,39 @@ class TestPlotGeneExpressionErrorCases:
         n_genes = 20
 
         X = np.random.randn(n_cells, n_genes)
-        conditions = ['A'] * 25 + ['B'] * 25
-        samples = ['s1'] * 12 + ['s2'] * 13 + ['s3'] * 12 + ['s4'] * 13
+        conditions = ["A"] * 25 + ["B"] * 25
+        samples = ["s1"] * 12 + ["s2"] * 13 + ["s3"] * 12 + ["s4"] * 13
 
         self.adata = ad.AnnData(X)
-        self.adata.obs['condition'] = pd.Categorical(conditions)
-        self.adata.obs['sample'] = pd.Categorical(samples)
-        self.adata.var_names = [f'gene_{i}' for i in range(n_genes)]
-        self.adata.obsm['X_pca'] = np.random.randn(n_cells, 10)
-        self.adata.obsm['X_umap'] = np.random.randn(n_cells, 2)
-        self.adata.obsm['DM_EigenVectors'] = self.adata.obsm['X_pca'].copy()
+        self.adata.obs["condition"] = pd.Categorical(conditions)
+        self.adata.obs["sample"] = pd.Categorical(samples)
+        self.adata.var_names = [f"gene_{i}" for i in range(n_genes)]
+        self.adata.obsm["X_pca"] = np.random.randn(n_cells, 10)
+        self.adata.obsm["X_umap"] = np.random.randn(n_cells, 2)
+        self.adata.obsm["DM_EigenVectors"] = self.adata.obsm["X_pca"].copy()
 
         # Run DE to create results
         compute_differential_expression(
             self.adata,
-            groupby='condition',
-            condition1='A',
-            condition2='B',
-            sample_col='sample',
+            groupby="condition",
+            condition1="A",
+            condition2="B",
+            sample_col="sample",
             n_landmarks=10,
             null_genes=None,
-            progress=False
+            progress=False,
         )
 
     def test_missing_gene_error(self):
         """Test that ValueError is raised for missing gene."""
         with pytest.raises(ValueError, match="not found in adata.var_names"):
-            plot_gene_expression(
-                self.adata,
-                gene='NONEXISTENT_GENE'
-            )
+            plot_gene_expression(self.adata, gene="NONEXISTENT_GENE")
 
     def test_missing_basis_fallback(self):
         """Test fallback when basis is not in obsm."""
         # Try to plot with non-existent basis
         result = plot_gene_expression(
-            self.adata,
-            gene='gene_0',
-            basis='X_nonexistent',
-            return_fig=True
+            self.adata, gene="gene_0", basis="X_nonexistent", return_fig=True
         )
 
         # Should handle missing basis (log warning and set basis to None)
@@ -152,13 +138,11 @@ class TestPlotGeneExpressionErrorCases:
         """Test plotting when scanpy is not available."""
         # Mock scanpy as unavailable
         import kompot.plot.expression as expr_module
-        monkeypatch.setattr(expr_module, '_has_scanpy', False)
+
+        monkeypatch.setattr(expr_module, "_has_scanpy", False)
 
         # Should return None with warning
-        result = plot_gene_expression(
-            self.adata,
-            gene='gene_0'
-        )
+        result = plot_gene_expression(self.adata, gene="gene_0")
 
         assert result is None
 
@@ -173,40 +157,39 @@ class TestPlotGeneExpressionParameters:
         n_genes = 20
 
         X = np.random.randn(n_cells, n_genes)
-        conditions = ['A'] * 25 + ['B'] * 25
-        samples = ['s1'] * 12 + ['s2'] * 13 + ['s3'] * 12 + ['s4'] * 13
+        conditions = ["A"] * 25 + ["B"] * 25
+        samples = ["s1"] * 12 + ["s2"] * 13 + ["s3"] * 12 + ["s4"] * 13
 
         self.adata = ad.AnnData(X)
-        self.adata.obs['condition'] = pd.Categorical(conditions)
-        self.adata.obs['sample'] = pd.Categorical(samples)
-        self.adata.var_names = [f'gene_{i}' for i in range(n_genes)]
-        self.adata.obsm['X_pca'] = np.random.randn(n_cells, 10)
-        self.adata.obsm['X_umap'] = np.random.randn(n_cells, 2)
-        self.adata.obsm['DM_EigenVectors'] = self.adata.obsm['X_pca'].copy()
+        self.adata.obs["condition"] = pd.Categorical(conditions)
+        self.adata.obs["sample"] = pd.Categorical(samples)
+        self.adata.var_names = [f"gene_{i}" for i in range(n_genes)]
+        self.adata.obsm["X_pca"] = np.random.randn(n_cells, 10)
+        self.adata.obsm["X_umap"] = np.random.randn(n_cells, 2)
+        self.adata.obsm["DM_EigenVectors"] = self.adata.obsm["X_pca"].copy()
 
         # Add a layer for testing
-        self.adata.layers['counts'] = np.random.negative_binomial(10, 0.3, (n_cells, n_genes)).astype(float)
+        self.adata.layers["counts"] = np.random.negative_binomial(
+            10, 0.3, (n_cells, n_genes)
+        ).astype(float)
 
         # Run DE to create results and imputed layers
         compute_differential_expression(
             self.adata,
-            groupby='condition',
-            condition1='A',
-            condition2='B',
-            sample_col='sample',
+            groupby="condition",
+            condition1="A",
+            condition2="B",
+            sample_col="sample",
             n_landmarks=10,
             null_genes=None,
-            progress=False
+            progress=False,
         )
 
     def test_plot_with_basis_none(self):
         """Test plotting with basis=None (no embedding)."""
         try:
             result = plot_gene_expression(
-                self.adata,
-                gene='gene_0',
-                basis=None,
-                return_fig=True
+                self.adata, gene="gene_0", basis=None, return_fig=True
             )
 
             # Should work without basis (use cell index)
@@ -222,10 +205,7 @@ class TestPlotGeneExpressionParameters:
         """Test plotting with specific layer."""
         try:
             result = plot_gene_expression(
-                self.adata,
-                gene='gene_0',
-                layer='counts',
-                return_fig=True
+                self.adata, gene="gene_0", layer="counts", return_fig=True
             )
 
             if result is not None:
@@ -241,9 +221,9 @@ class TestPlotGeneExpressionParameters:
         try:
             result = plot_gene_expression(
                 self.adata,
-                gene='gene_0',
-                title='Custom Title for Gene 0',
-                return_fig=True
+                gene="gene_0",
+                title="Custom Title for Gene 0",
+                return_fig=True,
             )
 
             if result is not None:
@@ -258,10 +238,10 @@ class TestPlotGeneExpressionParameters:
         try:
             result = plot_gene_expression(
                 self.adata,
-                gene='gene_0',
-                cmap_expression='viridis',
-                cmap_fold_change='coolwarm',
-                return_fig=True
+                gene="gene_0",
+                cmap_expression="viridis",
+                cmap_fold_change="coolwarm",
+                return_fig=True,
             )
 
             if result is not None:
@@ -275,10 +255,7 @@ class TestPlotGeneExpressionParameters:
         """Test plotting with custom figure size."""
         try:
             result = plot_gene_expression(
-                self.adata,
-                gene='gene_0',
-                figsize=(8, 8),
-                return_fig=True
+                self.adata, gene="gene_0", figsize=(8, 8), return_fig=True
             )
 
             if result is not None:
@@ -293,10 +270,10 @@ class TestPlotGeneExpressionParameters:
         try:
             result = plot_gene_expression(
                 self.adata,
-                gene='gene_0',
-                condition1='A',
-                condition2='B',
-                return_fig=True
+                gene="gene_0",
+                condition1="A",
+                condition2="B",
+                return_fig=True,
             )
 
             if result is not None:
@@ -311,11 +288,7 @@ class TestPlotGeneExpressionParameters:
         save_path = tmp_path / "test_gene_plot.png"
 
         try:
-            plot_gene_expression(
-                self.adata,
-                gene='gene_0',
-                save=str(save_path)
-            )
+            plot_gene_expression(self.adata, gene="gene_0", save=str(save_path))
 
             # Check if file was created
             if save_path.exists():
@@ -328,11 +301,7 @@ class TestPlotGeneExpressionParameters:
     def test_plot_return_fig(self):
         """Test return_fig parameter."""
         try:
-            result = plot_gene_expression(
-                self.adata,
-                gene='gene_0',
-                return_fig=True
-            )
+            result = plot_gene_expression(self.adata, gene="gene_0", return_fig=True)
 
             if result is not None:
                 assert isinstance(result, plt.Figure)
@@ -343,15 +312,11 @@ class TestPlotGeneExpressionParameters:
     def test_plot_without_return_fig(self):
         """Test default behavior (return_fig=False)."""
         try:
-            result = plot_gene_expression(
-                self.adata,
-                gene='gene_0',
-                return_fig=False
-            )
+            result = plot_gene_expression(self.adata, gene="gene_0", return_fig=False)
 
             # Should return None when return_fig=False
             assert result is None
-            plt.close('all')
+            plt.close("all")
         except Exception:
             pass
 
@@ -366,43 +331,43 @@ class TestPlotGeneExpressionLayerInference:
         n_genes = 20
 
         X = np.random.randn(n_cells, n_genes)
-        conditions = ['A'] * 25 + ['B'] * 25
-        samples = ['s1'] * 12 + ['s2'] * 13 + ['s3'] * 12 + ['s4'] * 13
+        conditions = ["A"] * 25 + ["B"] * 25
+        samples = ["s1"] * 12 + ["s2"] * 13 + ["s3"] * 12 + ["s4"] * 13
 
         self.adata = ad.AnnData(X)
-        self.adata.obs['condition'] = pd.Categorical(conditions)
-        self.adata.obs['sample'] = pd.Categorical(samples)
-        self.adata.var_names = [f'gene_{i}' for i in range(n_genes)]
-        self.adata.obsm['X_pca'] = np.random.randn(n_cells, 10)
-        self.adata.obsm['X_umap'] = np.random.randn(n_cells, 2)
-        self.adata.obsm['DM_EigenVectors'] = self.adata.obsm['X_pca'].copy()
+        self.adata.obs["condition"] = pd.Categorical(conditions)
+        self.adata.obs["sample"] = pd.Categorical(samples)
+        self.adata.var_names = [f"gene_{i}" for i in range(n_genes)]
+        self.adata.obsm["X_pca"] = np.random.randn(n_cells, 10)
+        self.adata.obsm["X_umap"] = np.random.randn(n_cells, 2)
+        self.adata.obsm["DM_EigenVectors"] = self.adata.obsm["X_pca"].copy()
 
         # Add various layers
-        self.adata.layers['log1p'] = np.log1p(np.abs(X))
-        self.adata.layers['scaled'] = (X - X.mean(axis=0)) / X.std(axis=0)
+        self.adata.layers["log1p"] = np.log1p(np.abs(X))
+        self.adata.layers["scaled"] = (X - X.mean(axis=0)) / X.std(axis=0)
 
     def test_layer_inference_from_run_info(self):
         """Test that layer is inferred from run_info when not provided."""
         # Run DE with a specific layer
         compute_differential_expression(
             self.adata,
-            groupby='condition',
-            condition1='A',
-            condition2='B',
-            sample_col='sample',
-            layer='log1p',
+            groupby="condition",
+            condition1="A",
+            condition2="B",
+            sample_col="sample",
+            layer="log1p",
             n_landmarks=10,
             null_genes=None,
-            progress=False
+            progress=False,
         )
 
         # Plot without specifying layer - should infer from run_info
         try:
             result = plot_gene_expression(
                 self.adata,
-                gene='gene_0',
+                gene="gene_0",
                 layer=None,  # Not specified
-                return_fig=True
+                return_fig=True,
             )
 
             if result is not None:
@@ -414,27 +379,23 @@ class TestPlotGeneExpressionLayerInference:
     def test_fold_change_layer_ignored(self):
         """Test that fold_change layers are ignored for expression visualization."""
         # Add a fold_change layer manually
-        self.adata.layers['fold_change_test'] = np.random.randn(50, 20)
+        self.adata.layers["fold_change_test"] = np.random.randn(50, 20)
 
         # Run DE
         compute_differential_expression(
             self.adata,
-            groupby='condition',
-            condition1='A',
-            condition2='B',
-            sample_col='sample',
+            groupby="condition",
+            condition1="A",
+            condition2="B",
+            sample_col="sample",
             n_landmarks=10,
             null_genes=None,
-            progress=False
+            progress=False,
         )
 
         # Plot - should not use fold_change layer for original expression
         try:
-            result = plot_gene_expression(
-                self.adata,
-                gene='gene_0',
-                return_fig=True
-            )
+            result = plot_gene_expression(self.adata, gene="gene_0", return_fig=True)
 
             if result is not None:
                 fig = result
@@ -453,39 +414,39 @@ class TestPlotGeneExpressionConditionExtraction:
         n_genes = 20
 
         X = np.random.randn(n_cells, n_genes)
-        conditions = ['Young'] * 25 + ['Old'] * 25
-        samples = ['s1'] * 12 + ['s2'] * 13 + ['s3'] * 12 + ['s4'] * 13
+        conditions = ["Young"] * 25 + ["Old"] * 25
+        samples = ["s1"] * 12 + ["s2"] * 13 + ["s3"] * 12 + ["s4"] * 13
 
         self.adata = ad.AnnData(X)
-        self.adata.obs['age'] = pd.Categorical(conditions)
-        self.adata.obs['sample'] = pd.Categorical(samples)
-        self.adata.var_names = [f'gene_{i}' for i in range(n_genes)]
-        self.adata.obsm['X_pca'] = np.random.randn(n_cells, 10)
-        self.adata.obsm['X_umap'] = np.random.randn(n_cells, 2)
-        self.adata.obsm['DM_EigenVectors'] = self.adata.obsm['X_pca'].copy()
+        self.adata.obs["age"] = pd.Categorical(conditions)
+        self.adata.obs["sample"] = pd.Categorical(samples)
+        self.adata.var_names = [f"gene_{i}" for i in range(n_genes)]
+        self.adata.obsm["X_pca"] = np.random.randn(n_cells, 10)
+        self.adata.obsm["X_umap"] = np.random.randn(n_cells, 2)
+        self.adata.obsm["DM_EigenVectors"] = self.adata.obsm["X_pca"].copy()
 
     def test_condition_extraction_from_run_info(self):
         """Test that conditions are extracted from run_info params."""
         # Run DE
         compute_differential_expression(
             self.adata,
-            groupby='age',
-            condition1='Young',
-            condition2='Old',
-            sample_col='sample',
+            groupby="age",
+            condition1="Young",
+            condition2="Old",
+            sample_col="sample",
             n_landmarks=10,
             null_genes=None,
-            progress=False
+            progress=False,
         )
 
         # Plot without specifying conditions - should extract from run_info
         try:
             result = plot_gene_expression(
                 self.adata,
-                gene='gene_0',
+                gene="gene_0",
                 condition1=None,
                 condition2=None,
-                return_fig=True
+                return_fig=True,
             )
 
             if result is not None:
@@ -499,16 +460,16 @@ class TestPlotGeneExpressionConditionExtraction:
         # Don't run DE, so no run_info available
 
         # Manually add a mean_lfc column to avoid errors
-        self.adata.var['test_mean_lfc'] = np.random.randn(20)
-        self.adata.var['test_mahalanobis'] = np.abs(np.random.randn(20))
+        self.adata.var["test_mean_lfc"] = np.random.randn(20)
+        self.adata.var["test_mahalanobis"] = np.abs(np.random.randn(20))
 
         try:
             result = plot_gene_expression(
                 self.adata,
-                gene='gene_0',
-                lfc_key='test_mean_lfc',
-                score_key='test_mahalanobis',
-                return_fig=True
+                gene="gene_0",
+                lfc_key="test_mean_lfc",
+                score_key="test_mahalanobis",
+                return_fig=True,
             )
 
             # Should use default condition names
@@ -529,40 +490,40 @@ class TestPlotGeneExpressionRunID:
         n_genes = 20
 
         X = np.random.randn(n_cells, n_genes)
-        conditions = ['A'] * 25 + ['B'] * 25
-        samples = ['s1'] * 12 + ['s2'] * 13 + ['s3'] * 12 + ['s4'] * 13
+        conditions = ["A"] * 25 + ["B"] * 25
+        samples = ["s1"] * 12 + ["s2"] * 13 + ["s3"] * 12 + ["s4"] * 13
 
         self.adata = ad.AnnData(X)
-        self.adata.obs['condition'] = pd.Categorical(conditions)
-        self.adata.obs['sample'] = pd.Categorical(samples)
-        self.adata.var_names = [f'gene_{i}' for i in range(n_genes)]
-        self.adata.obsm['X_pca'] = np.random.randn(n_cells, 10)
-        self.adata.obsm['X_umap'] = np.random.randn(n_cells, 2)
-        self.adata.obsm['DM_EigenVectors'] = self.adata.obsm['X_pca'].copy()
+        self.adata.obs["condition"] = pd.Categorical(conditions)
+        self.adata.obs["sample"] = pd.Categorical(samples)
+        self.adata.var_names = [f"gene_{i}" for i in range(n_genes)]
+        self.adata.obsm["X_pca"] = np.random.randn(n_cells, 10)
+        self.adata.obsm["X_umap"] = np.random.randn(n_cells, 2)
+        self.adata.obsm["DM_EigenVectors"] = self.adata.obsm["X_pca"].copy()
 
         # Run DE twice with different result keys
         compute_differential_expression(
             self.adata,
-            groupby='condition',
-            condition1='A',
-            condition2='B',
-            sample_col='sample',
+            groupby="condition",
+            condition1="A",
+            condition2="B",
+            sample_col="sample",
             n_landmarks=10,
             null_genes=None,
-            result_key='de_run1',
-            progress=False
+            result_key="de_run1",
+            progress=False,
         )
 
         compute_differential_expression(
             self.adata,
-            groupby='condition',
-            condition1='B',
-            condition2='A',
-            sample_col='sample',
+            groupby="condition",
+            condition1="B",
+            condition2="A",
+            sample_col="sample",
             n_landmarks=10,
             null_genes=None,
-            result_key='de_run2',
-            progress=False
+            result_key="de_run2",
+            progress=False,
         )
 
     def test_plot_with_specific_run_id(self):
@@ -570,10 +531,7 @@ class TestPlotGeneExpressionRunID:
         try:
             # Use first run (run_id=0)
             result = plot_gene_expression(
-                self.adata,
-                gene='gene_0',
-                run_id=0,
-                return_fig=True
+                self.adata, gene="gene_0", run_id=0, return_fig=True
             )
 
             if result is not None:
@@ -586,10 +544,7 @@ class TestPlotGeneExpressionRunID:
         """Test plotting with run_id=-1 (latest run)."""
         try:
             result = plot_gene_expression(
-                self.adata,
-                gene='gene_0',
-                run_id=-1,
-                return_fig=True
+                self.adata, gene="gene_0", run_id=-1, return_fig=True
             )
 
             if result is not None:
@@ -748,7 +703,10 @@ class TestConditionExtractionPriority:
     def test_two_runs_multiword_correct_prefix(self):
         """Multi-word conditions + two runs must still use the latest run's prefix."""
         adata, fn = self._make_adata_with_run_info(
-            "Pre-treatment", "Post-treatment", result_key="latest_de", extra_run="old_de"
+            "Pre-treatment",
+            "Post-treatment",
+            result_key="latest_de",
+            extra_run="old_de",
         )
         result = plot_gene_expression(adata, "gene_0", return_fig=True)
         assert result is not None

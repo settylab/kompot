@@ -4,24 +4,15 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 import matplotlib.patches as mpatches
-from matplotlib.legend_handler import HandlerPatch
-from mpl_toolkits.axes_grid1 import make_axes_locatable
-from typing import Optional, Union, List, Tuple, Dict, Any, Sequence, Literal, Callable, Set
-from anndata import AnnData
-import pandas as pd
 import logging
-from scipy.cluster.hierarchy import linkage, dendrogram as scipy_dendrogram
-import scipy.spatial.distance as ssd
-from matplotlib.gridspec import GridSpec
 
 logger = logging.getLogger("kompot")
-
 
 
 def _setup_colormap_normalization(data, center, vmin, vmax, cmap):
     """
     Set up colormap normalization based on parameters.
-    
+
     Parameters
     ----------
     data : numpy.ndarray
@@ -34,7 +25,7 @@ def _setup_colormap_normalization(data, center, vmin, vmax, cmap):
         Maximum value for colormap
     cmap : str or colormap
         Colormap to use
-        
+
     Returns
     -------
     tuple
@@ -54,7 +45,7 @@ def _setup_colormap_normalization(data, center, vmin, vmax, cmap):
         vmin = np.nanmin(data) if vmin is None else vmin
         vmax = np.nanmax(data) if vmax is None else vmax
         norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
-        
+
     # Get colormap object
     if isinstance(cmap, str):
         try:
@@ -65,7 +56,7 @@ def _setup_colormap_normalization(data, center, vmin, vmax, cmap):
             cmap_obj = plt.cm.get_cmap(cmap)
     else:
         cmap_obj = cmap
-    
+
     return norm, cmap_obj, vmin, vmax
 
 
@@ -84,7 +75,7 @@ def _draw_diagonal_split_cell(
     edgecolor="none",
     linewidth=0,
     draw_values=False,
-    norm=None
+    norm=None,
 ):
     """
     Draw a cell split diagonally with two different values, and optionally display these values.
@@ -117,9 +108,11 @@ def _draw_diagonal_split_cell(
         Normalization to use. If None, a standard Normalize will be created.
     """
     # Ensure ax is a valid axis object before proceeding
-    if ax is None or not hasattr(ax, 'add_patch'):
-        raise ValueError("ax must be a valid matplotlib Axes object with add_patch method")
-    
+    if ax is None or not hasattr(ax, "add_patch"):
+        raise ValueError(
+            "ax must be a valid matplotlib Axes object with add_patch method"
+        )
+
     # Convert val1 to float if needed
     if isinstance(val1, str):
         try:
@@ -133,11 +126,11 @@ def _draw_diagonal_split_cell(
             val2 = float(val2)
         except ValueError:
             val2 = np.nan
-            
+
     # Use provided norm or create a standard one
     if norm is None:
         norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
-        
+
     # Get colormap object
     if isinstance(cmap, str):
         try:
@@ -172,47 +165,61 @@ def _draw_diagonal_split_cell(
     # Add triangles to axes
     ax.add_patch(lower_triangle)
     ax.add_patch(upper_triangle)
-    
+
     # Optionally draw the values for debugging
     if draw_values:
         # Calculate approximate centroids for each triangle
         lower_cx, lower_cy = x + w / 3, y + h / 3
         upper_cx, upper_cy = x + 2 * w / 3, y + 2 * h / 3
-        
+
         text_val1 = "NaN" if np.isnan(val1) else f"{val1:.2f}"
         text_val2 = "NaN" if np.isnan(val2) else f"{val2:.2f}"
-        
+
         # Lower triangle text
-        ax.text(lower_cx, lower_cy, text_val1,
-                ha="center", va="center", color="black", fontsize=8,
-                bbox=dict(facecolor='white', edgecolor='none', pad=1, alpha=0.7))
-        
+        ax.text(
+            lower_cx,
+            lower_cy,
+            text_val1,
+            ha="center",
+            va="center",
+            color="black",
+            fontsize=8,
+            bbox=dict(facecolor="white", edgecolor="none", pad=1, alpha=0.7),
+        )
+
         # Upper triangle text
-        ax.text(upper_cx, upper_cy, text_val2,
-                ha="center", va="center", color="black", fontsize=8,
-                bbox=dict(facecolor='white', edgecolor='none', pad=1, alpha=0.7))
+        ax.text(
+            upper_cx,
+            upper_cy,
+            text_val2,
+            ha="center",
+            va="center",
+            color="black",
+            fontsize=8,
+            bbox=dict(facecolor="white", edgecolor="none", pad=1, alpha=0.7),
+        )
 
 
 def _draw_split_dot_cell(
-    ax, 
-    x, 
-    y, 
-    w, 
-    h, 
-    val1, 
-    val2, 
-    cmap, 
-    vmin, 
-    vmax, 
-    cell_count1=None, 
+    ax,
+    x,
+    y,
+    w,
+    h,
+    val1,
+    val2,
+    cmap,
+    vmin,
+    vmax,
+    cell_count1=None,
     cell_count2=None,
     global_max_count=None,  # Global maximum count for scaling
     max_size_factor=0.9,  # Maximum size of the circle as a factor of the tile size
-    alpha=1.0, 
-    edgecolor="none", 
+    alpha=1.0,
+    edgecolor="none",
     linewidth=0,
     draw_values=False,
-    norm=None
+    norm=None,
 ):
     """
     Draw a cell with a split dot showing two different values, with dot halves sized
@@ -254,9 +261,11 @@ def _draw_split_dot_cell(
         Normalization to use. If None, a standard Normalize will be created.
     """
     # Ensure ax is a valid axis object before proceeding
-    if ax is None or not hasattr(ax, 'add_patch'):
-        raise ValueError("ax must be a valid matplotlib Axes object with add_patch method")
-    
+    if ax is None or not hasattr(ax, "add_patch"):
+        raise ValueError(
+            "ax must be a valid matplotlib Axes object with add_patch method"
+        )
+
     # Convert val1 to float if needed
     if isinstance(val1, str):
         try:
@@ -270,30 +279,30 @@ def _draw_split_dot_cell(
             val2 = float(val2)
         except ValueError:
             val2 = np.nan
-    
+
     # Handle cell counts if they're strings
     if isinstance(cell_count1, str):
         try:
             cell_count1 = float(cell_count1)
         except ValueError:
             cell_count1 = 0
-    
+
     if isinstance(cell_count2, str):
         try:
             cell_count2 = float(cell_count2)
         except ValueError:
             cell_count2 = 0
-            
+
     if isinstance(global_max_count, str):
         try:
             global_max_count = float(global_max_count)
         except ValueError:
             global_max_count = None
-            
+
     # Use provided norm or create a standard one
     if norm is None:
         norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
-        
+
     # Get colormap object
     if isinstance(cmap, str):
         try:
@@ -306,14 +315,14 @@ def _draw_split_dot_cell(
     # Determine face colors for left and right halves with NaN handling
     facecolor1 = (0.9, 0.9, 0.9, 0.5) if np.isnan(val1) else cmap_obj(norm(val1))
     facecolor2 = (0.9, 0.9, 0.9, 0.5) if np.isnan(val2) else cmap_obj(norm(val2))
-    
+
     # Set defaults for missing counts
     cell_count1 = cell_count1 or 0
     cell_count2 = cell_count2 or 0
-    
+
     # Determine maximum radius based on tile dimensions
     max_radius = min(w, h) * max_size_factor / 2
-    
+
     # Calculate radius for each half based on their respective cell counts
     if cell_count1 == 0 and cell_count2 == 0:
         # Default size if no counts available
@@ -327,41 +336,43 @@ def _draw_split_dot_cell(
             cell_count2 = min(cell_count2, global_max_count)
         else:
             max_count = max(cell_count1, cell_count2, 1)
-            
+
         scale_factor = max_radius / np.sqrt(max_count)
         radius1 = np.sqrt(cell_count1) * scale_factor
         radius2 = np.sqrt(cell_count2) * scale_factor
-    
+
     # Center of the circle
     center_x = x + w / 2
     center_y = y + h / 2
-    
+
     # Create the left half dot using a Wedge (covers 180° on the left side)
     left_half = mpatches.Wedge(
         (center_x, center_y),  # Center coordinates
-        radius1,               # Radius based on cell_count1
-        90, 270,               # Wedge angles for left half
+        radius1,  # Radius based on cell_count1
+        90,
+        270,  # Wedge angles for left half
         facecolor=facecolor1,
         alpha=alpha,
         edgecolor=edgecolor,
         linewidth=linewidth,
     )
-    
+
     # Create the right half dot using a Wedge (covers 180° on the right side)
     right_half = mpatches.Wedge(
         (center_x, center_y),
         radius2,
-        270, 90,               # Wedge angles for right half
+        270,
+        90,  # Wedge angles for right half
         facecolor=facecolor2,
         alpha=alpha,
         edgecolor=edgecolor,
         linewidth=linewidth,
     )
-    
+
     # Add both halves to the axes
     ax.add_patch(left_half)
     ax.add_patch(right_half)
-    
+
     # Optionally draw the values on each half for debugging.
     if draw_values:
         left_text = "NaN" if np.isnan(val1) else f"{val1:.2f}"
@@ -369,15 +380,43 @@ def _draw_split_dot_cell(
         # Position left text at half the left radius offset from center, right text at half the right radius offset
         left_x = center_x - (radius1 / 2)
         right_x = center_x + (radius2 / 2)
-        
-        ax.text(left_x, center_y, left_text,
-                ha="center", va="center", fontsize=8,
-                bbox=dict(facecolor='white', edgecolor='none', pad=1, alpha=0.7))
-        ax.text(right_x, center_y, right_text,
-                ha="center", va="center", fontsize=8,
-                bbox=dict(facecolor='white', edgecolor='none', pad=1, alpha=0.7))
 
-def _draw_fold_change_cell(ax, x, y, w, h, lfc, cmap, vmin, vmax, alpha=1.0, edgecolor="none", linewidth=0, draw_values=False, norm=None):
+        ax.text(
+            left_x,
+            center_y,
+            left_text,
+            ha="center",
+            va="center",
+            fontsize=8,
+            bbox=dict(facecolor="white", edgecolor="none", pad=1, alpha=0.7),
+        )
+        ax.text(
+            right_x,
+            center_y,
+            right_text,
+            ha="center",
+            va="center",
+            fontsize=8,
+            bbox=dict(facecolor="white", edgecolor="none", pad=1, alpha=0.7),
+        )
+
+
+def _draw_fold_change_cell(
+    ax,
+    x,
+    y,
+    w,
+    h,
+    lfc,
+    cmap,
+    vmin,
+    vmax,
+    alpha=1.0,
+    edgecolor="none",
+    linewidth=0,
+    draw_values=False,
+    norm=None,
+):
     """
     Draw a cell colored by the fold change between two values and optionally display the value.
 
@@ -407,9 +446,11 @@ def _draw_fold_change_cell(ax, x, y, w, h, lfc, cmap, vmin, vmax, alpha=1.0, edg
         Normalization to use. If None, a standard Normalize will be created.
     """
     # Ensure ax is a valid axis object before proceeding
-    if ax is None or not hasattr(ax, 'add_patch'):
-        raise ValueError("ax must be a valid matplotlib Axes object with add_patch method")
-    
+    if ax is None or not hasattr(ax, "add_patch"):
+        raise ValueError(
+            "ax must be a valid matplotlib Axes object with add_patch method"
+        )
+
     if isinstance(lfc, str):
         try:
             # Try to convert string to float
@@ -417,7 +458,7 @@ def _draw_fold_change_cell(ax, x, y, w, h, lfc, cmap, vmin, vmax, alpha=1.0, edg
         except ValueError:
             # If conversion fails, use NaN
             lfc = np.nan
-    
+
     # Determine the face color based on lfc
     if np.isnan(lfc):
         # Use a very light gray for NaN
@@ -426,7 +467,7 @@ def _draw_fold_change_cell(ax, x, y, w, h, lfc, cmap, vmin, vmax, alpha=1.0, edg
         # Use provided norm or create a standard one
         if norm is None:
             norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
-            
+
         # Get colormap object if cmap is a string, falling back if necessary
         if isinstance(cmap, str):
             try:
@@ -440,7 +481,8 @@ def _draw_fold_change_cell(ax, x, y, w, h, lfc, cmap, vmin, vmax, alpha=1.0, edg
     # Create a rectangle for the cell
     rectangle = mpatches.Rectangle(
         (x, y),
-        w, h,
+        w,
+        h,
         facecolor=facecolor,
         alpha=alpha,
         edgecolor=edgecolor,
@@ -449,10 +491,17 @@ def _draw_fold_change_cell(ax, x, y, w, h, lfc, cmap, vmin, vmax, alpha=1.0, edg
 
     # Add rectangle to axes
     ax.add_patch(rectangle)
-    
+
     # Optionally draw the fold change value at the center of the cell for debugging
     if draw_values:
         text_val = "NaN" if np.isnan(lfc) else f"{lfc:.2f}"
-        ax.text(x + w / 2, y + h / 2, text_val,
-                ha="center", va="center", color="black", fontsize=8,
-                bbox=dict(facecolor='white', edgecolor='none', pad=1, alpha=0.7))
+        ax.text(
+            x + w / 2,
+            y + h / 2,
+            text_val,
+            ha="center",
+            va="center",
+            color="black",
+            fontsize=8,
+            bbox=dict(facecolor="white", edgecolor="none", pad=1, alpha=0.7),
+        )

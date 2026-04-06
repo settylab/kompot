@@ -15,12 +15,14 @@ def create_test_adata(n_cells=60, n_genes=30, sparse_data=False):
     if sparse_data:
         X = sparse.csr_matrix(X)
 
-    obs = pd.DataFrame({
-        'condition': ['A'] * (n_cells // 2) + ['B'] * (n_cells // 2),
-        'celltype': np.random.choice(['T', 'B'], n_cells)
-    })
-    obsm = {'DM_EigenVectors': np.random.normal(0, 1, (n_cells, 10))}
-    var = pd.DataFrame(index=[f'gene_{i}' for i in range(n_genes)])
+    obs = pd.DataFrame(
+        {
+            "condition": ["A"] * (n_cells // 2) + ["B"] * (n_cells // 2),
+            "celltype": np.random.choice(["T", "B"], n_cells),
+        }
+    )
+    obsm = {"DM_EigenVectors": np.random.normal(0, 1, (n_cells, 10))}
+    var = pd.DataFrame(index=[f"gene_{i}" for i in range(n_genes)])
 
     return anndata.AnnData(X=X, obs=obs, var=var, obsm=obsm)
 
@@ -33,10 +35,7 @@ def test_de_with_invalid_groupby():
 
     with pytest.raises((ValueError, KeyError)):
         compute_differential_expression(
-            adata,
-            groupby='nonexistent',
-            condition1='A',
-            condition2='B'
+            adata, groupby="nonexistent", condition1="A", condition2="B"
         )
 
 
@@ -48,10 +47,7 @@ def test_de_with_invalid_condition1():
 
     with pytest.raises((ValueError, KeyError)):
         compute_differential_expression(
-            adata,
-            groupby='condition',
-            condition1='nonexistent',
-            condition2='B'
+            adata, groupby="condition", condition1="nonexistent", condition2="B"
         )
 
 
@@ -63,10 +59,7 @@ def test_de_with_invalid_condition2():
 
     with pytest.raises((ValueError, KeyError)):
         compute_differential_expression(
-            adata,
-            groupby='condition',
-            condition1='A',
-            condition2='nonexistent'
+            adata, groupby="condition", condition1="A", condition2="nonexistent"
         )
 
 
@@ -75,16 +68,12 @@ def test_de_with_missing_obsm_key():
     from kompot import compute_differential_expression
 
     adata = create_test_adata()
-    del adata.obsm['DM_EigenVectors']
+    del adata.obsm["DM_EigenVectors"]
 
     # Should raise an error about missing embedding
     with pytest.raises((ValueError, KeyError)):
         compute_differential_expression(
-            adata,
-            groupby='condition',
-            condition1='A',
-            condition2='B',
-            n_landmarks=30
+            adata, groupby="condition", condition1="A", condition2="B", n_landmarks=30
         )
 
 
@@ -97,15 +86,15 @@ def test_de_with_too_few_cells():
     # Should handle small datasets
     result = compute_differential_expression(
         adata,
-        groupby='condition',
-        condition1='A',
-        condition2='B',
+        groupby="condition",
+        condition1="A",
+        condition2="B",
         n_landmarks=5,
         null_genes=None,
-        progress=False
+        progress=False,
     )
 
-    assert 'kompot_de' in adata.uns or result is not None
+    assert "kompot_de" in adata.uns or result is not None
 
 
 def test_de_with_sparse_matrix():
@@ -116,15 +105,15 @@ def test_de_with_sparse_matrix():
 
     result = compute_differential_expression(
         adata,
-        groupby='condition',
-        condition1='A',
-        condition2='B',
+        groupby="condition",
+        condition1="A",
+        condition2="B",
         n_landmarks=30,
         null_genes=None,
-        progress=False
+        progress=False,
     )
 
-    assert 'kompot_de' in adata.uns or result is not None
+    assert "kompot_de" in adata.uns or result is not None
 
 
 def test_de_with_zero_variance_gene():
@@ -138,18 +127,20 @@ def test_de_with_zero_variance_gene():
 
     result = compute_differential_expression(
         adata,
-        groupby='condition',
-        condition1='A',
-        condition2='B',
+        groupby="condition",
+        condition1="A",
+        condition2="B",
         n_landmarks=30,
         null_genes=None,
-        progress=False
+        progress=False,
     )
 
-    assert 'kompot_de' in adata.uns or result is not None
+    assert "kompot_de" in adata.uns or result is not None
 
 
-@pytest.mark.skip(reason="Function handles NaN values gracefully without raising errors")
+@pytest.mark.skip(
+    reason="Function handles NaN values gracefully without raising errors"
+)
 def test_de_with_nan_values():
     """Test handling of NaN values in expression data."""
     from kompot import compute_differential_expression
@@ -163,18 +154,20 @@ def test_de_with_nan_values():
     # Function handles NaN gracefully
     result = compute_differential_expression(
         adata,
-        groupby='condition',
-        condition1='A',
-        condition2='B',
+        groupby="condition",
+        condition1="A",
+        condition2="B",
         n_landmarks=30,
         null_genes=None,
-        progress=False
+        progress=False,
     )
 
-    assert 'kompot_de' in adata.uns or result is not None
+    assert "kompot_de" in adata.uns or result is not None
 
 
-@pytest.mark.skip(reason="Function handles infinite values gracefully without raising errors")
+@pytest.mark.skip(
+    reason="Function handles infinite values gracefully without raising errors"
+)
 def test_de_with_inf_values():
     """Test handling of infinite values."""
     from kompot import compute_differential_expression
@@ -187,15 +180,15 @@ def test_de_with_inf_values():
     # Function handles Inf gracefully
     result = compute_differential_expression(
         adata,
-        groupby='condition',
-        condition1='A',
-        condition2='B',
+        groupby="condition",
+        condition1="A",
+        condition2="B",
         n_landmarks=30,
         null_genes=None,
-        progress=False
+        progress=False,
     )
 
-    assert 'kompot_de' in adata.uns or result is not None
+    assert "kompot_de" in adata.uns or result is not None
 
 
 def test_de_with_single_gene():
@@ -206,15 +199,15 @@ def test_de_with_single_gene():
 
     result = compute_differential_expression(
         adata,
-        groupby='condition',
-        condition1='A',
-        condition2='B',
+        groupby="condition",
+        condition1="A",
+        condition2="B",
         n_landmarks=30,
         null_genes=None,
-        progress=False
+        progress=False,
     )
 
-    assert 'kompot_de' in adata.uns or result is not None
+    assert "kompot_de" in adata.uns or result is not None
 
 
 def test_de_with_very_large_batch_size():
@@ -225,16 +218,16 @@ def test_de_with_very_large_batch_size():
 
     result = compute_differential_expression(
         adata,
-        groupby='condition',
-        condition1='A',
-        condition2='B',
+        groupby="condition",
+        condition1="A",
+        condition2="B",
         batch_size=1000,  # Much larger than n_genes
         n_landmarks=30,
         null_genes=None,
-        progress=False
+        progress=False,
     )
 
-    assert 'kompot_de' in adata.uns or result is not None
+    assert "kompot_de" in adata.uns or result is not None
 
 
 def test_de_with_existing_results_no_overwrite():
@@ -246,26 +239,26 @@ def test_de_with_existing_results_no_overwrite():
     # Run once
     compute_differential_expression(
         adata,
-        groupby='condition',
-        condition1='A',
-        condition2='B',
+        groupby="condition",
+        condition1="A",
+        condition2="B",
         n_landmarks=30,
         null_genes=None,
-        progress=False
+        progress=False,
     )
 
     # Run again - should warn about overwriting
     result = compute_differential_expression(
         adata,
-        groupby='condition',
-        condition1='A',
-        condition2='B',
+        groupby="condition",
+        condition1="A",
+        condition2="B",
         n_landmarks=30,
         null_genes=None,
-        progress=False
+        progress=False,
     )
 
-    assert 'kompot_de' in adata.uns or result is not None
+    assert "kompot_de" in adata.uns or result is not None
 
 
 def test_de_with_invalid_layer():
@@ -277,10 +270,10 @@ def test_de_with_invalid_layer():
     with pytest.raises((ValueError, KeyError)):
         compute_differential_expression(
             adata,
-            groupby='condition',
-            condition1='A',
-            condition2='B',
-            layer='nonexistent_layer'
+            groupby="condition",
+            condition1="A",
+            condition2="B",
+            layer="nonexistent_layer",
         )
 
 
@@ -293,10 +286,10 @@ def test_de_with_invalid_genes_list():
     with pytest.raises((ValueError, KeyError)):
         compute_differential_expression(
             adata,
-            groupby='condition',
-            condition1='A',
-            condition2='B',
-            genes=['nonexistent_gene1', 'nonexistent_gene2']
+            groupby="condition",
+            condition1="A",
+            condition2="B",
+            genes=["nonexistent_gene1", "nonexistent_gene2"],
         )
 
 
@@ -309,11 +302,7 @@ def test_de_with_empty_genes_list():
     # Raises ZeroDivisionError when trying to divide by zero genes
     with pytest.raises((ValueError, ZeroDivisionError)):
         compute_differential_expression(
-            adata,
-            groupby='condition',
-            condition1='A',
-            condition2='B',
-            genes=[]
+            adata, groupby="condition", condition1="A", condition2="B", genes=[]
         )
 
 
@@ -325,11 +314,7 @@ def test_de_with_negative_n_landmarks():
 
     with pytest.raises(ValueError):
         compute_differential_expression(
-            adata,
-            groupby='condition',
-            condition1='A',
-            condition2='B',
-            n_landmarks=-10
+            adata, groupby="condition", condition1="A", condition2="B", n_landmarks=-10
         )
 
 
@@ -342,11 +327,7 @@ def test_de_with_zero_landmarks():
 
     with pytest.raises(ValueError):
         compute_differential_expression(
-            adata,
-            groupby='condition',
-            condition1='A',
-            condition2='B',
-            n_landmarks=0
+            adata, groupby="condition", condition1="A", condition2="B", n_landmarks=0
         )
 
 
@@ -359,15 +340,15 @@ def test_de_with_more_landmarks_than_cells():
     # Should handle this gracefully
     result = compute_differential_expression(
         adata,
-        groupby='condition',
-        condition1='A',
-        condition2='B',
+        groupby="condition",
+        condition1="A",
+        condition2="B",
         n_landmarks=100,  # More than n_cells
         null_genes=None,
-        progress=False
+        progress=False,
     )
 
-    assert 'kompot_de' in adata.uns or result is not None
+    assert "kompot_de" in adata.uns or result is not None
 
 
 @pytest.mark.skip(reason="Function does not validate fdr_threshold range")
@@ -380,11 +361,11 @@ def test_de_with_invalid_fdr_threshold():
     with pytest.raises(ValueError):
         compute_differential_expression(
             adata,
-            groupby='condition',
-            condition1='A',
-            condition2='B',
+            groupby="condition",
+            condition1="A",
+            condition2="B",
             null_genes=10,
-            fdr_threshold=1.5  # Invalid: > 1.0
+            fdr_threshold=1.5,  # Invalid: > 1.0
         )
 
 
@@ -398,11 +379,11 @@ def test_de_with_negative_fdr_threshold():
     with pytest.raises(ValueError):
         compute_differential_expression(
             adata,
-            groupby='condition',
-            condition1='A',
-            condition2='B',
+            groupby="condition",
+            condition1="A",
+            condition2="B",
             null_genes=10,
-            fdr_threshold=-0.1
+            fdr_threshold=-0.1,
         )
 
 
@@ -419,8 +400,8 @@ def test_de_with_invalid_landmarks_shape():
     with pytest.raises((ValueError, RuntimeError, TypeError)):
         compute_differential_expression(
             adata,
-            groupby='condition',
-            condition1='A',
-            condition2='B',
-            landmarks=invalid_landmarks
+            groupby="condition",
+            condition1="A",
+            condition2="B",
+            landmarks=invalid_landmarks,
         )

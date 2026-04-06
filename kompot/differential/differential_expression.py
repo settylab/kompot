@@ -4,22 +4,14 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 import jax.scipy.stats as jax_stats
-from functools import partial
-from typing import Tuple, List, Optional, Union, Dict, Any, Callable
+from typing import Optional, Dict, Any
 import logging
-from scipy.stats import norm as normal
-import mellon
 from mellon.parameters import compute_landmarks
 from tqdm.auto import tqdm
 
-from ..utils import (
-    compute_mahalanobis_distance,
-    compute_mahalanobis_distances,
-    find_landmarks
-)
-from ..batch_utils import apply_batched, is_jax_memory_error
+from ..utils import compute_mahalanobis_distances
+from ..batch_utils import apply_batched, is_jax_memory_error  # noqa: F401
 from .expression_model import ExpressionModel
-from .sample_variance_estimator import SampleVarianceEstimator
 
 logger = logging.getLogger("kompot")
 
@@ -27,11 +19,11 @@ logger = logging.getLogger("kompot")
 class DifferentialExpression:
     """
     Compute differential expression between two conditions.
-    
+
     This class analyzes the differences in gene expression between two conditions
-    (e.g., control to treatment) using imputation, Mahalanobis distance, and 
+    (e.g., control to treatment) using imputation, Mahalanobis distance, and
     log fold change analysis.
-    
+
     Attributes
     ----------
     function_predictor1 : Callable
@@ -45,7 +37,7 @@ class DifferentialExpression:
     mahalanobis_distances : np.ndarray
         Mahalanobis distances for each gene.
     """
-    
+
     def __init__(
         self,
         n_landmarks: Optional[int] = None,
@@ -144,9 +136,13 @@ class DifferentialExpression:
         # Set use_sample_variance based on variance predictors
         # If variance predictors are provided, automatically use sample variance unless explicitly disabled
         if use_sample_variance is None:
-            self.use_sample_variance = (variance_predictor1 is not None or variance_predictor2 is not None)
+            self.use_sample_variance = (
+                variance_predictor1 is not None or variance_predictor2 is not None
+            )
             if self.use_sample_variance:
-                logger.debug("Sample variance estimation automatically enabled due to presence of variance predictors")
+                logger.debug(
+                    "Sample variance estimation automatically enabled due to presence of variance predictors"
+                )
         else:
             self.use_sample_variance = use_sample_variance
         self.batch_size = batch_size
@@ -199,7 +195,7 @@ class DifferentialExpression:
         # Mahalanobis distances
         self.mahalanobis_distances = None
         self._last_mahalanobis = None
-        
+
     # ------------------------------------------------------------------
     # Backward-compatible properties delegating to model1/model2
     # ------------------------------------------------------------------
@@ -309,7 +305,7 @@ class DifferentialExpression:
     def fit(
         self,
         X_condition1: np.ndarray,
-        y_condition1: np.ndarray, 
+        y_condition1: np.ndarray,
         X_condition2: np.ndarray,
         y_condition2: np.ndarray,
         sigma: float = 1.0,
@@ -320,14 +316,14 @@ class DifferentialExpression:
         condition1_sample_indices: Optional[np.ndarray] = None,
         condition2_sample_indices: Optional[np.ndarray] = None,
         allow_single_condition_variance: bool = False,
-        **function_kwargs
+        **function_kwargs,
     ):
         """
         Fit function estimators for both conditions.
-        
+
         This method only creates the estimators and does not compute fold changes.
         Call predict() to compute fold changes on any set of points.
-        
+
         Parameters
         ----------
         X_condition1 : np.ndarray
@@ -343,7 +339,7 @@ class DifferentialExpression:
         ls : float, optional
             Length scale for the GP kernel. If None, it will be estimated, by default None.
         ls_factor : float, optional
-            Multiplication factor to apply to length scale when it's automatically inferred, 
+            Multiplication factor to apply to length scale when it's automatically inferred,
             by default 10.0. Only used when ls is None.
         landmarks : np.ndarray, optional
             Pre-computed landmarks to use. If provided, n_landmarks will be ignored.
@@ -359,7 +355,7 @@ class DifferentialExpression:
             Unique values in this array define different sample groups.
         **function_kwargs : dict
             Additional arguments to pass to the FunctionEstimator.
-            
+
         Returns
         -------
         self
@@ -367,13 +363,21 @@ class DifferentialExpression:
         """
 
         # Check if sample indices are provided
-        have_sample_indices = (condition1_sample_indices is not None or condition2_sample_indices is not None)
+        have_sample_indices = (
+            condition1_sample_indices is not None
+            or condition2_sample_indices is not None
+        )
 
         # Auto-enable sample variance if sample indices are provided
         if have_sample_indices:
-            if self.use_sample_variance is None or self.use_sample_variance_explicit is False:
+            if (
+                self.use_sample_variance is None
+                or self.use_sample_variance_explicit is False
+            ):
                 self.use_sample_variance = True
-                logger.debug("Sample variance estimation automatically enabled due to provided sample indices")
+                logger.debug(
+                    "Sample variance estimation automatically enabled due to provided sample indices"
+                )
 
         # Check for contradictory inputs - user explicitly requested sample variance but didn't provide indices
         if (
@@ -399,9 +403,9 @@ class DifferentialExpression:
                 X_combined = np.vstack([X_condition1, X_condition2])
                 landmarks = compute_landmarks(
                     X_combined,
-                    gp_type='fixed',
+                    gp_type="fixed",
                     n_landmarks=self.n_landmarks,
-                    random_state=self.random_state
+                    random_state=self.random_state,
                 )
                 self.computed_landmarks = landmarks
 
@@ -420,10 +424,15 @@ class DifferentialExpression:
         if self.model1.predictor is None:
             logger.info("Fitting expression estimator for condition 1...")
             self.model1.fit(
-                X_condition1, y_condition1,
-                sigma=sigma, ls=ls, ls_factor=ls_factor,
+                X_condition1,
+                y_condition1,
+                sigma=sigma,
+                ls=ls,
+                ls_factor=ls_factor,
                 landmarks=landmarks,
-                sample_indices=condition1_sample_indices if self.use_sample_variance else None,
+                sample_indices=condition1_sample_indices
+                if self.use_sample_variance
+                else None,
                 sample_estimator_ls=sample_estimator_ls,
                 allow_single_condition_variance=allow_single_condition_variance,
                 **function_kwargs,
@@ -431,7 +440,7 @@ class DifferentialExpression:
 
         # Extract ls from model1 for model2 consistency
         ls_for_model2 = ls
-        if ls is None and 'ls' not in function_kwargs and self.model1.ls is not None:
+        if ls is None and "ls" not in function_kwargs and self.model1.ls is not None:
             ls_for_model2 = self.model1.ls
 
         # -- Fit model2 --
@@ -449,10 +458,15 @@ class DifferentialExpression:
         if self.model2.predictor is None:
             logger.info("Fitting expression estimator for condition 2...")
             self.model2.fit(
-                X_condition2, y_condition2,
-                sigma=sigma, ls=ls_for_model2, ls_factor=ls_factor,
+                X_condition2,
+                y_condition2,
+                sigma=sigma,
+                ls=ls_for_model2,
+                ls_factor=ls_factor,
                 landmarks=landmarks,
-                sample_indices=condition2_sample_indices if self.use_sample_variance else None,
+                sample_indices=condition2_sample_indices
+                if self.use_sample_variance
+                else None,
                 sample_estimator_ls=sample_estimator_ls,
                 allow_single_condition_variance=allow_single_condition_variance,
                 **function_kwargs,
@@ -470,34 +484,49 @@ class DifferentialExpression:
                 )
 
         # Handle single-condition variance fallback
-        if self.use_sample_variance and have_sample_indices and allow_single_condition_variance:
+        if (
+            self.use_sample_variance
+            and have_sample_indices
+            and allow_single_condition_variance
+        ):
             has_sv1 = self.model1.has_sample_variance
             has_sv2 = self.model2.has_sample_variance
             if has_sv1 and not has_sv2:
                 logger.info("Using condition 1 variance estimator for both conditions")
-                self.model2._sample_variance_predictor = self.model1._sample_variance_predictor
+                self.model2._sample_variance_predictor = (
+                    self.model1._sample_variance_predictor
+                )
             elif has_sv2 and not has_sv1:
                 logger.info("Using condition 2 variance estimator for both conditions")
-                self.model1._sample_variance_predictor = self.model2._sample_variance_predictor
+                self.model1._sample_variance_predictor = (
+                    self.model2._sample_variance_predictor
+                )
             elif not has_sv1 and not has_sv2:
-                if condition1_sample_indices is not None or condition2_sample_indices is not None:
-                    raise ValueError("Both variance estimators failed to fit. Cannot proceed with sample variance estimation.")
+                if (
+                    condition1_sample_indices is not None
+                    or condition2_sample_indices is not None
+                ):
+                    raise ValueError(
+                        "Both variance estimators failed to fit. Cannot proceed with sample variance estimation."
+                    )
 
-        logger.debug("Function estimators fitted. Call predict() to compute fold changes.")
+        logger.debug(
+            "Function estimators fitted. Call predict() to compute fold changes."
+        )
 
         return self
-        
+
     def compute_mahalanobis_distances(
-        self, 
-        X: np.ndarray, 
+        self,
+        X: np.ndarray,
         fold_change=None,
         use_landmarks: bool = True,
         landmarks_override: Optional[np.ndarray] = None,
-        progress: bool = True
+        progress: bool = True,
     ) -> np.ndarray:
         """
         Compute Mahalanobis distances for each gene using efficient matrix preparation and batching.
-        
+
         Parameters
         ----------
         X : np.ndarray
@@ -508,13 +537,13 @@ class DifferentialExpression:
         use_landmarks : bool, optional
             Whether to use landmarks for covariance calculation if available, by default True.
         landmarks_override : np.ndarray, optional
-            Explicitly provided landmarks to use instead of automatically detected ones, 
+            Explicitly provided landmarks to use instead of automatically detected ones,
             by default None.
         progress : bool, optional
-            Whether to show tqdm.auto progress bars during Mahalanobis distance computation. 
-            When True, displays progress bars for gene-wise operations. When False, progress 
+            Whether to show tqdm.auto progress bars during Mahalanobis distance computation.
+            When True, displays progress bars for gene-wise operations. When False, progress
             bars are disabled. Default is True.
-            
+
         Returns
         -------
         np.ndarray
@@ -527,48 +556,63 @@ class DifferentialExpression:
         # Determine landmarks to use
         landmarks = None
         has_landmarks = False
-        
+
         # Use explicit landmarks if provided
         if landmarks_override is not None:
             landmarks = landmarks_override
             has_landmarks = True
-            logger.debug(f"Using explicitly provided landmarks with shape {landmarks.shape}")
+            logger.debug(
+                f"Using explicitly provided landmarks with shape {landmarks.shape}"
+            )
         # Otherwise check for landmarks from function predictors if enabled
         elif use_landmarks:
             # Check function predictor for landmarks
-            if hasattr(self.function_predictor1, 'landmarks') and self.function_predictor1.landmarks is not None:
+            if (
+                hasattr(self.function_predictor1, "landmarks")
+                and self.function_predictor1.landmarks is not None
+            ):
                 landmarks = self.function_predictor1.landmarks
                 has_landmarks = True
-                logger.debug(f"Using landmarks from function_predictor1 with shape {landmarks.shape}")
+                logger.debug(
+                    f"Using landmarks from function_predictor1 with shape {landmarks.shape}"
+                )
             # Check estimator for landmarks
-            elif (hasattr(self.expression_estimator_condition1, 'landmarks') and 
-                  self.expression_estimator_condition1.landmarks is not None):
+            elif (
+                hasattr(self.expression_estimator_condition1, "landmarks")
+                and self.expression_estimator_condition1.landmarks is not None
+            ):
                 landmarks = self.expression_estimator_condition1.landmarks
                 has_landmarks = True
-                logger.debug(f"Using landmarks from expression_estimator_condition1 with shape {landmarks.shape}")
-        
+                logger.debug(
+                    f"Using landmarks from expression_estimator_condition1 with shape {landmarks.shape}"
+                )
+
         # Determine which points to use for computation
         if has_landmarks and landmarks is not None:
-            logger.debug(f"Using {len(landmarks):,} landmarks for Mahalanobis computation")
-            
+            logger.debug(
+                f"Using {len(landmarks):,} landmarks for Mahalanobis computation"
+            )
+
             # Get covariance matrices
             cov1 = self.function_predictor1.covariance(landmarks, diag=False)
             cov2 = self.function_predictor2.covariance(landmarks, diag=False)
-            
+
             # We need to use the function predictors to get fold changes at landmark points
             landmarks_pred1 = self.function_predictor1(landmarks)
             landmarks_pred2 = self.function_predictor2(landmarks)
             fold_change_subset = landmarks_pred2 - landmarks_pred1
-            
+
             # Points for sample variance computation
             variance_points = landmarks
         else:
-            logger.debug(f"No landmarks used, computing covariance between all {len(X):,} points.")
-            
+            logger.debug(
+                f"No landmarks used, computing covariance between all {len(X):,} points."
+            )
+
             # Get covariance matrices
             cov1 = self.function_predictor1.covariance(X, diag=False)
             cov2 = self.function_predictor2.covariance(X, diag=False)
-            
+
             # Use the provided fold_change if available
             if fold_change is not None:
                 fold_change_subset = fold_change
@@ -577,32 +621,36 @@ class DifferentialExpression:
                 condition1_imputed = self.function_predictor1(X)
                 condition2_imputed = self.function_predictor2(X)
                 fold_change_subset = condition2_imputed - condition1_imputed
-                
+
             # Points for sample variance computation
             variance_points = X
-        
+
         # Average the covariance matrices
         combined_cov = (cov1 + cov2) / 2
         del cov1, cov2
-        
+
         # For sample variance, use diag=False to get full covariance matrices
         # Initialize variable to store gene-specific covariance matrices if needed
         gene_specific_covariance = None
-        
+
         if self.use_sample_variance:
             # Add empirical adjustments from sample variance
-            
+
             # Create functions for computing sample variance
             if self.variance_predictor1 is not None:
                 try:
                     # Important: use diag=False to get full covariance matrix
-                    variance1 = self.variance_predictor1(variance_points, diag=False, progress=progress)
+                    variance1 = self.variance_predictor1(
+                        variance_points, diag=False, progress=progress
+                    )
                     if self.variance_predictor2 is not None:
-                        variance2 = self.variance_predictor2(variance_points, diag=False, progress=progress)
+                        variance2 = self.variance_predictor2(
+                            variance_points, diag=False, progress=progress
+                        )
                         # Add the covariance matrices for complete variance representation
                         combined_variance = variance1 + variance2
                         del variance1, variance2
-                        
+
                         # Check if we have gene-specific covariance matrices (shape has 3 dimensions)
                         if len(combined_variance.shape) == 3:
                             # We have per-gene covariance matrices with shape (points, points, genes)
@@ -613,15 +661,23 @@ class DifferentialExpression:
                                 combined_cov_to_add = np.asarray(combined_cov)
                             else:
                                 combined_cov_to_add = combined_cov
-                            for g in tqdm(range(combined_variance.shape[2]), 
-                                         desc="Processing gene-specific covariance matrices", 
-                                         disable=not progress):
-                                gene_specific_covariance[:, :, g] = combined_variance[:, :, g] + combined_cov_to_add
-                            logger.debug(f"Using gene-specific covariance matrices with shape {gene_specific_covariance.shape}")
+                            for g in tqdm(
+                                range(combined_variance.shape[2]),
+                                desc="Processing gene-specific covariance matrices",
+                                disable=not progress,
+                            ):
+                                gene_specific_covariance[:, :, g] = (
+                                    combined_variance[:, :, g] + combined_cov_to_add
+                                )
+                            logger.debug(
+                                f"Using gene-specific covariance matrices with shape {gene_specific_covariance.shape}"
+                            )
                         else:
                             # Add the sample variance to the combined covariance from function predictors
                             combined_cov += combined_variance
-                            logger.debug("Added sample variance covariance matrix to function predictor covariance")
+                            logger.debug(
+                                "Added sample variance covariance matrix to function predictor covariance"
+                            )
                     else:
                         # Only add variance1 if variance2 is not available
                         if len(variance1.shape) == 3:
@@ -633,14 +689,22 @@ class DifferentialExpression:
                                 combined_cov_to_add = np.asarray(combined_cov)
                             else:
                                 combined_cov_to_add = combined_cov
-                            for g in tqdm(range(variance1.shape[2]), 
-                                         desc="Processing gene-specific covariance matrices (variance1)", 
-                                         disable=not progress):
-                                gene_specific_covariance[:, :, g] = variance1[:, :, g] + combined_cov_to_add
-                            logger.debug(f"Using gene-specific covariance matrices from variance1 with shape {gene_specific_covariance.shape}")
+                            for g in tqdm(
+                                range(variance1.shape[2]),
+                                desc="Processing gene-specific covariance matrices (variance1)",
+                                disable=not progress,
+                            ):
+                                gene_specific_covariance[:, :, g] = (
+                                    variance1[:, :, g] + combined_cov_to_add
+                                )
+                            logger.debug(
+                                f"Using gene-specific covariance matrices from variance1 with shape {gene_specific_covariance.shape}"
+                            )
                         else:
                             combined_cov += variance1
-                            logger.debug("Added variance1 covariance matrix to function predictor covariance")
+                            logger.debug(
+                                "Added variance1 covariance matrix to function predictor covariance"
+                            )
                         del variance1
                 except Exception as e:
                     error_msg = f"Error computing sample variance from variance_predictor1: {e}."
@@ -649,7 +713,9 @@ class DifferentialExpression:
             elif self.variance_predictor2 is not None:
                 try:
                     # Important: use diag=False to get full covariance matrix
-                    variance2 = self.variance_predictor2(variance_points, diag=False, progress=progress)
+                    variance2 = self.variance_predictor2(
+                        variance_points, diag=False, progress=progress
+                    )
                     # Check if we have gene-specific covariance matrices
                     if len(variance2.shape) == 3:
                         # We have per-gene covariance matrices
@@ -660,43 +726,64 @@ class DifferentialExpression:
                             combined_cov_to_add = np.asarray(combined_cov)
                         else:
                             combined_cov_to_add = combined_cov
-                        for g in tqdm(range(variance2.shape[2]), 
-                                     desc="Processing gene-specific covariance matrices (variance2)", 
-                                     disable=not progress):
-                            gene_specific_covariance[:, :, g] = variance2[:, :, g] + combined_cov_to_add
-                        logger.debug(f"Using gene-specific covariance matrices from variance2 with shape {gene_specific_covariance.shape}")
+                        for g in tqdm(
+                            range(variance2.shape[2]),
+                            desc="Processing gene-specific covariance matrices (variance2)",
+                            disable=not progress,
+                        ):
+                            gene_specific_covariance[:, :, g] = (
+                                variance2[:, :, g] + combined_cov_to_add
+                            )
+                        logger.debug(
+                            f"Using gene-specific covariance matrices from variance2 with shape {gene_specific_covariance.shape}"
+                        )
                     else:
                         # Add variance2 to the combined covariance
                         combined_cov += variance2
-                        logger.debug("Added variance2 covariance matrix to function predictor covariance")
+                        logger.debug(
+                            "Added variance2 covariance matrix to function predictor covariance"
+                        )
                     del variance2
                 except Exception as e:
                     error_msg = f"Error computing sample variance from variance_predictor2: {e}."
                     logger.error(error_msg)
                     raise RuntimeError(error_msg) from e
-        
+
         # Compute empirical variance at variance_points if enabled
         empirical_diag_var = None
-        if self.use_empirical_variance and self.empirical_variance_predictor1 is not None:
+        if (
+            self.use_empirical_variance
+            and self.empirical_variance_predictor1 is not None
+        ):
             logger.debug("Computing empirical variance at evaluation points...")
-            emp_var1 = np.maximum(apply_batched(
-                lambda X: self.empirical_variance_predictor1(X),
-                variance_points, batch_size=self.batch_size,
-                show_progress=progress,
-                desc="Empirical variance (condition 1)",
-            ), self.eps)
-            emp_var2 = np.maximum(apply_batched(
-                lambda X: self.empirical_variance_predictor2(X),
-                variance_points, batch_size=self.batch_size,
-                show_progress=progress,
-                desc="Empirical variance (condition 2)",
-            ), self.eps)
+            emp_var1 = np.maximum(
+                apply_batched(
+                    lambda X: self.empirical_variance_predictor1(X),
+                    variance_points,
+                    batch_size=self.batch_size,
+                    show_progress=progress,
+                    desc="Empirical variance (condition 1)",
+                ),
+                self.eps,
+            )
+            emp_var2 = np.maximum(
+                apply_batched(
+                    lambda X: self.empirical_variance_predictor2(X),
+                    variance_points,
+                    batch_size=self.batch_size,
+                    show_progress=progress,
+                    desc="Empirical variance (condition 2)",
+                ),
+                self.eps,
+            )
             # combined_emp_var shape: (n_points, n_genes)
             combined_emp_var = emp_var1 + emp_var2
             del emp_var1, emp_var2
             # diagonal_variance needs shape (n_genes, n_points)
             empirical_diag_var = combined_emp_var.T
-            logger.debug(f"Empirical diagonal variance shape: {empirical_diag_var.shape}")
+            logger.debug(
+                f"Empirical diagonal variance shape: {empirical_diag_var.shape}"
+            )
 
         # Transpose fold_change to get shape (n_genes, n_points) for easier gene-wise processing
         fold_change_transposed = fold_change_subset.T
@@ -705,11 +792,15 @@ class DifferentialExpression:
         try:
             if gene_specific_covariance is not None:
                 # Use gene-specific covariance matrices (3D tensor)
-                logger.debug(f"Computing Mahalanobis distances for {fold_change_transposed.shape[0]:,} genes with gene-specific covariance matrices...")
+                logger.debug(
+                    f"Computing Mahalanobis distances for {fold_change_transposed.shape[0]:,} genes with gene-specific covariance matrices..."
+                )
 
                 # Note: batch_size is not used for gene-specific covariance (processes one gene at a time)
                 # Memory is dominated by the covariance tensor: (n_points, n_points, n_genes)
-                logger.debug(f"Gene-specific covariance: batch_size is not used (processes genes sequentially)")
+                logger.debug(
+                    "Gene-specific covariance: batch_size is not used (processes genes sequentially)"
+                )
                 mahalanobis_distances = compute_mahalanobis_distances(
                     diff_values=fold_change_transposed,
                     covariance=gene_specific_covariance,
@@ -720,12 +811,18 @@ class DifferentialExpression:
                     diagonal_variance=empirical_diag_var,
                 )
 
-                logger.debug(f"Successfully computed Mahalanobis distances for {len(mahalanobis_distances):,} genes using gene-specific covariance")
+                logger.debug(
+                    f"Successfully computed Mahalanobis distances for {len(mahalanobis_distances):,} genes using gene-specific covariance"
+                )
             else:
-                logger.debug(f"Computing Mahalanobis distances for {fold_change_transposed.shape[0]:,} genes with shared covariance...")
+                logger.debug(
+                    f"Computing Mahalanobis distances for {fold_change_transposed.shape[0]:,} genes with shared covariance..."
+                )
 
                 # Compute all distances using the unified utility function with the combined covariance matrix
-                logger.debug(f"Using batch_size={self.batch_size} for Mahalanobis distance computation")
+                logger.debug(
+                    f"Using batch_size={self.batch_size} for Mahalanobis distance computation"
+                )
                 mahalanobis_distances = compute_mahalanobis_distances(
                     diff_values=fold_change_transposed,
                     covariance=combined_cov,
@@ -736,16 +833,22 @@ class DifferentialExpression:
                     diagonal_variance=empirical_diag_var,
                 )
 
-                logger.debug(f"Successfully computed Mahalanobis distances for {len(mahalanobis_distances):,} genes")
+                logger.debug(
+                    f"Successfully computed Mahalanobis distances for {len(mahalanobis_distances):,} genes"
+                )
         except Exception as e:
             # Provide context-appropriate error message
             if gene_specific_covariance is not None:
-                error_msg = (f"Failed to compute Mahalanobis distances with gene-specific covariance: {str(e)}. "
-                           f"Try using store_arrays_on_disk=True or reduce n_landmarks to control memory usage.")
+                error_msg = (
+                    f"Failed to compute Mahalanobis distances with gene-specific covariance: {str(e)}. "
+                    f"Try using store_arrays_on_disk=True or reduce n_landmarks to control memory usage."
+                )
             else:
-                error_msg = (f"Failed to compute Mahalanobis distances: {str(e)}. "
-                           f"Try reducing batch_size, using store_arrays_on_disk=True, or disable Mahalanobis "
-                           f"distance calculation with compute_mahalanobis=False")
+                error_msg = (
+                    f"Failed to compute Mahalanobis distances: {str(e)}. "
+                    f"Try reducing batch_size, using store_arrays_on_disk=True, or disable Mahalanobis "
+                    f"distance calculation with compute_mahalanobis=False"
+                )
             logger.error(error_msg)
             raise RuntimeError(error_msg) from e
 
@@ -755,26 +858,26 @@ class DifferentialExpression:
             degrees_of_freedom = landmarks.shape[1]  # Number of features/landmarks
         else:
             degrees_of_freedom = X.shape[1]  # Number of features
-        
+
         # Store degrees of freedom as instance variable for use in predict method
         self._last_mahalanobis_dof = degrees_of_freedom
-        
+
         return mahalanobis_distances
-    
+
     def predict(
-        self, 
-        X_new: np.ndarray, 
+        self,
+        X_new: np.ndarray,
         compute_mahalanobis: bool = False,
         progress: bool = True,
         use_landmarks: bool = True,
-        landmarks_override: Optional[np.ndarray] = None
+        landmarks_override: Optional[np.ndarray] = None,
     ) -> Dict[str, np.ndarray]:
         """
         Predict gene expression and differential metrics for new points.
-        
+
         This method computes fold changes and related metrics for the provided points.
         It uses internal batching for efficient computation with large datasets.
-        
+
         Parameters
         ----------
         X_new : np.ndarray
@@ -783,9 +886,9 @@ class DifferentialExpression:
             Whether to compute Mahalanobis distances. This can be computationally expensive,
             so it's optional in the predict method. Default is False.
         progress : bool, optional
-            Whether to show tqdm.auto progress bars during computation. When True, displays 
-            progress bars for all batch processing operations including prediction, uncertainty 
-            computation, and Mahalanobis distance calculations. When False, all progress bars 
+            Whether to show tqdm.auto progress bars during computation. When True, displays
+            progress bars for all batch processing operations including prediction, uncertainty
+            computation, and Mahalanobis distance calculations. When False, all progress bars
             are disabled. Default is True.
         use_landmarks : bool, optional
             Whether to use landmarks for Mahalanobis distance calculation if available, by default True.
@@ -795,7 +898,7 @@ class DifferentialExpression:
             Explicitly provided landmarks to use instead of the ones from the fitted model.
             Shape (n_landmarks, n_features). Used when custom landmarks are needed for a specific
             prediction, such as when analyzing a subset of data.
-            
+
         Returns
         -------
         dict
@@ -813,15 +916,23 @@ class DifferentialExpression:
         if self.model2 is None or self.model2.predictor is None:
             raise ValueError("Model not fitted. Call fit() first.")
 
-        batch_size = getattr(self, 'batch_size', None)
+        batch_size = getattr(self, "batch_size", None)
 
         # Imputed expression via ExpressionModel
-        condition1_imputed = self.model1.predict(X_new, batch_size=batch_size, progress=progress)
-        condition2_imputed = self.model2.predict(X_new, batch_size=batch_size, progress=progress)
+        condition1_imputed = self.model1.predict(
+            X_new, batch_size=batch_size, progress=progress
+        )
+        condition2_imputed = self.model2.predict(
+            X_new, batch_size=batch_size, progress=progress
+        )
 
         # Compute total variance once per condition, derive std from it
-        total_var1 = self.model1.total_variance(X_new, diag=True, batch_size=batch_size, progress=progress)
-        total_var2 = self.model2.total_variance(X_new, diag=True, batch_size=batch_size, progress=progress)
+        total_var1 = self.model1.total_variance(
+            X_new, diag=True, batch_size=batch_size, progress=progress
+        )
+        total_var2 = self.model2.total_variance(
+            X_new, diag=True, batch_size=batch_size, progress=progress
+        )
         condition1_std = np.sqrt(total_var1 + self.eps)
         condition2_std = np.sqrt(total_var2 + self.eps)
 
@@ -840,13 +951,13 @@ class DifferentialExpression:
         del total_variance
 
         result = {
-            'condition1_imputed': condition1_imputed,
-            'condition2_imputed': condition2_imputed,
-            'condition1_std': condition1_std,
-            'condition2_std': condition2_std,
-            'fold_change': fold_change,
-            'fold_change_zscores': fold_change_zscores,
-            'mean_log_fold_change': mean_log_fold_change,
+            "condition1_imputed": condition1_imputed,
+            "condition2_imputed": condition2_imputed,
+            "condition1_std": condition1_std,
+            "condition2_std": condition2_std,
+            "fold_change": fold_change,
+            "fold_change_zscores": fold_change_zscores,
+            "mean_log_fold_change": mean_log_fold_change,
         }
 
         # Compute Mahalanobis distances if requested
@@ -860,14 +971,18 @@ class DifferentialExpression:
                 landmarks_override=landmarks_override,
                 progress=progress,
             )
-            result['mahalanobis_distances'] = mahalanobis_distances
+            result["mahalanobis_distances"] = mahalanobis_distances
             self._last_mahalanobis = mahalanobis_distances
 
-            if hasattr(self, '_last_mahalanobis_dof'):
-                logger.debug(f"Computing ptp with {self._last_mahalanobis_dof} degrees of freedom...")
+            if hasattr(self, "_last_mahalanobis_dof"):
+                logger.debug(
+                    f"Computing ptp with {self._last_mahalanobis_dof} degrees of freedom..."
+                )
                 mahalanobis_squared = jnp.array(mahalanobis_distances) ** 2
-                ptp = jax_stats.chi2.sf(mahalanobis_squared, df=self._last_mahalanobis_dof)
-                result['ptp'] = np.array(ptp)
+                ptp = jax_stats.chi2.sf(
+                    mahalanobis_squared, df=self._last_mahalanobis_dof
+                )
+                result["ptp"] = np.array(ptp)
 
         return result
 
@@ -890,6 +1005,7 @@ class DifferentialExpression:
             ``local_fdr``, ``tail_fdr``, ``is_de``.
         """
         from kompot.fdr import compute_fdr as _compute_fdr
+
         if self._last_mahalanobis is None:
             raise ValueError(
                 "No Mahalanobis distances available. "

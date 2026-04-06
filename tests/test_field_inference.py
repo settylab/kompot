@@ -4,14 +4,13 @@ import pytest
 import numpy as np
 import pandas as pd
 import anndata
-import logging
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 from kompot.plot.field_inference import (
     infer_fields_from_run_info,
     get_comparison_specific_fields,
     _fallback_field_inference,
-    _check_for_overwrites
+    _check_for_overwrites,
 )
 
 
@@ -26,10 +25,11 @@ class TestFieldInference:
 
         self.adata = anndata.AnnData(
             X=X,
-            obs=pd.DataFrame({
-                "condition": ["A"] * 50 + ["B"] * 50
-            }, index=[f"Cell_{i}" for i in range(n_cells)]),
-            var=pd.DataFrame(index=[f"Gene_{i}" for i in range(n_genes)])
+            obs=pd.DataFrame(
+                {"condition": ["A"] * 50 + ["B"] * 50},
+                index=[f"Cell_{i}" for i in range(n_cells)],
+            ),
+            var=pd.DataFrame(index=[f"Gene_{i}" for i in range(n_genes)]),
         )
 
     def test_infer_fields_with_valid_run_info(self):
@@ -41,8 +41,8 @@ class TestFieldInference:
                 "field_names": {
                     "mean_lfc_key": "kompot_de_A_to_B_mean_lfc",
                     "mahalanobis_key": "kompot_de_A_to_B_mahalanobis",
-                    "is_de_key": "kompot_de_A_to_B_is_de"
-                }
+                    "is_de_key": "kompot_de_A_to_B_is_de",
+                },
             }
         ]
         self.adata.uns["kompot_de"] = {"run_history": run_history}
@@ -57,7 +57,7 @@ class TestFieldInference:
             analysis_type="de",
             run_id=-1,
             required_fields=["mean_lfc_key", "mahalanobis_key", "is_de_key"],
-            strict=True
+            strict=True,
         )
 
         assert fields["mean_lfc_key"] == "kompot_de_A_to_B_mean_lfc"
@@ -70,19 +70,21 @@ class TestFieldInference:
         self.adata.var["kompot_de_A_to_B_mean_lfc"] = np.random.normal(0, 1, 50)
         self.adata.var["kompot_de_A_to_B_mahalanobis"] = np.random.gamma(2, 1, 50)
 
-        with patch('kompot.plot.field_inference.logger') as mock_logger:
+        with patch("kompot.plot.field_inference.logger") as mock_logger:
             fields = infer_fields_from_run_info(
                 adata=self.adata,
                 analysis_type="de",
                 run_id=-1,
                 required_fields=["mean_lfc_key", "mahalanobis_key"],
-                strict=False
+                strict=False,
             )
 
             # Should warn about missing run info
             mock_logger.warning.assert_any_call("No DE run info found for run_id=-1")
             # Should warn about fallback inference
-            mock_logger.warning.assert_any_call("Attempting fallback inference for missing fields: ['mean_lfc_key', 'mahalanobis_key']")
+            mock_logger.warning.assert_any_call(
+                "Attempting fallback inference for missing fields: ['mean_lfc_key', 'mahalanobis_key']"
+            )
 
         assert fields["mean_lfc_key"] == "kompot_de_A_to_B_mean_lfc"
         assert fields["mahalanobis_key"] == "kompot_de_A_to_B_mahalanobis"
@@ -93,15 +95,13 @@ class TestFieldInference:
         run_history = [
             {
                 "params": {"condition1": "A", "condition2": "B"},
-                "field_names": {
-                    "mean_lfc_key": "kompot_de_A_to_B_mean_lfc"
-                }
+                "field_names": {"mean_lfc_key": "kompot_de_A_to_B_mean_lfc"},
             }
         ]
         self.adata.uns["kompot_de"] = {"run_history": run_history}
         self.adata.var["kompot_de_A_to_B_mean_lfc"] = np.random.normal(0, 1, 50)
 
-        with patch('kompot.plot.field_inference.logger') as mock_logger:
+        with patch("kompot.plot.field_inference.logger") as mock_logger:
             fields = infer_fields_from_run_info(
                 adata=self.adata,
                 analysis_type="de",
@@ -109,7 +109,7 @@ class TestFieldInference:
                 condition2="Y",  # Mismatch
                 run_id=-1,
                 required_fields=["mean_lfc_key"],
-                strict=False
+                strict=False,
             )
 
             # Should warn about condition mismatch
@@ -124,9 +124,7 @@ class TestFieldInference:
         run_history = [
             {
                 "params": {"condition1": "A", "condition2": "B"},
-                "field_names": {
-                    "mean_lfc_key": "kompot_de_A_to_B_mean_lfc"
-                }
+                "field_names": {"mean_lfc_key": "kompot_de_A_to_B_mean_lfc"},
             }
         ]
         self.adata.uns["kompot_de"] = {"run_history": run_history}
@@ -140,7 +138,7 @@ class TestFieldInference:
                 condition2="Y",
                 run_id=-1,
                 required_fields=["mean_lfc_key"],
-                strict=True
+                strict=True,
             )
 
     def test_infer_fields_with_missing_columns(self):
@@ -148,20 +146,18 @@ class TestFieldInference:
         run_history = [
             {
                 "params": {"condition1": "A", "condition2": "B"},
-                "field_names": {
-                    "mean_lfc_key": "missing_column"
-                }
+                "field_names": {"mean_lfc_key": "missing_column"},
             }
         ]
         self.adata.uns["kompot_de"] = {"run_history": run_history}
 
-        with patch('kompot.plot.field_inference.logger') as mock_logger:
+        with patch("kompot.plot.field_inference.logger") as mock_logger:
             fields = infer_fields_from_run_info(
                 adata=self.adata,
                 analysis_type="de",
                 run_id=-1,
                 required_fields=["mean_lfc_key"],
-                strict=False
+                strict=False,
             )
 
             # Should warn about missing column
@@ -178,22 +174,24 @@ class TestFieldInference:
                 "params": {"condition1": "A", "condition2": "B"},
                 "field_names": {
                     "lfc_key": "kompot_da_A_to_B_lfc",
-                    "direction_key": "kompot_da_A_to_B_lfc_direction"
-                }
+                    "direction_key": "kompot_da_A_to_B_lfc_direction",
+                },
             }
         ]
         self.adata.uns["kompot_da"] = {"run_history": run_history}
 
         # Add corresponding columns to obs for DA
         self.adata.obs["kompot_da_A_to_B_lfc"] = np.random.normal(0, 1, 100)
-        self.adata.obs["kompot_da_A_to_B_lfc_direction"] = np.random.choice(["up", "down", "neutral"], 100)
+        self.adata.obs["kompot_da_A_to_B_lfc_direction"] = np.random.choice(
+            ["up", "down", "neutral"], 100
+        )
 
         fields = infer_fields_from_run_info(
             adata=self.adata,
             analysis_type="da",
             run_id=-1,
             required_fields=["lfc_key", "direction_key"],
-            strict=True
+            strict=True,
         )
 
         assert fields["lfc_key"] == "kompot_da_A_to_B_lfc"
@@ -210,10 +208,11 @@ class TestComparisonSpecificFields:
 
         self.adata = anndata.AnnData(
             X=X,
-            obs=pd.DataFrame({
-                "condition": ["A"] * 50 + ["B"] * 50
-            }, index=[f"Cell_{i}" for i in range(n_cells)]),
-            var=pd.DataFrame(index=[f"Gene_{i}" for i in range(n_genes)])
+            obs=pd.DataFrame(
+                {"condition": ["A"] * 50 + ["B"] * 50},
+                index=[f"Cell_{i}" for i in range(n_cells)],
+            ),
+            var=pd.DataFrame(index=[f"Gene_{i}" for i in range(n_genes)]),
         )
 
     def test_get_comparison_specific_fields_valid(self):
@@ -223,8 +222,8 @@ class TestComparisonSpecificFields:
                 "params": {"condition1": "A", "condition2": "B"},
                 "field_names": {
                     "mean_lfc_key": "kompot_de_A_to_B_mean_lfc",
-                    "mahalanobis_key": "kompot_de_A_to_B_mahalanobis"
-                }
+                    "mahalanobis_key": "kompot_de_A_to_B_mahalanobis",
+                },
             }
         ]
         self.adata.uns["kompot_de"] = {"run_history": run_history}
@@ -237,7 +236,7 @@ class TestComparisonSpecificFields:
             analysis_type="de",
             condition1="A",
             condition2="B",
-            run_id=-1
+            run_id=-1,
         )
 
         assert fields["mean_lfc_key"] == "kompot_de_A_to_B_mean_lfc"
@@ -252,28 +251,30 @@ class TestComparisonSpecificFields:
                 "params": {"condition1": "A", "condition2": "B"},
                 "field_names": {
                     "mean_lfc_key": "kompot_de_A_to_B_mean_lfc",
-                    "mahalanobis_key": "kompot_de_A_to_B_mahalanobis"
-                }
+                    "mahalanobis_key": "kompot_de_A_to_B_mahalanobis",
+                },
             },
             {
                 "params": {"condition1": "X", "condition2": "Y"},
                 "field_names": {
                     "mean_lfc_key": "kompot_de_A_to_B_mean_lfc",  # Field name doesn't match conditions
-                    "mahalanobis_key": "kompot_de_A_to_B_mahalanobis"  # Field name doesn't match conditions
-                }
-            }
+                    "mahalanobis_key": "kompot_de_A_to_B_mahalanobis",  # Field name doesn't match conditions
+                },
+            },
         ]
         self.adata.uns["kompot_de"] = {"run_history": run_history}
         self.adata.var["kompot_de_A_to_B_mean_lfc"] = np.random.normal(0, 1, 50)
         self.adata.var["kompot_de_A_to_B_mahalanobis"] = np.random.normal(0, 1, 50)
 
-        with pytest.raises(ValueError, match="does not match expected comparison X → Y"):
+        with pytest.raises(
+            ValueError, match="does not match expected comparison X → Y"
+        ):
             get_comparison_specific_fields(
                 adata=self.adata,
                 analysis_type="de",
                 condition1="X",
                 condition2="Y",
-                run_id=-1
+                run_id=-1,
             )
 
 
@@ -282,10 +283,9 @@ class TestFallbackInference:
 
     def test_fallback_single_candidate(self):
         """Test fallback inference with single candidate."""
-        data_section = pd.DataFrame({
-            "kompot_de_A_to_B_mean_lfc": [1, 2, 3],
-            "other_column": [4, 5, 6]
-        })
+        data_section = pd.DataFrame(
+            {"kompot_de_A_to_B_mean_lfc": [1, 2, 3], "other_column": [4, 5, 6]}
+        )
 
         result = _fallback_field_inference(
             data_section=data_section,
@@ -294,18 +294,20 @@ class TestFallbackInference:
             condition1="A",
             condition2="B",
             result_key=None,
-            strict=False
+            strict=False,
         )
 
         assert result == "kompot_de_A_to_B_mean_lfc"
 
     def test_fallback_multiple_candidates_with_conditions(self):
         """Test fallback inference with multiple candidates filtered by conditions."""
-        data_section = pd.DataFrame({
-            "kompot_de_A_to_B_mean_lfc": [1, 2, 3],
-            "kompot_de_X_to_Y_mean_lfc": [4, 5, 6],
-            "other_column": [7, 8, 9]
-        })
+        data_section = pd.DataFrame(
+            {
+                "kompot_de_A_to_B_mean_lfc": [1, 2, 3],
+                "kompot_de_X_to_Y_mean_lfc": [4, 5, 6],
+                "other_column": [7, 8, 9],
+            }
+        )
 
         result = _fallback_field_inference(
             data_section=data_section,
@@ -314,17 +316,19 @@ class TestFallbackInference:
             condition1="A",
             condition2="B",
             result_key=None,
-            strict=False
+            strict=False,
         )
 
         assert result == "kompot_de_A_to_B_mean_lfc"
 
     def test_fallback_multiple_candidates_strict_mode(self):
         """Test fallback inference in strict mode with multiple candidates."""
-        data_section = pd.DataFrame({
-            "kompot_de_A_to_B_mean_lfc": [1, 2, 3],
-            "kompot_de_X_to_Y_mean_lfc": [4, 5, 6]
-        })
+        data_section = pd.DataFrame(
+            {
+                "kompot_de_A_to_B_mean_lfc": [1, 2, 3],
+                "kompot_de_X_to_Y_mean_lfc": [4, 5, 6],
+            }
+        )
 
         result = _fallback_field_inference(
             data_section=data_section,
@@ -333,7 +337,7 @@ class TestFallbackInference:
             condition1=None,
             condition2=None,
             result_key=None,
-            strict=True
+            strict=True,
         )
 
         # In strict mode with multiple candidates, should return None
@@ -341,9 +345,7 @@ class TestFallbackInference:
 
     def test_fallback_no_candidates(self):
         """Test fallback inference with no candidates."""
-        data_section = pd.DataFrame({
-            "other_column": [1, 2, 3]
-        })
+        data_section = pd.DataFrame({"other_column": [1, 2, 3]})
 
         result = _fallback_field_inference(
             data_section=data_section,
@@ -352,7 +354,7 @@ class TestFallbackInference:
             condition1="A",
             condition2="B",
             result_key=None,
-            strict=False
+            strict=False,
         )
 
         assert result is None
@@ -367,24 +369,15 @@ class TestOverwriteDetection:
 
         # Set up run history and field tracking for single run
         run_history = [
-            {
-                "adjusted_run_id": 0,
-                "field_names": {
-                    "mean_lfc_key": "test_field"
-                }
-            }
+            {"adjusted_run_id": 0, "field_names": {"mean_lfc_key": "test_field"}}
         ]
 
         # Set up field tracking - field owned by run 0
-        field_tracking = {
-            "var": {
-                "test_field": 0
-            }
-        }
+        field_tracking = {"var": {"test_field": 0}}
 
         adata.uns["kompot_de"] = {
             "run_history": run_history,
-            "anndata_fields": field_tracking
+            "anndata_fields": field_tracking,
         }
         adata.var["test_field"] = np.random.normal(0, 1, 5)
 
@@ -402,18 +395,13 @@ class TestOverwriteDetection:
 
         # Set up run history with two runs writing to the same field
         run_history = [
-            {
-                "adjusted_run_id": 0,
-                "field_names": {
-                    "mean_lfc_key": "test_field"
-                }
-            },
+            {"adjusted_run_id": 0, "field_names": {"mean_lfc_key": "test_field"}},
             {
                 "adjusted_run_id": 1,
                 "field_names": {
                     "mean_lfc_key": "test_field"  # Same field - indicates overwrite
-                }
-            }
+                },
+            },
         ]
 
         # Set up field tracking - field currently owned by run 0 but latest is run 1
@@ -427,20 +415,20 @@ class TestOverwriteDetection:
 
         adata.uns["kompot_de"] = {
             "run_history": run_history,
-            "anndata_fields": field_tracking
+            "anndata_fields": field_tracking,
         }
         adata.var["test_field"] = np.random.normal(0, 1, 5)
 
         inferred_fields = {"mean_lfc_key": "test_field"}
         warnings_issued = []
 
-        with patch('kompot.plot.field_inference.logger') as mock_logger:
+        with patch("kompot.plot.field_inference.logger") as mock_logger:
             _check_for_overwrites(adata, "de", inferred_fields, warnings_issued)
 
         # Should warn about overwrites - both ownership mismatch and multiple writers
         assert len(warnings_issued) >= 1
         warning_text = " ".join(warnings_issued)
-        assert ("overwritten" in warning_text or "written by" in warning_text)
+        assert "overwritten" in warning_text or "written by" in warning_text
 
     def test_consistency_with_runinfo_overwrite_detection(self):
         """Test that field inference overwrite detection is consistent with RunInfo."""
@@ -459,21 +447,23 @@ class TestOverwriteDetection:
                 "field_mapping": {
                     "kompot_de_A_to_B_mean_lfc": {
                         "location": "var",
-                        "type": "mean_lfc_key"
+                        "type": "mean_lfc_key",
                     }
-                }
+                },
             },
             {
                 "adjusted_run_id": 1,
-                "field_names": {"mean_lfc_key": "kompot_de_A_to_B_mean_lfc"},  # Same field
+                "field_names": {
+                    "mean_lfc_key": "kompot_de_A_to_B_mean_lfc"
+                },  # Same field
                 "params": {"condition1": "A", "condition2": "B"},
                 "field_mapping": {
                     "kompot_de_A_to_B_mean_lfc": {
                         "location": "var",
-                        "type": "mean_lfc_key"
+                        "type": "mean_lfc_key",
                     }
-                }
-            }
+                },
+            },
         ]
 
         # Set up field tracking showing field was overwritten by run 1
@@ -486,7 +476,7 @@ class TestOverwriteDetection:
 
         adata.uns["kompot_de"] = {
             "run_history": run_history,
-            "anndata_fields": field_tracking
+            "anndata_fields": field_tracking,
         }
         adata.var["kompot_de_A_to_B_mean_lfc"] = np.random.normal(0, 1, 50)
 
@@ -501,17 +491,22 @@ class TestOverwriteDetection:
         runinfo_overwrites = run_info.overwritten_fields
 
         # Both should detect overwrite issues
-        assert len(warnings_issued) > 0, "Field inference should detect overwrite issues"
+        assert len(warnings_issued) > 0, (
+            "Field inference should detect overwrite issues"
+        )
         assert len(runinfo_overwrites) > 0, "RunInfo should detect overwrite issues"
 
         # Verify both are detecting the same field as problematic
-        field_inference_mentions_field = any("kompot_de_A_to_B_mean_lfc" in w for w in warnings_issued)
+        field_inference_mentions_field = any(
+            "kompot_de_A_to_B_mean_lfc" in w for w in warnings_issued
+        )
         runinfo_mentions_field = any(
-            info["field"] == "kompot_de_A_to_B_mean_lfc"
-            for info in runinfo_overwrites
+            info["field"] == "kompot_de_A_to_B_mean_lfc" for info in runinfo_overwrites
         )
 
-        assert field_inference_mentions_field, "Field inference should mention the problematic field"
+        assert field_inference_mentions_field, (
+            "Field inference should mention the problematic field"
+        )
         assert runinfo_mentions_field, "RunInfo should mention the problematic field"
 
 
@@ -525,10 +520,11 @@ class TestPlotFunctionIntegration:
 
         self.adata = anndata.AnnData(
             X=X,
-            obs=pd.DataFrame({
-                "condition": ["A"] * 50 + ["B"] * 50
-            }, index=[f"Cell_{i}" for i in range(n_cells)]),
-            var=pd.DataFrame(index=[f"Gene_{i}" for i in range(n_genes)])
+            obs=pd.DataFrame(
+                {"condition": ["A"] * 50 + ["B"] * 50},
+                index=[f"Cell_{i}" for i in range(n_cells)],
+            ),
+            var=pd.DataFrame(index=[f"Gene_{i}" for i in range(n_genes)]),
         )
 
     def test_expression_plot_field_inference(self):
@@ -541,8 +537,8 @@ class TestPlotFunctionIntegration:
                 "params": {"condition1": "A", "condition2": "B"},
                 "field_names": {
                     "mean_lfc_key": "kompot_de_A_to_B_mean_lfc",
-                    "mahalanobis_key": "kompot_de_A_to_B_mahalanobis"
-                }
+                    "mahalanobis_key": "kompot_de_A_to_B_mahalanobis",
+                },
             }
         ]
         self.adata.uns["kompot_de"] = {"run_history": run_history}
@@ -551,9 +547,7 @@ class TestPlotFunctionIntegration:
         self.adata.var["kompot_de_A_to_B_mahalanobis"] = np.random.gamma(2, 1, 50)
 
         lfc_key, score_key = _infer_expression_keys(
-            adata=self.adata,
-            run_id=-1,
-            strict=True
+            adata=self.adata, run_id=-1, strict=True
         )
 
         assert lfc_key == "kompot_de_A_to_B_mean_lfc"
@@ -567,19 +561,16 @@ class TestPlotFunctionIntegration:
         run_history = [
             {
                 "params": {"condition1": "A", "condition2": "B"},
-                "field_names": {
-                    "direction_key": "kompot_da_A_to_B_lfc_direction"
-                }
+                "field_names": {"direction_key": "kompot_da_A_to_B_lfc_direction"},
             }
         ]
         self.adata.uns["kompot_da"] = {"run_history": run_history}
 
-        self.adata.obs["kompot_da_A_to_B_lfc_direction"] = np.random.choice(["up", "down", "neutral"], 100)
-
-        direction_col, cond1, cond2 = _infer_direction_key(
-            adata=self.adata,
-            run_id=-1
+        self.adata.obs["kompot_da_A_to_B_lfc_direction"] = np.random.choice(
+            ["up", "down", "neutral"], 100
         )
+
+        direction_col, cond1, cond2 = _infer_direction_key(adata=self.adata, run_id=-1)
 
         assert direction_col == "kompot_da_A_to_B_lfc_direction"
         assert cond1 == "A"
@@ -598,7 +589,7 @@ class TestEdgeCases:
             analysis_type="de",
             run_id=-1,
             required_fields=["mean_lfc_key"],
-            strict=False
+            strict=False,
         )
 
         assert fields["mean_lfc_key"] is None
@@ -607,13 +598,13 @@ class TestEdgeCases:
         """Test with invalid run ID."""
         adata = anndata.AnnData(X=np.random.random((10, 5)))
 
-        with patch('kompot.plot.field_inference.logger') as mock_logger:
+        with patch("kompot.plot.field_inference.logger") as mock_logger:
             fields = infer_fields_from_run_info(
                 adata=adata,
                 analysis_type="de",
                 run_id=999,  # Invalid run ID
                 required_fields=["mean_lfc_key"],
-                strict=False
+                strict=False,
             )
 
         assert fields["mean_lfc_key"] is None
@@ -623,13 +614,13 @@ class TestEdgeCases:
         adata = anndata.AnnData(X=np.random.random((10, 5)))
         adata.uns["kompot_de_run_history"] = "invalid_data"  # Corrupted
 
-        with patch('kompot.plot.field_inference.logger') as mock_logger:
+        with patch("kompot.plot.field_inference.logger") as mock_logger:
             fields = infer_fields_from_run_info(
                 adata=adata,
                 analysis_type="de",
                 run_id=-1,
                 required_fields=["mean_lfc_key"],
-                strict=False
+                strict=False,
             )
 
         # Should handle gracefully and fall back
@@ -644,7 +635,7 @@ class TestEdgeCases:
             analysis_type="invalid_type",
             run_id=-1,
             required_fields=["some_field"],
-            strict=False
+            strict=False,
         )
 
         # Should handle gracefully
@@ -660,7 +651,7 @@ class TestEdgeCases:
                 "field_names": {
                     # Missing some expected fields
                     "mean_lfc_key": "test_lfc"
-                }
+                },
             }
         ]
         adata.uns["kompot_de"] = {"run_history": run_history}
@@ -670,8 +661,11 @@ class TestEdgeCases:
             adata=adata,
             analysis_type="de",
             run_id=-1,
-            required_fields=["mean_lfc_key", "mahalanobis_key"],  # Request missing field
-            strict=False
+            required_fields=[
+                "mean_lfc_key",
+                "mahalanobis_key",
+            ],  # Request missing field
+            strict=False,
         )
 
         assert fields["mean_lfc_key"] == "test_lfc"
@@ -683,11 +677,11 @@ def test_module_imports():
     """Test that all modules import correctly."""
     from kompot.plot.field_inference import (
         infer_fields_from_run_info,
-        get_comparison_specific_fields
+        get_comparison_specific_fields,
     )
     from kompot.plot import (
         infer_fields_from_run_info as plot_infer,
-        get_comparison_specific_fields as plot_get_specific
+        get_comparison_specific_fields as plot_get_specific,
     )
 
     # Should be the same functions

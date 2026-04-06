@@ -6,7 +6,7 @@ from .da import volcano_da
 from .multi_da import multi_volcano_da
 
 __all__ = [
-    'volcano_de',
-    'volcano_da',
-    'multi_volcano_da',
+    "volcano_de",
+    "volcano_da",
+    "multi_volcano_da",
 ]

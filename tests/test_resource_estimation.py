@@ -38,17 +38,17 @@ def test_resource_requirement():
     req = ResourceRequirement(
         name="Test array",
         size_bytes=1024**2,
-        resource_type='memory',
+        resource_type="memory",
         shape=(100, 100),
-        field_name='test_field'
+        field_name="test_field",
     )
 
     assert req.name == "Test array"
     assert req.size_bytes == 1024**2
     assert req.size_human == "1.00 MB"
-    assert req.resource_type == 'memory'
+    assert req.resource_type == "memory"
     assert req.shape == (100, 100)
-    assert req.field_name == 'test_field'
+    assert req.field_name == "test_field"
 
 
 def test_resource_plan_basic():
@@ -62,15 +62,15 @@ def test_resource_plan_basic():
     plan.add_requirement(
         "Test memory",
         1024**3,  # 1 GB
-        'memory',
-        shape=(1000, 1000, 100)
+        "memory",
+        shape=(1000, 1000, 100),
     )
 
     # Add disk requirement
     plan.add_requirement(
         "Test disk",
         1024**2 * 100,  # 100 MB
-        'disk'
+        "disk",
     )
 
     assert len(plan.requirements) == 2
@@ -96,14 +96,14 @@ def test_resource_plan_insufficient_memory():
         memory_available=512 * 1024**2,  # 512 MB available
         disk_path="/tmp",
         disk_total=100 * 1024**3,  # 100 GB
-        disk_available=50 * 1024**3  # 50 GB
+        disk_available=50 * 1024**3,  # 50 GB
     )
 
     # Request more memory than available
     plan.add_requirement(
         "Huge array",
         1024**3,  # 1 GB
-        'memory'
+        "memory",
     )
 
     plan.check_availability()
@@ -126,23 +126,15 @@ def test_dry_run_differential_expression():
     X = np.random.randn(n_cells, n_genes)  # Fixed: match X columns to n_genes
     var_names = [f"gene_{i}" for i in range(n_genes)]
     obs_data = {
-        'condition': ['A'] * 50 + ['B'] * 50,
-        'sample': [f's{i//10}' for i in range(n_cells)]
+        "condition": ["A"] * 50 + ["B"] * 50,
+        "sample": [f"s{i // 10}" for i in range(n_cells)],
     }
 
-    adata = ad.AnnData(
-        X=X,
-        var={'gene_ids': var_names},
-        obs=obs_data
-    )
+    adata = ad.AnnData(X=X, var={"gene_ids": var_names}, obs=obs_data)
 
     # Run dry run
     plan = dry_run_differential_expression(
-        adata,
-        condition1='A',
-        condition2='B',
-        groupby='condition',
-        verbose=False
+        adata, condition1="A", condition2="B", groupby="condition", verbose=False
     )
 
     assert plan is not None
@@ -163,39 +155,44 @@ def test_dry_run_with_sample_variance():
     X = np.random.randn(n_cells, n_genes)  # Fixed
     var_names = [f"gene_{i}" for i in range(n_genes)]
     obs_data = {
-        'condition': ['treated'] * 100 + ['control'] * 100,
-        'donor_id': [f'donor{i//20}' for i in range(n_cells)]
+        "condition": ["treated"] * 100 + ["control"] * 100,
+        "donor_id": [f"donor{i // 20}" for i in range(n_cells)],
     }
 
-    adata = ad.AnnData(
-        X=X,
-        var={'gene_ids': var_names},
-        obs=obs_data
-    )
+    adata = ad.AnnData(X=X, var={"gene_ids": var_names}, obs=obs_data)
 
     # Run dry run with sample variance
     plan = dry_run_differential_expression(
         adata,
-        condition1='treated',
-        condition2='control',
-        groupby='condition',
+        condition1="treated",
+        condition2="control",
+        groupby="condition",
         use_sample_variance=True,
-        sample_column='donor_id',
-        verbose=False
+        sample_column="donor_id",
+        verbose=False,
     )
 
     assert plan is not None
 
     # Should have covariance matrix requirements
-    cov_reqs = [r for r in plan.requirements if 'covariance' in r.name.lower() or 'variance' in r.name.lower()]
-    assert len(cov_reqs) > 0, f"Expected covariance requirements, got: {[r.name for r in plan.requirements]}"
+    cov_reqs = [
+        r
+        for r in plan.requirements
+        if "covariance" in r.name.lower() or "variance" in r.name.lower()
+    ]
+    assert len(cov_reqs) > 0, (
+        f"Expected covariance requirements, got: {[r.name for r in plan.requirements]}"
+    )
 
     # Should have sample covariance specific requirements
-    sv_reqs = [r for r in plan.requirements if 'Sample covariances' in r.name]
+    sv_reqs = [r for r in plan.requirements if "Sample covariances" in r.name]
     assert len(sv_reqs) > 0, "Expected sample covariance requirements"
 
     # Should warn about memory usage if not using disk storage
-    assert any('disk_storage_dir' in w or 'memory' in w or 'covariance' in w.lower() for w in plan.warnings)
+    assert any(
+        "disk_storage_dir" in w or "memory" in w or "covariance" in w.lower()
+        for w in plan.warnings
+    )
 
 
 def test_dry_run_with_disk_storage():
@@ -208,8 +205,8 @@ def test_dry_run_with_disk_storage():
     n_genes = 50
     X = np.random.randn(100, n_genes)  # Fixed
     obs_data = {
-        'condition': ['A'] * 50 + ['B'] * 50,
-        'sample': [f's{i//10}' for i in range(100)]
+        "condition": ["A"] * 50 + ["B"] * 50,
+        "sample": [f"s{i // 10}" for i in range(100)],
     }
 
     adata = ad.AnnData(X=X, obs=obs_data)
@@ -217,18 +214,18 @@ def test_dry_run_with_disk_storage():
     with tempfile.TemporaryDirectory() as tmpdir:
         plan = dry_run_differential_expression(
             adata,
-            condition1='A',
-            condition2='B',
-            groupby='condition',
+            condition1="A",
+            condition2="B",
+            groupby="condition",
             use_sample_variance=True,
-            sample_column='sample',
+            sample_column="sample",
             store_arrays_on_disk=True,
             disk_storage_dir=tmpdir,
-            verbose=False
+            verbose=False,
         )
 
         # Should have disk requirements
-        disk_reqs = [r for r in plan.requirements if r.resource_type == 'disk']
+        disk_reqs = [r for r in plan.requirements if r.resource_type == "disk"]
         assert len(disk_reqs) > 0
 
 
@@ -239,8 +236,8 @@ def test_format_report():
     plan = ResourcePlan()
     plan.availability = get_system_resources()
 
-    plan.add_requirement("Memory array", 1024**2, 'memory', shape=(100, 100))
-    plan.add_requirement("Disk array", 1024**3, 'disk')
+    plan.add_requirement("Memory array", 1024**2, "memory", shape=(100, 100))
+    plan.add_requirement("Disk array", 1024**3, "disk")
     plan.warnings.append("Test warning")
 
     report = plan.format_report(verbose=True)

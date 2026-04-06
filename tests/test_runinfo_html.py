@@ -1,4 +1,5 @@
 """Tests for RunInfo HTML rendering and edge cases."""
+
 import json
 import pytest
 import numpy as np
@@ -30,12 +31,20 @@ class TestRunInfoHTML:
 
         # Build run history
         from kompot.anndata.utils.params import build_params_dict
-        from kompot.settings import GPSettings, DAThresholdSettings, StorageSettings, OutputSettings
+        from kompot.settings import (
+            GPSettings,
+            DAThresholdSettings,
+            StorageSettings,
+            OutputSettings,
+        )
 
         params = build_params_dict(
             top_level=dict(
-                groupby="condition", condition1="A", condition2="B",
-                obsm_key="X_pca", sample_col=sample_col,
+                groupby="condition",
+                condition1="A",
+                condition2="B",
+                obsm_key="X_pca",
+                sample_col=sample_col,
             ),
             gp=GPSettings(n_landmarks=None, batch_size=None),
             threshold=DAThresholdSettings(),
@@ -44,8 +53,16 @@ class TestRunInfoHTML:
         )
 
         field_mapping = {
-            f"{prefix}_lfc": {"location": "obs", "type": "lfc", "description": "Log fold change"},
-            f"{prefix}_lfc_zscore": {"location": "obs", "type": "zscore", "description": "Z-score"},
+            f"{prefix}_lfc": {
+                "location": "obs",
+                "type": "lfc",
+                "description": "Log fold change",
+            },
+            f"{prefix}_lfc_zscore": {
+                "location": "obs",
+                "type": "zscore",
+                "description": "Z-score",
+            },
         }
 
         run_info = {
@@ -64,22 +81,31 @@ class TestRunInfoHTML:
             "uses_sample_variance": sample_col is not None,
             "has_groups": False,
             "params": params,
-            "environment": {"python_version": "3.12", "package_versions": {"kompot": "0.7.0"}},
+            "environment": {
+                "python_version": "3.12",
+                "package_versions": {"kompot": "0.7.0"},
+            },
             "field_mapping": field_mapping,
         }
 
         adata.uns[result_key] = {
             "run_history": json.dumps([run_info]),
             "last_run_info": json.dumps(run_info),
-            "anndata_fields": json.dumps({
-                "obs": {f"{prefix}_lfc": {"run_id": 0}, f"{prefix}_lfc_zscore": {"run_id": 0}},
-            }),
+            "anndata_fields": json.dumps(
+                {
+                    "obs": {
+                        f"{prefix}_lfc": {"run_id": 0},
+                        f"{prefix}_lfc_zscore": {"run_id": 0},
+                    },
+                }
+            ),
         }
         return adata
 
     def test_repr_html_basic(self):
         adata = self._make_adata_with_da_run()
         from kompot import RunInfo
+
         info = RunInfo(adata, run_id=0, analysis_type="da")
         html = info._repr_html_()
         assert "condition1" in html or "groupby" in html
@@ -88,6 +114,7 @@ class TestRunInfoHTML:
     def test_repr_html_with_sample_variance(self):
         adata = self._make_adata_with_da_run(sample_col="sample")
         from kompot import RunInfo
+
         info = RunInfo(adata, run_id=0, analysis_type="da")
         html = info._repr_html_()
         assert "sample_col" in html
@@ -95,6 +122,7 @@ class TestRunInfoHTML:
     def test_repr_html_environment_section(self):
         adata = self._make_adata_with_da_run()
         from kompot import RunInfo
+
         info = RunInfo(adata, run_id=0, analysis_type="da")
         html = info._repr_html_()
         assert "Environment" in html
@@ -103,6 +131,7 @@ class TestRunInfoHTML:
     def test_repr_html_fields_section(self):
         adata = self._make_adata_with_da_run()
         from kompot import RunInfo
+
         info = RunInfo(adata, run_id=0, analysis_type="da")
         html = info._repr_html_()
         assert "Fields" in html
@@ -110,6 +139,7 @@ class TestRunInfoHTML:
     def test_repr_basic(self):
         adata = self._make_adata_with_da_run()
         from kompot import RunInfo
+
         info = RunInfo(adata, run_id=0, analysis_type="da")
         r = repr(info)
         assert "RunInfo" in r
@@ -117,6 +147,7 @@ class TestRunInfoHTML:
     def test_get_data(self):
         adata = self._make_adata_with_da_run()
         from kompot import RunInfo
+
         info = RunInfo(adata, run_id=0, analysis_type="da")
         data = info.get_data()
         assert "params" in data
@@ -125,6 +156,7 @@ class TestRunInfoHTML:
     def test_get_summary(self):
         adata = self._make_adata_with_da_run()
         from kompot import RunInfo
+
         info = RunInfo(adata, run_id=0, analysis_type="da")
         summary = info.get_summary()
         assert "conditions" in summary
@@ -133,6 +165,7 @@ class TestRunInfoHTML:
     def test_to_settings(self):
         adata = self._make_adata_with_da_run()
         from kompot import RunInfo
+
         info = RunInfo(adata, run_id=0, analysis_type="da")
         settings = info.to_settings()
         assert "gp" in settings
@@ -141,6 +174,7 @@ class TestRunInfoHTML:
     def test_call_args(self):
         adata = self._make_adata_with_da_run()
         from kompot import RunInfo
+
         info = RunInfo(adata, run_id=0, analysis_type="da")
         kwargs = info.call_args()
         assert "groupby" in kwargs
@@ -153,12 +187,20 @@ class TestRunInfoHTML:
 
         # Add a second run with different params
         from kompot.anndata.utils.params import build_params_dict
-        from kompot.settings import GPSettings, DAThresholdSettings, StorageSettings, OutputSettings
+        from kompot.settings import (
+            GPSettings,
+            DAThresholdSettings,
+            StorageSettings,
+            OutputSettings,
+        )
 
         params2 = build_params_dict(
             top_level=dict(
-                groupby="condition", condition1="A", condition2="B",
-                obsm_key="X_pca", sample_col=None,
+                groupby="condition",
+                condition1="A",
+                condition2="B",
+                obsm_key="X_pca",
+                sample_col=None,
             ),
             gp=GPSettings(n_landmarks=100, batch_size=50),
             threshold=DAThresholdSettings(lfc_threshold=2.0),
@@ -184,6 +226,7 @@ class TestRunInfoHTML:
         adata.uns["kompot_da"]["run_history"] = json.dumps(history)
 
         from kompot import RunInfo
+
         info = RunInfo(adata, run_id=0, analysis_type="da")
         comparison = info.compare_with(1)
         html = comparison._repr_html_()
@@ -195,26 +238,44 @@ class TestRunInfoHTML:
         adata = self._make_adata_with_da_run()
 
         from kompot.anndata.utils.params import build_params_dict
-        from kompot.settings import GPSettings, DAThresholdSettings, StorageSettings, OutputSettings
+        from kompot.settings import (
+            GPSettings,
+            DAThresholdSettings,
+            StorageSettings,
+            OutputSettings,
+        )
 
         params2 = build_params_dict(
-            top_level=dict(groupby="condition", condition1="A", condition2="B",
-                           obsm_key="X_pca", sample_col=None),
-            gp=GPSettings(), threshold=DAThresholdSettings(),
-            storage=StorageSettings(result_key="kompot_da"), output=OutputSettings(),
+            top_level=dict(
+                groupby="condition",
+                condition1="A",
+                condition2="B",
+                obsm_key="X_pca",
+                sample_col=None,
+            ),
+            gp=GPSettings(),
+            threshold=DAThresholdSettings(),
+            storage=StorageSettings(result_key="kompot_da"),
+            output=OutputSettings(),
         )
         run2 = {
-            "timestamp": "2026-01-02T00:00:00", "function": "da",
-            "result_key": "kompot_da", "analysis_type": "da",
-            "field_names": {}, "uses_sample_variance": False,
-            "has_groups": False, "params": params2,
-            "environment": {}, "field_mapping": {},
+            "timestamp": "2026-01-02T00:00:00",
+            "function": "da",
+            "result_key": "kompot_da",
+            "analysis_type": "da",
+            "field_names": {},
+            "uses_sample_variance": False,
+            "has_groups": False,
+            "params": params2,
+            "environment": {},
+            "field_mapping": {},
         }
         history = json.loads(adata.uns["kompot_da"]["run_history"])
         history.append(run2)
         adata.uns["kompot_da"]["run_history"] = json.dumps(history)
 
         from kompot import RunInfo
+
         comp = RunInfo(adata, run_id=0, analysis_type="da").compare_with(1)
         r = repr(comp)
         assert "RunComparison" in r
@@ -226,12 +287,14 @@ class TestRunInfoEdgeCases:
     def test_no_run_history(self):
         adata = ad.AnnData(np.random.randn(10, 5))
         from kompot import RunInfo
+
         with pytest.raises(ValueError, match="No run history"):
             RunInfo(adata, analysis_type="da")
 
     def test_invalid_analysis_type(self):
         adata = ad.AnnData(np.random.randn(10, 5))
         from kompot import RunInfo
+
         with pytest.raises(ValueError, match="Invalid analysis_type"):
             RunInfo(adata, analysis_type="invalid")
 
@@ -239,29 +302,57 @@ class TestRunInfoEdgeCases:
         """Test auto-detection of analysis type."""
         adata = ad.AnnData(np.random.randn(10, 5))
         adata.uns["kompot_de"] = {
-            "run_history": json.dumps([{
-                "timestamp": "2026-01-01", "function": "de",
-                "result_key": "kompot_de", "analysis_type": "de",
-                "field_names": {}, "params": {"groupby": "c", "condition1": "A", "condition2": "B"},
-                "environment": {}, "field_mapping": {},
-                "uses_sample_variance": False, "has_groups": False,
-            }]),
+            "run_history": json.dumps(
+                [
+                    {
+                        "timestamp": "2026-01-01",
+                        "function": "de",
+                        "result_key": "kompot_de",
+                        "analysis_type": "de",
+                        "field_names": {},
+                        "params": {
+                            "groupby": "c",
+                            "condition1": "A",
+                            "condition2": "B",
+                        },
+                        "environment": {},
+                        "field_mapping": {},
+                        "uses_sample_variance": False,
+                        "has_groups": False,
+                    }
+                ]
+            ),
         }
         from kompot import RunInfo
+
         info = RunInfo(adata)
         assert info.analysis_type == "de"
 
     def test_negative_run_id(self):
         adata = ad.AnnData(np.random.randn(10, 5))
         adata.uns["kompot_da"] = {
-            "run_history": json.dumps([{
-                "timestamp": "2026-01-01", "function": "da",
-                "result_key": "kompot_da", "analysis_type": "da",
-                "field_names": {}, "params": {"groupby": "c", "condition1": "A", "condition2": "B"},
-                "environment": {}, "field_mapping": {},
-                "uses_sample_variance": False, "has_groups": False,
-            }]),
+            "run_history": json.dumps(
+                [
+                    {
+                        "timestamp": "2026-01-01",
+                        "function": "da",
+                        "result_key": "kompot_da",
+                        "analysis_type": "da",
+                        "field_names": {},
+                        "params": {
+                            "groupby": "c",
+                            "condition1": "A",
+                            "condition2": "B",
+                        },
+                        "environment": {},
+                        "field_mapping": {},
+                        "uses_sample_variance": False,
+                        "has_groups": False,
+                    }
+                ]
+            ),
         }
         from kompot import RunInfo
+
         info = RunInfo(adata, run_id=-1, analysis_type="da")
         assert info.adjusted_run_id == 0

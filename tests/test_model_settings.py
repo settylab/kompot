@@ -23,6 +23,7 @@ from kompot.differential.differential_expression import DifferentialExpression
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture
 def synthetic_data():
     rng = np.random.RandomState(42)
@@ -59,16 +60,21 @@ def fitted_de(two_condition_data):
 # 1. ModelSettings dataclass
 # ---------------------------------------------------------------------------
 
-class TestModelSettingsDataclass:
 
+class TestModelSettingsDataclass:
     def test_defaults_all_none(self):
         ms = ModelSettings()
         for field in (
-            "model1", "model2",
-            "function_predictor1", "function_predictor2",
-            "obs_variance_predictor1", "obs_variance_predictor2",
-            "variance_predictor1", "variance_predictor2",
-            "density_predictor1", "density_predictor2",
+            "model1",
+            "model2",
+            "function_predictor1",
+            "function_predictor2",
+            "obs_variance_predictor1",
+            "obs_variance_predictor2",
+            "variance_predictor1",
+            "variance_predictor2",
+            "density_predictor1",
+            "density_predictor2",
         ):
             assert getattr(ms, field) is None
 
@@ -81,6 +87,7 @@ class TestModelSettingsDataclass:
 
     def test_importable_from_kompot(self):
         import kompot
+
         assert kompot.ModelSettings is ModelSettings
 
 
@@ -88,8 +95,8 @@ class TestModelSettingsDataclass:
 # 2. obs_variance_predictor injection into ExpressionModel
 # ---------------------------------------------------------------------------
 
-class TestExpressionModelObsVarianceInjection:
 
+class TestExpressionModelObsVarianceInjection:
     def test_has_empirical_variance_true_when_injected(self):
         model = ExpressionModel(
             obs_variance_predictor=MagicMock(),
@@ -128,9 +135,7 @@ class TestExpressionModelObsVarianceInjection:
         # injected obs_variance
         big_obs = ExpressionModel(
             function_predictor=base.predictor,
-            obs_variance_predictor=lambda Xb: np.full(
-                (Xb.shape[0], n_genes), 1000.0
-            ),
+            obs_variance_predictor=lambda Xb: np.full((Xb.shape[0], n_genes), 1000.0),
             use_empirical_variance=True,
         )
         big_total = big_obs.total_variance(X[:10], diag=True, progress=False)
@@ -146,8 +151,8 @@ class TestExpressionModelObsVarianceInjection:
 # 3. ExpressionModel.fit() skip logic when obs_variance is injected
 # ---------------------------------------------------------------------------
 
-class TestExpressionModelFitSkipLogic:
 
+class TestExpressionModelFitSkipLogic:
     def test_fit_preserves_injected_obs_var(self, synthetic_data):
         """fit() should not overwrite an injected obs_variance_predictor."""
         X, y = synthetic_data
@@ -196,7 +201,10 @@ class TestExpressionModelFitSkipLogic:
             obs_variance_predictor=sentinel,
         )
         model.fit(
-            X, y, sigma=1.0, ls_factor=10.0,
+            X,
+            y,
+            sigma=1.0,
+            ls_factor=10.0,
             sample_indices=sample_indices,
         )
         assert model._within_sample_obs_var_predictor is sentinel
@@ -206,8 +214,8 @@ class TestExpressionModelFitSkipLogic:
 # 4. DifferentialExpression: injected obs_variance changes std output
 # ---------------------------------------------------------------------------
 
-class TestDifferentialExpressionObsVarInjection:
 
+class TestDifferentialExpressionObsVarInjection:
     def test_model_takes_precedence_over_individual(self):
         """model1/2 should take precedence over individual predictors."""
         mock_model = ExpressionModel(use_empirical_variance=True)
@@ -231,19 +239,17 @@ class TestDifferentialExpressionObsVarInjection:
         de_big = DifferentialExpression(
             function_predictor1=de_orig.function_predictor1,
             function_predictor2=de_orig.function_predictor2,
-            obs_variance_predictor1=lambda Xb: np.full(
-                (Xb.shape[0], n_genes), 1e4
-            ),
-            obs_variance_predictor2=lambda Xb: np.full(
-                (Xb.shape[0], n_genes), 1e4
-            ),
+            obs_variance_predictor1=lambda Xb: np.full((Xb.shape[0], n_genes), 1e4),
+            obs_variance_predictor2=lambda Xb: np.full((Xb.shape[0], n_genes), 1e4),
             use_empirical_variance=True,
         )
         big = de_big.predict(X_eval, progress=False)
 
         # fold_change should be identical (same function predictors)
         np.testing.assert_allclose(
-            big["fold_change"], orig["fold_change"], atol=1e-5,
+            big["fold_change"],
+            orig["fold_change"],
+            atol=1e-5,
         )
         # std should be much larger
         assert np.all(big["condition1_std"] > orig["condition1_std"])
@@ -266,12 +272,8 @@ class TestDifferentialExpressionObsVarInjection:
         de_zero = DifferentialExpression(
             function_predictor1=de_no_ev.function_predictor1,
             function_predictor2=de_no_ev.function_predictor2,
-            obs_variance_predictor1=lambda Xb: np.full(
-                (Xb.shape[0], n_genes), 0.0
-            ),
-            obs_variance_predictor2=lambda Xb: np.full(
-                (Xb.shape[0], n_genes), 0.0
-            ),
+            obs_variance_predictor1=lambda Xb: np.full((Xb.shape[0], n_genes), 0.0),
+            obs_variance_predictor2=lambda Xb: np.full((Xb.shape[0], n_genes), 0.0),
             use_empirical_variance=True,
             eps=de_no_ev.eps,
         )
@@ -289,7 +291,9 @@ class TestDifferentialExpressionObsVarInjection:
             res_zero["condition1_std"].shape,
         )
         np.testing.assert_allclose(
-            res_zero["condition1_std"], std_no, atol=1e-3,
+            res_zero["condition1_std"],
+            std_no,
+            atol=1e-3,
         )
 
     def test_fit_validation_passes_with_injected_obs_var(self, two_condition_data):
@@ -313,11 +317,12 @@ class TestDifferentialExpressionObsVarInjection:
 # 5. de() with model=ModelSettings(...)
 # ---------------------------------------------------------------------------
 
-class TestDeWithModelSettings:
 
+class TestDeWithModelSettings:
     @pytest.fixture
     def test_adata(self):
         import anndata
+
         rng = np.random.RandomState(42)
         n_cells, n_genes, n_features = 60, 8, 5
         X_expr = rng.randn(n_cells, n_genes)
@@ -341,11 +346,14 @@ class TestDeWithModelSettings:
         # First run: fit models
         result1 = kompot.de(
             test_adata.copy(),
-            "condition", "Young", "Old",
+            "condition",
+            "Young",
+            "Old",
             gp=kompot.GPSettings(n_landmarks=30, use_empirical_variance=True),
             fdr=kompot.FDRSettings(null_genes=0),
             output=kompot.OutputSettings(
-                compute_mahalanobis=False, return_full_results=True,
+                compute_mahalanobis=False,
+                return_full_results=True,
             ),
         )
         model1 = result1["model"].model1
@@ -354,11 +362,14 @@ class TestDeWithModelSettings:
         # Second run: inject pre-fitted models
         result2 = kompot.de(
             test_adata.copy(),
-            "condition", "Young", "Old",
+            "condition",
+            "Young",
+            "Old",
             gp=kompot.GPSettings(n_landmarks=30, use_empirical_variance=True),
             fdr=kompot.FDRSettings(null_genes=0),
             output=kompot.OutputSettings(
-                compute_mahalanobis=False, return_full_results=True,
+                compute_mahalanobis=False,
+                return_full_results=True,
             ),
             model=kompot.ModelSettings(model1=model1, model2=model2),
         )
@@ -381,11 +392,14 @@ class TestDeWithModelSettings:
         # Baseline run
         result_base = kompot.de(
             test_adata.copy(),
-            "condition", "Young", "Old",
+            "condition",
+            "Young",
+            "Old",
             gp=kompot.GPSettings(n_landmarks=30, use_empirical_variance=True),
             fdr=kompot.FDRSettings(null_genes=0),
             output=kompot.OutputSettings(
-                compute_mahalanobis=False, return_full_results=True,
+                compute_mahalanobis=False,
+                return_full_results=True,
             ),
         )
         de_base = result_base["model"]
@@ -394,21 +408,20 @@ class TestDeWithModelSettings:
         # Re-run with same function predictors but enormous obs_variance
         result_big = kompot.de(
             test_adata.copy(),
-            "condition", "Young", "Old",
+            "condition",
+            "Young",
+            "Old",
             gp=kompot.GPSettings(n_landmarks=30, use_empirical_variance=True),
             fdr=kompot.FDRSettings(null_genes=0),
             output=kompot.OutputSettings(
-                compute_mahalanobis=False, return_full_results=True,
+                compute_mahalanobis=False,
+                return_full_results=True,
             ),
             model=kompot.ModelSettings(
                 function_predictor1=de_base.function_predictor1,
                 function_predictor2=de_base.function_predictor2,
-                obs_variance_predictor1=lambda Xb: np.full(
-                    (Xb.shape[0], n_genes), 1e6
-                ),
-                obs_variance_predictor2=lambda Xb: np.full(
-                    (Xb.shape[0], n_genes), 1e6
-                ),
+                obs_variance_predictor1=lambda Xb: np.full((Xb.shape[0], n_genes), 1e6),
+                obs_variance_predictor2=lambda Xb: np.full((Xb.shape[0], n_genes), 1e6),
             ),
         )
 
@@ -434,11 +447,12 @@ class TestDeWithModelSettings:
 # 6. da() with model=ModelSettings(...)
 # ---------------------------------------------------------------------------
 
-class TestDaWithModelSettings:
 
+class TestDaWithModelSettings:
     @pytest.fixture
     def test_adata(self):
         import anndata
+
         rng = np.random.RandomState(42)
         n_cells, n_genes, n_features = 60, 8, 5
         X_expr = rng.randn(n_cells, n_genes)
@@ -457,7 +471,9 @@ class TestDaWithModelSettings:
 
         result1 = kompot.da(
             test_adata.copy(),
-            "condition", "Young", "Old",
+            "condition",
+            "Young",
+            "Old",
             output=kompot.OutputSettings(return_full_results=True),
         )
         dp1 = result1["model"].density_predictor1
@@ -465,7 +481,9 @@ class TestDaWithModelSettings:
 
         result2 = kompot.da(
             test_adata.copy(),
-            "condition", "Young", "Old",
+            "condition",
+            "Young",
+            "Old",
             output=kompot.OutputSettings(return_full_results=True),
             model=kompot.ModelSettings(
                 density_predictor1=dp1,
@@ -489,7 +507,9 @@ class TestDaWithModelSettings:
 
         result_normal = kompot.da(
             test_adata.copy(),
-            "condition", "Young", "Old",
+            "condition",
+            "Young",
+            "Old",
             output=kompot.OutputSettings(return_full_results=True),
         )
         dp1 = result_normal["model"].density_predictor1
@@ -497,7 +517,9 @@ class TestDaWithModelSettings:
 
         result_swapped = kompot.da(
             test_adata.copy(),
-            "condition", "Young", "Old",
+            "condition",
+            "Young",
+            "Old",
             output=kompot.OutputSettings(return_full_results=True),
             model=kompot.ModelSettings(
                 density_predictor1=dp2,  # swapped
@@ -516,8 +538,8 @@ class TestDaWithModelSettings:
 # 7. Null genes with pre-fitted predictors
 # ---------------------------------------------------------------------------
 
-class TestNullGenesWithPrefittedPredictors:
 
+class TestNullGenesWithPrefittedPredictors:
     @pytest.fixture
     def adata_with_signal_and_nulls(self):
         """AnnData where real genes have a strong condition shift and null
@@ -542,7 +564,8 @@ class TestNullGenesWithPrefittedPredictors:
             f"null_{i}" for i in range(n_null)
         ]
         adata = anndata.AnnData(
-            X=expr, obs=obs,
+            X=expr,
+            obs=obs,
             var=pd.DataFrame(index=var_names),
             obsm={"DM_EigenVectors": X_embed},
         )
@@ -550,11 +573,14 @@ class TestNullGenesWithPrefittedPredictors:
         # Fit to get predictors trained on all features
         result = kompot.de(
             adata.copy(),
-            "condition", "Young", "Old",
+            "condition",
+            "Young",
+            "Old",
             gp=kompot.GPSettings(n_landmarks=30, use_empirical_variance=True),
             fdr=kompot.FDRSettings(null_genes=0),
             output=kompot.OutputSettings(
-                compute_mahalanobis=False, return_full_results=True,
+                compute_mahalanobis=False,
+                return_full_results=True,
             ),
         )
         de_model = result["model"]
@@ -568,26 +594,22 @@ class TestNullGenesWithPrefittedPredictors:
         and exclude all null feature names."""
         import kompot
 
-        adata, de_model, null_indices, n_real, n_null = (
-            adata_with_signal_and_nulls
-        )
+        adata, de_model, null_indices, n_real, n_null = adata_with_signal_and_nulls
         n_total = n_real + n_null
 
         result = kompot.de(
             adata.copy(),
-            "condition", "Young", "Old",
+            "condition",
+            "Young",
+            "Old",
             gp=kompot.GPSettings(n_landmarks=30, use_empirical_variance=True),
             fdr=kompot.FDRSettings(null_genes=null_indices),
             output=kompot.OutputSettings(return_full_results=True),
             model=kompot.ModelSettings(
                 function_predictor1=de_model.function_predictor1,
                 function_predictor2=de_model.function_predictor2,
-                obs_variance_predictor1=lambda Xb: np.ones(
-                    (Xb.shape[0], n_total)
-                ),
-                obs_variance_predictor2=lambda Xb: np.ones(
-                    (Xb.shape[0], n_total)
-                ),
+                obs_variance_predictor1=lambda Xb: np.ones((Xb.shape[0], n_total)),
+                obs_variance_predictor2=lambda Xb: np.ones((Xb.shape[0], n_total)),
             ),
         )
 
@@ -606,26 +628,22 @@ class TestNullGenesWithPrefittedPredictors:
         features have no signal (proper FDR calibration)."""
         import kompot
 
-        adata, de_model, null_indices, n_real, n_null = (
-            adata_with_signal_and_nulls
-        )
+        adata, de_model, null_indices, n_real, n_null = adata_with_signal_and_nulls
         n_total = n_real + n_null
 
         result = kompot.de(
             adata.copy(),
-            "condition", "Young", "Old",
+            "condition",
+            "Young",
+            "Old",
             gp=kompot.GPSettings(n_landmarks=30, use_empirical_variance=True),
             fdr=kompot.FDRSettings(null_genes=null_indices, threshold=0.05),
             output=kompot.OutputSettings(return_full_results=True),
             model=kompot.ModelSettings(
                 function_predictor1=de_model.function_predictor1,
                 function_predictor2=de_model.function_predictor2,
-                obs_variance_predictor1=lambda Xb: np.ones(
-                    (Xb.shape[0], n_total)
-                ),
-                obs_variance_predictor2=lambda Xb: np.ones(
-                    (Xb.shape[0], n_total)
-                ),
+                obs_variance_predictor1=lambda Xb: np.ones((Xb.shape[0], n_total)),
+                obs_variance_predictor2=lambda Xb: np.ones((Xb.shape[0], n_total)),
             ),
         )
 
@@ -634,8 +652,7 @@ class TestNullGenesWithPrefittedPredictors:
         # most real genes should be called significant
         n_de = table["is_de"].sum()
         assert n_de >= n_real // 2, (
-            f"Expected at least {n_real // 2} DE genes with strong signal, "
-            f"got {n_de}"
+            f"Expected at least {n_real // 2} DE genes with strong signal, got {n_de}"
         )
 
     def test_null_genes_int_with_prefitted_raises(self):
@@ -655,7 +672,9 @@ class TestNullGenesWithPrefittedPredictors:
         with pytest.raises(ValueError, match="Cannot auto-generate null genes"):
             kompot.de(
                 adata,
-                "condition", "Young", "Old",
+                "condition",
+                "Young",
+                "Old",
                 gp=kompot.GPSettings(n_landmarks=30, use_empirical_variance=True),
                 fdr=kompot.FDRSettings(null_genes=100),
                 output=kompot.OutputSettings(return_full_results=True),
@@ -682,7 +701,9 @@ class TestNullGenesWithPrefittedPredictors:
         with pytest.raises(ValueError, match="out of range"):
             kompot.de(
                 adata,
-                "condition", "Young", "Old",
+                "condition",
+                "Young",
+                "Old",
                 gp=kompot.GPSettings(n_landmarks=30, use_empirical_variance=True),
                 fdr=kompot.FDRSettings(null_genes=[5, 99]),  # 99 is out of range
                 output=kompot.OutputSettings(return_full_results=True),

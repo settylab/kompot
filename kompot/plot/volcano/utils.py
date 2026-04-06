@@ -1,6 +1,5 @@
 """Utility functions for volcano plots."""
 
-import numpy as np
 from typing import Optional, Tuple
 from anndata import AnnData
 import logging
@@ -13,12 +12,12 @@ logger = logging.getLogger("kompot")
 def _extract_conditions_from_key(key: str) -> Optional[Tuple[str, str]]:
     """
     Extract condition names from a key name containing 'to'.
-    
+
     Parameters
     ----------
     key : str
         Key name, containing 'to' between condition names
-        
+
     Returns
     -------
     tuple or None
@@ -26,23 +25,27 @@ def _extract_conditions_from_key(key: str) -> Optional[Tuple[str, str]]:
     """
     if key is None:
         return None
-        
+
     # Try to extract from key name, assuming format like "kompot_de_mean_lfc_Old_to_Young"
-    key_parts = key.split('_')
-    
+    key_parts = key.split("_")
+
     # Extract using the 'to' format
-    if len(key_parts) >= 2 and 'to' in key_parts:
-        to_index = key_parts.index('to')
+    if len(key_parts) >= 2 and "to" in key_parts:
+        to_index = key_parts.index("to")
         if to_index > 0 and to_index < len(key_parts) - 1:
-            condition1 = key_parts[to_index-1]
-            condition2 = key_parts[to_index+1]
+            condition1 = key_parts[to_index - 1]
+            condition2 = key_parts[to_index + 1]
             return condition1, condition2
-    
+
     return None
 
 
-def _infer_de_keys(adata: AnnData, run_id: int = -1, lfc_key: Optional[str] = None,
-                   score_key: Optional[str] = None):
+def _infer_de_keys(
+    adata: AnnData,
+    run_id: int = -1,
+    lfc_key: Optional[str] = None,
+    score_key: Optional[str] = None,
+):
     """
     Infer differential expression keys from AnnData object using robust field inference.
 
@@ -90,12 +93,18 @@ def _infer_de_keys(adata: AnnData, run_id: int = -1, lfc_key: Optional[str] = No
             analysis_type="de",
             run_id=run_id,
             required_fields=required_fields,
-            strict=False  # Allow fallback inference with warnings
+            strict=False,  # Allow fallback inference with warnings
         )
 
         # Extract the inferred fields
-        inferred_lfc_key = lfc_key if lfc_key is not None else inferred_fields.get("mean_lfc_key")
-        inferred_score_key = score_key if score_key is not None else inferred_fields.get("mahalanobis_key")
+        inferred_lfc_key = (
+            lfc_key if lfc_key is not None else inferred_fields.get("mean_lfc_key")
+        )
+        inferred_score_key = (
+            score_key
+            if score_key is not None
+            else inferred_fields.get("mahalanobis_key")
+        )
 
         # Validate that required fields were found
         if inferred_lfc_key is None:
@@ -114,13 +123,19 @@ def _infer_de_keys(adata: AnnData, run_id: int = -1, lfc_key: Optional[str] = No
 
     except Exception as e:
         # Fallback to manual error with helpful message
-        error_msg = (f"Failed to infer DE keys from run_id={run_id}: {e}. "
-                    f"Please check run history or specify keys manually.")
+        error_msg = (
+            f"Failed to infer DE keys from run_id={run_id}: {e}. "
+            f"Please check run history or specify keys manually."
+        )
         raise ValueError(error_msg) from e
 
 
-def _infer_da_keys(adata: AnnData, run_id: int = -1, lfc_key: Optional[str] = None,
-                  ptp_key: Optional[str] = None):
+def _infer_da_keys(
+    adata: AnnData,
+    run_id: int = -1,
+    lfc_key: Optional[str] = None,
+    ptp_key: Optional[str] = None,
+):
     """
     Infer differential abundance keys from AnnData object using robust field inference.
 
@@ -151,10 +166,10 @@ def _infer_da_keys(adata: AnnData, run_id: int = -1, lfc_key: Optional[str] = No
     # Get run info for thresholds (always needed)
     try:
         run_info = get_run_from_history(adata, run_id, analysis_type="da")
-        if run_info is not None and 'params' in run_info:
-            params = run_info['params']
-            lfc_threshold = params.get('log_fold_change_threshold')
-            ptp_threshold = params.get('ptp_threshold')
+        if run_info is not None and "params" in run_info:
+            params = run_info["params"]
+            lfc_threshold = params.get("log_fold_change_threshold")
+            ptp_threshold = params.get("ptp_threshold")
     except Exception:
         # Continue without thresholds if run info access fails
         pass
@@ -184,12 +199,16 @@ def _infer_da_keys(adata: AnnData, run_id: int = -1, lfc_key: Optional[str] = No
             analysis_type="da",
             run_id=run_id,
             required_fields=required_fields,
-            strict=False  # Allow fallback inference with warnings
+            strict=False,  # Allow fallback inference with warnings
         )
 
         # Extract the inferred fields
-        inferred_lfc_key = lfc_key if lfc_key is not None else inferred_fields.get("lfc_key")
-        inferred_ptp_key = ptp_key if ptp_key is not None else inferred_fields.get("ptp_key")
+        inferred_lfc_key = (
+            lfc_key if lfc_key is not None else inferred_fields.get("lfc_key")
+        )
+        inferred_ptp_key = (
+            ptp_key if ptp_key is not None else inferred_fields.get("ptp_key")
+        )
 
         # Validate that required fields were found
         if inferred_lfc_key is None:
@@ -208,6 +227,8 @@ def _infer_da_keys(adata: AnnData, run_id: int = -1, lfc_key: Optional[str] = No
 
     except Exception as e:
         # Fallback to manual error with helpful message
-        error_msg = (f"Failed to infer DA keys from run_id={run_id}: {e}. "
-                    f"Please check run history or specify keys manually.")
+        error_msg = (
+            f"Failed to infer DA keys from run_id={run_id}: {e}. "
+            f"Please check run history or specify keys manually."
+        )
         raise ValueError(error_msg) from e

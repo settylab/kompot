@@ -3,13 +3,12 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
-from typing import Optional, Union, List, Tuple, Dict, Any, Sequence, Literal, Callable, Set
+from typing import Optional, Union, List, Tuple, Dict, Sequence
 from anndata import AnnData
 import pandas as pd
 import logging
 
 from ...anndata.utils import get_run_from_history
-from ..volcano import _extract_conditions_from_key
 
 logger = logging.getLogger("kompot")
 
@@ -55,7 +54,7 @@ def _infer_score_key(
             analysis_type="de",
             run_id=effective_run_id,
             required_fields=["mahalanobis_key"],
-            strict=False  # Allow fallback inference with warnings
+            strict=False,  # Allow fallback inference with warnings
         )
 
         inferred_score_key = inferred_fields.get("mahalanobis_key")
@@ -83,7 +82,7 @@ def _prepare_gene_list(
 ) -> Tuple[List[str], Optional[str], Dict]:
     """
     Prepare the list of genes to be included in the heatmap.
-    
+
     Parameters
     ----------
     adata : AnnData
@@ -98,24 +97,24 @@ def _prepare_gene_list(
         Whether to sort genes by score
     run_id : int, optional
         Run ID to use. If None, uses latest run (-1).
-        
+
     Returns
     -------
     Tuple containing:
     - List of gene names
-    - Score key used 
+    - Score key used
     - Run info dictionary
     """
     # Normalize run_id to use -1 (latest run) if None
     effective_run_id = -1 if run_id is None else run_id
-    
+
     # Get run info from history once
     run_info = get_run_from_history(adata, effective_run_id, analysis_type="de")
-    
+
     # If var_names is provided, use it directly
     if var_names is not None:
         return var_names, score_key, run_info
-        
+
     # If var_names not provided, get top genes based on DE results
     # Infer score_key using the helper function
     score_key = _infer_score_key(adata, effective_run_id, score_key)
@@ -146,13 +145,11 @@ def _prepare_gene_list(
 
 
 def _get_expression_matrix(
-    adata: AnnData,
-    var_names: List[str],
-    layer: Optional[str] = None
+    adata: AnnData, var_names: List[str], layer: Optional[str] = None
 ) -> np.ndarray:
     """
     Extract expression matrix for the specified genes.
-    
+
     Parameters
     ----------
     adata : AnnData
@@ -161,7 +158,7 @@ def _get_expression_matrix(
         List of gene names to extract
     layer : str, optional
         Layer to use for expression values
-        
+
     Returns
     -------
     numpy.ndarray
@@ -177,26 +174,28 @@ def _get_expression_matrix(
         )
     else:
         if layer is not None:
-            logger.warning(f"Requested layer '{layer}' not found, falling back to adata.X")
-        logger.info(f"Using expression data from adata.X")
+            logger.warning(
+                f"Requested layer '{layer}' not found, falling back to adata.X"
+            )
+        logger.info("Using expression data from adata.X")
         expr_matrix = (
             adata[:, var_names].X.toarray()
             if hasattr(adata.X, "toarray")
             else adata[:, var_names].X
         )
-    
+
     return expr_matrix
 
 
 def _filter_excluded_groups(
-    expr_df: pd.DataFrame, 
-    groupby: str, 
+    expr_df: pd.DataFrame,
+    groupby: str,
     exclude_groups: Optional[Union[str, List[str]]],
-    available_groups: List
+    available_groups: List,
 ) -> pd.DataFrame:
     """
     Filter expression dataframe to exclude specified groups.
-    
+
     Parameters
     ----------
     expr_df : pandas.DataFrame
@@ -207,7 +206,7 @@ def _filter_excluded_groups(
         Groups to exclude
     available_groups : list
         List of available groups
-        
+
     Returns
     -------
     pandas.DataFrame
@@ -215,7 +214,7 @@ def _filter_excluded_groups(
     """
     if exclude_groups is None:
         return expr_df
-        
+
     # Convert single group to list for consistent handling
     if isinstance(exclude_groups, str):
         exclude_groups = [exclude_groups]
@@ -245,7 +244,7 @@ def _filter_excluded_groups(
                 f"All cells were excluded after filtering out groups: {', '.join(exclude_groups)}. "
                 f"Please check your exclude_groups parameter."
             )
-            
+
     return expr_df
 
 
@@ -254,11 +253,11 @@ def _apply_scaling(
     standard_scale: Optional[Union[str, int]],
     is_split: bool = False,
     has_hierarchical_index: bool = False,
-    log_message: bool = True
+    log_message: bool = True,
 ) -> Union[pd.DataFrame, np.ndarray]:
     """
     Apply scaling to the data (z-scoring).
-    
+
     Parameters
     ----------
     data : DataFrame or ndarray
@@ -269,7 +268,7 @@ def _apply_scaling(
         Whether the data has conditions split
     has_hierarchical_index : bool
         Whether the data has a hierarchical index
-        
+
     Returns
     -------
     DataFrame or ndarray
@@ -311,7 +310,7 @@ def _apply_scaling(
                 # Handle hierarchical columns by scaling each gene separately across groups/conditions
                 # Get all genes
                 all_genes = data.columns
-                
+
                 # Process each gene separately
                 for gene in all_genes:
                     # Extract this gene's values across all groups and conditions
@@ -348,7 +347,7 @@ def _apply_scaling(
             stds[np.isnan(stds)] = 1.0
             # Z-score the array
             data = (data - means) / stds
-            
+
         elif standard_scale == "group" or standard_scale == 1:
             # Perform group-wise z-scoring
             if log_message:
@@ -361,20 +360,20 @@ def _apply_scaling(
             stds[np.isnan(stds)] = 1.0
             # Z-score
             data = (data - means) / stds
-    
+
     return data
 
 
 def _calculate_figsize(
-    n_rows: int, 
-    n_cols: int, 
+    n_rows: int,
+    n_cols: int,
     dendrogram: bool = False,
     cluster_rows: bool = False,
-    cluster_cols: bool = False
+    cluster_cols: bool = False,
 ) -> Tuple[float, float]:
     """
     Calculate appropriate figure size based on data dimensions.
-    
+
     Parameters
     ----------
     n_rows : int
@@ -387,7 +386,7 @@ def _calculate_figsize(
         Whether rows are clustered
     cluster_cols : bool
         Whether columns are clustered
-        
+
     Returns
     -------
     tuple
@@ -413,7 +412,7 @@ def _calculate_figsize(
 def _setup_colormap_normalization(data, vcenter, vmin, vmax, cmap):
     """
     Set up colormap normalization for heatmap.
-    
+
     Parameters
     ----------
     data : array-like
@@ -426,7 +425,7 @@ def _setup_colormap_normalization(data, vcenter, vmin, vmax, cmap):
         Maximum value for colormap
     cmap : str or matplotlib.colors.Colormap
         Colormap to use
-        
+
     Returns
     -------
     tuple
@@ -437,12 +436,12 @@ def _setup_colormap_normalization(data, vcenter, vmin, vmax, cmap):
         vmin = np.nanmin(data)
     if vmax is None:
         vmax = np.nanmax(data)
-        
+
     # Ensure vmin is not equal to vmax to avoid normalization issues
     if vmin == vmax:
         vmin -= 0.1
         vmax += 0.1
-        
+
     # Set up normalization
     if vcenter is not None:
         # Use diverging normalization
@@ -450,7 +449,7 @@ def _setup_colormap_normalization(data, vcenter, vmin, vmax, cmap):
     else:
         # Use standard normalization
         norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
-    
+
     # Get colormap object
     if isinstance(cmap, str):
         try:
@@ -461,5 +460,5 @@ def _setup_colormap_normalization(data, vcenter, vmin, vmax, cmap):
             cmap_obj = plt.cm.get_cmap(cmap)
     else:
         cmap_obj = cmap
-        
+
     return norm, cmap_obj, vmin, vmax

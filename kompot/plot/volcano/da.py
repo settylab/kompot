@@ -15,19 +15,21 @@ from .utils import _extract_conditions_from_key, _infer_da_keys
 
 try:
     import scanpy as sc
+
     _has_scanpy = True
 except (ImportError, TypeError):
-    # Catch both ImportError (if scanpy isn't installed) 
+    # Catch both ImportError (if scanpy isn't installed)
     # and TypeError for metaclass conflicts
     _has_scanpy = False
 
 # Get the pre-configured logger
 logger = logging.getLogger("kompot")
 
+
 def volcano_da(
     adata: AnnData,
     lfc_key: Optional[str] = None,
-    ptp_key: Optional[str] = None, 
+    ptp_key: Optional[str] = None,
     group_key: Optional[str] = None,
     log_transform_ptp: bool = True,
     lfc_threshold: Optional[float] = None,
@@ -62,15 +64,15 @@ def volcano_da(
     vcenter: Optional[float] = None,
     vmin: Optional[float] = None,
     vmax: Optional[float] = None,
-    **kwargs
+    **kwargs,
 ) -> Optional[plt.Figure]:
     """
     Create a volcano plot for differential abundance results.
-    
+
     This function visualizes cells in a 2D volcano plot with log fold change on the x-axis
     and significance (-log10 PTP (Posterior Tail Probability)) on the y-axis. Cells can be colored by any column
     in adata.obs.
-    
+
     Parameters
     ----------
     adata : AnnData
@@ -136,7 +138,7 @@ def volcano_da(
         If True, returns the figure and axes
     run_id : int, optional
         Specific run ID to use for fetching field names from run history.
-        Negative indices count from the end (-1 is the latest run). If None, 
+        Negative indices count from the end (-1 is the latest run). If None,
         uses the latest run information.
     update_direction : bool, optional
         Whether to update the direction column based on the provided thresholds
@@ -154,23 +156,24 @@ def volcano_da(
         Name of condition 1 (denominator in fold change)
     condition2 : str, optional
         Name of condition 2 (numerator in fold change)
-    **kwargs : 
+    **kwargs :
         Additional parameters passed to plt.scatter
-        
+
     Returns
     -------
     If return_fig is True, returns (fig, ax)
     """
     # Set default grid kwargs
-    grid_kwargs = grid_kwargs or {'alpha': 0.3}
-    
+    grid_kwargs = grid_kwargs or {"alpha": 0.3}
+
     # Infer keys using helper function
     lfc_key, ptp_key, thresholds = _infer_da_keys(adata, run_id, lfc_key, ptp_key)
-    
+
     # Calculate the actual (positive) run ID for logging
     if run_id < 0:
         # Use get_run_history to get the deserialized run history
         from ...anndata.utils import get_run_history
+
         run_history = get_run_history(adata, "da")
         if run_history is not None:
             actual_run_id = len(run_history) + run_id
@@ -178,27 +181,28 @@ def volcano_da(
             actual_run_id = run_id
     else:
         actual_run_id = run_id
-    
+
     # Extract the threshold values
     auto_lfc_threshold, auto_ptp_threshold = thresholds
-    
+
     # Track which values needed inference for logging
     needed_column_inference = lfc_key is None or ptp_key is None
     needed_threshold_inference = False
-    
+
     # Use run thresholds if available and not explicitly overridden
     if lfc_threshold is None and auto_lfc_threshold is not None:
         lfc_threshold = auto_lfc_threshold
         needed_threshold_inference = True
-    
+
     if ptp_threshold is None and auto_ptp_threshold is not None:
         ptp_threshold = auto_ptp_threshold
         needed_threshold_inference = True
-        
+
     # Update direction column if requested
     if update_direction:
         from ...differential.utils import update_direction_column as update_dir
-        logger.info(f"Updating direction column with new thresholds before plotting")
+
+        logger.info("Updating direction column with new thresholds before plotting")
         update_dir(
             adata=adata,
             lfc_threshold=lfc_threshold,
@@ -207,20 +211,20 @@ def volcano_da(
             lfc_key=lfc_key,
             ptp_key=ptp_key,
             run_id=run_id,
-            inplace=True
+            inplace=True,
         )
-    
+
     # Get condition information from the run specified by run_id
     run_info = get_run_from_history(adata, run_id, analysis_type="da")
     condition1 = None
     condition2 = None
 
-    if run_info is not None and 'params' in run_info:
-        params = run_info['params']
-        if 'condition1' in params and 'condition2' in params:
-            condition1 = params['condition1']
-            condition2 = params['condition2']
-    
+    if run_info is not None and "params" in run_info:
+        params = run_info["params"]
+        if "condition1" in params and "condition2" in params:
+            condition1 = params["condition1"]
+            condition2 = params["condition2"]
+
     # Fall back to key name extraction if run_info unavailable (unreliable for multi-word names)
     if (condition1 is None or condition2 is None) and lfc_key is not None:
         conditions = _extract_conditions_from_key(lfc_key)
@@ -233,25 +237,33 @@ def volcano_da(
                 "Condition names extracted from key name (may be unreliable for multi-word conditions). "
                 "Re-run compute_differential_abundance to ensure run_info contains condition names."
             )
-    
+
     # Log appropriate information based on what needed to be inferred
     if needed_column_inference:
-        conditions_str = f": comparing {condition1} to {condition2}" if condition1 and condition2 else ""
+        conditions_str = (
+            f": comparing {condition1} to {condition2}"
+            if condition1 and condition2
+            else ""
+        )
         logger.info(f"Inferred DA columns from run {actual_run_id}{conditions_str}")
-        logger.info(f"Using fields for DA plot - lfc_key: '{lfc_key}', ptp_key: '{ptp_key}'")
-    
+        logger.info(
+            f"Using fields for DA plot - lfc_key: '{lfc_key}', ptp_key: '{ptp_key}'"
+        )
+
     if needed_threshold_inference:
-        logger.info(f"Using inferred thresholds - lfc_threshold: {lfc_threshold}, ptp_threshold: {ptp_threshold}")
-    
+        logger.info(
+            f"Using inferred thresholds - lfc_threshold: {lfc_threshold}, ptp_threshold: {ptp_threshold}"
+        )
+
     # Update axis labels with condition information if not explicitly set
     if condition1 and condition2 and xlabel == "Log Fold Change":
         # Adjust for new key format where condition1 is the baseline/denominator
         xlabel = f"Log Fold Change: {condition1} to {condition2}"
-    
+
     # Create figure if ax not provided - adjust figsize if legend is outside
     if ax is None:
         # If legend is outside and not explicitly placed elsewhere, adjust figsize
-        if show_legend and legend_loc == 'best':
+        if show_legend and legend_loc == "best":
             # Increase width to accommodate legend
             adjusted_figsize = (figsize[0] * 1.3, figsize[1])
             fig, ax = plt.subplots(figsize=adjusted_figsize)
@@ -259,12 +271,16 @@ def volcano_da(
             fig, ax = plt.subplots(figsize=figsize)
     else:
         fig = ax.figure
-    
+
     # Extract data
     x = adata.obs[lfc_key].values
-    
+
     # Handle PTPs (Posterior Tail Probabilities) - check if they're already negative log10 transformed
-    if 'neg_log10' in ptp_key.lower() or ptp_key.lower().startswith('neg_log10') or '-log10' in ptp_key.lower():
+    if (
+        "neg_log10" in ptp_key.lower()
+        or ptp_key.lower().startswith("neg_log10")
+        or "-log10" in ptp_key.lower()
+    ):
         # Already negative log10 transformed - use as is (values should be positive)
         y = adata.obs[ptp_key].values
         ylabel = ylabel or "-log10(PTP (Posterior Tail Probability))"
@@ -275,10 +291,14 @@ def volcano_da(
     else:
         y = adata.obs[ptp_key].values
         ylabel = ylabel or "PTP (Posterior Tail Probability)"
-    
+
     # Define significance thresholds for coloring
     if ptp_threshold is not None:
-        if 'neg_log10' in ptp_key.lower() or ptp_key.lower().startswith('neg_log10') or '-log10' in ptp_key.lower():
+        if (
+            "neg_log10" in ptp_key.lower()
+            or ptp_key.lower().startswith("neg_log10")
+            or "-log10" in ptp_key.lower()
+        ):
             # Key indicates values are already negative log10 transformed (higher = more significant)
             # Convert ptp_threshold to -log10 scale if it's a raw PTP (Posterior Tail Probability) (between 0 and 1)
             if 0 < ptp_threshold < 1:
@@ -292,7 +312,7 @@ def volcano_da(
             y_threshold = ptp_threshold
     else:
         y_threshold = None
-    
+
     # Define masks for significant cells
     if ptp_threshold is not None and lfc_threshold is not None:
         # Both thresholds provided
@@ -306,23 +326,24 @@ def volcano_da(
     else:
         # No thresholds provided
         significant = np.ones(len(x), dtype=bool)
-    
+
     # Apply custom highlight mask if provided
     if highlight_subset is not None:
         significant = highlight_subset
-    
+
     # First plot all cells as background
-    scatter_kwargs = {'s': 10}  # Default point size
+    scatter_kwargs = {"s": 10}  # Default point size
     scatter_kwargs.update(kwargs)
-    
+
     ax.scatter(
-        x, y, 
-        alpha=alpha_background, 
-        c="lightgray", 
+        x,
+        y,
+        alpha=alpha_background,
+        c="lightgray",
         label="Non-significant",
-        **scatter_kwargs
+        **scatter_kwargs,
     )
-    
+
     # Color significant cells
     if color is not None:
         if not _has_scanpy:
@@ -332,46 +353,52 @@ def volcano_da(
             )
             # Default coloring without scanpy
             ax.scatter(
-                x[significant], y[significant], 
-                alpha=1, 
-                c=highlight_color, 
+                x[significant],
+                y[significant],
+                alpha=1,
+                c=highlight_color,
                 label="Significant",
-                **scatter_kwargs
+                **scatter_kwargs,
             )
         else:
             # We'll handle coloring manually instead of using scanpy's scatter
             # Use matplotlib directly instead of seaborn
-            from matplotlib.colors import ListedColormap, Normalize
-            
+
             # Get the significant indices
             sig_indices = np.where(significant)[0]
-            
+
             if isinstance(color, str):
                 color = [color]
-                
+
             for c in color:
                 if c not in adata.obs:
                     warnings.warn(f"Color key '{c}' not found in adata.obs. Skipping.")
                     continue
-                
+
                 # Check if the color column is categorical or string
                 if not pd.api.types.is_categorical_dtype(adata.obs[c]):
                     # If column contains string data, convert to categorical with warning
-                    if pd.api.types.is_string_dtype(adata.obs[c]) or pd.api.types.is_object_dtype(adata.obs[c]):
-                        warnings.warn(f"Color column '{c}' contains string data but is not categorical. "
-                                     f"Converting to categorical for proper coloring.")
-                        adata.obs[c] = adata.obs[c].astype('category')
-                
+                    if pd.api.types.is_string_dtype(
+                        adata.obs[c]
+                    ) or pd.api.types.is_object_dtype(adata.obs[c]):
+                        warnings.warn(
+                            f"Color column '{c}' contains string data but is not categorical. "
+                            f"Converting to categorical for proper coloring."
+                        )
+                        adata.obs[c] = adata.obs[c].astype("category")
+
                 # Get the color values for the significant points
                 color_values = adata.obs[c].values[sig_indices]
-                
+
                 # Check if the color column is categorical
                 if pd.api.types.is_categorical_dtype(adata.obs[c]):
                     categories = adata.obs[c].cat.categories
-                    
+
                     # Check if colors are stored in adata.uns with f"{color}_colors" format
                     colors_key = f"{c}_colors"
-                    if colors_key in adata.uns and len(adata.uns[colors_key]) == len(categories):
+                    if colors_key in adata.uns and len(adata.uns[colors_key]) == len(
+                        categories
+                    ):
                         # Use stored colors from adata.uns
                         stored_colors = adata.uns[colors_key]
                         color_dict = dict(zip(categories, stored_colors))
@@ -380,93 +407,109 @@ def volcano_da(
                     elif isinstance(palette, str):
                         # Use matplotlib colormaps instead of seaborn
                         cmap = plt.cm.get_cmap(palette, len(categories))
-                        colors = [cmap(i/len(categories)) for i in range(len(categories))]
+                        colors = [
+                            cmap(i / len(categories)) for i in range(len(categories))
+                        ]
                         color_dict = dict(zip(categories, colors))
                         # Store colors in adata.uns for future use
                         adata.uns[colors_key] = colors
-                        logger.debug(f"Created and stored colors in adata.uns['{colors_key}']")
+                        logger.debug(
+                            f"Created and stored colors in adata.uns['{colors_key}']"
+                        )
                     elif isinstance(palette, dict):
                         color_dict = palette
                     else:
                         # Use default palette - tab10 equivalent
-                        cmap = plt.cm.get_cmap('tab10', len(categories))
-                        colors = [cmap(i/len(categories)) for i in range(len(categories))]
+                        cmap = plt.cm.get_cmap("tab10", len(categories))
+                        colors = [
+                            cmap(i / len(categories)) for i in range(len(categories))
+                        ]
                         color_dict = dict(zip(categories, colors))
                         # Store colors in adata.uns for future use
                         adata.uns[colors_key] = colors
-                        logger.debug(f"Created and stored colors in adata.uns['{colors_key}']")
-                    
+                        logger.debug(
+                            f"Created and stored colors in adata.uns['{colors_key}']"
+                        )
+
                     # Plot each category separately
                     for cat in categories:
                         cat_mask = color_values == cat
                         if np.sum(cat_mask) > 0:
                             cat_color = color_dict.get(cat, highlight_color)
                             ax.scatter(
-                                x[sig_indices][cat_mask], 
+                                x[sig_indices][cat_mask],
                                 y[sig_indices][cat_mask],
                                 alpha=1,
                                 c=[cat_color],
                                 label=f"{cat}",
-                                **scatter_kwargs
+                                **scatter_kwargs,
                             )
-                    
+
                     # Add legend for categorical data
-                    if show_legend and legend_loc != 'none':
+                    if show_legend and legend_loc != "none":
                         # Count number of categories to determine if we need multicolumn layout
-                        num_categories = len([c for c in categories if c in color_values])
-                        
+                        num_categories = len(
+                            [c for c in categories if c in color_values]
+                        )
+
                         # Use provided legend_ncol if specified, otherwise auto-determine
                         if legend_ncol is not None:
                             ncol = legend_ncol
                         # Determine if we need a multicolumn layout (more than 10 categories)
                         elif num_categories > 10:
-                            ncol = max(2, min(5, num_categories // 10))  # Use 2-5 columns based on count
+                            ncol = max(
+                                2, min(5, num_categories // 10)
+                            )  # Use 2-5 columns based on count
                         else:
                             ncol = 1
-                            
+
                         # Default to bbox_to_anchor outside the plot if legend_loc is not explicitly specified
-                        if legend_loc == 'best':
+                        if legend_loc == "best":
                             legend = ax.legend(
-                                bbox_to_anchor=(1.05, 1), 
-                                loc='upper left', 
-                                title=c, 
+                                bbox_to_anchor=(1.05, 1),
+                                loc="upper left",
+                                title=c,
                                 frameon=False,
                                 fontsize=legend_fontsize,
-                                ncol=ncol
+                                ncol=ncol,
                             )
                         else:
                             legend = ax.legend(
-                                loc=legend_loc, 
-                                title=c, 
-                                frameon=False, 
+                                loc=legend_loc,
+                                title=c,
+                                frameon=False,
                                 fontsize=legend_fontsize,
-                                ncol=ncol
+                                ncol=ncol,
                             )
-                        
+
                         # Set frame properties only if it's explicitly needed
                         # legend.get_frame().set_facecolor('white')
                         # legend.get_frame().set_alpha(0.8)
-                        
+
                         # Set legend title font size if specified
                         if legend_title_fontsize is not None and legend.get_title():
                             legend.get_title().set_fontsize(legend_title_fontsize)
-                            
+
                         # If legend is outside, adjust the figure layout
-                        if legend_loc == 'best':
+                        if legend_loc == "best":
                             plt.tight_layout(rect=[0, 0, 0.85, 1])
                 else:
                     # For numeric columns, use a colormap
                     # Default to Spectral_r if no palette specified
                     scatter_kwargs_color = scatter_kwargs.copy()
-                    use_cmap = cmap if 'cmap' in kwargs else (palette if isinstance(palette, str) else "Spectral_r")
-                    scatter_kwargs_color['cmap'] = use_cmap
-                    
+                    use_cmap = (
+                        cmap
+                        if "cmap" in kwargs
+                        else (palette if isinstance(palette, str) else "Spectral_r")
+                    )
+                    scatter_kwargs_color["cmap"] = use_cmap
+
                     scatter = ax.scatter(
                         x[sig_indices],
                         y[sig_indices],
                         alpha=1,
                         c=color_values,
-                        **scatter_kwargs_color
+                        **scatter_kwargs_color,
                     )
                     # Only add colorbar if show_colorbar is True
                     if show_colorbar:
@@ -474,79 +517,91 @@ def volcano_da(
     else:
         # Default coloring without color key
         ax.scatter(
-            x[significant], y[significant], 
-            alpha=1, 
-            c=highlight_color, 
+            x[significant],
+            y[significant],
+            alpha=1,
+            c=highlight_color,
             label="Significant",
-            **scatter_kwargs
+            **scatter_kwargs,
         )
-    
+
     # Add threshold lines if requested
     if show_thresholds:
         if lfc_threshold is not None:
             ax.axvline(x=lfc_threshold, color="black", linestyle="--", alpha=0.5)
             ax.axvline(x=-lfc_threshold, color="black", linestyle="--", alpha=0.5)
-        
+
         if ptp_threshold is not None:
-            if 'neg_log10' in ptp_key.lower() or ptp_key.lower().startswith('neg_log10') or '-log10' in ptp_key.lower():
+            if (
+                "neg_log10" in ptp_key.lower()
+                or ptp_key.lower().startswith("neg_log10")
+                or "-log10" in ptp_key.lower()
+            ):
                 # For negative PTPs (Posterior Tail Probabilities), convert if needed
                 if 0 < ptp_threshold < 1:
-                    ax.axhline(y=-np.log10(ptp_threshold), color="black", linestyle="--", alpha=0.5)
+                    ax.axhline(
+                        y=-np.log10(ptp_threshold),
+                        color="black",
+                        linestyle="--",
+                        alpha=0.5,
+                    )
                 else:
-                    ax.axhline(y=ptp_threshold, color="black", linestyle="--", alpha=0.5)
+                    ax.axhline(
+                        y=ptp_threshold, color="black", linestyle="--", alpha=0.5
+                    )
             elif log_transform_ptp:
-                ax.axhline(y=-np.log10(ptp_threshold), color="black", linestyle="--", alpha=0.5)
+                ax.axhline(
+                    y=-np.log10(ptp_threshold), color="black", linestyle="--", alpha=0.5
+                )
             else:
                 ax.axhline(y=ptp_threshold, color="black", linestyle="--", alpha=0.5)
-    
+
     # Add center line if requested (unchanged from previous behavior)
     if show_thresholds:
         ax.axvline(x=0, color="black", linestyle="-", alpha=0.3)
-    
+
     # Add labels and title
     ax.set_xlabel(xlabel, fontsize=12)
     ax.set_ylabel(ylabel, fontsize=12)
-    
+
     # Set the number of ticks on each axis
     if n_x_ticks > 0:
         from matplotlib.ticker import MaxNLocator
+
         ax.xaxis.set_major_locator(MaxNLocator(n_x_ticks))
-    
+
     if n_y_ticks > 0:
         from matplotlib.ticker import MaxNLocator
+
         ax.yaxis.set_major_locator(MaxNLocator(n_y_ticks))
-        
+
     if title:
         ax.set_title(title, fontsize=14)
-    
+
     # Add legend for non-categorical coloring
-    if color is None and show_legend and legend_loc != 'none':
+    if color is None and show_legend and legend_loc != "none":
         # Default to bbox_to_anchor outside the plot if legend_loc is not explicitly specified
-        if legend_loc == 'best':
+        if legend_loc == "best":
             legend = ax.legend(
-                bbox_to_anchor=(1.05, 1), 
-                loc='upper left', 
+                bbox_to_anchor=(1.05, 1),
+                loc="upper left",
                 fontsize=legend_fontsize,
-                frameon=False
+                frameon=False,
             )
             # Adjust figure layout to accommodate legend
             plt.tight_layout(rect=[0, 0, 0.85, 1])
         else:
-            legend = ax.legend(
-                loc=legend_loc, 
-                fontsize=legend_fontsize,
-                frameon=False
-            )
-    
+            legend = ax.legend(loc=legend_loc, fontsize=legend_fontsize, frameon=False)
+
     # Add grid
     if grid:
         ax.grid(**grid_kwargs)
-    
+
     # Don't use tight_layout as it may interfere with multi-panel plots
     # Instead, use proper spacing when in a multi-plot context
     if ax.get_figure().get_axes() == [ax]:  # Only adjust if this is the only plot
         fig.subplots_adjust(left=0.1, right=0.9, top=0.9, bottom=0.1)
-    
+
     if save is not None:
         fig.savefig(save, bbox_inches="tight", dpi=300)
     if return_fig:

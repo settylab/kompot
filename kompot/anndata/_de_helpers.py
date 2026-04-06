@@ -10,7 +10,7 @@ import logging
 import datetime
 import numpy as np
 import pandas as pd
-from typing import Optional, Union, Dict, Any, List, Tuple
+from typing import Optional, Dict, List, Tuple
 from scipy import sparse
 
 from .utils import check_underrepresentation, apply_cell_filter
@@ -21,6 +21,7 @@ logger = logging.getLogger("kompot")
 # ---------------------------------------------------------------------------
 # 1. Overwrite detection
 # ---------------------------------------------------------------------------
+
 
 def _check_overwrites(
     adata,
@@ -48,15 +49,19 @@ def _check_overwrites(
     """
     # Update all_patterns with FDR fields if needed
     if use_fdr:
-        all_patterns["var"].extend([
-            field_names["mahalanobis_local_fdr_key"],
-            field_names["is_de_key"],
-        ])
+        all_patterns["var"].extend(
+            [
+                field_names["mahalanobis_local_fdr_key"],
+                field_names["is_de_key"],
+            ]
+        )
         if store_additional_stats:
-            all_patterns["var"].extend([
-                field_names["mahalanobis_pvalue_key"],
-                field_names["mahalanobis_tail_fdr_key"],
-            ])
+            all_patterns["var"].extend(
+                [
+                    field_names["mahalanobis_pvalue_key"],
+                    field_names["mahalanobis_tail_fdr_key"],
+                ]
+            )
 
     # Update all_patterns with group information if needed
     if groups is not None:
@@ -106,13 +111,12 @@ def _check_overwrites(
         prev_timestamp = prev_run.get("timestamp", "unknown time")
         prev_params = prev_run.get("params", {})
         from .utils.params import params_get as _pg
+
         prev_conditions = (
             f"{_pg(prev_params, 'condition1', 'unknown')} to "
             f"{_pg(prev_params, 'condition2', 'unknown')}"
         )
-        message += (
-            f" Previous run was at {prev_timestamp} comparing {prev_conditions}."
-        )
+        message += f" Previous run was at {prev_timestamp} comparing {prev_conditions}."
 
         if existing_fields:
             field_list = ", ".join(existing_fields[:5])
@@ -124,7 +128,12 @@ def _check_overwrites(
             # Check parameter match
             params_match = True
             for param_name in [
-                "groupby", "condition1", "condition2", "obsm_key", "layer", "ls_factor",
+                "groupby",
+                "condition1",
+                "condition2",
+                "obsm_key",
+                "layer",
+                "ls_factor",
             ]:
                 curr_val = locals().get(param_name)
                 prev_val = _pg(prev_params, param_name)
@@ -174,18 +183,19 @@ def _check_overwrites(
             # Re-check params_match for the overwrite-is-None branch
             params_match = True
             for param_name in [
-                "groupby", "condition1", "condition2", "obsm_key", "layer", "ls_factor",
+                "groupby",
+                "condition1",
+                "condition2",
+                "obsm_key",
+                "layer",
+                "ls_factor",
             ]:
                 curr_val = locals().get(param_name)
                 prev_val = _pg(prev_params, param_name)
                 if curr_val != prev_val:
                     params_match = False
 
-            if (
-                params_match
-                and current_sample_var
-                and not prev_sample_var
-            ):
+            if params_match and current_sample_var and not prev_sample_var:
                 logger.info(
                     message
                     + " This is a partial rerun with sample variance added to a "
@@ -204,6 +214,7 @@ def _check_overwrites(
 # ---------------------------------------------------------------------------
 # 2. Data extraction
 # ---------------------------------------------------------------------------
+
 
 def _extract_de_data(
     adata,
@@ -299,9 +310,7 @@ def _extract_de_data(
         elif check_representation is True and underrep:
             underrep_filter = underrep_result
             n_groups = len(underrep)
-            logger.info(
-                f"Found {n_groups:,} groups with underrepresented conditions"
-            )
+            logger.info(f"Found {n_groups:,} groups with underrepresented conditions")
             for group, conditions in underrep.items():
                 logger.info(
                     f"  - Group '{group}': Underrepresented conditions: {conditions}"
@@ -376,8 +385,11 @@ def _extract_de_data(
             raise ValueError(
                 f"The following genes were not found in adata.var_names: "
                 f"{missing_genes[:10]}"
-                + (f"... and {len(missing_genes) - 10} more"
-                   if len(missing_genes) > 10 else "")
+                + (
+                    f"... and {len(missing_genes) - 10} more"
+                    if len(missing_genes) > 10
+                    else ""
+                )
             )
         selected_genes = [g for g in adata.var_names if g in genes_set]
         gene_indices = [list(adata.var_names).index(g) for g in selected_genes]
@@ -429,6 +441,7 @@ def _extract_de_data(
 # 3. Landmark resolution
 # ---------------------------------------------------------------------------
 
+
 def _resolve_landmarks(
     adata,
     landmarks: Optional[np.ndarray],
@@ -479,10 +492,7 @@ def _resolve_landmarks(
             )
 
     # Check DA landmarks
-    if (
-        "kompot_da" in adata.uns
-        and "landmarks" in adata.uns["kompot_da"]
-    ):
+    if "kompot_da" in adata.uns and "landmarks" in adata.uns["kompot_da"]:
         da = adata.uns["kompot_da"]["landmarks"]
         if da.shape[1] == data_dim:
             logger.info(
@@ -503,6 +513,7 @@ def _resolve_landmarks(
 # 4. Null gene augmentation
 # ---------------------------------------------------------------------------
 
+
 def _augment_with_null_genes(
     adata,
     expr1: np.ndarray,
@@ -521,11 +532,7 @@ def _augment_with_null_genes(
     """
     from .fdr_utils import prepare_null_genes, generate_shuffled_expression
 
-    use_fdr = (
-        null_genes is not None
-        and null_genes != 0
-        and compute_mahalanobis
-    )
+    use_fdr = null_genes is not None and null_genes != 0 and compute_mahalanobis
 
     null_gene_indices = []
 
@@ -577,8 +584,7 @@ def _augment_with_null_genes(
     expr2 = np.hstack([expr2, null_expr2])
 
     null_gene_names = [
-        f"NULL_{i}_{adata.var_names[idx]}"
-        for i, idx in enumerate(null_gene_indices)
+        f"NULL_{i}_{adata.var_names[idx]}" for i, idx in enumerate(null_gene_indices)
     ]
     expanded_genes = selected_genes + null_gene_names
 
@@ -651,6 +657,7 @@ def _augment_with_external_null_expression(
 # ---------------------------------------------------------------------------
 # 5. FDR computation (split null results)
 # ---------------------------------------------------------------------------
+
 
 def _compute_fdr(
     expression_results: dict,
@@ -767,16 +774,20 @@ def _compute_fdr(
         if "ptp" in expression_results:
             null_table_data["ptp"] = expression_results["ptp"][n_real:]
         null_data["table"] = pd.DataFrame(
-            null_table_data, index=null_gene_names,
+            null_table_data,
+            index=null_gene_names,
         )
 
         # Full expression matrices (only with return_full_results)
         if return_full_results:
             n_total = n_real + len(null_gene_names)
             for key in (
-                "condition1_imputed", "condition2_imputed",
-                "fold_change", "fold_change_zscores",
-                "condition1_std", "condition2_std",
+                "condition1_imputed",
+                "condition2_imputed",
+                "fold_change",
+                "fold_change_zscores",
+                "condition1_std",
+                "condition2_std",
             ):
                 if key not in expression_results:
                     continue
@@ -790,15 +801,21 @@ def _compute_fdr(
     # Strip null genes from expression_results
     for key in [
         "mean_log_fold_change",
-        "condition1_imputed", "condition2_imputed",
-        "fold_change", "fold_change_zscores",
-        "condition1_std", "condition2_std",
+        "condition1_imputed",
+        "condition2_imputed",
+        "fold_change",
+        "fold_change_zscores",
+        "condition1_std",
+        "condition2_std",
     ]:
         if key in expression_results:
             if key in (
-                "condition1_imputed", "condition2_imputed",
-                "fold_change", "fold_change_zscores",
-                "condition1_std", "condition2_std",
+                "condition1_imputed",
+                "condition2_imputed",
+                "fold_change",
+                "fold_change_zscores",
+                "condition1_std",
+                "condition2_std",
             ):
                 expression_results[key] = expression_results[key][:, :n_real]
             else:
@@ -815,6 +832,7 @@ def _compute_fdr(
 # ---------------------------------------------------------------------------
 # 6. Store results in adata
 # ---------------------------------------------------------------------------
+
 
 def _ensure_1d(arr, name, expected_len, logger):
     """Coerce an array to 1-D and validate length."""
@@ -879,50 +897,78 @@ def _store_de_results(
     if compute_mahalanobis:
         mahal = _ensure_1d(
             expression_results["mahalanobis_distances"],
-            "mahalanobis_distances", n_selected, logger,
+            "mahalanobis_distances",
+            n_selected,
+            logger,
         )
         _add_var_column(
-            new_var_columns, field_names["mahalanobis_key"],
-            mahal, selected_genes, adata,
+            new_var_columns,
+            field_names["mahalanobis_key"],
+            mahal,
+            selected_genes,
+            adata,
         )
 
     if compute_mahalanobis and "ptp" in expression_results and store_additional_stats:
         ptp = _ensure_1d(
-            expression_results["ptp"], "ptp", n_selected, logger,
+            expression_results["ptp"],
+            "ptp",
+            n_selected,
+            logger,
         )
         _add_var_column(
-            new_var_columns, field_names["ptp_key"],
-            ptp, selected_genes, adata,
+            new_var_columns,
+            field_names["ptp_key"],
+            ptp,
+            selected_genes,
+            adata,
         )
 
     mean_lfc = _ensure_1d(
         expression_results["mean_log_fold_change"],
-        "mean_log_fold_change", n_selected, logger,
+        "mean_log_fold_change",
+        n_selected,
+        logger,
     )
     _add_var_column(
-        new_var_columns, field_names["mean_lfc_key"],
-        mean_lfc, selected_genes, adata,
+        new_var_columns,
+        field_names["mean_lfc_key"],
+        mean_lfc,
+        selected_genes,
+        adata,
     )
 
     # FDR var columns
     if fdr_results and use_fdr:
         if store_additional_stats:
             _add_var_column(
-                new_var_columns, field_names["mahalanobis_pvalue_key"],
-                fdr_results["pvalues"], selected_genes, adata,
+                new_var_columns,
+                field_names["mahalanobis_pvalue_key"],
+                fdr_results["pvalues"],
+                selected_genes,
+                adata,
             )
         _add_var_column(
-            new_var_columns, field_names["mahalanobis_local_fdr_key"],
-            fdr_results["local_fdr_values"], selected_genes, adata,
+            new_var_columns,
+            field_names["mahalanobis_local_fdr_key"],
+            fdr_results["local_fdr_values"],
+            selected_genes,
+            adata,
         )
         if store_additional_stats:
             _add_var_column(
-                new_var_columns, field_names["mahalanobis_tail_fdr_key"],
-                fdr_results["tail_fdr_values"], selected_genes, adata,
+                new_var_columns,
+                field_names["mahalanobis_tail_fdr_key"],
+                fdr_results["tail_fdr_values"],
+                selected_genes,
+                adata,
             )
         _add_var_column_bool(
-            new_var_columns, field_names["is_de_key"],
-            fdr_results["is_significant"], selected_genes, adata,
+            new_var_columns,
+            field_names["is_de_key"],
+            fdr_results["is_significant"],
+            selected_genes,
+            adata,
         )
 
     # Flush var columns
@@ -962,19 +1008,32 @@ def _store_de_results(
 
     if subset_of_genes:
         _store_layers_subset(
-            adata, selected_genes, filter_mask,
-            condition1_imputed, condition2_imputed,
-            fold_change, fold_change_zscores,
-            condition1_std, condition2_std,
-            field_names, sample_col, store_additional_stats,
+            adata,
+            selected_genes,
+            filter_mask,
+            condition1_imputed,
+            condition2_imputed,
+            fold_change,
+            fold_change_zscores,
+            condition1_std,
+            condition2_std,
+            field_names,
+            sample_col,
+            store_additional_stats,
         )
     else:
         _store_layers_full(
-            adata, filter_mask,
-            condition1_imputed, condition2_imputed,
-            fold_change, fold_change_zscores,
-            condition1_std, condition2_std,
-            field_names, sample_col, store_additional_stats,
+            adata,
+            filter_mask,
+            condition1_imputed,
+            condition2_imputed,
+            fold_change,
+            fold_change_zscores,
+            condition1_std,
+            condition2_std,
+            field_names,
+            sample_col,
+            store_additional_stats,
         )
 
 
@@ -988,11 +1047,18 @@ def _init_layer(adata, key, use_sparse):
 
 
 def _store_layers_subset(
-    adata, selected_genes, filter_mask,
-    cond1_imputed, cond2_imputed,
-    fold_change, fold_change_zscores,
-    cond1_std, cond2_std,
-    field_names, sample_col, store_additional_stats,
+    adata,
+    selected_genes,
+    filter_mask,
+    cond1_imputed,
+    cond2_imputed,
+    fold_change,
+    fold_change_zscores,
+    cond1_std,
+    cond2_std,
+    field_names,
+    sample_col,
+    store_additional_stats,
 ):
     """Store layers when only a subset of genes was analysed."""
     imputed1_key = field_names["imputed_key_1"]
@@ -1006,9 +1072,7 @@ def _store_layers_subset(
     if store_additional_stats:
         _init_layer(adata, field_names["fold_change_zscores_key"], use_sparse)
 
-    gene_indices = np.array(
-        [adata.var_names.get_loc(g) for g in selected_genes]
-    )
+    gene_indices = np.array([adata.var_names.get_loc(g) for g in selected_genes])
 
     if sample_col is not None:
         # With sample variance — std stored as layers
@@ -1016,8 +1080,11 @@ def _store_layers_subset(
         _init_layer(adata, field_names["std_key_2"], use_sparse)
 
         layers_to_convert = [
-            imputed1_key, imputed2_key, fold_change_key,
-            field_names["std_key_1"], field_names["std_key_2"],
+            imputed1_key,
+            imputed2_key,
+            fold_change_key,
+            field_names["std_key_1"],
+            field_names["std_key_2"],
         ]
         lil_layers, needs_conversion = _to_lil(adata, layers_to_convert)
 
@@ -1031,8 +1098,12 @@ def _store_layers_subset(
                 f"existing sparse layers: {', '.join(sparse_names)}. "
                 f"Temporarily converting CSR->LIL->CSR to avoid slow per-gene "
                 f"modifications."
-                + (f" Consider using dense layers if you typically analyze "
-                   f">{pct:.0f}% of genes." if pct > 50 else "")
+                + (
+                    f" Consider using dense layers if you typically analyze "
+                    f">{pct:.0f}% of genes."
+                    if pct > 50
+                    else ""
+                )
             )
 
         for i, gi in enumerate(gene_indices):
@@ -1065,8 +1136,12 @@ def _store_layers_subset(
                 f"Updating {len(selected_genes)} genes ({pct:.1f}% of total) in "
                 f"existing sparse layers: {', '.join(sparse_names)}. "
                 f"Temporarily converting CSR->LIL->CSR."
-                + (f" Consider using dense layers if you typically analyze "
-                   f">{pct:.0f}% of genes." if pct > 50 else "")
+                + (
+                    f" Consider using dense layers if you typically analyze "
+                    f">{pct:.0f}% of genes."
+                    if pct > 50
+                    else ""
+                )
             )
 
         for i, gene in enumerate(selected_genes):
@@ -1083,11 +1158,17 @@ def _store_layers_subset(
 
 
 def _store_layers_full(
-    adata, filter_mask,
-    cond1_imputed, cond2_imputed,
-    fold_change, fold_change_zscores,
-    cond1_std, cond2_std,
-    field_names, sample_col, store_additional_stats,
+    adata,
+    filter_mask,
+    cond1_imputed,
+    cond2_imputed,
+    fold_change,
+    fold_change_zscores,
+    cond1_std,
+    cond2_std,
+    field_names,
+    sample_col,
+    store_additional_stats,
 ):
     """Store layers when all genes were analysed (no subsetting)."""
     imputed1_key = field_names["imputed_key_1"]
@@ -1154,6 +1235,7 @@ def _from_lil(adata, layer_keys, lil_layers, needs_conversion):
 # ---------------------------------------------------------------------------
 # 7. Group (subset) analysis
 # ---------------------------------------------------------------------------
+
 
 def _compute_group_results(
     adata,
@@ -1252,6 +1334,7 @@ def _compute_group_results(
                     f"more than the {n_lm:,} landmarks. Computing new landmarks."
                 )
                 from mellon.parameters import compute_landmarks
+
                 subset_landmarks = compute_landmarks(
                     X_subset,
                     gp_type="fixed",
@@ -1304,9 +1387,7 @@ def _compute_group_results(
                     f"doesn't match expected. Reshaping."
                 )
                 if len(vals) < n_real:
-                    vals = np.concatenate(
-                        [vals, np.full(n_real - len(vals), np.nan)]
-                    )
+                    vals = np.concatenate([vals, np.full(n_real - len(vals), np.nan)])
                 else:
                     vals = vals[:n_real]
 
@@ -1366,6 +1447,7 @@ def _compute_group_results(
 # 8. Posterior covariance storage
 # ---------------------------------------------------------------------------
 
+
 def _store_posterior_covariance(
     adata,
     diff_expression,
@@ -1407,14 +1489,11 @@ def _store_posterior_covariance(
 
         adata.obsp[posterior_cov_key] = full_covariance
         logger.info(
-            f"Stored posterior covariance matrix in "
-            f"adata.obsp['{posterior_cov_key}']"
+            f"Stored posterior covariance matrix in adata.obsp['{posterior_cov_key}']"
         )
         return posterior_cov_key
     except Exception as e:
-        logger.error(
-            f"Failed to compute and store posterior covariance matrix: {e}"
-        )
+        logger.error(f"Failed to compute and store posterior covariance matrix: {e}")
         logger.error("Posterior covariance matrix will not be stored in obsp.")
         return None
 
@@ -1422,6 +1501,7 @@ def _store_posterior_covariance(
 # ---------------------------------------------------------------------------
 # 9. Landmark storage
 # ---------------------------------------------------------------------------
+
 
 def _store_landmarks(
     adata,
@@ -1475,6 +1555,7 @@ def _store_landmarks(
 # ---------------------------------------------------------------------------
 # 10. Run info / metadata recording
 # ---------------------------------------------------------------------------
+
 
 def _build_field_mapping(
     field_names: dict,
@@ -1638,9 +1719,7 @@ def _add_group_field_mapping(
             field_mapping[isde_k] = {
                 "location": "varm",
                 "type": "is_de",
-                "description": (
-                    "Differential expression significance for all subsets"
-                ),
+                "description": ("Differential expression significance for all subsets"),
                 "contains_subsets": subset_names,
             }
     if compute_mahalanobis and store_additional_stats:
@@ -1721,9 +1800,7 @@ def _record_de_run_info(
         "mahalanobis_key": (
             field_names["mahalanobis_key"] if compute_mahalanobis else None
         ),
-        "ptp_key": (
-            field_names["ptp_key"] if compute_mahalanobis else None
-        ),
+        "ptp_key": (field_names["ptp_key"] if compute_mahalanobis else None),
         "fdr_keys": (
             {
                 "pvalue_key": field_names.get("mahalanobis_pvalue_key"),
@@ -1823,16 +1900,13 @@ def _record_de_run_info(
         if "varm" not in anndata_field_tracking:
             anndata_field_tracking["varm"] = {}
         if field_names["mean_lfc_varm_key"] in adata.varm:
-            anndata_field_tracking["varm"][
-                field_names["mean_lfc_varm_key"]
-            ] = new_run_id
-        if (
-            compute_mahalanobis
-            and field_names["mahalanobis_varm_key"] in adata.varm
-        ):
-            anndata_field_tracking["varm"][
-                field_names["mahalanobis_varm_key"]
-            ] = new_run_id
+            anndata_field_tracking["varm"][field_names["mean_lfc_varm_key"]] = (
+                new_run_id
+            )
+        if compute_mahalanobis and field_names["mahalanobis_varm_key"] in adata.varm:
+            anndata_field_tracking["varm"][field_names["mahalanobis_varm_key"]] = (
+                new_run_id
+            )
 
     if "anndata_fields" not in adata.uns.get(storage_key, {}):
         set_json_metadata(

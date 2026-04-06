@@ -1,8 +1,7 @@
 """Direction bar plotting functions."""
 
-import numpy as np
 import matplotlib.pyplot as plt
-from typing import Optional, Union, List, Tuple, Dict, Any, Sequence, Literal, Callable, Set
+from typing import Optional, List, Tuple, Dict, Literal
 from anndata import AnnData
 import pandas as pd
 import logging
@@ -45,9 +44,9 @@ def _infer_direction_key(
             # Prioritize run_info params for condition names (authoritative source)
             condition1, condition2 = None, None
             ri = get_run_from_history(adata, run_id, analysis_type="da")
-            if ri is not None and 'params' in ri:
-                condition1 = ri['params'].get('condition1')
-                condition2 = ri['params'].get('condition2')
+            if ri is not None and "params" in ri:
+                condition1 = ri["params"].get("condition1")
+                condition2 = ri["params"].get("condition2")
 
             # Fall back to key name extraction if run_info unavailable
             if condition1 is None or condition2 is None:
@@ -75,7 +74,7 @@ def _infer_direction_key(
             analysis_type="da",
             run_id=run_id,
             required_fields=["direction_key"],
-            strict=False
+            strict=False,
         )
 
         direction_column = inferred_fields.get("direction_key")
@@ -84,10 +83,10 @@ def _infer_direction_key(
         run_info = get_run_from_history(adata, run_id, analysis_type="da")
         condition1, condition2 = None, None
 
-        if run_info is not None and 'params' in run_info:
-            params = run_info['params']
-            condition1 = params.get('condition1')
-            condition2 = params.get('condition2')
+        if run_info is not None and "params" in run_info:
+            params = run_info["params"]
+            condition1 = params.get("condition1")
+            condition2 = params.get("condition2")
 
         # If conditions not in run info, try to extract from column name
         if direction_column and (condition1 is None or condition2 is None):
@@ -131,7 +130,7 @@ def direction_barplot(
 
     This function creates a stacked or grouped barplot showing the distribution of
     up/down/neutral changes across different categories (like cell types).
-    
+
     Parameters
     ----------
     adata : AnnData
@@ -148,7 +147,7 @@ def direction_barplot(
         Name of condition 2 (numerator in fold change).
         If None, will try to infer from the run_id.
     normalize : str or None, optional
-        How to normalize the data. Options: "index" (normalize rows), 
+        How to normalize the data. Options: "index" (normalize rows),
         "columns" (normalize columns), or None (raw counts).
     figsize : tuple, optional
         Figure size as (width, height) in inches
@@ -183,7 +182,7 @@ def direction_barplot(
     run_id : int, optional
         Specific run ID to use for fetching data from run history.
         Negative indices count from the end (-1 is the latest run).
-    
+
     Returns
     -------
     tuple or None
@@ -206,6 +205,7 @@ def direction_barplot(
     if run_id < 0:
         # Use get_run_history to get the deserialized run history
         from ...anndata.utils import get_run_history
+
         run_history = get_run_history(adata, "da")
         if run_history is not None:
             actual_run_id = len(run_history) + run_id
@@ -215,10 +215,10 @@ def direction_barplot(
         actual_run_id = run_id
 
     # Use the helper function to infer the direction column and conditions
-    inferred_direction_column, inferred_condition1, inferred_condition2 = _infer_direction_key(
-        adata, run_id, direction_column
+    inferred_direction_column, inferred_condition1, inferred_condition2 = (
+        _infer_direction_key(adata, run_id, direction_column)
     )
-    
+
     # Use the inferred values if not explicitly provided
     if direction_column is None:
         direction_column = inferred_direction_column
@@ -241,7 +241,9 @@ def direction_barplot(
 
     # Update axis labels with condition information if not explicitly set
     if condition1 and condition2 and title is None:
-        title = f"Direction of Change by {category_column}\n{condition1} to {condition2}"
+        title = (
+            f"Direction of Change by {category_column}\n{condition1} to {condition2}"
+        )
 
     # Log the plot type and fields being used
     logger.info(f"Creating direction barplot{conditions_str}")
@@ -253,7 +255,9 @@ def direction_barplot(
     if category_column not in adata.obs.columns:
         raise ValueError(f"Category column '{category_column}' not found in adata.obs")
     if direction_column not in adata.obs.columns:
-        raise ValueError(f"Direction column '{direction_column}' not found in adata.obs")
+        raise ValueError(
+            f"Direction column '{direction_column}' not found in adata.obs"
+        )
 
     # Create a crosstab of category to direction
     crosstab = pd.crosstab(
@@ -287,7 +291,7 @@ def direction_barplot(
     # Create figure if no axes provided - adjust figsize if legend is outside
     if ax is None:
         # If legend is outside and not explicitly placed elsewhere, adjust figsize
-        if legend_loc == 'best' or legend_loc == 'center left':
+        if legend_loc == "best" or legend_loc == "center left":
             # Increase width to accommodate legend
             adjusted_figsize = (figsize[0] * 1.3, figsize[1])
             fig, ax = plt.subplots(figsize=adjusted_figsize)
@@ -329,26 +333,26 @@ def direction_barplot(
         order.append(labels.index("down"))
     if not order:  # If none of the expected labels found, keep original order
         order = list(range(len(labels)))
-    
+
     # Add legend with appropriate styling based on location
-    if legend_loc == 'best':
+    if legend_loc == "best":
         legend = ax.legend(
-            [handles[i] for i in order], 
-            [labels[i] for i in order], 
+            [handles[i] for i in order],
+            [labels[i] for i in order],
             title=legend_title,
-            bbox_to_anchor=(1.05, 1), 
-            loc='upper left',
-            frameon=False
+            bbox_to_anchor=(1.05, 1),
+            loc="upper left",
+            frameon=False,
         )
         # Adjust figure layout to accommodate legend
         plt.tight_layout(rect=[0, 0, 0.85, 1])
     else:
         legend = ax.legend(
-            [handles[i] for i in order], 
-            [labels[i] for i in order], 
+            [handles[i] for i in order],
+            [labels[i] for i in order],
             title=legend_title,
             loc=legend_loc,
-            frameon=False
+            frameon=False,
         )
         plt.tight_layout()
 

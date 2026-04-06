@@ -45,7 +45,6 @@ def fitted_model_empirical(synthetic_data):
 
 
 class TestBasicFitPredict:
-
     def test_predict_shape(self, fitted_model):
         model, X, y = fitted_model
         result = np.asarray(model.predict(X, progress=False))
@@ -64,7 +63,6 @@ class TestBasicFitPredict:
 
 
 class TestPredictMatchesPredictor:
-
     def test_predict_matches_direct_call(self, fitted_model):
         model, X, y = fitted_model
         predicted = np.asarray(model.predict(X, progress=False))
@@ -73,7 +71,6 @@ class TestPredictMatchesPredictor:
 
 
 class TestCovariance:
-
     def test_covariance_diag_shape(self, fitted_model):
         model, X, y = fitted_model
         cov = model.covariance(X, diag=True, progress=False)
@@ -100,7 +97,6 @@ class TestCovariance:
 
 
 class TestObsVariance:
-
     def test_obs_variance_disabled_returns_zero(self, fitted_model):
         model, X, y = fitted_model
         assert model.obs_variance(X, progress=False) == 0
@@ -118,7 +114,6 @@ class TestObsVariance:
 
 
 class TestSampleVariance:
-
     def test_sample_variance_disabled_returns_zero(self, fitted_model):
         model, X, y = fitted_model
         assert model.sample_variance(X, progress=False) == 0
@@ -130,7 +125,10 @@ class TestSampleVariance:
 
         model = ExpressionModel(n_landmarks=50)
         model.fit(
-            X, y, sigma=1.0, ls_factor=10.0,
+            X,
+            y,
+            sigma=1.0,
+            ls_factor=10.0,
             sample_indices=sample_indices,
         )
         sv = model.sample_variance(X, diag=True, progress=False)
@@ -139,7 +137,6 @@ class TestSampleVariance:
 
 
 class TestTotalVariance:
-
     def test_total_variance_without_empirical(self, fitted_model):
         """total_variance = covariance when obs_variance and sample_variance are 0."""
         model, X, y = fitted_model
@@ -159,7 +156,6 @@ class TestTotalVariance:
 
 
 class TestStd:
-
     def test_std_without_empirical(self, fitted_model):
         """std = sqrt(total_variance + eps) when empirical variance is off."""
         model, X, y = fitted_model
@@ -180,7 +176,6 @@ class TestStd:
 
 
 class TestProperties:
-
     def test_landmarks_accessible(self, fitted_model):
         model, X, y = fitted_model
         landmarks = model.landmarks
@@ -205,7 +200,6 @@ class TestProperties:
 
 
 class TestPreFittedConstructor:
-
     def test_with_function_predictor(self, fitted_model):
         model, X, y = fitted_model
         predictor = model.predictor
@@ -225,7 +219,6 @@ class TestPreFittedConstructor:
 
 
 class TestHasFlags:
-
     def test_has_empirical_variance_false(self, fitted_model):
         model, X, y = fitted_model
         assert model.has_empirical_variance is False

@@ -45,22 +45,19 @@ def _check_da_overwrites(
     if not has_overwrites:
         return
 
-    message = (
-        f"Results with result_key='{result_key}' already exist in the dataset."
-    )
+    message = f"Results with result_key='{result_key}' already exist in the dataset."
     current_sample_var = sample_col is not None
 
     if prev_run:
         prev_timestamp = prev_run.get("timestamp", "unknown time")
         prev_params = prev_run.get("params", {})
         from .utils.params import params_get as _pg
+
         prev_conditions = (
             f"{_pg(prev_params, 'condition1', 'unknown')} to "
             f"{_pg(prev_params, 'condition2', 'unknown')}"
         )
-        message += (
-            f" Previous run was at {prev_timestamp} comparing {prev_conditions}."
-        )
+        message += f" Previous run was at {prev_timestamp} comparing {prev_conditions}."
 
         if existing_fields:
             field_list = ", ".join(existing_fields[:5])
@@ -99,7 +96,11 @@ def _check_da_overwrites(
             if current_sample_var and not prev_sample_var:
                 params_match = True
                 for param_name in [
-                    "groupby", "condition1", "condition2", "obsm_key", "ls_factor",
+                    "groupby",
+                    "condition1",
+                    "condition2",
+                    "obsm_key",
+                    "ls_factor",
                 ]:
                     curr_val = locals().get(param_name)
                     prev_val = _pg(prev_params, param_name)
@@ -110,15 +111,9 @@ def _check_da_overwrites(
                             f"(current: {curr_val}, previous: {prev_val})"
                         )
 
-        if (
-            prev_run
-            and params_match
-            and current_sample_var
-            and not prev_sample_var
-        ):
+        if prev_run and params_match and current_sample_var and not prev_sample_var:
             logger.info(
-                message
-                + " This is a partial rerun with sample variance added to a "
+                message + " This is a partial rerun with sample variance added to a "
                 "previous analysis with matching parameters. "
                 "Set overwrite=False to prevent overwriting or overwrite=True "
                 "to silence this message."
@@ -193,12 +188,10 @@ def _extract_da_data(
             f"Using sample column '{sample_col}' for sample variance estimation"
         )
         logger.info(
-            f"Found {len(np.unique(cond1_samples))} unique sample(s) "
-            f"in condition 1"
+            f"Found {len(np.unique(cond1_samples))} unique sample(s) in condition 1"
         )
         logger.info(
-            f"Found {len(np.unique(cond2_samples))} unique sample(s) "
-            f"in condition 2"
+            f"Found {len(np.unique(cond2_samples))} unique sample(s) in condition 2"
         )
 
     return {
@@ -302,9 +295,7 @@ def _store_da_landmarks(adata, diff_abundance, result_key, store_landmarks):
         hasattr(diff_abundance, "computed_landmarks")
         and diff_abundance.computed_landmarks is not None
     ):
-        logger.debug(
-            "No computed landmarks found to store."
-        )
+        logger.debug("No computed landmarks found to store.")
         return
 
     if result_key not in adata.uns:
@@ -333,9 +324,7 @@ def _store_da_landmarks(adata, diff_abundance, result_key, store_landmarks):
             f"with shape {lm.shape} for future reuse"
         )
     else:
-        logger.debug(
-            "Landmark storage skipped (store_landmarks=False)."
-        )
+        logger.debug("Landmark storage skipped (store_landmarks=False).")
 
 
 def _store_da_results(
@@ -349,12 +338,8 @@ def _store_da_results(
     from ..utils import KOMPOT_COLORS
 
     adata.obs[field_names["lfc_key"]] = abundance_results["log_fold_change"]
-    adata.obs[field_names["zscore_key"]] = abundance_results[
-        "log_fold_change_zscore"
-    ]
-    adata.obs[field_names["ptp_key"]] = abundance_results[
-        "neg_log10_fold_change_ptp"
-    ]
+    adata.obs[field_names["zscore_key"]] = abundance_results["log_fold_change_zscore"]
+    adata.obs[field_names["ptp_key"]] = abundance_results["neg_log10_fold_change_ptp"]
 
     direction_col = field_names["direction_key"]
     adata.obs[direction_col] = abundance_results["log_fold_change_direction"]
@@ -487,9 +472,7 @@ def _record_da_run_info(
     for field in obs_fields:
         anndata_field_tracking["obs"][field] = new_run_id
     anndata_field_tracking["uns"][result_key] = new_run_id
-    anndata_field_tracking["uns"][
-        f"{field_names['direction_key']}_colors"
-    ] = new_run_id
+    anndata_field_tracking["uns"][f"{field_names['direction_key']}_colors"] = new_run_id
 
     if "anndata_fields" not in adata.uns[storage_key]:
         set_json_metadata(

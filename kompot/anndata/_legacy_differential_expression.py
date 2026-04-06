@@ -56,9 +56,18 @@ def compute_differential_expression(
     store_arrays_on_disk: Optional[bool] = None,
     disk_storage_dir: Optional[str] = None,
     max_memory_ratio: float = 0.8,
-    cell_filter: Optional[Union[str, List[str], Dict[str, Any], List[Dict[str, Any]]]] = None,
+    cell_filter: Optional[
+        Union[str, List[str], Dict[str, Any], List[Dict[str, Any]]]
+    ] = None,
     groups: Optional[
-        Union[str, Dict[str, Any], List[Dict[str, Any]], pd.Series, np.ndarray, List[np.ndarray]]
+        Union[
+            str,
+            Dict[str, Any],
+            List[Dict[str, Any]],
+            pd.Series,
+            np.ndarray,
+            List[np.ndarray],
+        ]
     ] = None,
     min_cells: int = 2,
     min_percentage: Optional[float] = None,
@@ -354,7 +363,9 @@ def compute_differential_expression(
     if null_genes == "auto":
         if sample_col is not None:
             null_genes = 0
-            logger.info("Defaulting null_genes=0 (FDR disabled) because sample_col is provided.")
+            logger.info(
+                "Defaulting null_genes=0 (FDR disabled) because sample_col is provided."
+            )
         else:
             null_genes = 2000
 
@@ -441,7 +452,9 @@ def compute_differential_expression(
             prev_timestamp = prev_run.get("timestamp", "unknown time")
             prev_params = prev_run.get("params", {})
             prev_conditions = f"{prev_params.get('condition1', 'unknown')} to {prev_params.get('condition2', 'unknown')}"
-            message += f" Previous run was at {prev_timestamp} comparing {prev_conditions}."
+            message += (
+                f" Previous run was at {prev_timestamp} comparing {prev_conditions}."
+            )
 
             # List fields that will be overwritten
             if existing_fields:
@@ -450,7 +463,9 @@ def compute_differential_expression(
                     field_list += f" and {len(existing_fields) - 5} more fields"
 
                 # Add note about partial overwrites if switching sample variance mode
-                prev_sample_var = prev_run.get("params", {}).get("use_sample_variance", False)
+                prev_sample_var = prev_run.get("params", {}).get(
+                    "use_sample_variance", False
+                )
                 current_sample_var = sample_col is not None
 
                 # Check if parameters coincide for the partial rerun case
@@ -549,9 +564,7 @@ def compute_differential_expression(
 
     # Extract cell states
     if obsm_key not in adata.obsm:
-        error_msg = (
-            f"Key '{obsm_key}' not found in adata.obsm. Available keys: {list(adata.obsm.keys())}"
-        )
+        error_msg = f"Key '{obsm_key}' not found in adata.obsm. Available keys: {list(adata.obsm.keys())}"
 
         # Add helpful guidance if the missing key is the default DM_EigenVectors
         if obsm_key == "DM_EigenVectors":
@@ -627,7 +640,9 @@ def compute_differential_expression(
             n_groups = len(underrep)
             logger.info(f"Found {n_groups:,} groups with underrepresented conditions")
             for group, conditions in underrep.items():
-                logger.info(f"  - Group '{group}': Underrepresented conditions: {conditions}")
+                logger.info(
+                    f"  - Group '{group}': Underrepresented conditions: {conditions}"
+                )
 
             # No user-provided filter, use underrepresentation filter
             logger.info("Automatically applying underrepresentation filter")
@@ -710,7 +725,11 @@ def compute_differential_expression(
         if missing_genes:
             raise ValueError(
                 f"The following genes were not found in adata.var_names: {missing_genes[:10]}"
-                + (f"... and {len(missing_genes) - 10} more" if len(missing_genes) > 10 else "")
+                + (
+                    f"... and {len(missing_genes) - 10} more"
+                    if len(missing_genes) > 10
+                    else ""
+                )
             )
 
         # Preserve the order of adata.var_names but filter to only the requested genes
@@ -776,7 +795,8 @@ def compute_differential_expression(
 
             # Create expanded gene list: real genes + null gene names
             null_gene_names = [
-                f"NULL_{i}_{adata.var_names[idx]}" for i, idx in enumerate(null_gene_indices)
+                f"NULL_{i}_{adata.var_names[idx]}"
+                for i, idx in enumerate(null_gene_indices)
             ]
             expanded_genes = selected_genes + null_gene_names
         else:
@@ -811,7 +831,6 @@ def compute_differential_expression(
             logger.warning(
                 f"Stored landmarks have dimension {landmarks_dim} but data has dimension {data_dim}. Will check for other landmarks."
             )
-
 
     # If still no landmarks, check for any other landmarks in storage_key
     if landmarks is None:
@@ -889,7 +908,9 @@ def compute_differential_expression(
         condition1_sample_indices = adata.obs[sample_col][mask1].values
         condition2_sample_indices = adata.obs[sample_col][mask2].values
 
-        logger.info(f"Using sample column '{sample_col}' for sample variance estimation")
+        logger.info(
+            f"Using sample column '{sample_col}' for sample variance estimation"
+        )
         logger.info(
             f"Found {len(np.unique(condition1_sample_indices))} unique sample(s) in condition 1"
         )
@@ -1000,10 +1021,12 @@ def compute_differential_expression(
             null_mahalanobis = all_mahalanobis[n_real_genes:]
 
             # Compute FDR statistics
-            pvalues, local_fdr_values, tail_fdr_values, is_significant = compute_fdr_statistics(
-                real_mahalanobis=real_mahalanobis,
-                null_mahalanobis=null_mahalanobis,
-                fdr_threshold=fdr_threshold,
+            pvalues, local_fdr_values, tail_fdr_values, is_significant = (
+                compute_fdr_statistics(
+                    real_mahalanobis=real_mahalanobis,
+                    null_mahalanobis=null_mahalanobis,
+                    fdr_threshold=fdr_threshold,
+                )
             )
 
             # Create boolean DE annotation and summary stats
@@ -1057,7 +1080,9 @@ def compute_differential_expression(
                         "condition2_std",
                     ]:
                         # These are cell-by-gene matrices
-                        expression_results[key] = expression_results[key][:, :n_real_genes]
+                        expression_results[key] = expression_results[key][
+                            :, :n_real_genes
+                        ]
                     else:
                         # These are gene-level vectors
                         expression_results[key] = expression_results[key][:n_real_genes]
@@ -1065,14 +1090,16 @@ def compute_differential_expression(
             # Update mahalanobis_distances to only include real genes
             if "mahalanobis_distances" in expression_results:
                 expression_results["mahalanobis_distances"] = real_mahalanobis
-            
+
             # Update ptp to only include real genes
             if "ptp" in expression_results:
                 all_ptp = expression_results["ptp"]
                 real_ptp = all_ptp[:n_real_genes]
                 expression_results["ptp"] = real_ptp
         else:
-            logger.warning("Mahalanobis distances not computed - cannot perform FDR calculation")
+            logger.warning(
+                "Mahalanobis distances not computed - cannot perform FDR calculation"
+            )
 
     # Store posterior covariance matrix in obsp if requested and possible
     if can_store_covariance:
@@ -1081,8 +1108,12 @@ def compute_differential_expression(
         # Get the posterior covariance matrix (need to compute it separately)
         try:
             # Get covariance matrices from the function predictors
-            cov1 = diff_expression.function_predictor1.covariance(X_for_prediction, diag=False)
-            cov2 = diff_expression.function_predictor2.covariance(X_for_prediction, diag=False)
+            cov1 = diff_expression.function_predictor1.covariance(
+                X_for_prediction, diag=False
+            )
+            cov2 = diff_expression.function_predictor2.covariance(
+                X_for_prediction, diag=False
+            )
 
             # The covariance of log fold change is the sum of covariances
             posterior_covariance = cov1 + cov2
@@ -1115,11 +1146,15 @@ def compute_differential_expression(
 
             # Store in obsp
             adata.obsp[posterior_cov_key] = full_covariance
-            logger.info(f"Stored posterior covariance matrix in adata.obsp['{posterior_cov_key}']")
+            logger.info(
+                f"Stored posterior covariance matrix in adata.obsp['{posterior_cov_key}']"
+            )
 
             # We'll add this to the field mapping later when it's created
         except Exception as e:
-            logger.error(f"Failed to compute and store posterior covariance matrix: {str(e)}")
+            logger.error(
+                f"Failed to compute and store posterior covariance matrix: {str(e)}"
+            )
             logger.error("Posterior covariance matrix will not be stored in obsp.")
 
     # Create result dictionary with fixed keys for programmatic access
@@ -1140,12 +1175,12 @@ def compute_differential_expression(
         result_dict["fdr_summary"] = fdr_results["summary_stats"]
 
     # Add mahalanobis distances if computed
-    if compute_mahalanobis and 'mahalanobis_distances' in expression_results:
-        results_data["mahalanobis"] = expression_results['mahalanobis_distances']
+    if compute_mahalanobis and "mahalanobis_distances" in expression_results:
+        results_data["mahalanobis"] = expression_results["mahalanobis_distances"]
 
     # Add ptp if available
-    if 'ptp' in expression_results:
-        results_data["ptp"] = expression_results['ptp']
+    if "ptp" in expression_results:
+        results_data["ptp"] = expression_results["ptp"]
 
     # Build the results DataFrame with gene index
     result_dict["table"] = pd.DataFrame(results_data, index=selected_genes)
@@ -1206,8 +1241,12 @@ def compute_differential_expression(
                 )
                 if len(mahalanobis_distances) < len(selected_genes):
                     # Pad with NaNs if the array is too short
-                    padding = np.full(len(selected_genes) - len(mahalanobis_distances), np.nan)
-                    mahalanobis_distances = np.concatenate([mahalanobis_distances, padding])
+                    padding = np.full(
+                        len(selected_genes) - len(mahalanobis_distances), np.nan
+                    )
+                    mahalanobis_distances = np.concatenate(
+                        [mahalanobis_distances, padding]
+                    )
                 else:
                     # Truncate if the array is too long
                     mahalanobis_distances = mahalanobis_distances[: len(selected_genes)]
@@ -1223,22 +1262,28 @@ def compute_differential_expression(
                 )
             else:
                 # Initialize with NaN for all genes if column doesn't exist yet
-                new_var_columns[mahalanobis_key] = pd.Series(np.nan, index=adata.var_names)
-                new_var_columns[mahalanobis_key].loc[selected_genes] = mahalanobis_distances
+                new_var_columns[mahalanobis_key] = pd.Series(
+                    np.nan, index=adata.var_names
+                )
+                new_var_columns[mahalanobis_key].loc[selected_genes] = (
+                    mahalanobis_distances
+                )
 
         # Handle ptp if available (only store if user requested additional stats)
-        if compute_mahalanobis and "ptp" in expression_results and store_additional_stats:
+        if (
+            compute_mahalanobis
+            and "ptp" in expression_results
+            and store_additional_stats
+        ):
             ptp_values = expression_results["ptp"]
-            
+
             # Convert list to numpy array if needed
             if isinstance(ptp_values, list):
                 ptp_values = np.array(ptp_values)
-            
+
             # Ensure ptp_values is 1D before reshaping
             if len(ptp_values.shape) > 1:
-                logger.debug(
-                    f"ptp has shape {ptp_values.shape}, flattening to 1D."
-                )
+                logger.debug(f"ptp has shape {ptp_values.shape}, flattening to 1D.")
                 if ptp_values.shape[0] < ptp_values.shape[1]:
                     ptp_values = ptp_values[
                         0, :
@@ -1247,23 +1292,21 @@ def compute_differential_expression(
                     ptp_values = ptp_values[
                         :, 0
                     ]  # Take the first column if fewer columns than rows
-            
+
             if len(ptp_values) != len(selected_genes):
                 logger.warning(
                     f"ptp length {len(ptp_values)} doesn't match selected_genes length {len(selected_genes)}. This should not happen with proper gene subsetting."
                 )
                 # Truncate if the array is too long (no padding to avoid assigning to wrong genes)
                 ptp_values = ptp_values[: len(selected_genes)]
-            
+
             # Use the proper ptp key from field naming
             ptp_key = field_names["ptp_key"]
-            
+
             # Add to collection for batch addition
             if ptp_key in adata.var:
                 # Only create a series for selected genes to avoid overwriting existing values
-                new_var_columns[ptp_key] = pd.Series(
-                    ptp_values, index=selected_genes
-                )
+                new_var_columns[ptp_key] = pd.Series(ptp_values, index=selected_genes)
             else:
                 # Initialize with NaN for all genes if column doesn't exist yet
                 new_var_columns[ptp_key] = pd.Series(np.nan, index=adata.var_names)
@@ -1282,7 +1325,9 @@ def compute_differential_expression(
 
         # Ensure mean_lfc is 1D before reshaping
         if len(mean_lfc.shape) > 1:
-            logger.warning(f"mean_log_fold_change has shape {mean_lfc.shape}, flattening to 1D.")
+            logger.warning(
+                f"mean_log_fold_change has shape {mean_lfc.shape}, flattening to 1D."
+            )
             # Take the first row if it's a 2D array
             if mean_lfc.shape[0] < mean_lfc.shape[1]:
                 mean_lfc = mean_lfc[0]  # Take first row if more columns than rows
@@ -1320,8 +1365,12 @@ def compute_differential_expression(
                         fdr_results["pvalues"], index=selected_genes
                     )
                 else:
-                    new_var_columns[pvalue_column] = pd.Series(np.nan, index=adata.var_names)
-                    new_var_columns[pvalue_column].loc[selected_genes] = fdr_results["pvalues"]
+                    new_var_columns[pvalue_column] = pd.Series(
+                        np.nan, index=adata.var_names
+                    )
+                    new_var_columns[pvalue_column].loc[selected_genes] = fdr_results[
+                        "pvalues"
+                    ]
 
             # Add local FDR values (always stored when FDR is computed)
             local_fdr_column = field_names["mahalanobis_local_fdr_key"]
@@ -1330,7 +1379,9 @@ def compute_differential_expression(
                     fdr_results["local_fdr_values"], index=selected_genes
                 )
             else:
-                new_var_columns[local_fdr_column] = pd.Series(np.nan, index=adata.var_names)
+                new_var_columns[local_fdr_column] = pd.Series(
+                    np.nan, index=adata.var_names
+                )
                 new_var_columns[local_fdr_column].loc[selected_genes] = fdr_results[
                     "local_fdr_values"
                 ]
@@ -1343,7 +1394,9 @@ def compute_differential_expression(
                         fdr_results["tail_fdr_values"], index=selected_genes
                     )
                 else:
-                    new_var_columns[tail_fdr_column] = pd.Series(np.nan, index=adata.var_names)
+                    new_var_columns[tail_fdr_column] = pd.Series(
+                        np.nan, index=adata.var_names
+                    )
                     new_var_columns[tail_fdr_column].loc[selected_genes] = fdr_results[
                         "tail_fdr_values"
                     ]
@@ -1358,7 +1411,9 @@ def compute_differential_expression(
                 new_var_columns[de_column] = pd.Series(
                     False, index=adata.var_names
                 )  # Default to False for non-analyzed genes
-                new_var_columns[de_column].loc[selected_genes] = fdr_results["is_significant"]
+                new_var_columns[de_column].loc[selected_genes] = fdr_results[
+                    "is_significant"
+                ]
 
         # Add all columns to adata.var at once to prevent dataframe fragmentation
         if new_var_columns:
@@ -1421,14 +1476,19 @@ def compute_differential_expression(
                 else:
                     adata.layers[fold_change_key] = np.zeros(adata.shape)
             # Only initialize fold_change_zscores if user requested additional stats
-            if store_additional_stats and field_names["fold_change_zscores_key"] not in adata.layers:
+            if (
+                store_additional_stats
+                and field_names["fold_change_zscores_key"] not in adata.layers
+            ):
                 # Only use sparse if working with a subset of genes
                 if len(selected_genes) < len(adata.var_names):
-                    adata.layers[field_names["fold_change_zscores_key"]] = sparse.csr_matrix(
-                        adata.shape
+                    adata.layers[field_names["fold_change_zscores_key"]] = (
+                        sparse.csr_matrix(adata.shape)
                     )
                 else:
-                    adata.layers[field_names["fold_change_zscores_key"]] = np.zeros(adata.shape)
+                    adata.layers[field_names["fold_change_zscores_key"]] = np.zeros(
+                        adata.shape
+                    )
 
             # Convert JAX arrays to NumPy arrays if needed
             condition1_imputed = np.array(expression_results["condition1_imputed"])
@@ -1447,7 +1507,9 @@ def compute_differential_expression(
                     if len(selected_genes) < len(adata.var_names):
                         # Create a sparse matrix with zeros for all genes
                         shape = (adata.shape[0], adata.shape[1])
-                        adata.layers[field_names["std_key_1"]] = sparse.csr_matrix(shape)
+                        adata.layers[field_names["std_key_1"]] = sparse.csr_matrix(
+                            shape
+                        )
                     else:
                         # If we're using all genes, use a dense array
                         shape = (adata.shape[0], adata.shape[1])
@@ -1457,20 +1519,29 @@ def compute_differential_expression(
                     if len(selected_genes) < len(adata.var_names):
                         # Create a sparse matrix with zeros for all genes
                         shape = (adata.shape[0], adata.shape[1])
-                        adata.layers[field_names["std_key_2"]] = sparse.csr_matrix(shape)
+                        adata.layers[field_names["std_key_2"]] = sparse.csr_matrix(
+                            shape
+                        )
                     else:
                         # If we're using all genes, use a dense array
                         shape = (adata.shape[0], adata.shape[1])
                         adata.layers[field_names["std_key_2"]] = np.zeros(shape)
 
                 # Create a mapping from selected gene indices to var_names indices for faster lookup
-                gene_indices = np.array([adata.var_names.get_loc(gene) for gene in selected_genes])
+                gene_indices = np.array(
+                    [adata.var_names.get_loc(gene) for gene in selected_genes]
+                )
 
                 # Convert CSR matrices to LIL format for efficient column-wise assignment
                 # This prevents the "Changing the sparsity structure of a csr_matrix is expensive" warning
                 # and significantly improves performance when writing column-by-column
-                layers_to_convert = [imputed1_key, imputed2_key, fold_change_key,
-                                    field_names["std_key_1"], field_names["std_key_2"]]
+                layers_to_convert = [
+                    imputed1_key,
+                    imputed2_key,
+                    fold_change_key,
+                    field_names["std_key_1"],
+                    field_names["std_key_2"],
+                ]
                 lil_layers = {}
                 needs_conversion = False
                 for layer_key in layers_to_convert:
@@ -1484,13 +1555,18 @@ def compute_differential_expression(
 
                 if needs_conversion:
                     pct_genes = 100 * len(gene_indices) / adata.shape[1]
-                    sparse_layer_names = [k for k in layers_to_convert if sparse.issparse(adata.layers[k])]
+                    sparse_layer_names = [
+                        k for k in layers_to_convert if sparse.issparse(adata.layers[k])
+                    ]
                     logger.info(
                         f"Updating {len(gene_indices)} genes ({pct_genes:.1f}% of total) in existing sparse layers: "
                         f"{', '.join(sparse_layer_names)}. Temporarily converting CSR→LIL→CSR to avoid slow "
                         f"per-gene modifications."
-                        + (f" Consider using dense layers if you typically analyze >{pct_genes:.0f}% of genes."
-                           if pct_genes > 50 else "")
+                        + (
+                            f" Consider using dense layers if you typically analyze >{pct_genes:.0f}% of genes."
+                            if pct_genes > 50
+                            else ""
+                        )
                     )
 
                 # Use vectorized operations for bulk assignment where possible
@@ -1499,8 +1575,12 @@ def compute_differential_expression(
                     lil_layers[imputed1_key][:, gene_idx] = condition1_imputed[:, i]
                     lil_layers[imputed2_key][:, gene_idx] = condition2_imputed[:, i]
                     lil_layers[fold_change_key][:, gene_idx] = fold_change[:, i]
-                    lil_layers[field_names["std_key_1"]][:, gene_idx] = condition1_std[:, i]
-                    lil_layers[field_names["std_key_2"]][:, gene_idx] = condition2_std[:, i]
+                    lil_layers[field_names["std_key_1"]][:, gene_idx] = condition1_std[
+                        :, i
+                    ]
+                    lil_layers[field_names["std_key_2"]][:, gene_idx] = condition2_std[
+                        :, i
+                    ]
 
                 # Convert back to CSR format for efficient downstream operations
                 # Only assign to adata after all conversions are complete (safer for interruptions)
@@ -1519,13 +1599,19 @@ def compute_differential_expression(
                 adata.obs[field_names["std_key_2"]] = np.nan  # Initialize with NaN
 
                 # Assign values only to cells that were included in the analysis
-                adata.obs.loc[filter_mask, field_names["std_key_1"]] = condition1_std[:, 0]
-                adata.obs.loc[filter_mask, field_names["std_key_2"]] = condition2_std[:, 0]
+                adata.obs.loc[filter_mask, field_names["std_key_1"]] = condition1_std[
+                    :, 0
+                ]
+                adata.obs.loc[filter_mask, field_names["std_key_2"]] = condition2_std[
+                    :, 0
+                ]
 
                 # Convert CSR matrices to LIL format for efficient column-wise assignment
                 layers_to_convert_novar = [imputed1_key, imputed2_key, fold_change_key]
                 if store_additional_stats:
-                    layers_to_convert_novar.append(field_names["fold_change_zscores_key"])
+                    layers_to_convert_novar.append(
+                        field_names["fold_change_zscores_key"]
+                    )
 
                 lil_layers_novar = {}
                 needs_conversion_novar = False
@@ -1540,32 +1626,45 @@ def compute_differential_expression(
 
                 if needs_conversion_novar:
                     pct_genes_novar = 100 * len(selected_genes) / adata.shape[1]
-                    sparse_layer_names_novar = [k for k in layers_to_convert_novar if sparse.issparse(adata.layers[k])]
+                    sparse_layer_names_novar = [
+                        k
+                        for k in layers_to_convert_novar
+                        if sparse.issparse(adata.layers[k])
+                    ]
                     logger.info(
                         f"Updating {len(selected_genes)} genes ({pct_genes_novar:.1f}% of total) in existing sparse layers: "
                         f"{', '.join(sparse_layer_names_novar)}. Temporarily converting CSR→LIL→CSR to avoid slow "
                         f"per-gene modifications."
-                        + (f" Consider using dense layers if you typically analyze >{pct_genes_novar:.0f}% of genes."
-                           if pct_genes_novar > 50 else "")
+                        + (
+                            f" Consider using dense layers if you typically analyze >{pct_genes_novar:.0f}% of genes."
+                            if pct_genes_novar > 50
+                            else ""
+                        )
                     )
 
                 # Map imputed values to the correct positions
                 for i, gene in enumerate(selected_genes):
                     gene_idx = list(adata.var_names).index(gene)
-                    lil_layers_novar[imputed1_key][:, gene_idx] = condition1_imputed[:, i]
-                    lil_layers_novar[imputed2_key][:, gene_idx] = condition2_imputed[:, i]
+                    lil_layers_novar[imputed1_key][:, gene_idx] = condition1_imputed[
+                        :, i
+                    ]
+                    lil_layers_novar[imputed2_key][:, gene_idx] = condition2_imputed[
+                        :, i
+                    ]
                     lil_layers_novar[fold_change_key][:, gene_idx] = fold_change[:, i]
                     # Only store fold_change_zscores if user requested additional stats
                     if store_additional_stats:
-                        lil_layers_novar[field_names["fold_change_zscores_key"]][:, gene_idx] = (
-                            fold_change_zscores[:, i]
-                        )
+                        lil_layers_novar[field_names["fold_change_zscores_key"]][
+                            :, gene_idx
+                        ] = fold_change_zscores[:, i]
 
                 # Convert back to CSR format for efficient downstream operations
                 if needs_conversion_novar:
                     for layer_key in layers_to_convert_novar:
                         if sparse.issparse(lil_layers_novar[layer_key]):
-                            adata.layers[layer_key] = lil_layers_novar[layer_key].tocsr()
+                            adata.layers[layer_key] = lil_layers_novar[
+                                layer_key
+                            ].tocsr()
                         else:
                             adata.layers[layer_key] = lil_layers_novar[layer_key]
         else:
@@ -1590,7 +1689,9 @@ def compute_differential_expression(
                 adata.layers[fold_change_key] = fold_change
                 # Only store fold_change_zscores if user requested additional stats
                 if store_additional_stats:
-                    adata.layers[field_names["fold_change_zscores_key"]] = fold_change_zscores
+                    adata.layers[field_names["fold_change_zscores_key"]] = (
+                        fold_change_zscores
+                    )
                 adata.layers[field_names["std_key_1"]] = condition1_std
                 adata.layers[field_names["std_key_2"]] = condition2_std
             else:
@@ -1601,8 +1702,12 @@ def compute_differential_expression(
                 adata.obs[field_names["std_key_2"]] = np.nan
 
                 # Assign values only to cells that were included in the analysis
-                adata.obs.loc[filter_mask, field_names["std_key_1"]] = condition1_std[:, 0]
-                adata.obs.loc[filter_mask, field_names["std_key_2"]] = condition2_std[:, 0]
+                adata.obs.loc[filter_mask, field_names["std_key_1"]] = condition1_std[
+                    :, 0
+                ]
+                adata.obs.loc[filter_mask, field_names["std_key_2"]] = condition2_std[
+                    :, 0
+                ]
 
                 # Use dense arrays for layers, initialize with NaN
                 imputed1_layer = np.full(adata.shape, np.nan)
@@ -1625,7 +1730,9 @@ def compute_differential_expression(
                 adata.layers[fold_change_key] = fold_change_layer
                 # Only store fold_change_zscores if user requested additional stats
                 if store_additional_stats:
-                    adata.layers[field_names["fold_change_zscores_key"]] = fold_change_zscores_layer
+                    adata.layers[field_names["fold_change_zscores_key"]] = (
+                        fold_change_zscores_layer
+                    )
 
         # Prepare parameters, run timestamp, and field metadata
         current_timestamp = datetime.datetime.now().isoformat()
@@ -1671,7 +1778,7 @@ def compute_differential_expression(
             "copy": copy,
             "inplace": inplace,
             "overwrite": overwrite,
-            **function_kwargs
+            **function_kwargs,
         }
 
         # Get storage usage stats if disk storage was used
@@ -1682,7 +1789,9 @@ def compute_differential_expression(
             and diff_expression._disk_storage is not None
         ):
             try:
-                storage_human, storage_bytes = diff_expression._disk_storage.total_storage_used
+                storage_human, storage_bytes = (
+                    diff_expression._disk_storage.total_storage_used
+                )
                 storage_stats = {
                     "total_disk_usage": storage_human,
                     "disk_usage_bytes": storage_bytes,
@@ -1697,14 +1806,19 @@ def compute_differential_expression(
             "result_key": result_key,
             "analysis_type": "de",
             "lfc_key": field_names["mean_lfc_key"],
-            
-            "mahalanobis_key": field_names["mahalanobis_key"] if compute_mahalanobis else None,
+            "mahalanobis_key": field_names["mahalanobis_key"]
+            if compute_mahalanobis
+            else None,
             "ptp_key": field_names["ptp_key"] if compute_mahalanobis else None,
             "fdr_keys": (
                 {
-                    "pvalue_key": field_names.get("mahalanobis_pvalue_key") if use_fdr else None,
+                    "pvalue_key": field_names.get("mahalanobis_pvalue_key")
+                    if use_fdr
+                    else None,
                     "local_fdr_key": (
-                        field_names.get("mahalanobis_local_fdr_key") if use_fdr else None
+                        field_names.get("mahalanobis_local_fdr_key")
+                        if use_fdr
+                        else None
                     ),
                     "tail_fdr_key": (
                         field_names.get("mahalanobis_tail_fdr_key") if use_fdr else None
@@ -1863,7 +1977,9 @@ def compute_differential_expression(
         # Process groups and perform subset-specific analyses if groups are provided
         group_results = {}
         if groups is not None:
-            logger.info("Processing group-based subsetting for differential expression analysis")
+            logger.info(
+                "Processing group-based subsetting for differential expression analysis"
+            )
 
             # Parse the groups parameter to get subset masks
             subset_masks, subset_names = parse_groups(adata, groups)
@@ -1898,15 +2014,15 @@ def compute_differential_expression(
                 # Add FDR-related varm keys if using null genes
                 if use_fdr and null_gene_indices and compute_mahalanobis:
                     # Add group-wise FDR matrices
-                    varm_keys.append(f"{field_names['mahalanobis_local_fdr_key']}_groups")
+                    varm_keys.append(
+                        f"{field_names['mahalanobis_local_fdr_key']}_groups"
+                    )
                     varm_keys.append(f"{field_names['is_de_key']}_groups")
 
                 # Add ptp if storing additional stats
                 if compute_mahalanobis and store_additional_stats:
                     varm_keys.append(f"{field_names['ptp_key']}_groups")
 
-                
-                
                 # Filter out None values
                 varm_keys = [key for key in varm_keys if key is not None]
 
@@ -1914,7 +2030,9 @@ def compute_differential_expression(
                 for varm_key in varm_keys:
                     if varm_key not in adata.varm:
                         # Create DataFrame with all subset names as columns
-                        empty_df = pd.DataFrame(0.0, index=adata.var_names, columns=subset_names)
+                        empty_df = pd.DataFrame(
+                            0.0, index=adata.var_names, columns=subset_names
+                        )
                         adata.varm[varm_key] = empty_df
                         logger.debug(
                             f"Initialized {varm_key} in adata.varm with columns for all {len(subset_names):,} subsets"
@@ -1998,7 +2116,10 @@ def compute_differential_expression(
                     subset_field_suffix = f"_{subset_name}"
 
                     # Only store specific metrics for subsets
-                    for metric_name in ["mean_log_fold_change", "mahalanobis_distances"]:
+                    for metric_name in [
+                        "mean_log_fold_change",
+                        "mahalanobis_distances",
+                    ]:
                         if metric_name in subset_results:
                             # Create field name with subset suffix
                             if metric_name == "mean_log_fold_change":
@@ -2032,12 +2153,17 @@ def compute_differential_expression(
                                     if len(subset_values) < len(selected_genes):
                                         # Pad with NaNs if the array is too short
                                         padding = np.full(
-                                            len(selected_genes) - len(subset_values), np.nan
+                                            len(selected_genes) - len(subset_values),
+                                            np.nan,
                                         )
-                                        subset_values = np.concatenate([subset_values, padding])
+                                        subset_values = np.concatenate(
+                                            [subset_values, padding]
+                                        )
                                     else:
                                         # Truncate if the array is too long
-                                        subset_values = subset_values[: len(selected_genes)]
+                                        subset_values = subset_values[
+                                            : len(selected_genes)
+                                        ]
 
                                 # Add to adata.varm - DataFrame already initialized with all columns
                                 # Use standardized key from field_names
@@ -2051,7 +2177,10 @@ def compute_differential_expression(
                                 # Assign the whole column at once
                                 adata.varm[varm_key][subset_name] = full_series
 
-                            elif metric_name == "mahalanobis_distances" and compute_mahalanobis:
+                            elif (
+                                metric_name == "mahalanobis_distances"
+                                and compute_mahalanobis
+                            ):
                                 base_key = field_names["mahalanobis_key"]
                                 subset_key = f"{base_key}_{subset_name}"
 
@@ -2082,12 +2211,17 @@ def compute_differential_expression(
                                     if len(subset_values) < len(selected_genes):
                                         # Pad with NaNs if the array is too short
                                         padding = np.full(
-                                            len(selected_genes) - len(subset_values), np.nan
+                                            len(selected_genes) - len(subset_values),
+                                            np.nan,
                                         )
-                                        subset_values = np.concatenate([subset_values, padding])
+                                        subset_values = np.concatenate(
+                                            [subset_values, padding]
+                                        )
                                     else:
                                         # Truncate if the array is too long
-                                        subset_values = subset_values[: len(selected_genes)]
+                                        subset_values = subset_values[
+                                            : len(selected_genes)
+                                        ]
 
                                 # Add to adata.varm - DataFrame already initialized with all columns
                                 # Use standardized key from field_names (already includes sample suffix if needed)
@@ -2108,28 +2242,43 @@ def compute_differential_expression(
                             n_real_genes = len(selected_genes)
                             n_null_genes = len(null_gene_indices)
 
-                            all_subset_mahalanobis = subset_results["mahalanobis_distances"]
+                            all_subset_mahalanobis = subset_results[
+                                "mahalanobis_distances"
+                            ]
 
                             # Extract only if we have the expected length (real + null)
                             if len(all_subset_mahalanobis) == len(expanded_genes):
-                                subset_real_mahalanobis = all_subset_mahalanobis[:n_real_genes]
-                                subset_null_mahalanobis = all_subset_mahalanobis[n_real_genes:]
+                                subset_real_mahalanobis = all_subset_mahalanobis[
+                                    :n_real_genes
+                                ]
+                                subset_null_mahalanobis = all_subset_mahalanobis[
+                                    n_real_genes:
+                                ]
 
                                 # Compute FDR statistics for this group
-                                subset_pvalues, subset_local_fdr, subset_tail_fdr, subset_is_significant = compute_fdr_statistics(
+                                (
+                                    subset_pvalues,
+                                    subset_local_fdr,
+                                    subset_tail_fdr,
+                                    subset_is_significant,
+                                ) = compute_fdr_statistics(
                                     real_mahalanobis=subset_real_mahalanobis,
                                     null_mahalanobis=subset_null_mahalanobis,
                                     fdr_threshold=fdr_threshold,
                                 )
 
                                 # Store group-wise FDR results in varm
-                                local_fdr_varm_key = f"{field_names['mahalanobis_local_fdr_key']}_groups"
+                                local_fdr_varm_key = (
+                                    f"{field_names['mahalanobis_local_fdr_key']}_groups"
+                                )
                                 is_de_varm_key = f"{field_names['is_de_key']}_groups"
 
                                 # Store local_fdr
                                 full_series = pd.Series(np.nan, index=adata.var_names)
                                 full_series.loc[selected_genes] = subset_local_fdr
-                                adata.varm[local_fdr_varm_key][subset_name] = full_series
+                                adata.varm[local_fdr_varm_key][subset_name] = (
+                                    full_series
+                                )
 
                                 # Store is_de
                                 full_series = pd.Series(False, index=adata.var_names)
@@ -2144,23 +2293,26 @@ def compute_differential_expression(
                                 )
 
                     # Store group-wise ptp if available
-                    if compute_mahalanobis and store_additional_stats and "ptp" in subset_results:
+                    if (
+                        compute_mahalanobis
+                        and store_additional_stats
+                        and "ptp" in subset_results
+                    ):
                         subset_ptp = subset_results["ptp"]
 
                         # Extract only real genes if null genes are present
                         if len(subset_ptp) == len(expanded_genes):
-                            subset_ptp = subset_ptp[:len(selected_genes)]
+                            subset_ptp = subset_ptp[: len(selected_genes)]
                         elif len(subset_ptp) != len(selected_genes):
                             # Truncate if too long
-                            subset_ptp = subset_ptp[:len(selected_genes)]
+                            subset_ptp = subset_ptp[: len(selected_genes)]
 
                         # Store in varm
                         ptp_varm_key = f"{field_names['ptp_key']}_groups"
                         full_series = pd.Series(np.nan, index=adata.var_names)
                         full_series.loc[selected_genes] = subset_ptp
                         adata.varm[ptp_varm_key][subset_name] = full_series
-                
-                
+
                 # No need to add columns to adata.var anymore as we're using varm exclusively
                 logger.info("Group-specific data stored in adata.varm matrices")
 
@@ -2174,7 +2326,10 @@ def compute_differential_expression(
                     }
 
                 # Only include mahalanobis_varm_key if compute_mahalanobis=True
-                if compute_mahalanobis and field_names["mahalanobis_varm_key"] in adata.varm:
+                if (
+                    compute_mahalanobis
+                    and field_names["mahalanobis_varm_key"] in adata.varm
+                ):
                     field_mapping[field_names["mahalanobis_varm_key"]] = {
                         "location": "varm",
                         "type": "mahalanobis",
@@ -2184,7 +2339,9 @@ def compute_differential_expression(
 
                 # Add FDR varm keys if computed
                 if use_fdr and null_gene_indices and compute_mahalanobis:
-                    local_fdr_varm_key = f"{field_names['mahalanobis_local_fdr_key']}_groups"
+                    local_fdr_varm_key = (
+                        f"{field_names['mahalanobis_local_fdr_key']}_groups"
+                    )
                     is_de_varm_key = f"{field_names['is_de_key']}_groups"
 
                     if local_fdr_varm_key in adata.varm:
@@ -2213,8 +2370,7 @@ def compute_differential_expression(
                             "description": "Peak-to-peak values for all subsets",
                             "contains_subsets": subset_names,
                         }
-        
-        
+
         # Add this mapping to run info
         current_run_info["field_mapping"] = field_mapping
 
@@ -2226,7 +2382,9 @@ def compute_differential_expression(
         storage_key = "kompot_de"
 
         # Make an early update to last_run_info to ensure field_mapping is saved
-        set_json_metadata(adata, f"{storage_key}.last_run_info", current_run_info.copy())
+        set_json_metadata(
+            adata, f"{storage_key}.last_run_info", current_run_info.copy()
+        )
 
         # Initialize subset_names as empty list if not defined (no groups case)
         if "subset_names" not in locals():
@@ -2242,7 +2400,9 @@ def compute_differential_expression(
             groups_summary = {
                 "count": len(subset_names),
                 "names": subset_names,
-                "description": str(type(groups).__name__),  # Type of groups specification
+                "description": str(
+                    type(groups).__name__
+                ),  # Type of groups specification
                 "cells_per_group": {},
             }
 
@@ -2263,13 +2423,17 @@ def compute_differential_expression(
                         condition_mask = (adata.obs[groupby] == condition).values
                         condition_count = np.sum(mask & condition_mask)
                         condition_percentage = (
-                            (condition_count / cell_count) * 100 if cell_count > 0 else 0
+                            (condition_count / cell_count) * 100
+                            if cell_count > 0
+                            else 0
                         )
                         condition_counts[condition] = {
                             "count": int(condition_count),
                             "percentage": float(condition_percentage),
                         }
-                    groups_summary["cells_per_group"][group_name]["conditions"] = condition_counts
+                    groups_summary["cells_per_group"][group_name]["conditions"] = (
+                        condition_counts
+                    )
 
             # Add the groups summary to run info
             current_run_info["groups_summary"] = groups_summary
@@ -2277,7 +2441,7 @@ def compute_differential_expression(
             # Also store the varm keys used for group-specific metrics
             current_run_info["varm_keys"] = {
                 "mean_lfc": field_names["mean_lfc_varm_key"],
-                "mahalanobis": field_names["mahalanobis_varm_key"]
+                "mahalanobis": field_names["mahalanobis_varm_key"],
             }
 
         # Import JSON serialization utilities
@@ -2334,22 +2498,32 @@ def compute_differential_expression(
 
             # Track the mean_lfc_varm_key if it exists
             if field_names["mean_lfc_varm_key"] in adata.varm:
-                anndata_field_tracking["varm"][field_names["mean_lfc_varm_key"]] = new_run_id
+                anndata_field_tracking["varm"][field_names["mean_lfc_varm_key"]] = (
+                    new_run_id
+                )
 
             # Track mahalanobis_varm_key only if compute_mahalanobis=True
-            if compute_mahalanobis and field_names["mahalanobis_varm_key"] in adata.varm:
-                anndata_field_tracking["varm"][field_names["mahalanobis_varm_key"]] = new_run_id
+            if (
+                compute_mahalanobis
+                and field_names["mahalanobis_varm_key"] in adata.varm
+            ):
+                anndata_field_tracking["varm"][field_names["mahalanobis_varm_key"]] = (
+                    new_run_id
+                )
 
-        
         # Add or update tracking information in adata.uns[storage_key]
         if "anndata_fields" not in adata.uns[storage_key]:
             # Store as JSON string
-            set_json_metadata(adata, f"{storage_key}.anndata_fields", anndata_field_tracking)
+            set_json_metadata(
+                adata, f"{storage_key}.anndata_fields", anndata_field_tracking
+            )
         else:
             # Get existing tracking data, update it, and store back as JSON
             from .utils import get_json_metadata
 
-            existing_tracking = get_json_metadata(adata, f"{storage_key}.anndata_fields")
+            existing_tracking = get_json_metadata(
+                adata, f"{storage_key}.anndata_fields"
+            )
             if existing_tracking is None:
                 existing_tracking = {}
 

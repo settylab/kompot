@@ -5,14 +5,13 @@ import pytest
 import os
 import tempfile
 from unittest.mock import patch, MagicMock, mock_open
-import platform
 
 from kompot.memory_utils import (
     get_dask_array,
     get_available_memory,
     get_disk_space,
     estimate_disk_requirement,
-    DiskStorage
+    DiskStorage,
 )
 
 
@@ -74,6 +73,7 @@ def test_get_available_memory_linux_fallback():
     # This test will be skipped if psutil is available since the fallback won't be used
     try:
         import psutil
+
         # If psutil is available, just test that get_available_memory works
         human_str, bytes_size = get_available_memory()
         assert bytes_size > 0
@@ -84,11 +84,11 @@ def test_get_available_memory_linux_fallback():
         assert bytes_size > 0
 
 
-@patch('kompot.memory_utils.psutil', None)
-@patch('platform.system')
+@patch("kompot.memory_utils.psutil", None)
+@patch("platform.system")
 def test_get_available_memory_linux_memfree_fallback(mock_platform):
     """Test get_available_memory fallback to MemFree when MemAvailable not present."""
-    mock_platform.return_value = 'Linux'
+    mock_platform.return_value = "Linux"
 
     # Mock /proc/meminfo content without MemAvailable
     meminfo_content = """MemTotal:       16384000 kB
@@ -96,24 +96,24 @@ MemFree:         8192000 kB
 Buffers:          512000 kB
 """
 
-    with patch('builtins.open', mock_open(read_data=meminfo_content)):
+    with patch("builtins.open", mock_open(read_data=meminfo_content)):
         human_str, bytes_size = get_available_memory()
         # MemFree is 8192000 kB = 8192000 * 1024 bytes
         expected_bytes = 8192000 * 1024
         assert bytes_size == expected_bytes
 
 
-@patch('kompot.memory_utils.psutil', None)
-@patch('platform.system')
-@patch('subprocess.run')
+@patch("kompot.memory_utils.psutil", None)
+@patch("platform.system")
+@patch("subprocess.run")
 def test_get_available_memory_macos_fallback(mock_run, mock_platform):
     """Test get_available_memory fallback to sysctl on macOS."""
-    mock_platform.return_value = 'Darwin'
+    mock_platform.return_value = "Darwin"
 
     # Mock subprocess result
     mock_result = MagicMock()
     mock_result.returncode = 0
-    mock_result.stdout = '17179869184\n'  # 16 GB in bytes
+    mock_result.stdout = "17179869184\n"  # 16 GB in bytes
     mock_run.return_value = mock_result
 
     human_str, bytes_size = get_available_memory()
@@ -122,12 +122,12 @@ def test_get_available_memory_macos_fallback(mock_run, mock_platform):
     assert bytes_size == expected_bytes
 
 
-@patch('kompot.memory_utils.psutil', None)
-@patch('platform.system')
+@patch("kompot.memory_utils.psutil", None)
+@patch("platform.system")
 def test_get_available_memory_ultimate_fallback(mock_platform):
     """Test get_available_memory ultimate fallback to 4GB."""
     # Set platform to something other than Linux or Darwin
-    mock_platform.return_value = 'Windows'
+    mock_platform.return_value = "Windows"
 
     human_str, bytes_size = get_available_memory()
     # Should return 4GB fallback
@@ -142,10 +142,10 @@ def test_get_available_memory_always_returns_positive():
     assert bytes_size > 0
     assert isinstance(human_str, str)
     # Verify format includes a size unit
-    assert any(unit in human_str for unit in ['B', 'KB', 'MB', 'GB', 'TB'])
+    assert any(unit in human_str for unit in ["B", "KB", "MB", "GB", "TB"])
 
 
-@patch('shutil.disk_usage')
+@patch("shutil.disk_usage")
 def test_get_disk_space_error_handling(mock_disk_usage):
     """Test get_disk_space error handling."""
     # Mock shutil.disk_usage to raise an error
@@ -172,12 +172,18 @@ def test_estimate_disk_requirement():
 
     # Covariance matrix shape is (n_cells, n_cells, n_genes)
     # Plus 20% overhead
-    expected_bytes = int(n_cells * n_cells * n_genes * 8 * 1.2)  # float64 is 8 bytes + 20% overhead
+    expected_bytes = int(
+        n_cells * n_cells * n_genes * 8 * 1.2
+    )  # float64 is 8 bytes + 20% overhead
     assert bytes_size == expected_bytes
 
     # Test with different dtype
-    human_str, bytes_size = estimate_disk_requirement(n_cells, n_genes, dtype=np.float32)
-    expected_bytes_f32 = int(n_cells * n_cells * n_genes * 4 * 1.2)  # float32 is 4 bytes + 20% overhead
+    human_str, bytes_size = estimate_disk_requirement(
+        n_cells, n_genes, dtype=np.float32
+    )
+    expected_bytes_f32 = int(
+        n_cells * n_cells * n_genes * 4 * 1.2
+    )  # float32 is 4 bytes + 20% overhead
     assert bytes_size == expected_bytes_f32
 
 
@@ -195,11 +201,11 @@ def test_disk_storage_lazy_loading():
         lazy_array = storage.load_array(key, lazy=True)
 
         # Check that it's some kind of array-like object
-        assert hasattr(lazy_array, 'shape')
+        assert hasattr(lazy_array, "shape")
         assert lazy_array.shape == test_array.shape
 
         # Check that data is correct (convert to numpy if needed)
-        if hasattr(lazy_array, 'compute'):
+        if hasattr(lazy_array, "compute"):
             np.testing.assert_allclose(lazy_array.compute(), test_array, rtol=1e-10)
         else:
             np.testing.assert_allclose(lazy_array, test_array, rtol=1e-10)
@@ -230,6 +236,7 @@ def test_disk_storage_cleanup():
     finally:
         # Manual cleanup
         import shutil
+
         if os.path.exists(temp_dir):
             shutil.rmtree(temp_dir)
 
@@ -285,9 +292,13 @@ def test_disk_storage_metadata():
         storage.store_array(test_array, key)
 
         # Check metadata
-        metadata = storage.get_metadata(key) if hasattr(storage, 'get_metadata') else storage.array_registry[key]
-        assert metadata['shape'] == test_array.shape
-        assert metadata['dtype'] == str(test_array.dtype)
+        metadata = (
+            storage.get_metadata(key)
+            if hasattr(storage, "get_metadata")
+            else storage.array_registry[key]
+        )
+        assert metadata["shape"] == test_array.shape
+        assert metadata["dtype"] == str(test_array.dtype)
 
 
 def test_disk_storage_namespace():

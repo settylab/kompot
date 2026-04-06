@@ -1,6 +1,6 @@
 """Heatmap and related plotting functions.
 
-This module provides functions for creating heatmap visualizations, 
+This module provides functions for creating heatmap visualizations,
 including split-cell heatmaps that show differences between conditions.
 """
 

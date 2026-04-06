@@ -33,9 +33,13 @@ def volcano_de(
     condition1: Optional[str] = None,
     condition2: Optional[str] = None,
     n_top_genes: Optional[int] = None,
-    highlight_genes: Optional[Union[List[str], Dict[str, str], List[Dict[str, Any]]]] = None,
+    highlight_genes: Optional[
+        Union[List[str], Dict[str, str], List[Dict[str, Any]]]
+    ] = None,
     color: Optional[str] = None,
-    background_cmap: Union[str, Colormap] = None,  # Will be auto-selected based on data type
+    background_cmap: Union[
+        str, Colormap
+    ] = None,  # Will be auto-selected based on data type
     color_discrete_map: Optional[Dict[str, str]] = None,
     vmin: Optional[Union[float, str]] = None,
     vmax: Optional[Union[float, str]] = None,
@@ -119,7 +123,7 @@ def volcano_de(
         Center value for diverging colormaps. If provided with vmin/vmax, ensures proper ordering.
     gene_labels : bool, int, list of str, or dict, optional
         Controls which genes get labeled with their names:
-        - True: label all highlighted genes  
+        - True: label all highlighted genes
         - False: label no genes
         - int: label top N genes by score (default: 10)
         - list of str: label specific genes by name
@@ -183,8 +187,8 @@ def volcano_de(
         in compute_differential_expression. Will use the values from adata.varm instead of
         adata.var for Mahalanobis distances, and mean fold changes.
     y_axis_type : str, optional
-        Type of values to use for the y-axis: "mahalanobis" (default), "local_fdr", "tail_fdr", 
-        "ptp", or a custom column name from adata.var. When using FDR or ptp values, they are 
+        Type of values to use for the y-axis: "mahalanobis" (default), "local_fdr", "tail_fdr",
+        "ptp", or a custom column name from adata.var. When using FDR or ptp values, they are
         -log10 transformed for display.
     significance_threshold : float or dict, optional
         Significance threshold for the y-axis values. A float sets a single
@@ -240,7 +244,7 @@ def volcano_de(
         return -np.log10(np.maximum(y, 1e-300))  # Avoid log(0)
 
     y_transform = None
-    
+
     if y_axis_type in ["local_fdr", "tail_fdr"]:
         # FDR-based y-axis
         if run_info and "fdr_keys" in run_info and run_info["fdr_keys"]:
@@ -249,12 +253,14 @@ def volcano_de(
                 significance_key = run_info["fdr_keys"].get("local_fdr_key")
             else:  # tail_fdr
                 significance_key = run_info["fdr_keys"].get("tail_fdr_key")
-            
+
             # Check if the FDR key exists in the data
             if significance_key and significance_key in adata.var.columns:
                 score_key = significance_key
                 y_transform = fdr_y_transform
-                logger.info(f"Using {y_axis_type} values for y-axis: {significance_key}")
+                logger.info(
+                    f"Using {y_axis_type} values for y-axis: {significance_key}"
+                )
             elif significance_key:
                 logger.warning(
                     f"FDR key '{significance_key}' from run info not found in adata.var. "
@@ -264,11 +270,15 @@ def volcano_de(
             else:
                 logger.warning(f"No {y_axis_type} key found in run info fdr_keys")
         else:
-            logger.warning("No FDR keys found in run info or FDR was not computed for this run")
-        
+            logger.warning(
+                "No FDR keys found in run info or FDR was not computed for this run"
+            )
+
         # Fallback to string replacement if run info approach fails
         if significance_key is None and score_key and "mahalanobis" in score_key:
-            logger.warning("No FDR keys in run_info; attempting fallback FDR key inference from score key...")
+            logger.warning(
+                "No FDR keys in run_info; attempting fallback FDR key inference from score key..."
+            )
             if y_axis_type == "local_fdr":
                 fallback_key = score_key.replace("mahalanobis", "mahalanobis_local_fdr")
             else:  # tail_fdr
@@ -281,28 +291,32 @@ def volcano_de(
                 logger.warning(f"Using fallback {y_axis_type} key: {fallback_key}")
             else:
                 logger.warning(f"Fallback FDR key '{fallback_key}' not found either")
-        
+
         # Final fallback to original score key if nothing worked
         if significance_key is None and y_transform is None:
             logger.info(f"Using original score key: {original_score_key}")
             score_key = original_score_key
-            
+
     elif y_axis_type == "ptp":
         # Posterior tail probability (will be -log10 transformed for display)
         if run_info and "ptp_key" in run_info and run_info["ptp_key"]:
             significance_key = run_info["ptp_key"]
-            
+
             if significance_key and significance_key in adata.var.columns:
                 score_key = significance_key
                 y_transform = fdr_y_transform  # Same -log10 transform as FDR
                 logger.info(f"Using ptp values for y-axis: {significance_key}")
             else:
-                logger.warning(f"ptp key '{significance_key}' from run info not found in adata.var")
+                logger.warning(
+                    f"ptp key '{significance_key}' from run info not found in adata.var"
+                )
                 significance_key = None
-        
+
         # Fallback to string replacement if run info approach fails
         if significance_key is None and score_key and "mahalanobis" in score_key:
-            logger.warning("No ptp key in run_info; attempting fallback ptp key inference from score key...")
+            logger.warning(
+                "No ptp key in run_info; attempting fallback ptp key inference from score key..."
+            )
             fallback_key = score_key.replace("mahalanobis", "ptp")
 
             if fallback_key in adata.var.columns:
@@ -312,12 +326,12 @@ def volcano_de(
                 logger.warning(f"Using fallback ptp key: {fallback_key}")
             else:
                 logger.warning(f"Fallback ptp key '{fallback_key}' not found either")
-        
+
         # Final fallback to original score key if nothing worked
         if significance_key is None:
             logger.info(f"Using original score key: {original_score_key}")
             score_key = original_score_key
-            
+
     elif y_axis_type not in ["mahalanobis"]:
         # Custom column name - check if it exists directly in adata.var
         if y_axis_type in adata.var.columns:
@@ -339,7 +353,9 @@ def volcano_de(
             ylabel = "-log10(Tail FDR)"
         elif y_axis_type == "ptp" and y_transform is not None:
             ylabel = "-log10(Posterior Tail Probability)"
-        elif y_axis_type == "mahalanobis" or (score_key and "mahalanobis" in score_key.lower()):
+        elif y_axis_type == "mahalanobis" or (
+            score_key and "mahalanobis" in score_key.lower()
+        ):
             ylabel = "Mahalanobis Distance"
         else:
             ylabel = score_key
@@ -421,12 +437,12 @@ def volcano_de(
                 "No varm keys found in run information. This run may not have used groups."
             )
             return
-            
-        lfc_varm_key = run_info['varm_keys']['mean_lfc']
-        score_varm_key = run_info['varm_keys']['mahalanobis']
+
+        lfc_varm_key = run_info["varm_keys"]["mean_lfc"]
+        score_varm_key = run_info["varm_keys"]["mahalanobis"]
 
         logger.debug(f"Using varm keys: lfc={lfc_varm_key}, score={score_varm_key}")
-        
+
         # Check if the keys exist in varm and group is available
         lfc_data_available = (
             lfc_varm_key in adata.varm and group in adata.varm[lfc_varm_key].columns
@@ -435,8 +451,7 @@ def volcano_de(
         score_data_available = (
             score_varm_key in adata.varm and group in adata.varm[score_varm_key].columns
         )
-        
-        
+
         if lfc_data_available and score_data_available:
             logger.info(f"Using group-specific data for group '{group}' from varm")
             logger.info(
@@ -460,7 +475,6 @@ def volcano_de(
                         f"Applied {y_axis_type} transformation to group-specific y-axis data"
                     )
 
-            
             # Update title to indicate group-specific data
             if title is None and condition1 and condition2:
                 title = f"Volcano Plot: {condition1} vs {condition2} - Group: {group}"
@@ -469,7 +483,9 @@ def volcano_de(
 
             # Log some basic stats about the data
             n_valid = np.sum(~np.isnan(x) & ~np.isnan(y))
-            logger.info(f"Found {n_valid:,} valid genes with group-specific metrics for '{group}'")
+            logger.info(
+                f"Found {n_valid:,} valid genes with group-specific metrics for '{group}'"
+            )
 
         else:
             missing_keys = []
@@ -488,7 +504,9 @@ def volcano_de(
             if score_varm_key in adata.varm:
                 available_score_groups = list(adata.varm[score_varm_key].columns)
 
-            available_groups = set(available_lfc_groups).intersection(set(available_score_groups))
+            available_groups = set(available_lfc_groups).intersection(
+                set(available_score_groups)
+            )
 
             if available_groups:
                 group_str = ", ".join(sorted(available_groups))
@@ -516,7 +534,9 @@ def volcano_de(
             error_str = " and ".join(error_msg)
             raise ValueError(f"Cannot create volcano plot: {error_str}")
 
-        logger.info(f"Using data columns from var - lfc: '{lfc_key}', score: '{score_key}'")
+        logger.info(
+            f"Using data columns from var - lfc: '{lfc_key}', score: '{score_key}'"
+        )
 
     # Apply y-axis transformation if needed (for FDR values)
     if y is not None and y_transform is not None:
@@ -530,15 +550,17 @@ def volcano_de(
         if run_info and "fdr_keys" in run_info and run_info["fdr_keys"]:
             inferred_direction_column = run_info["fdr_keys"].get("is_de_key")
             logger.debug(f"Found is_de key from run info: {inferred_direction_column}")
-        
+
         # Fallback to string manipulation if run info doesn't have it
         if inferred_direction_column is None:
             if significance_key and "mahalanobis" in significance_key:
-                inferred_direction_column = significance_key.replace("mahalanobis_local_fdr", "is_de").replace(
-                    "mahalanobis_tail_fdr", "is_de"
-                )
+                inferred_direction_column = significance_key.replace(
+                    "mahalanobis_local_fdr", "is_de"
+                ).replace("mahalanobis_tail_fdr", "is_de")
             elif original_score_key and "mahalanobis" in original_score_key:
-                inferred_direction_column = original_score_key.replace("mahalanobis", "is_de")
+                inferred_direction_column = original_score_key.replace(
+                    "mahalanobis", "is_de"
+                )
     else:
         inferred_direction_column = direction_column
 
@@ -552,13 +574,13 @@ def volcano_de(
     if sort_key is not None:
         # If group-specific and sort_key appears to be a mean_lfc column and group-specific lfc available
         if group is not None and "mean_lfc" in sort_key.lower() and lfc_data_available:
-            data_dict['sort_val'] = adata.varm[lfc_varm_key][group].values
-            logger.info(f"Using group-specific mean log fold change for sorting")
+            data_dict["sort_val"] = adata.varm[lfc_varm_key][group].values
+            logger.info("Using group-specific mean log fold change for sorting")
         elif sort_key in adata.var.columns:
-            data_dict['sort_val'] = adata.var[sort_key].values
+            data_dict["sort_val"] = adata.var[sort_key].values
             logger.info(f"Using '{sort_key}' for sorting")
         elif sort_key in adata.varm.keys():
-            data_dict['sort_val'] = adata.varm[sort_key][group].values
+            data_dict["sort_val"] = adata.varm[sort_key][group].values
             logger.info(f"Using group-specific '{sort_key}' for sorting")
         else:
             msg = f"sort_key = '{sort_key}' not found in adata.var or adata.varm."
@@ -597,7 +619,9 @@ def volcano_de(
                     background_cmap = "tab20"
                 else:
                     background_cmap = "Set3"  # More pastel colors for many categories
-                logger.info(f"Auto-selected '{background_cmap}' colormap for categorical data")
+                logger.info(
+                    f"Auto-selected '{background_cmap}' colormap for categorical data"
+                )
 
             # Create color map for categorical data
             if color_discrete_map is not None:
@@ -618,10 +642,14 @@ def volcano_de(
                     # This works for ListedColormap instances like tab10, tab20, etc.
                     avail_colors = base_cmap.colors
                     # Just take the first n_colors (or cycle if we need more)
-                    colors = [avail_colors[i % len(avail_colors)] for i in range(n_colors)]
+                    colors = [
+                        avail_colors[i % len(avail_colors)] for i in range(n_colors)
+                    ]
                 else:
                     # Fallback for other colormap types
-                    colors = [base_cmap(i / max(1, n_colors - 1)) for i in range(n_colors)]
+                    colors = [
+                        base_cmap(i / max(1, n_colors - 1)) for i in range(n_colors)
+                    ]
 
                 # Create a discrete colormap
                 discrete_cmap = ListedColormap(colors)
@@ -631,7 +659,9 @@ def volcano_de(
                 category_colors = {cat: colors[i] for i, cat in enumerate(categories)}
 
             # Map categories to colors
-            bg_colors = [category_colors.get(val, "gray") for val in de_data["bg_color"]]
+            bg_colors = [
+                category_colors.get(val, "gray") for val in de_data["bg_color"]
+            ]
             bg_norm = None
 
         else:
@@ -642,7 +672,9 @@ def volcano_de(
             # Auto-select appropriate colormap for continuous data if none provided
             if background_cmap is None:
                 background_cmap = "Spectral_r"  # Default continuous colormap
-                logger.info(f"Auto-selected '{background_cmap}' colormap for continuous data")
+                logger.info(
+                    f"Auto-selected '{background_cmap}' colormap for continuous data"
+                )
 
             # Get colormap
             if isinstance(background_cmap, str):
@@ -659,16 +691,22 @@ def volcano_de(
                     try:
                         percentile = float(vmin[1:])
                         vmin_value = np.nanpercentile(bg_values, percentile)
-                        logger.info(f"Using {percentile}th percentile ({vmin_value}) for vmin")
+                        logger.info(
+                            f"Using {percentile}th percentile ({vmin_value}) for vmin"
+                        )
                     except ValueError:
-                        logger.warning(f"Invalid percentile format: {vmin}. Using data minimum.")
+                        logger.warning(
+                            f"Invalid percentile format: {vmin}. Using data minimum."
+                        )
                         vmin_value = np.nanmin(bg_values)
                 else:
                     # Handle non-percentile string values - try to convert to float or use min
                     try:
                         vmin_value = float(vmin)
                     except ValueError:
-                        logger.warning(f"Invalid vmin value: {vmin}. Using data minimum.")
+                        logger.warning(
+                            f"Invalid vmin value: {vmin}. Using data minimum."
+                        )
                         vmin_value = np.nanmin(bg_values)
             else:
                 vmin_value = vmin if vmin is not None else np.nanmin(bg_values)
@@ -679,16 +717,22 @@ def volcano_de(
                     try:
                         percentile = float(vmax[1:])
                         vmax_value = np.nanpercentile(bg_values, percentile)
-                        logger.info(f"Using {percentile}th percentile ({vmax_value}) for vmax")
+                        logger.info(
+                            f"Using {percentile}th percentile ({vmax_value}) for vmax"
+                        )
                     except ValueError:
-                        logger.warning(f"Invalid percentile format: {vmax}. Using data maximum.")
+                        logger.warning(
+                            f"Invalid percentile format: {vmax}. Using data maximum."
+                        )
                         vmax_value = np.nanmax(bg_values)
                 else:
                     # Handle non-percentile string values - try to convert to float or use max
                     try:
                         vmax_value = float(vmax)
                     except ValueError:
-                        logger.warning(f"Invalid vmax value: {vmax}. Using data maximum.")
+                        logger.warning(
+                            f"Invalid vmax value: {vmax}. Using data maximum."
+                        )
                         vmax_value = np.nanmax(bg_values)
             else:
                 vmax_value = vmax if vmax is not None else np.nanmax(bg_values)
@@ -696,7 +740,9 @@ def volcano_de(
             # Create appropriate normalization for the colormap
             if vcenter is not None:
                 # Make sure vmin, vcenter, vmax are in correct order
-                v_values = [v for v in [vmin_value, vcenter, vmax_value] if v is not None]
+                v_values = [
+                    v for v in [vmin_value, vcenter, vmax_value] if v is not None
+                ]
                 vmin_value, vmax_value = min(v_values), max(v_values)
 
                 # If vcenter is outside the range, adjust it
@@ -708,9 +754,13 @@ def volcano_de(
                 logger.info(
                     f"Using diverging normalization with vmin={vmin_value}, vcenter={vcenter}, vmax={vmax_value}"
                 )
-                bg_norm = mpl.colors.TwoSlopeNorm(vmin=vmin_value, vcenter=vcenter, vmax=vmax_value)
+                bg_norm = mpl.colors.TwoSlopeNorm(
+                    vmin=vmin_value, vcenter=vcenter, vmax=vmax_value
+                )
             else:
-                logger.info(f"Using linear normalization with vmin={vmin_value}, vmax={vmax_value}")
+                logger.info(
+                    f"Using linear normalization with vmin={vmin_value}, vmax={vmax_value}"
+                )
                 bg_norm = mpl.colors.Normalize(vmin=vmin_value, vmax=vmax_value)
 
             # We'll use the scatter's built-in normalization for continuous colors
@@ -748,11 +798,15 @@ def volcano_de(
 
                     # Use provided color or auto-generate
                     group_color = group.get("color")
-                    name = group.get("name", f"Group {i+1}")
+                    name = group.get("name", f"Group {i + 1}")
 
                     # Add group to list
-                    highlight_groups.append({"genes": valid_genes, "color": group_color, "name": name})
-                    logger.info(f"Added highlight group '{name}' with {len(valid_genes)} genes")
+                    highlight_groups.append(
+                        {"genes": valid_genes, "color": group_color, "name": name}
+                    )
+                    logger.info(
+                        f"Added highlight group '{name}' with {len(valid_genes)} genes"
+                    )
             elif all(isinstance(item, (str, int)) for item in highlight_genes):
                 # If highlight_genes is a list of strings or numbers, interpret as gene names
                 valid_genes = [g for g in highlight_genes if g in adata.var_names]
@@ -766,7 +820,9 @@ def volcano_de(
                     )
 
                 # Create a single group without custom colors
-                highlight_groups.append({"genes": valid_genes, "name": "Highlighted genes"})
+                highlight_groups.append(
+                    {"genes": valid_genes, "name": "Highlighted genes"}
+                )
                 logger.info(f"Highlighting {len(valid_genes)} user-specified genes")
             else:
                 # List with mix of types - try to interpret as list of lists
@@ -788,8 +844,12 @@ def volcano_de(
                             continue
 
                         # Add as a group with auto-generated name
-                        highlight_groups.append({"genes": valid_genes, "name": f"Group {i+1}"})
-                        logger.info(f"Added highlight group {i+1} with {len(valid_genes)} genes")
+                        highlight_groups.append(
+                            {"genes": valid_genes, "name": f"Group {i + 1}"}
+                        )
+                        logger.info(
+                            f"Added highlight group {i + 1} with {len(valid_genes)} genes"
+                        )
 
         elif isinstance(highlight_genes, dict):
             # Dictionary format: {gene_name: color}
@@ -833,14 +893,21 @@ def volcano_de(
         # No highlight_genes provided - choose highlighting strategy
         if n_top_genes is not None:
             # Use top N genes by score approach
-            top_genes = de_data.sort_values("sort_val", ascending=False).head(n_top_genes)
-            highlight_groups.append(
-                {"genes": top_genes["gene"].tolist(), "name": f"Top {n_top_genes} genes"}
+            top_genes = de_data.sort_values("sort_val", ascending=False).head(
+                n_top_genes
             )
-            logger.info(f"Highlighting top {n_top_genes:,} genes by {sort_key or score_key}")
+            highlight_groups.append(
+                {
+                    "genes": top_genes["gene"].tolist(),
+                    "name": f"Top {n_top_genes} genes",
+                }
+            )
+            logger.info(
+                f"Highlighting top {n_top_genes:,} genes by {sort_key or score_key}"
+            )
         else:
             # Use significance threshold or is_de column to determine highlighted genes (default behavior)
-            
+
             # Use significance threshold for gene selection if provided
             if significance_threshold is not None:
                 # Initialize variables
@@ -856,38 +923,64 @@ def volcano_de(
                     for axis_type, threshold_val in significance_threshold.items():
                         # Get the appropriate column for this axis type
                         if axis_type == "local_fdr":
-                            col_key = run_info["fdr_keys"].get("local_fdr_key") if run_info and "fdr_keys" in run_info and run_info["fdr_keys"] else None
-                            comparison = '<'
+                            col_key = (
+                                run_info["fdr_keys"].get("local_fdr_key")
+                                if run_info
+                                and "fdr_keys" in run_info
+                                and run_info["fdr_keys"]
+                                else None
+                            )
+                            comparison = "<"
                         elif axis_type == "tail_fdr":
-                            col_key = run_info["fdr_keys"].get("tail_fdr_key") if run_info and "fdr_keys" in run_info and run_info["fdr_keys"] else None
-                            comparison = '<'
+                            col_key = (
+                                run_info["fdr_keys"].get("tail_fdr_key")
+                                if run_info
+                                and "fdr_keys" in run_info
+                                and run_info["fdr_keys"]
+                                else None
+                            )
+                            comparison = "<"
                         elif axis_type == "ptp":
                             col_key = run_info.get("ptp_key") if run_info else None
-                            comparison = '<'
+                            comparison = "<"
                         elif axis_type == "mahalanobis":
-                            col_key = score_key if "mahalanobis" in (score_key or "").lower() else None
-                            comparison = '>'
+                            col_key = (
+                                score_key
+                                if "mahalanobis" in (score_key or "").lower()
+                                else None
+                            )
+                            comparison = ">"
                         else:
                             # Custom column
-                            col_key = axis_type if axis_type in adata.var.columns else None
-                            comparison = '>'  # Assume higher is more significant for custom columns
+                            col_key = (
+                                axis_type if axis_type in adata.var.columns else None
+                            )
+                            comparison = ">"  # Assume higher is more significant for custom columns
 
                         if col_key and col_key in adata.var.columns:
                             col_values = adata.var[col_key]
-                            if comparison == '<':
+                            if comparison == "<":
                                 axis_mask = col_values < threshold_val
                             else:
                                 axis_mask = col_values > threshold_val
 
                             significant_mask = significant_mask & axis_mask
-                            threshold_descriptions.append(f"{axis_type} {comparison} {threshold_val}")
-                            logger.info(f"Applied threshold: {axis_type} {comparison} {threshold_val} ({axis_mask.sum()} genes pass)")
+                            threshold_descriptions.append(
+                                f"{axis_type} {comparison} {threshold_val}"
+                            )
+                            logger.info(
+                                f"Applied threshold: {axis_type} {comparison} {threshold_val} ({axis_mask.sum()} genes pass)"
+                            )
                         else:
-                            logger.warning(f"Column for axis type '{axis_type}' not found, skipping this threshold")
+                            logger.warning(
+                                f"Column for axis type '{axis_type}' not found, skipping this threshold"
+                            )
 
                     significant_genes = adata.var_names[significant_mask].tolist()
                     threshold_desc = " AND ".join(threshold_descriptions)
-                    logger.info(f"Found {len(significant_genes)} genes passing all thresholds: {threshold_desc}")
+                    logger.info(
+                        f"Found {len(significant_genes)} genes passing all thresholds: {threshold_desc}"
+                    )
 
                 else:
                     # Float format: single threshold (original behavior)
@@ -896,107 +989,178 @@ def volcano_de(
 
                     # Determine which column to use for significance values
                     if y_axis_type == "local_fdr":
-                        significance_values_key = run_info["fdr_keys"].get("local_fdr_key") if run_info and "fdr_keys" in run_info and run_info["fdr_keys"] else None
-                        threshold_comparison = '<'
+                        significance_values_key = (
+                            run_info["fdr_keys"].get("local_fdr_key")
+                            if run_info
+                            and "fdr_keys" in run_info
+                            and run_info["fdr_keys"]
+                            else None
+                        )
+                        threshold_comparison = "<"
                     elif y_axis_type == "tail_fdr":
-                        significance_values_key = run_info["fdr_keys"].get("tail_fdr_key") if run_info and "fdr_keys" in run_info and run_info["fdr_keys"] else None
-                        threshold_comparison = '<'
+                        significance_values_key = (
+                            run_info["fdr_keys"].get("tail_fdr_key")
+                            if run_info
+                            and "fdr_keys" in run_info
+                            and run_info["fdr_keys"]
+                            else None
+                        )
+                        threshold_comparison = "<"
                     elif y_axis_type == "ptp":
-                        significance_values_key = run_info.get("ptp_key") if run_info else None
-                        threshold_comparison = '<'
+                        significance_values_key = (
+                            run_info.get("ptp_key") if run_info else None
+                        )
+                        threshold_comparison = "<"
                     elif y_axis_type == "mahalanobis":
                         significance_values_key = score_key  # Use the current score key
-                        threshold_comparison = '>'
+                        threshold_comparison = ">"
                     else:
                         # For custom columns, use the current score key and assume higher is more significant
                         significance_values_key = score_key
-                        threshold_comparison = '>'
+                        threshold_comparison = ">"
 
                     # Fallback to score_key if no specific key found
                     if not significance_values_key:
                         significance_values_key = score_key
-                        threshold_comparison = '>' if y_axis_type in ['mahalanobis'] else '<'
-                        logger.info(f"Using score key '{score_key}' for significance threshold (threshold={significance_threshold})")
+                        threshold_comparison = (
+                            ">" if y_axis_type in ["mahalanobis"] else "<"
+                        )
+                        logger.info(
+                            f"Using score key '{score_key}' for significance threshold (threshold={significance_threshold})"
+                        )
 
-                    if significance_values_key and significance_values_key in adata.var.columns:
+                    if (
+                        significance_values_key
+                        and significance_values_key in adata.var.columns
+                    ):
                         # Select genes based on significance threshold
                         sig_values = adata.var[significance_values_key]
-                        logger.info(f"Significance threshold selection: using column '{significance_values_key}' with threshold {threshold_comparison} {significance_threshold}")
-                        logger.info(f"Values range: {sig_values.min():.6f} - {sig_values.max():.6f}")
+                        logger.info(
+                            f"Significance threshold selection: using column '{significance_values_key}' with threshold {threshold_comparison} {significance_threshold}"
+                        )
+                        logger.info(
+                            f"Values range: {sig_values.min():.6f} - {sig_values.max():.6f}"
+                        )
 
-                        if threshold_comparison == '<':
+                        if threshold_comparison == "<":
                             significant_mask = sig_values < significance_threshold
                         else:  # '>'
                             significant_mask = sig_values > significance_threshold
 
                         significant_genes = adata.var_names[significant_mask].tolist()
-                        logger.info(f"Found {len(significant_genes)} genes with {y_axis_type} {threshold_comparison} {significance_threshold}")
+                        logger.info(
+                            f"Found {len(significant_genes)} genes with {y_axis_type} {threshold_comparison} {significance_threshold}"
+                        )
                     else:
-                        logger.warning(f"Cannot use significance threshold: column '{significance_values_key}' not found in adata.var")
-                        logger.info(f"Available var columns: {[col for col in adata.var.columns if any(term in col.lower() for term in ['fdr', 'pvalue', 'mahalanobis', 'ptp'])]}")
+                        logger.warning(
+                            f"Cannot use significance threshold: column '{significance_values_key}' not found in adata.var"
+                        )
+                        logger.info(
+                            f"Available var columns: {[col for col in adata.var.columns if any(term in col.lower() for term in ['fdr', 'pvalue', 'mahalanobis', 'ptp'])]}"
+                        )
                         # significant_genes remains empty list from initialization
 
                 # Common logic for both float and dict formats
                 if len(significant_genes) > 0:
                     # Update DE classification if requested and we have a DE column
-                    if update_de_classification and inferred_direction_column and inferred_direction_column in adata.var.columns:
+                    if (
+                        update_de_classification
+                        and inferred_direction_column
+                        and inferred_direction_column in adata.var.columns
+                    ):
                         old_count = np.sum(adata.var[inferred_direction_column])
                         adata.var[inferred_direction_column] = significant_mask
                         new_count = np.sum(adata.var[inferred_direction_column])
                         if isinstance(significance_threshold, dict):
-                            logger.info(f"Updated DE classification: {old_count} → {new_count} significant genes with multiple thresholds")
+                            logger.info(
+                                f"Updated DE classification: {old_count} → {new_count} significant genes with multiple thresholds"
+                            )
                         else:
-                            logger.info(f"Updated DE classification: {old_count} → {new_count} significant genes at {y_axis_type} {threshold_comparison} {significance_threshold}")
+                            logger.info(
+                                f"Updated DE classification: {old_count} → {new_count} significant genes at {y_axis_type} {threshold_comparison} {significance_threshold}"
+                            )
 
                     # Filter de_data for significant genes
                     sig_de_genes_df = de_data[de_data["gene"].isin(significant_genes)]
 
                     # Count up and down regulated significant genes
-                    up_sig_genes = sig_de_genes_df[sig_de_genes_df["lfc"] > 0]["gene"].tolist()
-                    down_sig_genes = sig_de_genes_df[sig_de_genes_df["lfc"] < 0]["gene"].tolist()
+                    up_sig_genes = sig_de_genes_df[sig_de_genes_df["lfc"] > 0][
+                        "gene"
+                    ].tolist()
+                    down_sig_genes = sig_de_genes_df[sig_de_genes_df["lfc"] < 0][
+                        "gene"
+                    ].tolist()
 
                     if up_sig_genes:
-                        highlight_groups.append({
-                            "genes": up_sig_genes,
-                            "name": f"Higher in {condition2} ({len(up_sig_genes)})" if condition2 else f"Up-regulated ({len(up_sig_genes)})"
-                        })
+                        highlight_groups.append(
+                            {
+                                "genes": up_sig_genes,
+                                "name": f"Higher in {condition2} ({len(up_sig_genes)})"
+                                if condition2
+                                else f"Up-regulated ({len(up_sig_genes)})",
+                            }
+                        )
                     if down_sig_genes:
-                        highlight_groups.append({
-                            "genes": down_sig_genes,
-                            "name": f"Higher in {condition1} ({len(down_sig_genes)})" if condition1 else f"Down-regulated ({len(down_sig_genes)})"
-                        })
+                        highlight_groups.append(
+                            {
+                                "genes": down_sig_genes,
+                                "name": f"Higher in {condition1} ({len(down_sig_genes)})"
+                                if condition1
+                                else f"Down-regulated ({len(down_sig_genes)})",
+                            }
+                        )
 
                     if isinstance(significance_threshold, dict):
-                        logger.info(f"Highlighting {len(significant_genes):,} genes with multiple thresholds ({len(up_sig_genes)} up, {len(down_sig_genes)} down)")
+                        logger.info(
+                            f"Highlighting {len(significant_genes):,} genes with multiple thresholds ({len(up_sig_genes)} up, {len(down_sig_genes)} down)"
+                        )
                     else:
-                        logger.info(f"Highlighting {len(significant_genes):,} genes at {y_axis_type} {threshold_comparison} {significance_threshold} ({len(up_sig_genes)} up, {len(down_sig_genes)} down)")
+                        logger.info(
+                            f"Highlighting {len(significant_genes):,} genes at {y_axis_type} {threshold_comparison} {significance_threshold} ({len(up_sig_genes)} up, {len(down_sig_genes)} down)"
+                        )
                 else:
                     # No significant genes found - fallback to top genes
                     if isinstance(significance_threshold, dict):
-                        logger.info("No genes found with multiple thresholds - falling back to top genes highlighting")
+                        logger.info(
+                            "No genes found with multiple thresholds - falling back to top genes highlighting"
+                        )
                     else:
-                        logger.info(f"No genes found at {y_axis_type} {threshold_comparison} {significance_threshold} - falling back to top genes highlighting")
+                        logger.info(
+                            f"No genes found at {y_axis_type} {threshold_comparison} {significance_threshold} - falling back to top genes highlighting"
+                        )
 
                     # Fallback to top genes when no significant genes are found (if n_top_genes specified)
-                    fallback_n = n_top_genes or 10  # Use 10 as fallback if n_top_genes is None
-                    top_genes = de_data.sort_values("sort_val", ascending=False).head(fallback_n)
-                    highlight_groups.append(
-                        {"genes": top_genes["gene"].tolist(), "name": f"Top {fallback_n} genes (no genes at threshold)"}
+                    fallback_n = (
+                        n_top_genes or 10
+                    )  # Use 10 as fallback if n_top_genes is None
+                    top_genes = de_data.sort_values("sort_val", ascending=False).head(
+                        fallback_n
                     )
-                    logger.info(f"Highlighting top {fallback_n:,} genes by score as fallback")
-            
+                    highlight_groups.append(
+                        {
+                            "genes": top_genes["gene"].tolist(),
+                            "name": f"Top {fallback_n} genes (no genes at threshold)",
+                        }
+                    )
+                    logger.info(
+                        f"Highlighting top {fallback_n:,} genes by score as fallback"
+                    )
+
             # Regular DE column logic (when no other highlighting mechanism is specified or failed)
             # Use DE column for highlighting when no threshold is specified, regardless of background coloring
             elif (
                 inferred_direction_column
                 and inferred_direction_column in adata.var.columns
-                and highlight_genes is None  # Only use DE column if no specific genes highlighted
+                and highlight_genes
+                is None  # Only use DE column if no specific genes highlighted
             ):
                 # Get genes marked as DE by filtering de_data using gene names
-                is_de_mask = de_data["gene"].isin(adata.var_names[adata.var[inferred_direction_column]])
+                is_de_mask = de_data["gene"].isin(
+                    adata.var_names[adata.var[inferred_direction_column]]
+                )
                 de_genes_df = de_data[is_de_mask]
                 de_genes = de_genes_df["gene"].tolist()
-                
+
                 if de_genes:
                     # Count up and down regulated DE genes
                     up_de_genes = de_genes_df[de_genes_df["lfc"] > 0]["gene"].tolist()
@@ -1004,35 +1168,67 @@ def volcano_de(
 
                     # Always add separate highlight groups for up/down DE genes
                     if up_de_genes:
-                        highlight_groups.append({
-                            "genes": up_de_genes,
-                            "name": f"Higher in {condition2} ({len(up_de_genes)})" if condition2 else f"Up-regulated ({len(up_de_genes)})"
-                        })
+                        highlight_groups.append(
+                            {
+                                "genes": up_de_genes,
+                                "name": f"Higher in {condition2} ({len(up_de_genes)})"
+                                if condition2
+                                else f"Up-regulated ({len(up_de_genes)})",
+                            }
+                        )
                     if down_de_genes:
-                        highlight_groups.append({
-                            "genes": down_de_genes,
-                            "name": f"Higher in {condition1} ({len(down_de_genes)})" if condition1 else f"Down-regulated ({len(down_de_genes)})"
-                        })
+                        highlight_groups.append(
+                            {
+                                "genes": down_de_genes,
+                                "name": f"Higher in {condition1} ({len(down_de_genes)})"
+                                if condition1
+                                else f"Down-regulated ({len(down_de_genes)})",
+                            }
+                        )
 
-                    logger.info(f"Highlighting {len(de_genes):,} genes marked as DE ({len(up_de_genes)} up, {len(down_de_genes)} down)")
-                else:
-                    logger.info("No genes marked as DE found - falling back to top genes highlighting")
-                    # Fallback to top genes when no DE genes are found
-                    fallback_n = n_top_genes or 10  # Use 10 as fallback if n_top_genes is None
-                    top_genes = de_data.sort_values("sort_val", ascending=False).head(fallback_n)
-                    highlight_groups.append(
-                        {"genes": top_genes["gene"].tolist(), "name": f"Top {fallback_n} genes (no DE genes found)"}
+                    logger.info(
+                        f"Highlighting {len(de_genes):,} genes marked as DE ({len(up_de_genes)} up, {len(down_de_genes)} down)"
                     )
-                    logger.info(f"Highlighting top {fallback_n:,} genes by {sort_key or score_key} as fallback")
+                else:
+                    logger.info(
+                        "No genes marked as DE found - falling back to top genes highlighting"
+                    )
+                    # Fallback to top genes when no DE genes are found
+                    fallback_n = (
+                        n_top_genes or 10
+                    )  # Use 10 as fallback if n_top_genes is None
+                    top_genes = de_data.sort_values("sort_val", ascending=False).head(
+                        fallback_n
+                    )
+                    highlight_groups.append(
+                        {
+                            "genes": top_genes["gene"].tolist(),
+                            "name": f"Top {fallback_n} genes (no DE genes found)",
+                        }
+                    )
+                    logger.info(
+                        f"Highlighting top {fallback_n:,} genes by {sort_key or score_key} as fallback"
+                    )
             else:
                 # Fallback to top genes approach if DE column not found
-                fallback_n = n_top_genes or 10  # Use 10 as fallback if n_top_genes is None
-                logger.info(f"DE column '{inferred_direction_column}' not found. Falling back to top {fallback_n} genes by score.")
-                top_genes = de_data.sort_values("sort_val", ascending=False).head(fallback_n)
-                highlight_groups.append(
-                    {"genes": top_genes["gene"].tolist(), "name": f"Top {fallback_n} genes"}
+                fallback_n = (
+                    n_top_genes or 10
+                )  # Use 10 as fallback if n_top_genes is None
+                logger.info(
+                    f"DE column '{inferred_direction_column}' not found. Falling back to top {fallback_n} genes by score."
                 )
-                logger.info(f"Highlighting top {fallback_n:,} genes by {sort_key or score_key}")
+                top_genes = de_data.sort_values("sort_val", ascending=False).head(
+                    fallback_n
+                )
+                highlight_groups.append(
+                    {
+                        "genes": top_genes["gene"].tolist(),
+                        "name": f"Top {fallback_n} genes",
+                    }
+                )
+                logger.info(
+                    f"Highlighting top {fallback_n:,} genes by {sort_key or score_key}"
+                )
 
     # Plot background genes
     if color is not None:
@@ -1081,7 +1277,9 @@ def volcano_de(
                 sidebar_bottom_center = bbox.y0 + bbox.height * 0.3
 
                 cax_rect = [
-                    bbox.x0 + bbox.width + 0.01,  # x position (just to the right of the plot)
+                    bbox.x0
+                    + bbox.width
+                    + 0.01,  # x position (just to the right of the plot)
                     sidebar_bottom_center
                     - cax_height / 2,  # y position (centered in lower portion)
                     0.02,  # width (thin)
@@ -1124,7 +1322,13 @@ def volcano_de(
                     color = color_up if gene_row["lfc"] > 0 else color_down
 
                 # Plot this gene
-                ax.scatter(gene_row["lfc"], gene_row["score"], alpha=1, s=point_size * 3, c=color)
+                ax.scatter(
+                    gene_row["lfc"],
+                    gene_row["score"],
+                    alpha=1,
+                    s=point_size * 3,
+                    c=color,
+                )
 
                 # Add label if requested - will be handled by centralized labeling logic below
                 pass
@@ -1186,35 +1390,41 @@ def volcano_de(
     # Centralized gene labeling logic
     genes_to_label = []
     custom_labels = {}
-    
+
     if gene_labels is not False:
         if gene_labels is True:
             # Label all highlighted genes
             for group in highlight_groups:
                 genes_to_label.extend(group["genes"])
             logger.info(f"Labeling all {len(genes_to_label)} highlighted genes")
-            
+
         elif isinstance(gene_labels, int):
             # Label top N genes by score
-            top_genes_for_labels = de_data.sort_values("sort_val", ascending=False).head(gene_labels)
+            top_genes_for_labels = de_data.sort_values(
+                "sort_val", ascending=False
+            ).head(gene_labels)
             genes_to_label = top_genes_for_labels["gene"].tolist()
             logger.info(f"Labeling top {gene_labels} genes by score")
-            
+
         elif isinstance(gene_labels, list):
             # Label specific genes
             genes_to_label = [g for g in gene_labels if g in adata.var_names]
             if len(genes_to_label) < len(gene_labels):
                 missing = set(gene_labels) - set(genes_to_label)
-                logger.warning(f"Gene labeling: {len(missing)} genes not found: {', '.join(missing)}")
+                logger.warning(
+                    f"Gene labeling: {len(missing)} genes not found: {', '.join(missing)}"
+                )
             logger.info(f"Labeling {len(genes_to_label)} specific genes")
-            
+
         elif isinstance(gene_labels, dict):
             # Label genes with custom labels
             genes_to_label = [g for g in gene_labels.keys() if g in adata.var_names]
             custom_labels = {g: gene_labels[g] for g in genes_to_label}
             if len(genes_to_label) < len(gene_labels):
                 missing = set(gene_labels.keys()) - set(genes_to_label)
-                logger.warning(f"Gene labeling: {len(missing)} genes not found: {', '.join(missing)}")
+                logger.warning(
+                    f"Gene labeling: {len(missing)} genes not found: {', '.join(missing)}"
+                )
             logger.info(f"Labeling {len(genes_to_label)} genes with custom labels")
 
     # Apply the labels
@@ -1254,7 +1464,11 @@ def volcano_de(
     ax.axvline(x=0, color="black", linestyle="--", alpha=0.3)
 
     # Add significance threshold line if applicable (only for single float thresholds, not dictionaries)
-    if show_thresholds and significance_threshold is not None and not isinstance(significance_threshold, dict):
+    if (
+        show_thresholds
+        and significance_threshold is not None
+        and not isinstance(significance_threshold, dict)
+    ):
         if y_axis_type in ["local_fdr", "tail_fdr", "ptp"] and y_transform is not None:
             # Transform the threshold for display
             threshold_y = y_transform(np.array([significance_threshold]))[0]
@@ -1266,7 +1480,9 @@ def volcano_de(
                 linewidth=1,
                 label=f"{y_axis_type} = {significance_threshold}",
             )
-            logger.info(f"Added {y_axis_type} threshold line at y={threshold_y:.2f} ({y_axis_type}={significance_threshold})")
+            logger.info(
+                f"Added {y_axis_type} threshold line at y={threshold_y:.2f} ({y_axis_type}={significance_threshold})"
+            )
         else:
             # For Mahalanobis distance and custom columns, threshold is used directly
             ax.axhline(
@@ -1277,9 +1493,13 @@ def volcano_de(
                 linewidth=1,
                 label=f"{y_axis_type} = {significance_threshold}",
             )
-            logger.info(f"Added {y_axis_type} threshold line at y={significance_threshold}")
+            logger.info(
+                f"Added {y_axis_type} threshold line at y={significance_threshold}"
+            )
     elif show_thresholds and isinstance(significance_threshold, dict):
-        logger.info("Skipping threshold line drawing for dictionary-format significance_threshold")
+        logger.info(
+            "Skipping threshold line drawing for dictionary-format significance_threshold"
+        )
 
     ax.set_xlabel(xlabel, fontsize=12)
     ax.set_ylabel(ylabel, fontsize=12)
@@ -1320,7 +1540,10 @@ def volcano_de(
             else:
                 # If user specified a different location, respect it
                 ax.legend(
-                    loc=legend_loc, fontsize=legend_fontsize, frameon=False, ncol=legend_ncol or 1
+                    loc=legend_loc,
+                    fontsize=legend_fontsize,
+                    frameon=False,
+                    ncol=legend_ncol or 1,
                 )
         else:
             # Standard legend placement without colorbar competition
@@ -1334,7 +1557,10 @@ def volcano_de(
                 )
             else:
                 ax.legend(
-                    loc=legend_loc, fontsize=legend_fontsize, frameon=False, ncol=legend_ncol or 1
+                    loc=legend_loc,
+                    fontsize=legend_fontsize,
+                    frameon=False,
+                    ncol=legend_ncol or 1,
                 )
 
     if grid:

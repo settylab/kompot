@@ -67,7 +67,13 @@ class TestComputeFdr:
 
         df = compute_fdr(real, null, threshold=0.05)
         assert isinstance(df, pd.DataFrame)
-        assert list(df.columns) == ["mahalanobis", "pvalue", "local_fdr", "tail_fdr", "is_de"]
+        assert list(df.columns) == [
+            "mahalanobis",
+            "pvalue",
+            "local_fdr",
+            "tail_fdr",
+            "is_de",
+        ]
         assert len(df) == len(real)
         assert df["pvalue"].between(0, 1).all()
         assert df["local_fdr"].between(0, 1).all()
@@ -113,7 +119,10 @@ class TestExtractAndRecompute:
     def adata_with_de(self):
         adata = _make_simple_adata()
         kompot.de(
-            adata, "condition", "A", "B",
+            adata,
+            "condition",
+            "A",
+            "B",
             fdr=FDRSettings(null_genes=200, null_seed=0),
             output=kompot.OutputSettings(progress=False),
         )
@@ -141,6 +150,7 @@ class TestExtractAndRecompute:
 
         # Get original FDR values
         from kompot.anndata.utils.field_tracking import get_run_from_history
+
         run_info = get_run_from_history(adata_with_de, run_id=-1, analysis_type="de")
         fm = run_info["field_mapping"]
 
@@ -162,6 +172,7 @@ class TestExtractAndRecompute:
         new_null = rng.exponential(0.3, 500)
 
         from kompot.anndata.utils.field_tracking import get_run_from_history
+
         run_info = get_run_from_history(adata_with_de, run_id=-1, analysis_type="de")
         fm = run_info["field_mapping"]
 
@@ -207,7 +218,10 @@ class TestFDRSettingsValidation:
         adata = _make_simple_adata()
         with pytest.raises(ValueError, match="mutually exclusive"):
             kompot.de(
-                adata, "condition", "A", "B",
+                adata,
+                "condition",
+                "A",
+                "B",
                 fdr=FDRSettings(
                     null_mahalanobis=np.array([1.0]),
                     null_expression=(np.zeros((40, 5)), np.zeros((40, 5))),
@@ -218,9 +232,14 @@ class TestFDRSettingsValidation:
         adata = _make_simple_adata()
         # Create a dummy predictor
         dummy_pred = lambda x: x
-        with pytest.raises(ValueError, match="null_expression cannot be used with pre-fitted"):
+        with pytest.raises(
+            ValueError, match="null_expression cannot be used with pre-fitted"
+        ):
             kompot.de(
-                adata, "condition", "A", "B",
+                adata,
+                "condition",
+                "A",
+                "B",
                 fdr=FDRSettings(
                     null_expression=(np.zeros((40, 5)), np.zeros((40, 5))),
                 ),
@@ -234,7 +253,10 @@ class TestFDRSettingsValidation:
             # This should warn but then proceed
             try:
                 kompot.de(
-                    adata, "condition", "A", "B",
+                    adata,
+                    "condition",
+                    "A",
+                    "B",
                     fdr=FDRSettings(
                         null_genes=0,
                         null_mahalanobis=np.ones(100),
@@ -259,7 +281,10 @@ class TestNullMahalanobisInDE:
         # Use external null with null_genes=0 (no internal null)
         ext_null = np.random.RandomState(0).exponential(0.5, 300)
         kompot.de(
-            adata, "condition", "A", "B",
+            adata,
+            "condition",
+            "A",
+            "B",
             fdr=FDRSettings(null_genes=0, null_mahalanobis=ext_null),
             output=kompot.OutputSettings(progress=False),
         )
@@ -272,7 +297,10 @@ class TestNullMahalanobisInDE:
         adata = _make_simple_adata()
         ext_null = np.random.RandomState(0).exponential(0.5, 100)
         kompot.de(
-            adata, "condition", "A", "B",
+            adata,
+            "condition",
+            "A",
+            "B",
             fdr=FDRSettings(
                 null_genes=100,
                 null_mahalanobis=ext_null,
@@ -301,7 +329,10 @@ class TestNullExpressionInDE:
         null_e2 = rng.randn(n2, 10)
 
         kompot.de(
-            adata, "condition", "A", "B",
+            adata,
+            "condition",
+            "A",
+            "B",
             fdr=FDRSettings(
                 null_genes=0,
                 null_expression=(null_e1, null_e2),
@@ -373,17 +404,23 @@ class TestAugmentExternalNull:
     def test_column_count_mismatch_raises(self):
         with pytest.raises(ValueError, match="different numbers of columns"):
             _augment_with_external_null_expression(
-                np.ones((10, 5)), np.ones((8, 5)),
-                ["g"] * 5, [],
-                np.ones((10, 3)), np.ones((8, 2)),
+                np.ones((10, 5)),
+                np.ones((8, 5)),
+                ["g"] * 5,
+                [],
+                np.ones((10, 3)),
+                np.ones((8, 2)),
             )
 
     def test_1d_input(self):
         """1-D null expression should be treated as single column."""
         e1, e2, eg, ni = _augment_with_external_null_expression(
-            np.ones((10, 5)), np.ones((8, 5)),
-            ["g"] * 5, [],
-            np.ones(10), np.ones(8),
+            np.ones((10, 5)),
+            np.ones((8, 5)),
+            ["g"] * 5,
+            [],
+            np.ones(10),
+            np.ones(8),
         )
         assert e1.shape == (10, 6)
         assert e2.shape == (8, 6)

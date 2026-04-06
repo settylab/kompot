@@ -4,35 +4,31 @@ import numpy as np
 import pytest
 import tempfile
 import logging
-import jax
-import jax.numpy as jnp
-from typing import Dict
 
-from kompot.utils import (
-    compute_mahalanobis_distances,
-    compute_mahalanobis_distance
-)
+from kompot.utils import compute_mahalanobis_distances, compute_mahalanobis_distance
 from kompot.memory_utils import DiskStorage, DASK_AVAILABLE
-from kompot.differential import DifferentialExpression, SampleVarianceEstimator
+from kompot.differential import DifferentialExpression
 
 # Set up a logger for this module
 logger = logging.getLogger(__name__)
 
 
-def create_test_data(n_points: int = 100, n_genes: int = 20, n_landmarks: int = 30, seed: int = 42):
+def create_test_data(
+    n_points: int = 100, n_genes: int = 20, n_landmarks: int = 30, seed: int = 42
+):
     """Create test data for Mahalanobis distance computation."""
     # Set random seed for reproducibility
     np.random.seed(seed)
-    
+
     # Create condition 1 data with random features and gene expression
     X1 = np.random.normal(0, 1, (n_points, 10))  # 10 features
     y1 = np.random.normal(0, 1, (n_points, n_genes))
-    
+
     # Create condition 2 data with random features and gene expression
     # Add a shift to create differences
     X2 = np.random.normal(0.5, 1, (n_points, 10))
     y2 = np.random.normal(1.0, 1, (n_points, n_genes))
-    
+
     # Create some landmarks for landmark-based approximation
     if n_landmarks is not None:
         X_combined = np.vstack([X1, X2])
@@ -40,17 +36,17 @@ def create_test_data(n_points: int = 100, n_genes: int = 20, n_landmarks: int = 
         landmarks = X_combined[landmark_indices]
     else:
         landmarks = None
-    
+
     # Create fold changes for testing
     fold_changes = np.random.normal(0, 1, (n_genes, n_points))
-    
+
     return {
-        'X1': X1,
-        'y1': y1,
-        'X2': X2,
-        'y2': y2,
-        'landmarks': landmarks,
-        'fold_changes': fold_changes
+        "X1": X1,
+        "y1": y1,
+        "X2": X2,
+        "y2": y2,
+        "landmarks": landmarks,
+        "fold_changes": fold_changes,
     }
 
 
@@ -58,21 +54,21 @@ def test_compare_mahalanobis_approaches():
     """Compare different approaches for Mahalanobis distance computation."""
     # Create test data
     data = create_test_data(n_points=50, n_genes=20, n_landmarks=30)
-    fold_changes = data['fold_changes']
-    
+    fold_changes = data["fold_changes"]
+
     # Create a shared covariance matrix for testing
     n_points = 50  # Use a smaller size for faster testing
     cov_shared = np.random.random((n_points, n_points))
     # Make it symmetric positive definite
     cov_shared = cov_shared @ cov_shared.T + np.eye(n_points) * 0.1
-    
+
     # Create a diagonal-dominant matrix for testing diagonal approach
     cov_diag_dominant = np.diag(np.random.random(n_points) * 10)
     off_diag = np.random.random((n_points, n_points)) * 0.1
     np.fill_diagonal(off_diag, 0)
     cov_diag_dominant += off_diag
     cov_diag_dominant = (cov_diag_dominant + cov_diag_dominant.T) / 2  # Make symmetric
-    
+
     # Create a set of gene-specific covariance matrices
     n_genes = 20
     gene_specific_cov = np.zeros((n_points, n_points, n_genes))
@@ -80,74 +76,79 @@ def test_compare_mahalanobis_approaches():
         random_mat = np.random.random((n_points, n_points))
         # Make it symmetric positive definite
         gene_specific_cov[:, :, g] = random_mat @ random_mat.T + np.eye(n_points) * 0.1
-    
+
     # Now compute Mahalanobis distances using various approaches
-    
+
     # 1. Shared covariance matrix using Cholesky
     distances_shared = compute_mahalanobis_distances(
         diff_values=fold_changes,
         covariance=cov_shared,
         batch_size=10,
         jit_compile=False,
-        progress=False
+        progress=False,
     )
-    
+
     # 2. Diagonal approach (using diagonal-dominant matrix)
     distances_diag = compute_mahalanobis_distances(
         diff_values=fold_changes,
         covariance=cov_diag_dominant,
         batch_size=10,
         jit_compile=False,
-        progress=False
+        progress=False,
     )
-    
+
     # 3. Gene-specific covariance matrices
     distances_gene_specific = compute_mahalanobis_distances(
         diff_values=fold_changes,
         covariance=gene_specific_cov,
         batch_size=10,
         jit_compile=False,
-        progress=False
+        progress=False,
     )
-    
+
     # 4. Test disk-backed approach with dask arrays
     if DASK_AVAILABLE:
         with tempfile.TemporaryDirectory() as temp_dir:
             # Initialize disk storage
             storage = DiskStorage(storage_dir=temp_dir)
-            
+
             # Store each gene's covariance matrix separately
             for g in range(n_genes):
-                key = f"gene_{g}"  # Change key to match pattern expected in as_dask_array
+                key = (
+                    f"gene_{g}"  # Change key to match pattern expected in as_dask_array
+                )
                 storage.store_array(gene_specific_cov[:, :, g], key)
-            
+
             # Create a dask array representing the 3D covariance tensor
             # We'll use the as_dask_array method to create a dask representation of our data
             dask_cov = storage.as_dask_array(shape=(n_points, n_points, n_genes))
-            
+
             # Compute distances using dask-backed approach
             distances_disk_backed = compute_mahalanobis_distances(
                 diff_values=fold_changes,
                 covariance=dask_cov,
                 batch_size=10,
                 jit_compile=False,
-                progress=False
+                progress=False,
             )
-            
+
             # The disk-backed approach should give same results as in-memory gene-specific
-            np.testing.assert_allclose(distances_gene_specific, distances_disk_backed, rtol=1e-5)
+            np.testing.assert_allclose(
+                distances_gene_specific, distances_disk_backed, rtol=1e-5
+            )
     else:
         # Skip this part of the test if dask is not available
         logger.warning("Dask not available, skipping disk-backed covariance test")
-    
+
     # 5. Force pseudoinverse approach by breaking Cholesky
     # Make a nearly singular matrix that will cause Cholesky to fail
     cov_singular = cov_shared.copy()
     cov_singular[0, :] = cov_singular[1, :]  # Make first two rows identical
-    
+
     # This will log a warning about Cholesky failure and use pseudoinverse
     # We'll capture the warning output instead of testing for it to avoid test failures
     import warnings
+
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         distances_pinv = compute_mahalanobis_distances(
@@ -155,9 +156,9 @@ def test_compare_mahalanobis_approaches():
             covariance=cov_singular,
             batch_size=10,
             jit_compile=False,
-            progress=False
+            progress=False,
         )
-    
+
     # Check all results are finite and have expected shapes
     assert np.all(np.isfinite(distances_shared))
     assert np.all(np.isfinite(distances_diag))
@@ -165,17 +166,21 @@ def test_compare_mahalanobis_approaches():
     assert len(distances_shared) == n_genes
     assert len(distances_diag) == n_genes
     assert len(distances_gene_specific) == n_genes
-    
+
     # Different approaches should give different results,
     # but they should be correlated since they measure the same underlying concept
     # Calculate correlation to verify relationship
     corr_shared_diag = np.corrcoef(distances_shared, distances_diag)[0, 1]
     corr_shared_gene = np.corrcoef(distances_shared, distances_gene_specific)[0, 1]
-    
+
     # Verify correlations are reasonable (but not identical)
     # They should be positive but not perfect since they use different approaches
-    assert 0 < corr_shared_diag < 1, "Correlation between approaches should be between 0 and 1"
-    assert 0 < corr_shared_gene < 1, "Correlation between approaches should be between 0 and 1"
+    assert 0 < corr_shared_diag < 1, (
+        "Correlation between approaches should be between 0 and 1"
+    )
+    assert 0 < corr_shared_gene < 1, (
+        "Correlation between approaches should be between 0 and 1"
+    )
 
 
 def test_different_mahalanobis_distance_approaches():
@@ -183,51 +188,45 @@ def test_different_mahalanobis_distance_approaches():
     # Create some test data - a specific vector and covariance matrix
     n_dim = 30
     vector = np.random.random(n_dim)
-    
+
     # Create a positive definite matrix
     cov = np.random.random((n_dim, n_dim))
     cov = cov @ cov.T + np.eye(n_dim) * 0.1
-    
+
     # Also create a diagonal matrix for comparison
     diag_cov = np.diag(np.diag(cov))
-    
+
     # Prepare vector as batch of 1 for compute_mahalanobis_distances
     vector_batch = vector.reshape(1, -1)
-    
+
     # Test 1: Compute distance using standard covariance
     dist_standard = compute_mahalanobis_distances(
-        diff_values=vector_batch,
-        covariance=cov,
-        jit_compile=False
+        diff_values=vector_batch, covariance=cov, jit_compile=False
     )[0]
-    
+
     # Test 2: Compute distance using diagonal approximation
     dist_diag = compute_mahalanobis_distances(
-        diff_values=vector_batch,
-        covariance=diag_cov,
-        jit_compile=False
+        diff_values=vector_batch, covariance=diag_cov, jit_compile=False
     )[0]
-    
+
     # Test 3: Compute using single vector interface
     dist_single = compute_mahalanobis_distance(
-        diff_values=vector,
-        covariance_matrix=cov,
-        jit_compile=False
+        diff_values=vector, covariance_matrix=cov, jit_compile=False
     )
-    
+
     # Manually compute the diagonal approximation for verification
     # For diagonal cov, Mahalanobis is just weighted Euclidean distance
     manual_diag = np.sqrt(np.sum((vector**2) / np.diag(cov)))
-    
+
     # Check that we have valid results
     assert np.isfinite(dist_standard)
     assert np.isfinite(dist_diag)
     assert np.isfinite(dist_single)
-    
+
     # Check that single vector interface gives same result as the multi-vector interface
     # for the same input
     assert np.isclose(dist_standard, dist_single, rtol=1e-5)
-    
+
     # Check diagonal approximation matches our manual calculation
     assert np.isclose(dist_diag, manual_diag, rtol=1e-5)
 
@@ -235,73 +234,86 @@ def test_different_mahalanobis_distance_approaches():
 def test_differential_expression_with_mahalanobis_approaches():
     """Test integrating with the DifferentialExpression class."""
     # Import DifferentialExpression
-    from kompot.differential import DifferentialExpression
-    
+
     # Create test data with small dimensions for speed
     data = create_test_data(n_points=20, n_genes=5, n_landmarks=10)
-    X1, y1 = data['X1'], data['y1']
-    X2, y2 = data['X2'], data['y2']
-    landmarks = data['landmarks']
-    
+    X1, y1 = data["X1"], data["y1"]
+    X2, y2 = data["X2"], data["y2"]
+    landmarks = data["landmarks"]
+
     # Create a smaller test dataset
     X_test = np.vstack([X1[:5], X2[:5]])
-    
+
     # Define different configurations to test
     configs = [
         {
-            'name': 'default',
-            'params': {},
+            "name": "default",
+            "params": {},
         },
         {
-            'name': 'disk_backed',
-            'params': {'store_arrays_on_disk': True},
+            "name": "disk_backed",
+            "params": {"store_arrays_on_disk": True},
         },
         {
-            'name': 'small_batch',
-            'params': {'batch_size': 2},  # Very small for testing
+            "name": "small_batch",
+            "params": {"batch_size": 2},  # Very small for testing
         },
         {
-            'name': 'use_landmarks',
-            'params': {'n_landmarks': 20},
+            "name": "use_landmarks",
+            "params": {"n_landmarks": 20},
         },
     ]
-    
+
     results = {}
-    
+
     # Run each configuration and collect results
     for config in configs:
         # Create and fit the model with the current configuration
-        model = DifferentialExpression(use_empirical_variance=False, **config['params'])
-        model.fit(X1, y1, X2, y2, landmarks=landmarks if 'n_landmarks' in config['params'] else None)
-        
+        model = DifferentialExpression(use_empirical_variance=False, **config["params"])
+        model.fit(
+            X1,
+            y1,
+            X2,
+            y2,
+            landmarks=landmarks if "n_landmarks" in config["params"] else None,
+        )
+
         # Run prediction with Mahalanobis distance, disable progress bar for tests
         predictions = model.predict(X_test, compute_mahalanobis=True, progress=False)
-        
+
         # Store results for comparison
-        results[config['name']] = {
-            'mahalanobis_distances': predictions.get('mahalanobis_distances', None),
-            'fold_change': predictions['fold_change'],
+        results[config["name"]] = {
+            "mahalanobis_distances": predictions.get("mahalanobis_distances", None),
+            "fold_change": predictions["fold_change"],
         }
-    
+
     # Verify that approaches produced valid results
     for name, result in results.items():
-        if 'mahalanobis_distances' in result and result['mahalanobis_distances'] is not None:
-            assert np.all(np.isfinite(result['mahalanobis_distances']))
-            assert result['mahalanobis_distances'].shape[0] == y1.shape[1]  # Should have one distance per gene
-        assert result['fold_change'].shape == (len(X_test), y1.shape[1])  # Basic shape check for fold changes
-    
+        if (
+            "mahalanobis_distances" in result
+            and result["mahalanobis_distances"] is not None
+        ):
+            assert np.all(np.isfinite(result["mahalanobis_distances"]))
+            assert (
+                result["mahalanobis_distances"].shape[0] == y1.shape[1]
+            )  # Should have one distance per gene
+        assert result["fold_change"].shape == (
+            len(X_test),
+            y1.shape[1],
+        )  # Basic shape check for fold changes
+
     # Check that the fold changes are consistent across approaches
     # For the use_landmarks approach, we expect small differences due to using different points for fitting
     # For other approaches, expect numerical identity
     for name, result in results.items():
-        if name == 'use_landmarks':
+        if name == "use_landmarks":
             # Landmark approximation on tiny datasets (20 points, 20 landmarks)
             # introduces noticeable differences due to ADVI stochasticity
             # Landmark ADVI on tiny datasets (20 cells) with Matern52+Linear kernel
             # can show large variability; just check correlation is preserved
             corr = np.corrcoef(
-                result['fold_change'].ravel(),
-                results['default']['fold_change'].ravel(),
+                result["fold_change"].ravel(),
+                results["default"]["fold_change"].ravel(),
             )[0, 1]
             assert corr > 0.8, (
                 f"Fold change correlation should be high for {name} approach, got {corr:.3f}"
@@ -309,273 +321,314 @@ def test_differential_expression_with_mahalanobis_approaches():
         else:
             # For other approaches, results should be identical or extremely close
             np.testing.assert_allclose(
-                result['fold_change'],
-                results['default']['fold_change'],
+                result["fold_change"],
+                results["default"]["fold_change"],
                 rtol=1e-5,
-                err_msg=f"Fold changes should be identical for {name} approach"
+                err_msg=f"Fold changes should be identical for {name} approach",
             )
-    
+
     # The disk_backed approach should give identical results to in-memory
     # This ensures consistency between implementations
     np.testing.assert_allclose(
-        results['disk_backed']['mahalanobis_distances'],
-        results['default']['mahalanobis_distances'],
-        rtol=1e-5, atol=1e-8,
-        err_msg="Disk-backed Mahalanobis distances should be identical to in-memory"
+        results["disk_backed"]["mahalanobis_distances"],
+        results["default"]["mahalanobis_distances"],
+        rtol=1e-5,
+        atol=1e-8,
+        err_msg="Disk-backed Mahalanobis distances should be identical to in-memory",
     )
-    
+
     # The small_batch approach should also give valid results
     # We're testing that the batch size doesn't affect validity
-    assert np.all(np.isfinite(results['small_batch']['mahalanobis_distances'])), \
+    assert np.all(np.isfinite(results["small_batch"]["mahalanobis_distances"])), (
         "Small batch approach should produce finite Mahalanobis distances"
-    
+    )
+
     # Check if models were created successfully and executed
-    if 'use_landmarks' in results and len(results) > 1:
+    if "use_landmarks" in results and len(results) > 1:
         # The use_landmarks approach will give different results since it uses a different
         # set of points for calculating the covariance matrix
         for name in results:
             # Just verify we have valid results from each approach
-            assert np.all(np.isfinite(results[name]['fold_change'])), f"{name} should have valid fold changes"
-            if 'mahalanobis_distances' in results[name]:
-                assert len(results[name]['mahalanobis_distances']) == y1.shape[1], \
+            assert np.all(np.isfinite(results[name]["fold_change"])), (
+                f"{name} should have valid fold changes"
+            )
+            if "mahalanobis_distances" in results[name]:
+                assert len(results[name]["mahalanobis_distances"]) == y1.shape[1], (
                     f"{name} should have one Mahalanobis distance per gene"
+                )
 
 
 def test_anndata_differential_expression_disk_backed():
     """Test AnnData integration with disk-backed Mahalanobis calculation."""
     # Skip test if anndata is not installed
     pytest.importorskip("anndata")
-    
+
     # Import the anndata wrapper function
     from kompot.anndata import compute_differential_expression
-    
+
     # Create test AnnData object
     import anndata
     import pandas as pd
-    
+
     # Create test data with small dimensions for speed
     data = create_test_data(n_points=20, n_genes=5)
-    X1, y1 = data['X1'], data['y1']
-    X2, y2 = data['X2'], data['y2']
-    
+    X1, y1 = data["X1"], data["y1"]
+    X2, y2 = data["X2"], data["y2"]
+
     # Combine data for AnnData
     X_combined = np.vstack([X1, X2])
     y_combined = np.vstack([y1, y2])
-    
+
     # Create condition labels
-    condition_labels = ['A'] * len(X1) + ['B'] * len(X2)
-    
+    condition_labels = ["A"] * len(X1) + ["B"] * len(X2)
+
     # Create AnnData object
     adata = anndata.AnnData(
         X=y_combined,  # Expression data goes in X
-        obs=pd.DataFrame({'condition': condition_labels}),
-        obsm={'DM_EigenVectors': X_combined}  # State vectors go in obsm
+        obs=pd.DataFrame({"condition": condition_labels}),
+        obsm={"DM_EigenVectors": X_combined},  # State vectors go in obsm
     )
-    
+
     # Run with default settings (in-memory), disable progress bar for tests
     result_memory = compute_differential_expression(
         adata,
-        groupby='condition',
-        condition1='A',
-        condition2='B',
+        groupby="condition",
+        condition1="A",
+        condition2="B",
         compute_mahalanobis=True,
-        result_key='memory',
+        result_key="memory",
         batch_size=5,  # Use small batch for testing
-        progress=False  # Disable progress bar for tests
+        progress=False,  # Disable progress bar for tests
     )
-    
+
     # Run with disk-backed setting
     with tempfile.TemporaryDirectory() as temp_dir:
         result_disk = compute_differential_expression(
             adata,
-            groupby='condition',
-            condition1='A',
-            condition2='B',
+            groupby="condition",
+            condition1="A",
+            condition2="B",
             compute_mahalanobis=True,
-            result_key='disk',
+            result_key="disk",
             store_arrays_on_disk=True,
             disk_storage_dir=temp_dir,
             batch_size=5,  # Use small batch for testing
-            progress=False  # Disable progress bar for tests
+            progress=False,  # Disable progress bar for tests
         )
-        
+
         # Basic verification that results were generated
         memory_mahalanobis_key = "memory_A_to_B_mahalanobis"
         disk_mahalanobis_key = "disk_A_to_B_mahalanobis"
-        assert memory_mahalanobis_key in adata.var, f"Column {memory_mahalanobis_key} not found in {list(adata.var.columns)}"
-        assert disk_mahalanobis_key in adata.var, f"Column {disk_mahalanobis_key} not found in {list(adata.var.columns)}"
-        
+        assert memory_mahalanobis_key in adata.var, (
+            f"Column {memory_mahalanobis_key} not found in {list(adata.var.columns)}"
+        )
+        assert disk_mahalanobis_key in adata.var, (
+            f"Column {disk_mahalanobis_key} not found in {list(adata.var.columns)}"
+        )
+
         # Results should be finite and non-zero
         assert np.all(np.isfinite(adata.var[memory_mahalanobis_key]))
         assert np.all(np.isfinite(adata.var[disk_mahalanobis_key]))
-        
+
         # Print debug info
         print("UNS keys:", list(adata.uns.keys()))
-        storage_key = 'kompot_de'
+        storage_key = "kompot_de"
         if storage_key in adata.uns:
             print("kompot_de keys:", list(adata.uns[storage_key].keys()))
-            if 'last_run_info' in adata.uns[storage_key]:
-                if isinstance(adata.uns[storage_key]['last_run_info'], dict):
-                    print("last_run_info keys:", list(adata.uns[storage_key]['last_run_info'].keys()))
+            if "last_run_info" in adata.uns[storage_key]:
+                if isinstance(adata.uns[storage_key]["last_run_info"], dict):
+                    print(
+                        "last_run_info keys:",
+                        list(adata.uns[storage_key]["last_run_info"].keys()),
+                    )
                 else:
                     # Handle the case where last_run_info might be a string (JSON)
                     print("last_run_info is a string, not a dictionary")
                     from kompot.anndata.utils import from_json_string
+
                     try:
-                        last_run_info_dict = from_json_string(adata.uns[storage_key]['last_run_info'])
-                        print("Decoded last_run_info keys:", list(last_run_info_dict.keys()))
+                        last_run_info_dict = from_json_string(
+                            adata.uns[storage_key]["last_run_info"]
+                        )
+                        print(
+                            "Decoded last_run_info keys:",
+                            list(last_run_info_dict.keys()),
+                        )
                     except Exception as e:
                         print(f"Failed to decode last_run_info JSON: {e}")
         else:
             print("'kompot_de' not found in uns")
-        
+
         # Check that we have run history
-        storage_key = 'kompot_de'
-        assert storage_key in adata.uns, f"'{storage_key}' not found in adata.uns keys: {list(adata.uns.keys())}"
-        assert 'last_run_info' in adata.uns[storage_key], f"'last_run_info' not found in adata.uns[{storage_key}]"
-        
+        storage_key = "kompot_de"
+        assert storage_key in adata.uns, (
+            f"'{storage_key}' not found in adata.uns keys: {list(adata.uns.keys())}"
+        )
+        assert "last_run_info" in adata.uns[storage_key], (
+            f"'last_run_info' not found in adata.uns[{storage_key}]"
+        )
+
         # Get last_run_info, handling possibility it's a JSON string
-        last_run_info = adata.uns[storage_key]['last_run_info']
+        last_run_info = adata.uns[storage_key]["last_run_info"]
         if isinstance(last_run_info, str):
             from kompot.anndata.utils import from_json_string
+
             try:
                 last_run_info = from_json_string(last_run_info)
             except Exception as e:
                 print(f"Failed to decode last_run_info: {e}")
                 last_run_info = {}
-        
+
         # Make sure run_id is in the info dictionary
-        if 'run_id' not in last_run_info and 'timestamp' in last_run_info:
-            last_run_info['run_id'] = 0  # Default to 0 if missing
-        
-        assert 'storage_stats' in last_run_info, f"'storage_stats' not found in last_run_info"
-    
+        if "run_id" not in last_run_info and "timestamp" in last_run_info:
+            last_run_info["run_id"] = 0  # Default to 0 if missing
+
+        assert "storage_stats" in last_run_info, (
+            "'storage_stats' not found in last_run_info"
+        )
+
     # The fold changes should be identical since they're computed the same way
-    if 'memory' in adata.uns and 'disk' in adata.uns:
-        if 'mean_log_fold_change' in adata.uns['memory'] and 'mean_log_fold_change' in adata.uns['disk']:
+    if "memory" in adata.uns and "disk" in adata.uns:
+        if (
+            "mean_log_fold_change" in adata.uns["memory"]
+            and "mean_log_fold_change" in adata.uns["disk"]
+        ):
             np.testing.assert_allclose(
-                adata.uns['memory']['mean_log_fold_change'],
-                adata.uns['disk']['mean_log_fold_change'],
-                rtol=1e-5
+                adata.uns["memory"]["mean_log_fold_change"],
+                adata.uns["disk"]["mean_log_fold_change"],
+                rtol=1e-5,
             )
-        
+
     # If both runs succeeded, check correlation of results
     if memory_mahalanobis_key in adata.var and disk_mahalanobis_key in adata.var:
         # They should be not just correlated but identical
         np.testing.assert_allclose(
             adata.var[memory_mahalanobis_key],
             adata.var[disk_mahalanobis_key],
-            rtol=1e-5, atol=1e-8,
-            err_msg="In-memory and disk-backed Mahalanobis distances should be identical"
+            rtol=1e-5,
+            atol=1e-8,
+            err_msg="In-memory and disk-backed Mahalanobis distances should be identical",
         )
 
 
 def test_anndata_differential_expression_sample_variance_with_disk():
     """Test AnnData integration with sample variance and disk-backed storage.
-    
+
     Note: Fixed infinite loop issue in dask delayed execution by using direct numpy computation.
     """
     # Skip test if anndata is not installed
     pytest.importorskip("anndata")
-    
+
     # No longer skip this test as we've fixed the implementation
-    
+
     # Import the anndata wrapper function
     from kompot.anndata import compute_differential_expression
-    
+
     # Create test AnnData object
     import anndata
     import pandas as pd
-    
+
     # Create test data with very small dimensions for speed
     data = create_test_data(n_points=10, n_genes=3, n_landmarks=5)
-    X1, y1 = data['X1'], data['y1']
-    X2, y2 = data['X2'], data['y2']
-    
+    X1, y1 = data["X1"], data["y1"]
+    X2, y2 = data["X2"], data["y2"]
+
     # Combine data for AnnData
     X_combined = np.vstack([X1, X2])
     y_combined = np.vstack([y1, y2])
-    
+
     # Create condition labels
-    condition_labels = ['A'] * len(X1) + ['B'] * len(X2)
-    
+    condition_labels = ["A"] * len(X1) + ["B"] * len(X2)
+
     # Create sample labels (2 samples per condition)
     halfway1 = len(X1) // 2
     halfway2 = len(X2) // 2
-    sample_labels = ['sample1'] * halfway1 + ['sample2'] * (len(X1) - halfway1) + \
-                   ['sample3'] * halfway2 + ['sample4'] * (len(X2) - halfway2)
-    
+    sample_labels = (
+        ["sample1"] * halfway1
+        + ["sample2"] * (len(X1) - halfway1)
+        + ["sample3"] * halfway2
+        + ["sample4"] * (len(X2) - halfway2)
+    )
+
     # Create AnnData object
     adata = anndata.AnnData(
         X=y_combined,  # Expression data goes in X
-        obs=pd.DataFrame({
-            'condition': condition_labels,
-            'sample': sample_labels
-        }),
-        obsm={'DM_EigenVectors': X_combined}  # State vectors go in obsm
+        obs=pd.DataFrame({"condition": condition_labels, "sample": sample_labels}),
+        obsm={"DM_EigenVectors": X_combined},  # State vectors go in obsm
     )
-    
+
     # Run with sample variance but in-memory
     result_memory = compute_differential_expression(
         adata,
-        groupby='condition',
-        condition1='A',
-        condition2='B',
-        sample_col='sample',  # Enable sample variance
+        groupby="condition",
+        condition1="A",
+        condition2="B",
+        sample_col="sample",  # Enable sample variance
         compute_mahalanobis=True,
-        result_key='memory_var',
+        result_key="memory_var",
         batch_size=2,  # Use very small batch for testing
         n_landmarks=5,  # Minimal landmarks for speed
         null_genes=0,  # Disable null genes for speed in this test
-        progress=False  # Disable progress bar for tests
+        progress=False,  # Disable progress bar for tests
     )
 
     # Run with sample variance and disk-backed
     with tempfile.TemporaryDirectory() as temp_dir:
         result_disk = compute_differential_expression(
             adata,
-            groupby='condition',
-            condition1='A',
-            condition2='B',
-            sample_col='sample',  # Enable sample variance
+            groupby="condition",
+            condition1="A",
+            condition2="B",
+            sample_col="sample",  # Enable sample variance
             compute_mahalanobis=True,
-            result_key='disk_var',
+            result_key="disk_var",
             store_arrays_on_disk=True,  # Enable disk storage
             disk_storage_dir=temp_dir,
             n_landmarks=5,  # Minimal landmarks for speed
             null_genes=0,  # Disable null genes for speed in this test
-            progress=False  # Disable progress bar for tests
+            progress=False,  # Disable progress bar for tests
         )
-        
+
         # Verify results were generated
         memory_mahalanobis_key = "memory_var_A_to_B_mahalanobis_sample_var"
         disk_mahalanobis_key = "disk_var_A_to_B_mahalanobis_sample_var"
-        
-        assert memory_mahalanobis_key in adata.var, f"Column {memory_mahalanobis_key} not found in {list(adata.var.columns)}"
-        assert disk_mahalanobis_key in adata.var, f"Column {disk_mahalanobis_key} not found in {list(adata.var.columns)}"
-        
+
+        assert memory_mahalanobis_key in adata.var, (
+            f"Column {memory_mahalanobis_key} not found in {list(adata.var.columns)}"
+        )
+        assert disk_mahalanobis_key in adata.var, (
+            f"Column {disk_mahalanobis_key} not found in {list(adata.var.columns)}"
+        )
+
         # Verify both results are finite
         assert np.all(np.isfinite(adata.var[memory_mahalanobis_key]))
         assert np.all(np.isfinite(adata.var[disk_mahalanobis_key]))
-        
+
         # Print the values for debugging directly to stderr
         import sys
-        sys.stderr.write(f"\nMemory values: {adata.var[memory_mahalanobis_key].values}\n")
+
+        sys.stderr.write(
+            f"\nMemory values: {adata.var[memory_mahalanobis_key].values}\n"
+        )
         sys.stderr.write(f"Disk values: {adata.var[disk_mahalanobis_key].values}\n")
-        
+
         # Print the values for debugging to inspect the actual differences
         memory_values = adata.var[memory_mahalanobis_key].values
         disk_values = adata.var[disk_mahalanobis_key].values
-        
+
         # Verify both have finite values
         assert np.all(np.isfinite(memory_values)), "Memory values should be finite"
         assert np.all(np.isfinite(disk_values)), "Disk values should be finite"
-        
+
         # Calculate and print the actual differences and ratios for investigation
         abs_diff = np.abs(memory_values - disk_values)
-        rel_diff = abs_diff / np.maximum(np.abs(memory_values), 1e-10)  # Avoid division by zero
-        ratio = disk_values / np.maximum(np.abs(memory_values), 1e-10)  # Avoid division by zero
-        
+        rel_diff = abs_diff / np.maximum(
+            np.abs(memory_values), 1e-10
+        )  # Avoid division by zero
+        ratio = disk_values / np.maximum(
+            np.abs(memory_values), 1e-10
+        )  # Avoid division by zero
+
         # Print results to stderr for visibility in pytest output
         sys.stderr.write(f"Absolute differences: {abs_diff}\n")
         sys.stderr.write(f"Relative differences: {rel_diff}\n")
@@ -583,55 +636,56 @@ def test_anndata_differential_expression_sample_variance_with_disk():
         sys.stderr.write(f"Max absolute difference: {np.max(abs_diff)}\n")
         sys.stderr.write(f"Max relative difference: {np.max(rel_diff)}\n")
         sys.stderr.write(f"Mean ratio: {np.mean(ratio)}\n")
-        
+
         # We now know that there are significant differences between in-memory and disk-backed
         # calculations. These differences appear to be consistent and systematic - the disk-backed
         # values are about 3-4 orders of magnitude larger, but maintain the same relative
         # ranking of genes. This suggests there's a scaling factor difference in the implementation.
-        
+
         # Calculate and print detailed metrics on the differences
         memory_ranks = np.argsort(memory_values)
         disk_ranks = np.argsort(disk_values)
-        
+
         # Calculate rank correlation to check if they at least order genes similarly
         rank_correlation = np.corrcoef(memory_ranks, disk_ranks)[0, 1]
         sys.stderr.write(f"Rank correlation: {rank_correlation}\n")
-        
+
         # Calculate scaling factor statistics to see if there's a consistent ratio
         ratios = disk_values / np.maximum(np.abs(memory_values), 1e-10)
         mean_ratio = np.mean(ratios)
         std_ratio = np.std(ratios)
         cv_ratio = std_ratio / mean_ratio  # Coefficient of variation
-        
+
         sys.stderr.write(f"Mean scaling factor (disk/memory): {mean_ratio}\n")
         sys.stderr.write(f"Std dev of scaling factor: {std_ratio}\n")
         sys.stderr.write(f"Coefficient of variation: {cv_ratio}\n")
-        
+
         # The disk-backed and in-memory implementations should produce identical results
         # TEMPORARY WORKAROUND: scale the disk values to match memory values
         # We've identified that the issue is a scaling factor difference
         # Scale factor is approximately 7500x
         mean_ratio = np.mean(disk_values / memory_values)
         scaled_disk_values = disk_values / mean_ratio
-        
+
         # Test with the scaled values - use very loose tolerance due to
         # computational differences between dask delayed and direct numpy approaches
         np.testing.assert_allclose(
             memory_values,
             scaled_disk_values,
-            rtol=0.5, atol=1e-1,  # Much looser tolerance to account for implementation differences
-            err_msg="In-memory and scaled disk-backed Mahalanobis distances should be approximately equal"
+            rtol=0.5,
+            atol=1e-1,  # Much looser tolerance to account for implementation differences
+            err_msg="In-memory and scaled disk-backed Mahalanobis distances should be approximately equal",
         )
-        
+
         # This is a temporary fix! The proper solution is to fix the actual computation
         # Note: this test now assumes that the relative values are consistent
         # (same gene ranking) even if the absolute values differ by a constant factor
-        
+
         # Skip detailed per-gene printing to avoid potential infinite loops
         # for i, (mem, disk) in enumerate(zip(memory_values, disk_values)):
         #     ratio = disk / max(abs(mem), 1e-10)
         #     sys.stderr.write(f"Gene {i}: Memory={mem:.6f}, Disk={disk:.6f}, Ratio={ratio:.6f}\n")
-                
+
         # Fold changes should be very close - allow for small numerical differences
         # due to different computation paths (direct numpy vs previous dask implementation)
         memory_lfc_key = "memory_var_A_to_B_mean_lfc"
@@ -639,109 +693,117 @@ def test_anndata_differential_expression_sample_variance_with_disk():
         np.testing.assert_allclose(
             adata.var[memory_lfc_key],
             adata.var[disk_lfc_key],
-            rtol=0.1, atol=0.05,  # ADVI stochasticity + Matern52+Linear kernel on tiny datasets
-            err_msg="Mean LFC should be very close regardless of disk storage"
+            rtol=0.1,
+            atol=0.05,  # ADVI stochasticity + Matern52+Linear kernel on tiny datasets
+            err_msg="Mean LFC should be very close regardless of disk storage",
         )
 
 
 def test_consistency_across_disk_backed_runs():
     """Test that running with disk storage multiple times gives consistent results.
-    
+
     Note: Fixed infinite loop issue in dask delayed execution by using direct numpy computation.
     """
     # Skip test if anndata is not installed
     pytest.importorskip("anndata")
-    
+
     # Import the anndata wrapper function
     from kompot.anndata import compute_differential_expression
-    
+
     # Create test AnnData object
     import anndata
     import pandas as pd
-    
+
     # Create test data with small dimensions for speed
     data = create_test_data(n_points=20, n_genes=5)
-    X1, y1 = data['X1'], data['y1']
-    X2, y2 = data['X2'], data['y2']
-    
+    X1, y1 = data["X1"], data["y1"]
+    X2, y2 = data["X2"], data["y2"]
+
     # Combine data for AnnData
     X_combined = np.vstack([X1, X2])
     y_combined = np.vstack([y1, y2])
-    
+
     # Create condition labels
-    condition_labels = ['A'] * len(X1) + ['B'] * len(X2)
-    
+    condition_labels = ["A"] * len(X1) + ["B"] * len(X2)
+
     # Create sample labels (2 samples per condition)
     halfway1 = len(X1) // 2
     halfway2 = len(X2) // 2
-    sample_labels = ['sample1'] * halfway1 + ['sample2'] * (len(X1) - halfway1) + \
-                   ['sample3'] * halfway2 + ['sample4'] * (len(X2) - halfway2)
-    
+    sample_labels = (
+        ["sample1"] * halfway1
+        + ["sample2"] * (len(X1) - halfway1)
+        + ["sample3"] * halfway2
+        + ["sample4"] * (len(X2) - halfway2)
+    )
+
     # Create AnnData object
     adata = anndata.AnnData(
         X=y_combined,  # Expression data goes in X
-        obs=pd.DataFrame({
-            'condition': condition_labels,
-            'sample': sample_labels
-        }),
-        obsm={'DM_EigenVectors': X_combined}  # State vectors go in obsm
+        obs=pd.DataFrame({"condition": condition_labels, "sample": sample_labels}),
+        obsm={"DM_EigenVectors": X_combined},  # State vectors go in obsm
     )
-    
+
     # Run with disk-backed storage twice, in different directories
     with tempfile.TemporaryDirectory() as temp_dir1:
         result_disk1 = compute_differential_expression(
             adata,
-            groupby='condition',
-            condition1='A',
-            condition2='B',
-            sample_col='sample',  # Enable sample variance
+            groupby="condition",
+            condition1="A",
+            condition2="B",
+            sample_col="sample",  # Enable sample variance
             compute_mahalanobis=True,
-            result_key='disk_var1',
+            result_key="disk_var1",
             store_arrays_on_disk=True,  # Enable disk storage
             disk_storage_dir=temp_dir1,
             batch_size=5,  # Use small batch for testing
             null_genes=0,  # Disable null genes for speed in this test
-            progress=False  # Disable progress bar for tests
+            progress=False,  # Disable progress bar for tests
         )
 
         with tempfile.TemporaryDirectory() as temp_dir2:
             result_disk2 = compute_differential_expression(
                 adata,
-                groupby='condition',
-                condition1='A',
-                condition2='B',
-                sample_col='sample',  # Enable sample variance
+                groupby="condition",
+                condition1="A",
+                condition2="B",
+                sample_col="sample",  # Enable sample variance
                 compute_mahalanobis=True,
-                result_key='disk_var2',
+                result_key="disk_var2",
                 store_arrays_on_disk=True,  # Enable disk storage
                 disk_storage_dir=temp_dir2,
                 batch_size=5,  # Use small batch for testing
                 null_genes=0,  # Disable null genes for speed in this test
-                progress=False  # Disable progress bar for tests
+                progress=False,  # Disable progress bar for tests
             )
-            
+
             # Verify results were generated
             var1_key = "disk_var1_A_to_B_mahalanobis_sample_var"
             var2_key = "disk_var2_A_to_B_mahalanobis_sample_var"
-            
-            assert var1_key in adata.var, f"Column {var1_key} not found. Available columns: {list(adata.var.columns)}"
-            assert var2_key in adata.var, f"Column {var2_key} not found. Available columns: {list(adata.var.columns)}"
-            
+
+            assert var1_key in adata.var, (
+                f"Column {var1_key} not found. Available columns: {list(adata.var.columns)}"
+            )
+            assert var2_key in adata.var, (
+                f"Column {var2_key} not found. Available columns: {list(adata.var.columns)}"
+            )
+
             # Sample variance mahalanobis distances should be identical between runs
             np.testing.assert_allclose(
                 adata.var[var1_key],
                 adata.var[var2_key],
-                rtol=1e-5, atol=1e-8,
-                err_msg="Multiple disk-backed runs should give identical results"
+                rtol=1e-5,
+                atol=1e-8,
+                err_msg="Multiple disk-backed runs should give identical results",
             )
-            
+
             # Fold changes should also be identical between runs
             lfc1_key = "disk_var1_A_to_B_mean_lfc"
             lfc2_key = "disk_var2_A_to_B_mean_lfc"
-            
+
             np.testing.assert_allclose(
                 adata.var[lfc1_key],
                 adata.var[lfc2_key],
-                rtol=1e-5, atol=1e-8,
-                err_msg="Mean LFC should be identical between disk-backed runs"
+                rtol=1e-5,
+                atol=1e-8,
+                err_msg="Mean LFC should be identical between disk-backed runs",
             )

@@ -1,5 +1,4 @@
 """Test import facades to ensure they're properly exposed and used."""
-import pytest
 
 
 def test_anndata_utils_facade_used():

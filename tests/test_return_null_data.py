@@ -7,7 +7,6 @@ is True.
 
 import numpy as np
 import pandas as pd
-import pytest
 import anndata as ad
 
 import kompot
@@ -61,11 +60,15 @@ class TestReturnFullResultsNull:
     def test_null_key_present(self):
         adata = _make_adata()
         result = kompot.de(
-            adata, "condition", "A", "B",
+            adata,
+            "condition",
+            "A",
+            "B",
             gp=kompot.GPSettings(**_FAST_GP),
             fdr=FDRSettings(null_genes=20, null_seed=42),
             output=OutputSettings(
-                return_full_results=True, progress=False,
+                return_full_results=True,
+                progress=False,
             ),
         )
         assert "null" in result
@@ -73,11 +76,15 @@ class TestReturnFullResultsNull:
     def test_null_table_structure(self):
         adata = _make_adata()
         result = kompot.de(
-            adata, "condition", "A", "B",
+            adata,
+            "condition",
+            "A",
+            "B",
             gp=kompot.GPSettings(**_FAST_GP),
             fdr=FDRSettings(null_genes=15, null_seed=0),
             output=OutputSettings(
-                return_full_results=True, progress=False,
+                return_full_results=True,
+                progress=False,
             ),
         )
         null = result["null"]
@@ -89,11 +96,15 @@ class TestReturnFullResultsNull:
     def test_null_metadata_fields(self):
         adata = _make_adata()
         result = kompot.de(
-            adata, "condition", "A", "B",
+            adata,
+            "condition",
+            "A",
+            "B",
             gp=kompot.GPSettings(**_FAST_GP),
             fdr=FDRSettings(null_genes=10, null_seed=99),
             output=OutputSettings(
-                return_full_results=True, progress=False,
+                return_full_results=True,
+                progress=False,
             ),
         )
         null = result["null"]
@@ -113,18 +124,23 @@ class TestReturnFullResultsNull:
         n_cells = adata.n_obs
         n_null = 12
         result = kompot.de(
-            adata, "condition", "A", "B",
+            adata,
+            "condition",
+            "A",
+            "B",
             gp=kompot.GPSettings(**_FAST_GP),
             fdr=FDRSettings(null_genes=n_null, null_seed=42),
             output=OutputSettings(
-                return_full_results=True, progress=False,
+                return_full_results=True,
+                progress=False,
             ),
         )
         null = result["null"]
 
         # Core expression matrices should always be present
         for key in (
-            "condition1_imputed", "condition2_imputed",
+            "condition1_imputed",
+            "condition2_imputed",
             "fold_change",
         ):
             assert key in null, f"Missing key: {key}"
@@ -145,11 +161,15 @@ class TestReturnFullResultsNull:
         adata = _make_adata()
         n_null = 10
         result = kompot.de(
-            adata, "condition", "A", "B",
+            adata,
+            "condition",
+            "A",
+            "B",
             gp=kompot.GPSettings(**_FAST_GP, use_empirical_variance=True),
             fdr=FDRSettings(null_genes=n_null, null_seed=42),
             output=OutputSettings(
-                return_full_results=True, progress=False,
+                return_full_results=True,
+                progress=False,
             ),
         )
         null = result["null"]
@@ -160,11 +180,15 @@ class TestReturnFullResultsNull:
     def test_fold_change_zscores_present(self):
         adata = _make_adata()
         result = kompot.de(
-            adata, "condition", "A", "B",
+            adata,
+            "condition",
+            "A",
+            "B",
             gp=kompot.GPSettings(**_FAST_GP),
             fdr=FDRSettings(null_genes=8, null_seed=42),
             output=OutputSettings(
-                return_full_results=True, progress=False,
+                return_full_results=True,
+                progress=False,
             ),
         )
         null = result["null"]
@@ -175,28 +199,34 @@ class TestReturnFullResultsNull:
         """The main result table should only contain real genes."""
         adata = _make_adata()
         result = kompot.de(
-            adata, "condition", "A", "B",
+            adata,
+            "condition",
+            "A",
+            "B",
             gp=kompot.GPSettings(**_FAST_GP),
             fdr=FDRSettings(null_genes=20, null_seed=42),
             output=OutputSettings(
-                return_full_results=True, progress=False,
+                return_full_results=True,
+                progress=False,
             ),
         )
         # Real table should have exactly n_genes rows
         assert len(result["table"]) == adata.n_vars
         # No NULL_ prefixed genes in the real table
-        assert not any(
-            idx.startswith("NULL_") for idx in result["table"].index
-        )
+        assert not any(idx.startswith("NULL_") for idx in result["table"].index)
 
     def test_mahalanobis_values_are_nonnegative(self):
         adata = _make_adata()
         result = kompot.de(
-            adata, "condition", "A", "B",
+            adata,
+            "condition",
+            "A",
+            "B",
             gp=kompot.GPSettings(**_FAST_GP),
             fdr=FDRSettings(null_genes=10, null_seed=42),
             output=OutputSettings(
-                return_full_results=True, progress=False,
+                return_full_results=True,
+                progress=False,
             ),
         )
         assert (result["null"]["mahalanobis"] >= 0).all()
@@ -216,7 +246,10 @@ class TestReturnNullDataLightweight:
         """return_null_data=True alone should return the result dict."""
         adata = _make_adata()
         result = kompot.de(
-            adata, "condition", "A", "B",
+            adata,
+            "condition",
+            "A",
+            "B",
             gp=kompot.GPSettings(**_FAST_GP),
             fdr=FDRSettings(null_genes=10, null_seed=42),
             output=OutputSettings(
@@ -234,7 +267,10 @@ class TestReturnNullDataLightweight:
         the dict but the null entry should NOT have expression matrices."""
         adata = _make_adata()
         result = kompot.de(
-            adata, "condition", "A", "B",
+            adata,
+            "condition",
+            "A",
+            "B",
             gp=kompot.GPSettings(**_FAST_GP),
             fdr=FDRSettings(null_genes=10, null_seed=42),
             output=OutputSettings(
@@ -247,8 +283,10 @@ class TestReturnNullDataLightweight:
         assert isinstance(null["table"], pd.DataFrame)
         assert null["seed"] == 42
         for key in (
-            "condition1_imputed", "condition2_imputed",
-            "fold_change", "fold_change_zscores",
+            "condition1_imputed",
+            "condition2_imputed",
+            "fold_change",
+            "fold_change_zscores",
         ):
             assert key not in null, f"Lightweight mode should not include {key}"
 
@@ -256,7 +294,10 @@ class TestReturnNullDataLightweight:
         """return_null_data=True with copy=True returns (dict, adata)."""
         adata = _make_adata()
         result = kompot.de(
-            adata, "condition", "A", "B",
+            adata,
+            "condition",
+            "A",
+            "B",
             gp=kompot.GPSettings(**_FAST_GP),
             fdr=FDRSettings(null_genes=10, null_seed=42),
             output=OutputSettings(
@@ -296,7 +337,10 @@ class TestReturnNullDataLightweight:
         null_indices = list(range(n_null))
 
         fdr_results = _compute_fdr(
-            expression_results, selected, expanded, null_indices,
+            expression_results,
+            selected,
+            expanded,
+            null_indices,
             fdr_threshold=0.05,
             return_null_data=True,
             return_full_results=False,
@@ -313,9 +357,12 @@ class TestReturnNullDataLightweight:
 
         # Expression matrices should NOT be present
         for key in (
-            "condition1_imputed", "condition2_imputed",
-            "fold_change", "fold_change_zscores",
-            "condition1_std", "condition2_std",
+            "condition1_imputed",
+            "condition2_imputed",
+            "fold_change",
+            "fold_change_zscores",
+            "condition1_std",
+            "condition2_std",
         ):
             assert key not in null, f"Lightweight mode should not include {key}"
 
@@ -344,7 +391,10 @@ class TestReturnNullDataLightweight:
         null_indices = list(range(n_null))
 
         fdr_results = _compute_fdr(
-            expression_results, selected, expanded, null_indices,
+            expression_results,
+            selected,
+            expanded,
+            null_indices,
             fdr_threshold=0.05,
             return_null_data=True,
             return_full_results=True,
@@ -355,9 +405,12 @@ class TestReturnNullDataLightweight:
 
         # Expression matrices SHOULD be present
         for key in (
-            "condition1_imputed", "condition2_imputed",
-            "fold_change", "fold_change_zscores",
-            "condition1_std", "condition2_std",
+            "condition1_imputed",
+            "condition2_imputed",
+            "fold_change",
+            "fold_change_zscores",
+            "condition1_std",
+            "condition2_std",
         ):
             assert key in null, f"Full mode should include {key}"
             assert null[key].shape == (n_cells, n_null)
@@ -374,11 +427,15 @@ class TestNoNullWithoutFDR:
     def test_no_null_key_without_fdr(self):
         adata = _make_adata()
         result = kompot.de(
-            adata, "condition", "A", "B",
+            adata,
+            "condition",
+            "A",
+            "B",
             gp=kompot.GPSettings(**_FAST_GP),
             fdr=FDRSettings(null_genes=0),
             output=OutputSettings(
-                return_full_results=True, progress=False,
+                return_full_results=True,
+                progress=False,
             ),
         )
         assert "null" not in result
@@ -387,7 +444,10 @@ class TestNoNullWithoutFDR:
         """return_null_data=True should be harmless when FDR is off."""
         adata = _make_adata()
         result = kompot.de(
-            adata, "condition", "A", "B",
+            adata,
+            "condition",
+            "A",
+            "B",
             gp=kompot.GPSettings(**_FAST_GP),
             fdr=FDRSettings(null_genes=0),
             output=OutputSettings(
@@ -411,11 +471,15 @@ class TestNullDataWithExternalNull:
         adata = _make_adata()
         ext_null = np.random.RandomState(0).exponential(0.5, 100)
         result = kompot.de(
-            adata, "condition", "A", "B",
+            adata,
+            "condition",
+            "A",
+            "B",
             gp=kompot.GPSettings(**_FAST_GP),
             fdr=FDRSettings(null_genes=0, null_mahalanobis=ext_null),
             output=OutputSettings(
-                return_full_results=True, progress=False,
+                return_full_results=True,
+                progress=False,
             ),
         )
         null = result["null"]
@@ -426,15 +490,20 @@ class TestNullDataWithExternalNull:
         adata = _make_adata()
         ext_null = np.random.RandomState(0).exponential(0.5, 50)
         result = kompot.de(
-            adata, "condition", "A", "B",
+            adata,
+            "condition",
+            "A",
+            "B",
             gp=kompot.GPSettings(**_FAST_GP),
             fdr=FDRSettings(
-                null_genes=10, null_seed=42,
+                null_genes=10,
+                null_seed=42,
                 null_mahalanobis=ext_null,
                 combine_with_internal=True,
             ),
             output=OutputSettings(
-                return_full_results=True, progress=False,
+                return_full_results=True,
+                progress=False,
             ),
         )
         null = result["null"]
@@ -444,11 +513,15 @@ class TestNullDataWithExternalNull:
     def test_internal_only_source(self):
         adata = _make_adata()
         result = kompot.de(
-            adata, "condition", "A", "B",
+            adata,
+            "condition",
+            "A",
+            "B",
             gp=kompot.GPSettings(**_FAST_GP),
             fdr=FDRSettings(null_genes=15, null_seed=42),
             output=OutputSettings(
-                return_full_results=True, progress=False,
+                return_full_results=True,
+                progress=False,
             ),
         )
         assert result["null"]["source"] == "internal"
@@ -467,7 +540,8 @@ class TestNullDataReproducibility:
             gp=kompot.GPSettings(**_FAST_GP),
             fdr=FDRSettings(null_genes=10, null_seed=123),
             output=OutputSettings(
-                return_full_results=True, progress=False,
+                return_full_results=True,
+                progress=False,
             ),
         )
         adata1 = _make_adata()
@@ -477,14 +551,16 @@ class TestNullDataReproducibility:
         r2 = kompot.de(adata2, "condition", "A", "B", **params)
 
         np.testing.assert_allclose(
-            r1["null"]["mahalanobis"], r2["null"]["mahalanobis"],
+            r1["null"]["mahalanobis"],
+            r2["null"]["mahalanobis"],
             rtol=1e-3,
         )
         np.testing.assert_array_equal(
             r1["null"]["gene_indices"], r2["null"]["gene_indices"]
         )
         np.testing.assert_allclose(
-            r1["null"]["fold_change"], r2["null"]["fold_change"],
+            r1["null"]["fold_change"],
+            r2["null"]["fold_change"],
             rtol=1e-3,
         )
 
@@ -493,19 +569,27 @@ class TestNullDataReproducibility:
         adata2 = _make_adata()
 
         r1 = kompot.de(
-            adata1, "condition", "A", "B",
+            adata1,
+            "condition",
+            "A",
+            "B",
             gp=kompot.GPSettings(**_FAST_GP),
             fdr=FDRSettings(null_genes=10, null_seed=0),
             output=OutputSettings(
-                return_full_results=True, progress=False,
+                return_full_results=True,
+                progress=False,
             ),
         )
         r2 = kompot.de(
-            adata2, "condition", "A", "B",
+            adata2,
+            "condition",
+            "A",
+            "B",
             gp=kompot.GPSettings(**_FAST_GP),
             fdr=FDRSettings(null_genes=10, null_seed=999),
             output=OutputSettings(
-                return_full_results=True, progress=False,
+                return_full_results=True,
+                progress=False,
             ),
         )
 
@@ -527,11 +611,15 @@ class TestNullTableCompatibility:
     def test_concat_works(self):
         adata = _make_adata()
         result = kompot.de(
-            adata, "condition", "A", "B",
+            adata,
+            "condition",
+            "A",
+            "B",
             gp=kompot.GPSettings(**_FAST_GP),
             fdr=FDRSettings(null_genes=10, null_seed=42),
             output=OutputSettings(
-                return_full_results=True, progress=False,
+                return_full_results=True,
+                progress=False,
             ),
         )
         real_table = result["table"]

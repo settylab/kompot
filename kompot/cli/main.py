@@ -1,4 +1,5 @@
 """Main CLI entry point for kompot."""
+
 import argparse
 import sys
 import os
@@ -26,15 +27,15 @@ def _set_early_thread_limits(args_list):
     n_threads = None
 
     for i, arg in enumerate(args_list):
-        if arg == '--threads' and i + 1 < len(args_list):
+        if arg == "--threads" and i + 1 < len(args_list):
             try:
                 n_threads = int(args_list[i + 1])
             except ValueError:
                 pass  # Will be handled by proper argparse later
             break
-        elif arg.startswith('--threads='):
+        elif arg.startswith("--threads="):
             try:
-                n_threads = int(arg.split('=')[1])
+                n_threads = int(arg.split("=")[1])
             except ValueError:
                 pass
             break
@@ -42,10 +43,10 @@ def _set_early_thread_limits(args_list):
     # Set thread limits if specified
     if n_threads is not None:
         n_threads_str = str(n_threads)
-        os.environ['OMP_NUM_THREADS'] = n_threads_str
-        os.environ['MKL_NUM_THREADS'] = n_threads_str
-        os.environ['OPENBLAS_NUM_THREADS'] = n_threads_str
-        os.environ['BLAS_NUM_THREADS'] = n_threads_str
+        os.environ["OMP_NUM_THREADS"] = n_threads_str
+        os.environ["MKL_NUM_THREADS"] = n_threads_str
+        os.environ["OPENBLAS_NUM_THREADS"] = n_threads_str
+        os.environ["BLAS_NUM_THREADS"] = n_threads_str
         # Note: We can't log yet as logging isn't set up
 
 
@@ -60,29 +61,28 @@ def main():
     from .dm import add_dm_parser
 
     parser = argparse.ArgumentParser(
-        prog='kompot',
-        description='Kompot: Differential abundance and expression analysis for single-cell data',
-        epilog='For more information, visit https://kompot.readthedocs.io'
+        prog="kompot",
+        description="Kompot: Differential abundance and expression analysis for single-cell data",
+        epilog="For more information, visit https://kompot.readthedocs.io",
     )
 
     parser.add_argument(
-        '--version',
-        action='version',
-        version=f'%(prog)s {__version__}'
+        "--version", action="version", version=f"%(prog)s {__version__}"
     )
 
     parser.add_argument(
-        '-v', '--verbose',
-        action='store_true',
-        help='Enable verbose logging (DEBUG level)'
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Enable verbose logging (DEBUG level)",
     )
 
     # Create subparsers for different commands
     subparsers = parser.add_subparsers(
-        title='commands',
-        description='Available analysis commands',
-        dest='command',
-        help='Use "kompot <command> --help" for command-specific help'
+        title="commands",
+        description="Available analysis commands",
+        dest="command",
+        help='Use "kompot <command> --help" for command-specific help',
     )
 
     # Add subcommands
@@ -114,5 +114,5 @@ def main():
         sys.exit(1)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

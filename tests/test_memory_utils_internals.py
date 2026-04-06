@@ -18,6 +18,7 @@ class TestPsutilImportBranch:
         # We can verify by mocking, but the simplest is to exercise the
         # get_available_memory fallback path.
         from kompot import memory_utils
+
         original = memory_utils.psutil
         try:
             memory_utils.psutil = None
@@ -34,6 +35,7 @@ class TestDaskImportBranch:
     def test_get_dask_array_3d(self):
         """Cover 3D chunking path in get_dask_array (lines 52-56)."""
         from kompot.memory_utils import get_dask_array, DASK_AVAILABLE
+
         if not DASK_AVAILABLE:
             pytest.skip("dask not available")
         arr = get_dask_array((200, 200, 10))
@@ -43,6 +45,7 @@ class TestDaskImportBranch:
     def test_get_dask_array_2d(self):
         """Cover non-3D chunking path in get_dask_array (lines 57-71)."""
         from kompot.memory_utils import get_dask_array, DASK_AVAILABLE
+
         if not DASK_AVAILABLE:
             pytest.skip("dask not available")
         arr = get_dask_array((500, 500))
@@ -52,6 +55,7 @@ class TestDaskImportBranch:
     def test_get_dask_array_with_chunk_size(self):
         """Cover explicit chunk_size path (lines 72-74)."""
         from kompot.memory_utils import get_dask_array, DASK_AVAILABLE
+
         if not DASK_AVAILABLE:
             pytest.skip("dask not available")
         arr = get_dask_array((100, 100), chunk_size=(50, 50))
@@ -60,6 +64,7 @@ class TestDaskImportBranch:
     def test_get_dask_array_not_available(self):
         """Cover early return when dask not available (line 44-45)."""
         from kompot import memory_utils
+
         orig = memory_utils.DASK_AVAILABLE
         try:
             memory_utils.DASK_AVAILABLE = False
@@ -75,9 +80,11 @@ class TestArraySize:
     def test_array_size_dask(self):
         """Cover dask array nbytes path."""
         from kompot.memory_utils import array_size, DASK_AVAILABLE
+
         if not DASK_AVAILABLE:
             pytest.skip("dask not available")
         import dask.array as da
+
         arr = da.zeros((10, 10), chunks=5)
         result = array_size(arr)
         assert isinstance(result, (int, np.integer))
@@ -104,12 +111,14 @@ class TestGetAvailableMemory:
     def test_linux_memavailable_path(self):
         """Cover line 171-172: Linux MemAvailable reading."""
         from kompot import memory_utils
+
         original = memory_utils.psutil
         try:
             memory_utils.psutil = None
             # On Linux this should work via /proc/meminfo
             import platform
-            if platform.system() == 'Linux':
+
+            if platform.system() == "Linux":
                 h, b = memory_utils.get_available_memory()
                 assert b > 0
             else:
@@ -124,12 +133,12 @@ class TestAnalyzeCovarianceMemory:
     def test_store_arrays_on_disk_sets_debug(self):
         """When store_arrays_on_disk=True, log_level should become debug."""
         from kompot.memory_utils import analyze_covariance_memory_requirements
+
         result = analyze_covariance_memory_requirements(
-            n_points=5, n_genes=3,
-            store_arrays_on_disk=True
+            n_points=5, n_genes=3, store_arrays_on_disk=True
         )
-        assert 'should_use_disk' in result
-        assert result['status'] in ('ok', 'warning', 'critical')
+        assert "should_use_disk" in result
+        assert result["status"] in ("ok", "warning", "critical")
 
 
 class TestDiskStorage:
@@ -139,6 +148,7 @@ class TestDiskStorage:
     def test_init_with_dask(self):
         """Cover line 540 (dask support log message)."""
         from kompot.memory_utils import DiskStorage, DASK_AVAILABLE
+
         ds = DiskStorage(use_dask=True)
         assert ds.use_dask == DASK_AVAILABLE
         ds.cleanup()
@@ -146,6 +156,7 @@ class TestDiskStorage:
     def test_init_with_storage_dir(self):
         """Cover storage_dir provided path."""
         from kompot.memory_utils import DiskStorage
+
         with tempfile.TemporaryDirectory() as tmpdir:
             ds = DiskStorage(storage_dir=tmpdir, use_dask=False)
             assert tmpdir in ds.storage_dir
@@ -154,12 +165,14 @@ class TestDiskStorage:
     def test_init_with_n_cells_n_genes(self):
         """Cover estimated size from n_cells/n_genes."""
         from kompot.memory_utils import DiskStorage
+
         ds = DiskStorage(use_dask=False, n_cells=10, n_genes=5)
         ds.cleanup()
 
     def test_store_and_load_array(self):
         """Cover store_array and load_array paths."""
         from kompot.memory_utils import DiskStorage
+
         ds = DiskStorage(use_dask=False)
         arr = np.random.randn(5, 5)
         ds.store_array(arr, "test_arr")
@@ -170,6 +183,7 @@ class TestDiskStorage:
     def test_load_array_key_not_found(self):
         """Cover line 812: KeyError for missing key."""
         from kompot.memory_utils import DiskStorage
+
         ds = DiskStorage(use_dask=False)
         with pytest.raises(KeyError):
             ds.load_array("nonexistent")
@@ -178,6 +192,7 @@ class TestDiskStorage:
     def test_load_array_file_not_found(self):
         """Cover line 816: FileNotFoundError."""
         from kompot.memory_utils import DiskStorage
+
         ds = DiskStorage(use_dask=False)
         # Manually add a fake registry entry
         ds.array_registry["ghost"] = {
@@ -186,7 +201,7 @@ class TestDiskStorage:
             "dtype": "float64",
             "size_bytes": 40,
             "size_human": "40.00 B",
-            "namespaced_key": "ghost"
+            "namespaced_key": "ghost",
         }
         with pytest.raises(FileNotFoundError):
             ds.load_array("ghost")
@@ -195,19 +210,21 @@ class TestDiskStorage:
     def test_load_array_lazy_dask(self):
         """Cover lines 822-825: lazy loading with dask."""
         from kompot.memory_utils import DiskStorage, DASK_AVAILABLE
+
         if not DASK_AVAILABLE:
             pytest.skip("dask not available")
         ds = DiskStorage(use_dask=True)
         arr = np.random.randn(5, 5)
         ds.store_array(arr, "lazy_test")
         loaded = ds.load_array("lazy_test", lazy=True)
-        assert hasattr(loaded, 'compute')
+        assert hasattr(loaded, "compute")
         np.testing.assert_array_almost_equal(loaded.compute(), arr)
         ds.cleanup()
 
     def test_remove_array(self):
         """Cover remove_array path (lines 855-858, 862-865)."""
         from kompot.memory_utils import DiskStorage
+
         ds = DiskStorage(use_dask=False)
         arr = np.random.randn(5, 5)
         ds.store_array(arr, "to_remove")
@@ -219,6 +236,7 @@ class TestDiskStorage:
     def test_remove_array_missing_key(self):
         """Cover remove_array warning for missing key."""
         from kompot.memory_utils import DiskStorage
+
         ds = DiskStorage(use_dask=False)
         # Should not raise, just warn
         ds.remove_array("does_not_exist")
@@ -227,6 +245,7 @@ class TestDiskStorage:
     def test_total_storage_used(self):
         """Cover total_storage_used property."""
         from kompot.memory_utils import DiskStorage
+
         ds = DiskStorage(use_dask=False)
         arr = np.zeros((10, 10))
         ds.store_array(arr, "sz_test")
@@ -238,6 +257,7 @@ class TestDiskStorage:
     def test_list_arrays(self):
         """Cover list_arrays."""
         from kompot.memory_utils import DiskStorage
+
         ds = DiskStorage(use_dask=False)
         ds.store_array(np.zeros(5), "a")
         ds.store_array(np.zeros(3), "b")
@@ -249,10 +269,13 @@ class TestDiskStorage:
     def test_monitor_disk_space_warning(self):
         """Cover _monitor_disk_space_during_storage warning path (line 677)."""
         from kompot.memory_utils import DiskStorage
+
         ds = DiskStorage(use_dask=False)
         # Mock get_disk_space to return very low free space
-        with patch('kompot.memory_utils.get_disk_space',
-                   return_value=("1 GB", 10**9, "900 MB", 9*10**8, "100 B", 100)):
+        with patch(
+            "kompot.memory_utils.get_disk_space",
+            return_value=("1 GB", 10**9, "900 MB", 9 * 10**8, "100 B", 100),
+        ):
             with pytest.raises(IOError):
                 ds._monitor_disk_space_during_storage(10**9)
         ds.cleanup()
@@ -260,9 +283,12 @@ class TestDiskStorage:
     def test_monitor_disk_low_but_not_zero(self):
         """Cover line 677: free < 2x array but free > array."""
         from kompot.memory_utils import DiskStorage
+
         ds = DiskStorage(use_dask=False)
-        with patch('kompot.memory_utils.get_disk_space',
-                   return_value=("1 GB", 10**9, "500 MB", 5*10**8, "500 MB", 500)):
+        with patch(
+            "kompot.memory_utils.get_disk_space",
+            return_value=("1 GB", 10**9, "500 MB", 5 * 10**8, "500 MB", 500),
+        ):
             # free (500) < 2*200 but free (500) >= 200 => warning but no exception
             # Actually 500 > 200 so no IOError, just warning
             ds.array_registry["dummy"] = {"size_bytes": 0}
@@ -272,9 +298,12 @@ class TestDiskStorage:
     def test_check_disk_space_insufficient(self):
         """Cover _check_disk_space IOError path (line 600)."""
         from kompot.memory_utils import DiskStorage
+
         ds = DiskStorage(use_dask=False)
-        with patch('kompot.memory_utils.get_disk_space',
-                   return_value=("1 GB", 10**9, "999 MB", 999*10**6, "1 B", 1)):
+        with patch(
+            "kompot.memory_utils.get_disk_space",
+            return_value=("1 GB", 10**9, "999 MB", 999 * 10**6, "1 B", 1),
+        ):
             with pytest.raises(IOError, match="Insufficient disk space"):
                 ds._check_disk_space(expected_size_bytes=10**9)
         ds.cleanup()
@@ -282,17 +311,27 @@ class TestDiskStorage:
     def test_check_disk_space_tight(self):
         """Cover _check_disk_space warning (tight space, line 618)."""
         from kompot.memory_utils import DiskStorage
+
         ds = DiskStorage(use_dask=False)
         # free > required but < 1.5x required => warning
-        with patch('kompot.memory_utils.get_disk_space',
-                   return_value=("10 GB", 10**10, "5 GB", 5*10**9,
-                                 "1.2 GB", int(1.2 * 10**9))):
+        with patch(
+            "kompot.memory_utils.get_disk_space",
+            return_value=(
+                "10 GB",
+                10**10,
+                "5 GB",
+                5 * 10**9,
+                "1.2 GB",
+                int(1.2 * 10**9),
+            ),
+        ):
             ds._check_disk_space(expected_size_bytes=10**9)
         ds.cleanup()
 
     def test_suggest_alternative_dirs(self):
         """Cover _suggest_alternative_dirs (lines 648, 655-656)."""
         from kompot.memory_utils import DiskStorage
+
         ds = DiskStorage(use_dask=False)
         alts = ds._suggest_alternative_dirs()
         assert isinstance(alts, list)
@@ -301,6 +340,7 @@ class TestDiskStorage:
     def test_cleanup_exception_handling(self):
         """Cover cleanup exception path (lines 722-730)."""
         from kompot.memory_utils import DiskStorage
+
         ds = DiskStorage(use_dask=False)
         # Force cleanup to hit the rmtree exception by making directory non-existent
         ds.cleanup()
@@ -311,6 +351,7 @@ class TestDiskStorage:
         """Cover line 703: sys.meta_path is None during shutdown."""
         from kompot.memory_utils import DiskStorage
         import sys
+
         ds = DiskStorage(use_dask=False)
         orig_meta = sys.meta_path
         try:
@@ -325,6 +366,7 @@ class TestDiskStorage:
     def test_store_array_lock_removal(self):
         """Cover lines 788-791: lock file removal in finally block."""
         from kompot.memory_utils import DiskStorage
+
         ds = DiskStorage(use_dask=False)
         arr = np.array([1, 2, 3])
         path = ds.store_array(arr, "lock_test")
@@ -339,6 +381,7 @@ class TestAsDAskArray:
     def test_as_dask_array_no_dask(self):
         """Cover line 909-910: ImportError when dask not available."""
         from kompot.memory_utils import DiskStorage
+
         ds = DiskStorage(use_dask=False)
         ds.use_dask = False
         with pytest.raises(ImportError):
@@ -348,6 +391,7 @@ class TestAsDAskArray:
     def test_as_dask_array_3d_with_stored(self):
         """Cover lines 912-954: building 3D dask array from stored gene slices."""
         from kompot.memory_utils import DiskStorage, DASK_AVAILABLE
+
         if not DASK_AVAILABLE:
             pytest.skip("dask not available")
         ds = DiskStorage(use_dask=True)
@@ -364,6 +408,7 @@ class TestAsDAskArray:
     def test_as_dask_array_infer_shape(self):
         """Cover shape inference from stored 2D arrays (lines 918-923)."""
         from kompot.memory_utils import DiskStorage, DASK_AVAILABLE
+
         if not DASK_AVAILABLE:
             pytest.skip("dask not available")
         ds = DiskStorage(use_dask=True)
@@ -376,6 +421,7 @@ class TestAsDAskArray:
     def test_as_dask_array_cannot_infer_shape(self):
         """Cover line 925: ValueError when shape cannot be inferred."""
         from kompot.memory_utils import DiskStorage, DASK_AVAILABLE
+
         if not DASK_AVAILABLE:
             pytest.skip("dask not available")
         ds = DiskStorage(use_dask=True)
@@ -387,6 +433,7 @@ class TestAsDAskArray:
     def test_as_dask_array_non_3d(self):
         """Cover line 956-957: non-3D shape returns zeros."""
         from kompot.memory_utils import DiskStorage, DASK_AVAILABLE
+
         if not DASK_AVAILABLE:
             pytest.skip("dask not available")
         ds = DiskStorage(use_dask=True)
@@ -397,6 +444,7 @@ class TestAsDAskArray:
     def test_as_dask_array_missing_gene_slice(self):
         """Cover line 948-949: zeros for missing gene slices."""
         from kompot.memory_utils import DiskStorage, DASK_AVAILABLE
+
         if not DASK_AVAILABLE:
             pytest.skip("dask not available")
         ds = DiskStorage(use_dask=True)

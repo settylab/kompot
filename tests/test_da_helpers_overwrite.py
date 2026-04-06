@@ -22,13 +22,22 @@ from kompot.anndata.utils.json_utils import (
 # Helpers to build mock AnnData with run history
 # ---------------------------------------------------------------------------
 
-def _make_run_entry(run_id, params=None, field_mapping=None, timestamp="2025-01-01T00:00:00"):
+
+def _make_run_entry(
+    run_id, params=None, field_mapping=None, timestamp="2025-01-01T00:00:00"
+):
     """Build a minimal run-history entry."""
     entry = {
         "run_id": run_id,
         "adjusted_run_id": run_id,
         "timestamp": timestamp,
-        "params": params or {"condition1": "A", "condition2": "B", "obsm_key": "X_pca", "result_key": "kompot_da"},
+        "params": params
+        or {
+            "condition1": "A",
+            "condition2": "B",
+            "obsm_key": "X_pca",
+            "result_key": "kompot_da",
+        },
         "field_names": {},
         "environment": {},
         "field_mapping": field_mapping or {},
@@ -39,6 +48,7 @@ def _make_run_entry(run_id, params=None, field_mapping=None, timestamp="2025-01-
 # ===================================================================
 # _da_helpers tests
 # ===================================================================
+
 
 class TestCheckDaOverwrites:
     """Cover lines 72-82, 100-108, 119, 144-160, 163, 172, 174, 186, 220-221,
@@ -72,88 +82,138 @@ class TestCheckDaOverwrites:
         prev_run = {"run_id": 0, "timestamp": "2025-01-01", "params": prev_params}
         adata.uns["kompot_da"] = {
             "run_history": to_json_string([prev_run]),
-            "anndata_fields": to_json_string({
-                "obs": {"da_pval": 0, "da_lfc": 0},
-                "uns": {"kompot_da": 0},
-            }),
+            "anndata_fields": to_json_string(
+                {
+                    "obs": {"da_pval": 0, "da_lfc": 0},
+                    "uns": {"kompot_da": 0},
+                }
+            ),
         }
         return adata
 
     def test_overwrite_false_raises(self):
         # lines 91-93: overwrite=False raises ValueError
         from kompot.anndata._da_helpers import _check_da_overwrites
+
         adata = self._make_da_adata_with_results()
         field_names = {"all_patterns": {"obs": ["da_pval", "da_lfc"]}}
         with pytest.raises(ValueError, match="overwrite=True"):
             _check_da_overwrites(
-                adata, result_key="kompot_da", field_names=field_names,
-                sample_col=None, overwrite=False,
-                groupby="group", condition1="A", condition2="B",
-                obsm_key="X_pca", ls_factor=1.0,
+                adata,
+                result_key="kompot_da",
+                field_names=field_names,
+                sample_col=None,
+                overwrite=False,
+                groupby="group",
+                condition1="A",
+                condition2="B",
+                obsm_key="X_pca",
+                ls_factor=1.0,
             )
 
     def test_overwrite_none_with_sample_var_change_params_match(self):
         # lines 99-119: overwrite=None, adding sample variance, params match -> info log
         from kompot.anndata._da_helpers import _check_da_overwrites
-        adata = self._make_da_adata_with_results(sample_col="sample", prev_sample_var=False)
+
+        adata = self._make_da_adata_with_results(
+            sample_col="sample", prev_sample_var=False
+        )
         field_names = {"all_patterns": {"obs": ["da_pval", "da_lfc"]}}
         # Should not raise, just log info
         _check_da_overwrites(
-            adata, result_key="kompot_da", field_names=field_names,
-            sample_col="sample", overwrite=None,
-            groupby="group", condition1="A", condition2="B",
-            obsm_key="X_pca", ls_factor=1.0,
+            adata,
+            result_key="kompot_da",
+            field_names=field_names,
+            sample_col="sample",
+            overwrite=None,
+            groupby="group",
+            condition1="A",
+            condition2="B",
+            obsm_key="X_pca",
+            ls_factor=1.0,
         )
 
     def test_overwrite_none_with_sample_var_change_params_mismatch(self):
         # lines 100-108: overwrite=None, adding sample_var but different groupby -> warning
         from kompot.anndata._da_helpers import _check_da_overwrites
-        adata = self._make_da_adata_with_results(sample_col="sample", prev_sample_var=False)
+
+        adata = self._make_da_adata_with_results(
+            sample_col="sample", prev_sample_var=False
+        )
         field_names = {"all_patterns": {"obs": ["da_pval", "da_lfc"]}}
         # Different groupby => params_match=False
         _check_da_overwrites(
-            adata, result_key="kompot_da", field_names=field_names,
-            sample_col="sample", overwrite=None,
-            groupby="different_col", condition1="A", condition2="B",
-            obsm_key="X_pca", ls_factor=1.0,
+            adata,
+            result_key="kompot_da",
+            field_names=field_names,
+            sample_col="sample",
+            overwrite=None,
+            groupby="different_col",
+            condition1="A",
+            condition2="B",
+            obsm_key="X_pca",
+            ls_factor=1.0,
         )
 
     def test_overwrite_false_with_sample_var_fields_listed(self):
         # lines 72-82: overwrite=False with prev_sample_var different, fields listed
         from kompot.anndata._da_helpers import _check_da_overwrites
-        adata = self._make_da_adata_with_results(sample_col="sample", prev_sample_var=False)
+
+        adata = self._make_da_adata_with_results(
+            sample_col="sample", prev_sample_var=False
+        )
         field_names = {"all_patterns": {"obs": ["da_pval", "da_lfc"]}}
         with pytest.raises(ValueError, match="overwrite=True"):
             _check_da_overwrites(
-                adata, result_key="kompot_da", field_names=field_names,
-                sample_col="sample", overwrite=False,
-                groupby="group", condition1="A", condition2="B",
-                obsm_key="X_pca", ls_factor=1.0,
+                adata,
+                result_key="kompot_da",
+                field_names=field_names,
+                sample_col="sample",
+                overwrite=False,
+                groupby="group",
+                condition1="A",
+                condition2="B",
+                obsm_key="X_pca",
+                ls_factor=1.0,
             )
 
     def test_overwrite_false_prev_sample_var_true_current_false(self):
         # lines 81-87: previous had sample_var=True, current doesn't
         from kompot.anndata._da_helpers import _check_da_overwrites
+
         adata = self._make_da_adata_with_results(prev_sample_var=True)
         field_names = {"all_patterns": {"obs": ["da_pval", "da_lfc"]}}
         with pytest.raises(ValueError, match="overwrite=True"):
             _check_da_overwrites(
-                adata, result_key="kompot_da", field_names=field_names,
-                sample_col=None, overwrite=False,
-                groupby="group", condition1="A", condition2="B",
-                obsm_key="X_pca", ls_factor=1.0,
+                adata,
+                result_key="kompot_da",
+                field_names=field_names,
+                sample_col=None,
+                overwrite=False,
+                groupby="group",
+                condition1="A",
+                condition2="B",
+                obsm_key="X_pca",
+                ls_factor=1.0,
             )
 
     def test_overwrite_none_no_sample_var_change(self):
         # line 126-131: overwrite=None, no sample_var change -> warning
         from kompot.anndata._da_helpers import _check_da_overwrites
+
         adata = self._make_da_adata_with_results(prev_sample_var=False)
         field_names = {"all_patterns": {"obs": ["da_pval", "da_lfc"]}}
         _check_da_overwrites(
-            adata, result_key="kompot_da", field_names=field_names,
-            sample_col=None, overwrite=None,
-            groupby="group", condition1="A", condition2="B",
-            obsm_key="X_pca", ls_factor=1.0,
+            adata,
+            result_key="kompot_da",
+            field_names=field_names,
+            sample_col=None,
+            overwrite=None,
+            groupby="group",
+            condition1="A",
+            condition2="B",
+            obsm_key="X_pca",
+            ls_factor=1.0,
         )
 
 
@@ -163,9 +223,12 @@ class TestExtractDaData:
     def test_missing_obsm_key(self):
         # lines 144-160: obsm_key not found
         from kompot.anndata._da_helpers import _extract_da_data
+
         adata = AnnData(
             X=np.zeros((5, 3)),
-            obs=pd.DataFrame({"group": ["A"] * 3 + ["B"] * 2}, index=[f"c{i}" for i in range(5)]),
+            obs=pd.DataFrame(
+                {"group": ["A"] * 3 + ["B"] * 2}, index=[f"c{i}" for i in range(5)]
+            ),
         )
         with pytest.raises(ValueError, match="not found in adata.obsm"):
             _extract_da_data(adata, "group", "A", "B", "X_pca", None)
@@ -173,9 +236,12 @@ class TestExtractDaData:
     def test_missing_obsm_DM_EigenVectors(self):
         # lines 148-159: special DM_EigenVectors message
         from kompot.anndata._da_helpers import _extract_da_data
+
         adata = AnnData(
             X=np.zeros((5, 3)),
-            obs=pd.DataFrame({"group": ["A"] * 3 + ["B"] * 2}, index=[f"c{i}" for i in range(5)]),
+            obs=pd.DataFrame(
+                {"group": ["A"] * 3 + ["B"] * 2}, index=[f"c{i}" for i in range(5)]
+            ),
         )
         with pytest.raises(ValueError, match="Palantir"):
             _extract_da_data(adata, "group", "A", "B", "DM_EigenVectors", None)
@@ -183,6 +249,7 @@ class TestExtractDaData:
     def test_missing_groupby(self):
         # line 163: groupby not in obs
         from kompot.anndata._da_helpers import _extract_da_data
+
         adata = AnnData(
             X=np.zeros((5, 3)),
             obs=pd.DataFrame({"group": ["A"] * 5}, index=[f"c{i}" for i in range(5)]),
@@ -194,9 +261,12 @@ class TestExtractDaData:
     def test_condition_not_found(self):
         # lines 172, 174: condition not found
         from kompot.anndata._da_helpers import _extract_da_data
+
         adata = AnnData(
             X=np.zeros((5, 3)),
-            obs=pd.DataFrame({"group": ["A"] * 3 + ["B"] * 2}, index=[f"c{i}" for i in range(5)]),
+            obs=pd.DataFrame(
+                {"group": ["A"] * 3 + ["B"] * 2}, index=[f"c{i}" for i in range(5)]
+            ),
         )
         adata.obsm["X_pca"] = np.zeros((5, 3))
         with pytest.raises(ValueError, match="not found"):
@@ -207,9 +277,12 @@ class TestExtractDaData:
     def test_missing_sample_col(self):
         # line 186: sample_col not in obs
         from kompot.anndata._da_helpers import _extract_da_data
+
         adata = AnnData(
             X=np.zeros((5, 3)),
-            obs=pd.DataFrame({"group": ["A"] * 3 + ["B"] * 2}, index=[f"c{i}" for i in range(5)]),
+            obs=pd.DataFrame(
+                {"group": ["A"] * 3 + ["B"] * 2}, index=[f"c{i}" for i in range(5)]
+            ),
         )
         adata.obsm["X_pca"] = np.zeros((5, 3))
         with pytest.raises(ValueError, match="not found in adata.obs"):
@@ -222,6 +295,7 @@ class TestResolveDaLandmarks:
     def test_provided_landmarks(self):
         # lines 220-221: landmarks provided directly
         from kompot.anndata._da_helpers import _resolve_da_landmarks
+
         adata = AnnData(X=np.zeros((5, 3)))
         adata.obsm["X_pca"] = np.zeros((5, 3))
         lm = np.zeros((10, 3))
@@ -231,6 +305,7 @@ class TestResolveDaLandmarks:
     def test_stored_landmarks_matching_dim(self):
         # lines 226-233: stored landmarks with matching dimension
         from kompot.anndata._da_helpers import _resolve_da_landmarks
+
         adata = AnnData(X=np.zeros((5, 3)))
         adata.obsm["X_pca"] = np.zeros((5, 3))
         adata.uns["kompot_da"] = {"landmarks": np.zeros((10, 3))}
@@ -241,6 +316,7 @@ class TestResolveDaLandmarks:
     def test_stored_landmarks_wrong_dim(self):
         # lines 234-238: stored landmarks with wrong dimension
         from kompot.anndata._da_helpers import _resolve_da_landmarks
+
         adata = AnnData(X=np.zeros((5, 3)))
         adata.obsm["X_pca"] = np.zeros((5, 3))
         adata.uns["kompot_da"] = {"landmarks": np.zeros((10, 5))}  # wrong dim
@@ -250,6 +326,7 @@ class TestResolveDaLandmarks:
     def test_other_kompot_key_landmarks(self):
         # lines 242-254: kompot_da storage key differs from result_key, check other
         from kompot.anndata._da_helpers import _resolve_da_landmarks
+
         adata = AnnData(X=np.zeros((5, 3)))
         adata.obsm["X_pca"] = np.zeros((5, 3))
         adata.uns["kompot_da"] = {"landmarks": np.zeros((10, 3))}
@@ -259,6 +336,7 @@ class TestResolveDaLandmarks:
     def test_other_kompot_key_wrong_dim(self):
         # line 255: other kompot key with wrong dimension
         from kompot.anndata._da_helpers import _resolve_da_landmarks
+
         adata = AnnData(X=np.zeros((5, 3)))
         adata.obsm["X_pca"] = np.zeros((5, 3))
         adata.uns["kompot_da"] = {"landmarks": np.zeros((10, 7))}
@@ -268,6 +346,7 @@ class TestResolveDaLandmarks:
     def test_kompot_wildcard_key(self):
         # lines 261-274: check all kompot_* keys
         from kompot.anndata._da_helpers import _resolve_da_landmarks
+
         adata = AnnData(X=np.zeros((5, 3)))
         adata.obsm["X_pca"] = np.zeros((5, 3))
         adata.uns["kompot_custom"] = {"landmarks": np.zeros((10, 3))}
@@ -277,6 +356,7 @@ class TestResolveDaLandmarks:
     def test_kompot_wildcard_key_wrong_dim(self):
         # line 276: kompot_* with wrong dimension
         from kompot.anndata._da_helpers import _resolve_da_landmarks
+
         adata = AnnData(X=np.zeros((5, 3)))
         adata.obsm["X_pca"] = np.zeros((5, 3))
         adata.uns["kompot_custom"] = {"landmarks": np.zeros((10, 7))}
@@ -286,6 +366,7 @@ class TestResolveDaLandmarks:
     def test_de_landmarks(self):
         # lines 283-289: DE landmarks reuse
         from kompot.anndata._da_helpers import _resolve_da_landmarks
+
         adata = AnnData(X=np.zeros((5, 3)))
         adata.obsm["X_pca"] = np.zeros((5, 3))
         adata.uns["kompot_de"] = {"landmarks": np.zeros((10, 3))}
@@ -295,6 +376,7 @@ class TestResolveDaLandmarks:
     def test_de_landmarks_wrong_dim(self):
         # lines 291-294: DE landmarks wrong dim
         from kompot.anndata._da_helpers import _resolve_da_landmarks
+
         adata = AnnData(X=np.zeros((5, 3)))
         adata.obsm["X_pca"] = np.zeros((5, 3))
         adata.uns["kompot_de"] = {"landmarks": np.zeros((10, 7))}
@@ -308,6 +390,7 @@ class TestRecordDaRunInfo:
     def test_record_merge_existing_anndata_fields(self):
         # lines 498-507: merge into existing anndata_fields
         from kompot.anndata._da_helpers import _record_da_run_info
+
         adata = AnnData(X=np.zeros((5, 3)))
         # Pre-populate with existing tracking from a previous run
         adata.uns["kompot_da"] = {
@@ -323,9 +406,12 @@ class TestRecordDaRunInfo:
             "density_key_2": "da_d2",
         }
         _record_da_run_info(
-            adata, field_names,
-            condition1="A", condition2="B",
-            sample_col=None, result_key="kompot_da",
+            adata,
+            field_names,
+            condition1="A",
+            condition2="B",
+            sample_col=None,
+            result_key="kompot_da",
             params_dict={"condition1": "A", "condition2": "B"},
         )
         tracking = get_json_metadata(adata, "kompot_da.anndata_fields")
@@ -337,6 +423,7 @@ class TestRecordDaRunInfo:
     def test_record_existing_none_anndata_fields(self):
         # line 500-501: existing is None -> becomes empty dict
         from kompot.anndata._da_helpers import _record_da_run_info
+
         adata = AnnData(X=np.zeros((5, 3)))
         # anndata_fields exists but decodes to None (edge case)
         adata.uns["kompot_da"] = {
@@ -352,9 +439,12 @@ class TestRecordDaRunInfo:
             "density_key_2": "da_d2",
         }
         _record_da_run_info(
-            adata, field_names,
-            condition1="A", condition2="B",
-            sample_col=None, result_key="kompot_da",
+            adata,
+            field_names,
+            condition1="A",
+            condition2="B",
+            sample_col=None,
+            result_key="kompot_da",
             params_dict={"condition1": "A", "condition2": "B"},
         )
         tracking = get_json_metadata(adata, "kompot_da.anndata_fields")

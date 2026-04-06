@@ -18,17 +18,14 @@ from kompot.anndata.utils.group_utils import (
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_adata(n=100, n_genes=5):
     """Small AnnData with diverse obs columns."""
     np.random.seed(0)
     obs = pd.DataFrame(
         {
-            "cell_type": pd.Categorical(
-                np.random.choice(["A", "B", "C"], n)
-            ),
-            "condition": pd.Categorical(
-                np.random.choice(["ctrl", "treat"], n)
-            ),
+            "cell_type": pd.Categorical(np.random.choice(["A", "B", "C"], n)),
+            "condition": pd.Categorical(np.random.choice(["ctrl", "treat"], n)),
             "batch": np.random.choice(["b1", "b2"], n),
             "is_ok": np.random.choice([True, False], n),
             "score": np.random.uniform(0, 1, n),
@@ -44,6 +41,7 @@ def _make_adata(n=100, n_genes=5):
 # ===================================================================
 # parse_groups — dict filters
 # ===================================================================
+
 
 class TestParseGroupsDictFilters:
     """Cover lines 114, 123, 151, 167, 181, 185, 189-196, 204, 209-211,
@@ -152,15 +150,14 @@ class TestParseGroupsDictFilters:
 # parse_groups — pd.Series inputs
 # ===================================================================
 
+
 class TestParseGroupsSeries:
     """Cover lines 247, 261-274, 285."""
 
     def test_categorical_series_formatted_names(self):
         """Line 247: formatted_names on categorical Series."""
         adata = _make_adata(40)
-        s = pd.Series(
-            pd.Categorical(np.random.choice(["Type A", "Type-B"], 40))
-        )
+        s = pd.Series(pd.Categorical(np.random.choice(["Type A", "Type-B"], 40)))
         d, names = parse_groups(adata, s, formatted_names=True)
         for n in names:
             assert " " not in n
@@ -186,6 +183,7 @@ class TestParseGroupsSeries:
 # ===================================================================
 # parse_groups — np.ndarray inputs
 # ===================================================================
+
 
 class TestParseGroupsNdarray:
     """Cover lines 300-303, 329, 340, 345-347."""
@@ -242,6 +240,7 @@ class TestParseGroupsNdarray:
 # ===================================================================
 # parse_groups — list inputs
 # ===================================================================
+
 
 class TestParseGroupsList:
     """Cover lines 362, 369-376, 385, 395, 402, 413-429, 448-454, 458,
@@ -357,6 +356,7 @@ class TestParseGroupsList:
 # check_underrepresentation
 # ===================================================================
 
+
 class TestCheckUnderrepresentation:
     """Cover lines 561, 593, 625, 636-671."""
 
@@ -381,13 +381,13 @@ class TestCheckUnderrepresentation:
         # Build adata where one condition has very few cells in one group
         n = 100
         np.random.seed(7)
-        obs = pd.DataFrame({
-            "condition": pd.Categorical(["ctrl"] * 95 + ["treat"] * 5),
-            "grp": pd.Categorical(["G"] * 100),
-        })
-        adata = anndata.AnnData(
-            X=np.random.randn(n, 3).astype(np.float32), obs=obs
+        obs = pd.DataFrame(
+            {
+                "condition": pd.Categorical(["ctrl"] * 95 + ["treat"] * 5),
+                "grp": pd.Categorical(["G"] * 100),
+            }
         )
+        adata = anndata.AnnData(X=np.random.randn(n, 3).astype(np.float32), obs=obs)
         result = check_underrepresentation(
             adata,
             groupby="condition",
@@ -402,13 +402,13 @@ class TestCheckUnderrepresentation:
     def test_print_summary(self, capsys):
         """Lines 636-671: print_summary branch."""
         n = 60
-        obs = pd.DataFrame({
-            "condition": pd.Categorical(["ctrl"] * 55 + ["treat"] * 5),
-            "grp": pd.Categorical(["G"] * 60),
-        })
-        adata = anndata.AnnData(
-            X=np.random.randn(n, 3).astype(np.float32), obs=obs
+        obs = pd.DataFrame(
+            {
+                "condition": pd.Categorical(["ctrl"] * 55 + ["treat"] * 5),
+                "grp": pd.Categorical(["G"] * 60),
+            }
         )
+        adata = anndata.AnnData(X=np.random.randn(n, 3).astype(np.float32), obs=obs)
         result = check_underrepresentation(
             adata,
             groupby="condition",
@@ -443,6 +443,7 @@ class TestCheckUnderrepresentation:
 # refine_filter_for_underrepresentation
 # ===================================================================
 
+
 class TestRefineFilter:
     """Cover lines 714, 759, 771-775."""
 
@@ -472,17 +473,15 @@ class TestRefineFilter:
     def test_exclusion_happens(self):
         """Lines 759-783: groups are actually excluded."""
         n = 100
-        obs = pd.DataFrame({
-            "condition": pd.Categorical(
-                ["ctrl"] * 48 + ["treat"] * 2 + ["ctrl"] * 25 + ["treat"] * 25
-            ),
-            "grp": pd.Categorical(
-                ["G1"] * 50 + ["G2"] * 50
-            ),
-        })
-        adata = anndata.AnnData(
-            X=np.random.randn(n, 3).astype(np.float32), obs=obs
+        obs = pd.DataFrame(
+            {
+                "condition": pd.Categorical(
+                    ["ctrl"] * 48 + ["treat"] * 2 + ["ctrl"] * 25 + ["treat"] * 25
+                ),
+                "grp": pd.Categorical(["G1"] * 50 + ["G2"] * 50),
+            }
         )
+        adata = anndata.AnnData(X=np.random.randn(n, 3).astype(np.float32), obs=obs)
         mask = np.ones(n, dtype=bool)
         refined, underrep, excluded = refine_filter_for_underrepresentation(
             adata,
@@ -513,6 +512,7 @@ class TestRefineFilter:
 # ===================================================================
 # apply_cell_filter
 # ===================================================================
+
 
 class TestApplyCellFilter:
     """Cover lines 859, 870-873, 880, 896-914, 919-925, 951-957."""
@@ -592,9 +592,7 @@ class TestApplyCellFilter:
         mask_filter = np.zeros(50, dtype=bool)
         mask_filter[:10] = True  # cells 0-9
 
-        mask, details = apply_cell_filter(
-            adata, mask_filter, cell_subset=[20, 25, 30]
-        )
+        mask, details = apply_cell_filter(adata, mask_filter, cell_subset=[20, 25, 30])
         # Should include 0-9 plus 20, 25, 30
         assert mask[0] and mask[20] and mask[25] and mask[30]
         assert "cell_subset" in details["filter_type"]
@@ -602,17 +600,15 @@ class TestApplyCellFilter:
     def test_check_representation_with_exclusion(self):
         """Lines 951-957: auto-filter when underrepresentation found."""
         n = 100
-        obs = pd.DataFrame({
-            "condition": pd.Categorical(
-                ["ctrl"] * 48 + ["treat"] * 2 + ["ctrl"] * 25 + ["treat"] * 25
-            ),
-            "grp": pd.Categorical(
-                ["G1"] * 50 + ["G2"] * 50
-            ),
-        })
-        adata = anndata.AnnData(
-            X=np.random.randn(n, 3).astype(np.float32), obs=obs
+        obs = pd.DataFrame(
+            {
+                "condition": pd.Categorical(
+                    ["ctrl"] * 48 + ["treat"] * 2 + ["ctrl"] * 25 + ["treat"] * 25
+                ),
+                "grp": pd.Categorical(["G1"] * 50 + ["G2"] * 50),
+            }
         )
+        adata = anndata.AnnData(X=np.random.randn(n, 3).astype(np.float32), obs=obs)
         mask, details = apply_cell_filter(
             adata,
             cell_filter=None,

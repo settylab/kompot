@@ -33,16 +33,16 @@ def adata_with_groups():
     cell_states = np.random.randn(n_cells, n_features)
 
     # Metadata - create two conditions and three groups
-    conditions = ['Young'] * 60 + ['Old'] * 60
-    groups = (['groupA'] * 20 + ['groupB'] * 20 + ['groupC'] * 20) * 2
+    conditions = ["Young"] * 60 + ["Old"] * 60
+    groups = (["groupA"] * 20 + ["groupB"] * 20 + ["groupC"] * 20) * 2
 
     # Create AnnData object
     adata = ad.AnnData(X)
-    adata.obsm['X_pca'] = cell_states
-    adata.obs['age'] = pd.Categorical(conditions)
-    adata.obs['cell_type'] = pd.Categorical(groups)
-    adata.obs_names = [f'cell_{i}' for i in range(n_cells)]
-    adata.var_names = [f'gene_{i}' for i in range(n_genes)]
+    adata.obsm["X_pca"] = cell_states
+    adata.obs["age"] = pd.Categorical(conditions)
+    adata.obs["cell_type"] = pd.Categorical(groups)
+    adata.obs_names = [f"cell_{i}" for i in range(n_cells)]
+    adata.var_names = [f"gene_{i}" for i in range(n_genes)]
 
     return adata
 
@@ -54,38 +54,42 @@ class TestGroupwiseFDRBasics:
         """Test that group-wise FDR is computed when using null_genes + groups."""
         result = compute_differential_expression(
             adata_with_groups,
-            groupby='age',
-            condition1='Young',
-            condition2='Old',
-            obsm_key='X_pca',
+            groupby="age",
+            condition1="Young",
+            condition2="Old",
+            obsm_key="X_pca",
             null_genes=30,
-            groups='cell_type',
+            groups="cell_type",
             n_landmarks=None,
             overwrite=True,
             inplace=True,
-            return_full_results=True
+            return_full_results=True,
         )
 
         assert result is not None
-        assert 'field_names' in result
+        assert "field_names" in result
 
-        field_names = result['field_names']
+        field_names = result["field_names"]
 
         # Check that group-wise FDR varm matrices exist
         local_fdr_key = f"{field_names['mahalanobis_local_fdr_key']}_groups"
         is_de_key = f"{field_names['is_de_key']}_groups"
 
-        assert local_fdr_key in adata_with_groups.varm, \
+        assert local_fdr_key in adata_with_groups.varm, (
             f"Expected {local_fdr_key} in varm"
-        assert is_de_key in adata_with_groups.varm, \
-            f"Expected {is_de_key} in varm"
+        )
+        assert is_de_key in adata_with_groups.varm, f"Expected {is_de_key} in varm"
 
         # Verify structure
-        assert adata_with_groups.varm[local_fdr_key].shape[0] == len(adata_with_groups.var_names)
-        assert adata_with_groups.varm[is_de_key].shape[0] == len(adata_with_groups.var_names)
+        assert adata_with_groups.varm[local_fdr_key].shape[0] == len(
+            adata_with_groups.var_names
+        )
+        assert adata_with_groups.varm[is_de_key].shape[0] == len(
+            adata_with_groups.var_names
+        )
 
         # Check that all groups are present
-        expected_groups = ['groupA', 'groupB', 'groupC']
+        expected_groups = ["groupA", "groupB", "groupC"]
         assert list(adata_with_groups.varm[local_fdr_key].columns) == expected_groups
         assert list(adata_with_groups.varm[is_de_key].columns) == expected_groups
 
@@ -93,19 +97,23 @@ class TestGroupwiseFDRBasics:
         """Test that group-wise FDR values are reasonable."""
         compute_differential_expression(
             adata_with_groups,
-            groupby='age',
-            condition1='Young',
-            condition2='Old',
-            obsm_key='X_pca',
+            groupby="age",
+            condition1="Young",
+            condition2="Old",
+            obsm_key="X_pca",
             null_genes=30,
-            groups='cell_type',
+            groups="cell_type",
             n_landmarks=None,
             overwrite=True,
             inplace=True,
         )
 
         # Find the FDR varm keys
-        fdr_keys = [k for k in adata_with_groups.varm.keys() if 'local_fdr' in k and 'groups' in k]
+        fdr_keys = [
+            k
+            for k in adata_with_groups.varm.keys()
+            if "local_fdr" in k and "groups" in k
+        ]
         assert len(fdr_keys) == 1
         local_fdr_key = fdr_keys[0]
 
@@ -120,19 +128,21 @@ class TestGroupwiseFDRBasics:
         """Test that group-wise is_de contains boolean values."""
         compute_differential_expression(
             adata_with_groups,
-            groupby='age',
-            condition1='Young',
-            condition2='Old',
-            obsm_key='X_pca',
+            groupby="age",
+            condition1="Young",
+            condition2="Old",
+            obsm_key="X_pca",
             null_genes=30,
-            groups='cell_type',
+            groups="cell_type",
             n_landmarks=None,
             overwrite=True,
             inplace=True,
         )
 
         # Find the is_de varm key
-        is_de_keys = [k for k in adata_with_groups.varm.keys() if 'is_de' in k and 'groups' in k]
+        is_de_keys = [
+            k for k in adata_with_groups.varm.keys() if "is_de" in k and "groups" in k
+        ]
         assert len(is_de_keys) == 1
         is_de_key = is_de_keys[0]
 
@@ -149,27 +159,28 @@ class TestGroupwisePTP:
         """Test that ptp is stored for groups when store_additional_stats=True."""
         result = compute_differential_expression(
             adata_with_groups,
-            groupby='age',
-            condition1='Young',
-            condition2='Old',
-            obsm_key='X_pca',
+            groupby="age",
+            condition1="Young",
+            condition2="Old",
+            obsm_key="X_pca",
             null_genes=30,
-            groups='cell_type',
+            groups="cell_type",
             store_additional_stats=True,
             n_landmarks=None,
             overwrite=True,
             inplace=True,
-            return_full_results=True
+            return_full_results=True,
         )
 
-        field_names = result['field_names']
+        field_names = result["field_names"]
         ptp_key = f"{field_names['ptp_key']}_groups"
 
-        assert ptp_key in adata_with_groups.varm, \
+        assert ptp_key in adata_with_groups.varm, (
             f"Expected ptp key {ptp_key} in varm when store_additional_stats=True"
+        )
 
         # Verify structure
-        expected_groups = ['groupA', 'groupB', 'groupC']
+        expected_groups = ["groupA", "groupB", "groupC"]
         assert list(adata_with_groups.varm[ptp_key].columns) == expected_groups
 
         # Check ptp values are non-negative
@@ -182,12 +193,12 @@ class TestGroupwisePTP:
         """Test that ptp is NOT stored for groups by default."""
         compute_differential_expression(
             adata_with_groups,
-            groupby='age',
-            condition1='Young',
-            condition2='Old',
-            obsm_key='X_pca',
+            groupby="age",
+            condition1="Young",
+            condition2="Old",
+            obsm_key="X_pca",
             null_genes=30,
-            groups='cell_type',
+            groups="cell_type",
             store_additional_stats=False,  # Default
             n_landmarks=None,
             overwrite=True,
@@ -195,8 +206,12 @@ class TestGroupwisePTP:
         )
 
         # ptp_groups key should NOT exist
-        ptp_keys = [k for k in adata_with_groups.varm.keys() if 'ptp' in k and 'groups' in k]
-        assert len(ptp_keys) == 0, "ptp_groups should not exist when store_additional_stats=False"
+        ptp_keys = [
+            k for k in adata_with_groups.varm.keys() if "ptp" in k and "groups" in k
+        ]
+        assert len(ptp_keys) == 0, (
+            "ptp_groups should not exist when store_additional_stats=False"
+        )
 
 
 class TestNullGeneHandling:
@@ -209,12 +224,12 @@ class TestNullGeneHandling:
 
         compute_differential_expression(
             adata_with_groups,
-            groupby='age',
-            condition1='Young',
-            condition2='Old',
-            obsm_key='X_pca',
+            groupby="age",
+            condition1="Young",
+            condition2="Old",
+            obsm_key="X_pca",
             null_genes=n_null_genes,
-            groups='cell_type',
+            groups="cell_type",
             n_landmarks=None,
             overwrite=True,
             inplace=True,
@@ -222,37 +237,44 @@ class TestNullGeneHandling:
 
         # Check that varm results have correct length (real genes only)
         for varm_key in adata_with_groups.varm.keys():
-            if 'groups' in varm_key:
+            if "groups" in varm_key:
                 varm_df = adata_with_groups.varm[varm_key]
-                assert varm_df.shape[0] == n_real_genes, \
+                assert varm_df.shape[0] == n_real_genes, (
                     f"{varm_key} has wrong length: {varm_df.shape[0]} (expected {n_real_genes})"
+                )
 
     def test_no_length_mismatch_warnings(self, adata_with_groups, caplog):
         """Test that no length mismatch warnings are emitted."""
         import logging
+
         caplog.set_level(logging.WARNING)
 
         compute_differential_expression(
             adata_with_groups,
-            groupby='age',
-            condition1='Young',
-            condition2='Old',
-            obsm_key='X_pca',
+            groupby="age",
+            condition1="Young",
+            condition2="Old",
+            obsm_key="X_pca",
             null_genes=30,
-            groups='cell_type',
+            groups="cell_type",
             n_landmarks=None,
             overwrite=True,
             inplace=True,
         )
 
         # Check that no "doesn't match" warnings were logged
-        warning_messages = [record.message for record in caplog.records
-                            if record.levelname == 'WARNING']
-        length_warnings = [msg for msg in warning_messages
-                           if "doesn't match" in msg and "length" in msg]
+        warning_messages = [
+            record.message for record in caplog.records if record.levelname == "WARNING"
+        ]
+        length_warnings = [
+            msg
+            for msg in warning_messages
+            if "doesn't match" in msg and "length" in msg
+        ]
 
-        assert len(length_warnings) == 0, \
+        assert len(length_warnings) == 0, (
             f"Found unexpected length mismatch warnings: {length_warnings}"
+        )
 
 
 class TestVarmKeysExist:
@@ -262,25 +284,25 @@ class TestVarmKeysExist:
         """Test that all expected varm keys are created."""
         result = compute_differential_expression(
             adata_with_groups,
-            groupby='age',
-            condition1='Young',
-            condition2='Old',
-            obsm_key='X_pca',
+            groupby="age",
+            condition1="Young",
+            condition2="Old",
+            obsm_key="X_pca",
             null_genes=30,
-            groups='cell_type',
+            groups="cell_type",
             store_additional_stats=True,
             n_landmarks=None,
             overwrite=True,
             inplace=True,
-            return_full_results=True
+            return_full_results=True,
         )
 
-        field_names = result['field_names']
+        field_names = result["field_names"]
 
         # Build expected varm keys
         expected_keys = [
-            field_names['mean_lfc_varm_key'],
-            field_names['mahalanobis_varm_key'],
+            field_names["mean_lfc_varm_key"],
+            field_names["mahalanobis_varm_key"],
             f"{field_names['mahalanobis_local_fdr_key']}_groups",
             f"{field_names['is_de_key']}_groups",
             f"{field_names['ptp_key']}_groups",
@@ -291,9 +313,10 @@ class TestVarmKeysExist:
             assert key in adata_with_groups.varm, f"Expected varm key {key} not found"
 
             # Verify all have correct groups
-            expected_groups = ['groupA', 'groupB', 'groupC']
-            assert list(adata_with_groups.varm[key].columns) == expected_groups, \
+            expected_groups = ["groupA", "groupB", "groupC"]
+            assert list(adata_with_groups.varm[key].columns) == expected_groups, (
                 f"Key {key} has wrong groups"
+            )
 
 
 class TestEdgeCases:
@@ -303,22 +326,24 @@ class TestEdgeCases:
         """Test that groups work without null_genes (no FDR)."""
         compute_differential_expression(
             adata_with_groups,
-            groupby='age',
-            condition1='Young',
-            condition2='Old',
-            obsm_key='X_pca',
+            groupby="age",
+            condition1="Young",
+            condition2="Old",
+            obsm_key="X_pca",
             null_genes=None,  # No FDR
-            groups='cell_type',
+            groups="cell_type",
             n_landmarks=None,
             overwrite=True,
             inplace=True,
         )
 
         # FDR keys should NOT exist when null_genes is None
-        fdr_keys = [k for k in adata_with_groups.varm.keys()
-                    if 'fdr' in k and 'groups' in k]
-        is_de_keys = [k for k in adata_with_groups.varm.keys()
-                      if 'is_de' in k and 'groups' in k]
+        fdr_keys = [
+            k for k in adata_with_groups.varm.keys() if "fdr" in k and "groups" in k
+        ]
+        is_de_keys = [
+            k for k in adata_with_groups.varm.keys() if "is_de" in k and "groups" in k
+        ]
 
         assert len(fdr_keys) == 0, "FDR keys should not exist when null_genes=None"
         assert len(is_de_keys) == 0, "is_de keys should not exist when null_genes=None"
@@ -326,28 +351,31 @@ class TestEdgeCases:
     def test_single_group(self, adata_with_groups):
         """Test group-wise FDR with a single group."""
         # Create a single group mask
-        single_group_mask = adata_with_groups.obs['cell_type'] == 'groupA'
+        single_group_mask = adata_with_groups.obs["cell_type"] == "groupA"
 
         compute_differential_expression(
             adata_with_groups,
-            groupby='age',
-            condition1='Young',
-            condition2='Old',
-            obsm_key='X_pca',
+            groupby="age",
+            condition1="Young",
+            condition2="Old",
+            obsm_key="X_pca",
             null_genes=30,
-            groups={'single_group': single_group_mask},
+            groups={"single_group": single_group_mask},
             n_landmarks=None,
             overwrite=True,
             inplace=True,
         )
 
         # Check that only one group exists in varm
-        fdr_keys = [k for k in adata_with_groups.varm.keys()
-                    if 'local_fdr' in k and 'groups' in k]
+        fdr_keys = [
+            k
+            for k in adata_with_groups.varm.keys()
+            if "local_fdr" in k and "groups" in k
+        ]
         assert len(fdr_keys) == 1
         local_fdr_key = fdr_keys[0]
 
-        assert list(adata_with_groups.varm[local_fdr_key].columns) == ['single_group']
+        assert list(adata_with_groups.varm[local_fdr_key].columns) == ["single_group"]
 
 
 class TestGroupwiseFDRConsistency:
@@ -357,25 +385,26 @@ class TestGroupwiseFDRConsistency:
         """Test that global and group-wise FDR can differ appropriately."""
         result = compute_differential_expression(
             adata_with_groups,
-            groupby='age',
-            condition1='Young',
-            condition2='Old',
-            obsm_key='X_pca',
+            groupby="age",
+            condition1="Young",
+            condition2="Old",
+            obsm_key="X_pca",
             null_genes=30,
-            groups='cell_type',
+            groups="cell_type",
             n_landmarks=None,
             overwrite=True,
             inplace=True,
-            return_full_results=True
+            return_full_results=True,
         )
 
         # Get global DE genes
-        global_is_de = result['table']['is_de']
+        global_is_de = result["table"]["is_de"]
         n_global_de = global_is_de.sum()
 
         # Get group-wise DE genes
-        is_de_keys = [k for k in adata_with_groups.varm.keys()
-                      if 'is_de' in k and 'groups' in k]
+        is_de_keys = [
+            k for k in adata_with_groups.varm.keys() if "is_de" in k and "groups" in k
+        ]
         is_de_key = is_de_keys[0]
 
         group_de_counts = {}

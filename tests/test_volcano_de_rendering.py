@@ -1,6 +1,7 @@
 """Tests to improve coverage for kompot.plot.volcano.de."""
 
 import matplotlib
+
 matplotlib.use("Agg")
 
 import numpy as np
@@ -14,6 +15,7 @@ import json
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_de_adata(n_genes=50):
     """Create a minimal AnnData with DE result columns and run history."""
@@ -43,7 +45,9 @@ def _make_de_adata(n_genes=50):
     adata = anndata.AnnData(X=X, var=var)
 
     # Add fold_change layer
-    adata.layers["kompot_de_A_to_B_fold_change"] = np.random.normal(0, 1, (n_cells, n_genes))
+    adata.layers["kompot_de_A_to_B_fold_change"] = np.random.normal(
+        0, 1, (n_cells, n_genes)
+    )
 
     # Run history
     run_entry = {
@@ -181,6 +185,7 @@ class TestVolcanoDEImportFallback:
 
     def test_scanpy_import_flag_exists(self):
         from kompot.plot.volcano import de as de_module
+
         assert hasattr(de_module, "_has_scanpy")
 
 
@@ -206,7 +211,9 @@ class TestVolcanoDEYAxisType:
         from kompot.plot.volcano.de import volcano_de
 
         # Remove the local_fdr column from var
-        de_adata.var.drop(columns=["kompot_de_A_to_B_mahalanobis_local_fdr"], inplace=True)
+        de_adata.var.drop(
+            columns=["kompot_de_A_to_B_mahalanobis_local_fdr"], inplace=True
+        )
         # But keep the fdr_keys in run info pointing to the now-missing column
         fig = volcano_de(
             de_adata,
@@ -683,7 +690,11 @@ class TestVolcanoDEHighlightGenes:
             de_adata,
             lfc_key="kompot_de_A_to_B_mean_lfc",
             score_key="kompot_de_A_to_B_mahalanobis",
-            highlight_genes={"gene_0": "red", "gene_1": "blue", "missing_gene": "green"},
+            highlight_genes={
+                "gene_0": "red",
+                "gene_1": "blue",
+                "missing_gene": "green",
+            },
             return_fig=True,
         )
         assert isinstance(fig, plt.Figure)
@@ -1066,7 +1077,6 @@ class TestVolcanoDEColor:
     def test_color_continuous_with_colormap_object(self, de_adata):
         """Continuous color with Colormap object (line 651)."""
         from kompot.plot.volcano.de import volcano_de
-        from matplotlib.cm import get_cmap
 
         de_adata.var["expression"] = np.random.uniform(0, 10, de_adata.n_vars)
 
@@ -1105,7 +1115,9 @@ class TestVolcanoDEColor:
         """Color by string (object dtype) column auto-converts to categorical."""
         from kompot.plot.volcano.de import volcano_de
 
-        de_adata.var["str_type"] = np.random.choice(["alpha", "beta"], de_adata.n_vars).astype(str)
+        de_adata.var["str_type"] = np.random.choice(
+            ["alpha", "beta"], de_adata.n_vars
+        ).astype(str)
 
         fig = volcano_de(
             de_adata,

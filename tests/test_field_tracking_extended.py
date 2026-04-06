@@ -1,9 +1,9 @@
 """Tests for anndata/utils/field_tracking.py to improve coverage."""
+
 import pytest
 import numpy as np
 import pandas as pd
 from anndata import AnnData
-import json
 
 from kompot.anndata.utils.field_tracking import (
     get_run_history,
@@ -26,13 +26,13 @@ def sample_adata():
     n_vars = 30
 
     X = np.random.randn(n_obs, n_vars)
-    obs = pd.DataFrame({
-        'cell_id': [f'cell_{i}' for i in range(n_obs)],
-        'condition': ['A'] * 25 + ['B'] * 25,
-    })
-    var = pd.DataFrame({
-        'gene_name': [f'Gene_{i}' for i in range(n_vars)]
-    })
+    obs = pd.DataFrame(
+        {
+            "cell_id": [f"cell_{i}" for i in range(n_obs)],
+            "condition": ["A"] * 25 + ["B"] * 25,
+        }
+    )
+    var = pd.DataFrame({"gene_name": [f"Gene_{i}" for i in range(n_vars)]})
 
     adata = AnnData(X=X, obs=obs, var=var)
     return adata
@@ -48,7 +48,7 @@ class TestGetRunHistory:
 
     def test_get_run_history_missing_key(self, sample_adata):
         """Test getting run history when storage key exists but run_history doesn't."""
-        sample_adata.uns['kompot_da'] = {}
+        sample_adata.uns["kompot_da"] = {}
         history = get_run_history(sample_adata, analysis_type="da")
         assert history == []
 
@@ -63,9 +63,7 @@ class TestGetRunHistory:
 
     def test_get_run_history_not_a_list(self, sample_adata):
         """Test handling when run_history is not a list."""
-        sample_adata.uns['kompot_da'] = {
-            'run_history': "not_a_list_or_json"
-        }
+        sample_adata.uns["kompot_da"] = {"run_history": "not_a_list_or_json"}
         history = get_run_history(sample_adata, analysis_type="da")
         assert history == []
 
@@ -74,8 +72,8 @@ class TestGetRunHistory:
         run_info = {"run_id": 0, "condition1": "A"}
         json_str = to_json_string(run_info)
 
-        sample_adata.uns['kompot_da'] = {
-            'run_history': [json_str]  # List with JSON string
+        sample_adata.uns["kompot_da"] = {
+            "run_history": [json_str]  # List with JSON string
         }
 
         history = get_run_history(sample_adata, analysis_type="da")
@@ -84,8 +82,8 @@ class TestGetRunHistory:
 
     def test_get_run_history_invalid_json_item(self, sample_adata):
         """Test handling list with invalid JSON strings."""
-        sample_adata.uns['kompot_da'] = {
-            'run_history': ["not_valid_json", '{"run_id": 1}']
+        sample_adata.uns["kompot_da"] = {
+            "run_history": ["not_valid_json", '{"run_id": 1}']
         }
 
         history = get_run_history(sample_adata, analysis_type="da")
@@ -95,8 +93,8 @@ class TestGetRunHistory:
 
     def test_get_run_history_non_dict_item(self, sample_adata):
         """Test handling list with non-dictionary items."""
-        sample_adata.uns['kompot_da'] = {
-            'run_history': [123, {"run_id": 1}]  # First item is int
+        sample_adata.uns["kompot_da"] = {
+            "run_history": [123, {"run_id": 1}]  # First item is int
         }
 
         history = get_run_history(sample_adata, analysis_type="da")
@@ -123,7 +121,7 @@ class TestAppendToRunHistory:
         success = append_to_run_history(sample_adata, run_info, analysis_type="da")
 
         assert success
-        assert 'kompot_da' in sample_adata.uns
+        assert "kompot_da" in sample_adata.uns
         history = get_run_history(sample_adata, analysis_type="da")
         assert len(history) == 1
         assert history[0]["run_id"] == 0
@@ -175,7 +173,7 @@ class TestGenerateOutputFieldNames:
             condition1="control",
             condition2="treatment",
             analysis_type="da",
-            with_sample_suffix=False
+            with_sample_suffix=False,
         )
 
         assert "lfc_key" in field_names
@@ -200,7 +198,7 @@ class TestGenerateOutputFieldNames:
             condition2="treatment",
             analysis_type="da",
             with_sample_suffix=True,
-            sample_suffix="_sample_var"
+            sample_suffix="_sample_var",
         )
 
         # Check that sample suffix is applied
@@ -219,7 +217,7 @@ class TestGenerateOutputFieldNames:
             condition1="A",
             condition2="B",
             analysis_type="de",
-            with_sample_suffix=False
+            with_sample_suffix=False,
         )
 
         assert "mahalanobis_key" in field_names
@@ -260,7 +258,7 @@ class TestGenerateOutputFieldNames:
             condition2="B",
             analysis_type="de",
             with_sample_suffix=True,
-            sample_suffix="_sample"
+            sample_suffix="_sample",
         )
 
         # Check sample suffix applied to appropriate fields
@@ -283,7 +281,7 @@ class TestGenerateOutputFieldNames:
             result_key="kompot_da",
             condition1="control-group",
             condition2="treatment.group",
-            analysis_type="da"
+            analysis_type="da",
         )
 
         # Check that special characters are replaced with underscores
@@ -297,7 +295,7 @@ class TestGenerateOutputFieldNames:
                 result_key="kompot_unknown",
                 condition1="A",
                 condition2="B",
-                analysis_type="unknown"
+                analysis_type="unknown",
             )
 
 
@@ -340,17 +338,11 @@ class TestDetectOutputFieldOverwrite:
     def test_detect_overwrite_empty_adata(self, sample_adata):
         """Test detection with empty AnnData (no existing fields)."""
         field_names = generate_output_field_names(
-            result_key="kompot_da",
-            condition1="A",
-            condition2="B",
-            analysis_type="da"
+            result_key="kompot_da", condition1="A", condition2="B", analysis_type="da"
         )
 
         will_overwrite, overwritten, prev_run = detect_output_field_overwrite(
-            sample_adata,
-            analysis_type="da",
-            field_names=field_names,
-            overwrite=False
+            sample_adata, analysis_type="da", field_names=field_names, overwrite=False
         )
 
         assert not will_overwrite
@@ -360,42 +352,30 @@ class TestDetectOutputFieldOverwrite:
     def test_detect_overwrite_with_existing_fields(self, sample_adata):
         """Test detection with existing fields in obs."""
         # Add some existing fields
-        sample_adata.obs['kompot_da_A_to_B_lfc'] = 1.0
+        sample_adata.obs["kompot_da_A_to_B_lfc"] = 1.0
 
         field_names = generate_output_field_names(
-            result_key="kompot_da",
-            condition1="A",
-            condition2="B",
-            analysis_type="da"
+            result_key="kompot_da", condition1="A", condition2="B", analysis_type="da"
         )
 
         will_overwrite, overwritten, prev_run = detect_output_field_overwrite(
-            sample_adata,
-            analysis_type="da",
-            field_names=field_names,
-            overwrite=False
+            sample_adata, analysis_type="da", field_names=field_names, overwrite=False
         )
 
         assert will_overwrite
         assert len(overwritten) > 0
-        assert 'obs.kompot_da_A_to_B_lfc' in overwritten
+        assert "obs.kompot_da_A_to_B_lfc" in overwritten
 
     def test_detect_overwrite_allowed(self, sample_adata):
         """Test that overwrite=True skips detection."""
-        sample_adata.obs['kompot_da_A_to_B_lfc'] = 1.0
+        sample_adata.obs["kompot_da_A_to_B_lfc"] = 1.0
 
         field_names = generate_output_field_names(
-            result_key="kompot_da",
-            condition1="A",
-            condition2="B",
-            analysis_type="da"
+            result_key="kompot_da", condition1="A", condition2="B", analysis_type="da"
         )
 
         will_overwrite, overwritten, prev_run = detect_output_field_overwrite(
-            sample_adata,
-            analysis_type="da",
-            field_names=field_names,
-            overwrite=True
+            sample_adata, analysis_type="da", field_names=field_names, overwrite=True
         )
 
         assert not will_overwrite
@@ -404,13 +384,10 @@ class TestDetectOutputFieldOverwrite:
     def test_detect_overwrite_var_location(self, sample_adata):
         """Test detection for var location (DE analysis)."""
         # Add existing field in var
-        sample_adata.var['kompot_de_A_to_B_mahalanobis'] = 1.0
+        sample_adata.var["kompot_de_A_to_B_mahalanobis"] = 1.0
 
         field_names = generate_output_field_names(
-            result_key="kompot_de",
-            condition1="A",
-            condition2="B",
-            analysis_type="de"
+            result_key="kompot_de", condition1="A", condition2="B", analysis_type="de"
         )
 
         will_overwrite, overwritten, prev_run = detect_output_field_overwrite(
@@ -418,73 +395,69 @@ class TestDetectOutputFieldOverwrite:
             analysis_type="de",
             field_names=field_names,
             overwrite=False,
-            location="var"
+            location="var",
         )
 
         assert will_overwrite
-        assert 'var.kompot_de_A_to_B_mahalanobis' in overwritten
+        assert "var.kompot_de_A_to_B_mahalanobis" in overwritten
 
     def test_detect_overwrite_with_output_patterns(self, sample_adata):
         """Test detection using output_patterns instead of field_names."""
-        sample_adata.obs['field1'] = 1.0
+        sample_adata.obs["field1"] = 1.0
 
         will_overwrite, overwritten, prev_run = detect_output_field_overwrite(
             sample_adata,
             analysis_type="da",
-            output_patterns=['field1', 'field2'],
+            output_patterns=["field1", "field2"],
             overwrite=False,
-            location="obs"
+            location="obs",
         )
 
         assert will_overwrite
-        assert 'obs.field1' in overwritten
-        assert 'obs.field2' not in overwritten
+        assert "obs.field1" in overwritten
+        assert "obs.field2" not in overwritten
 
     def test_detect_overwrite_result_type_parameter(self, sample_adata):
         """Test using result_type instead of analysis_type."""
-        sample_adata.obs['field1'] = 1.0
+        sample_adata.obs["field1"] = 1.0
 
         will_overwrite, overwritten, prev_run = detect_output_field_overwrite(
             sample_adata,
             result_type="differential_abundance",
-            output_patterns=['field1'],
+            output_patterns=["field1"],
             overwrite=False,
-            location="obs"
+            location="obs",
         )
 
         assert will_overwrite
 
     def test_detect_overwrite_layers_location(self, sample_adata):
         """Test detection for layers location."""
-        sample_adata.layers['imputed_A'] = np.random.randn(50, 30)
+        sample_adata.layers["imputed_A"] = np.random.randn(50, 30)
 
         will_overwrite, overwritten, prev_run = detect_output_field_overwrite(
             sample_adata,
             analysis_type="de",
-            output_patterns=['imputed_A', 'imputed_B'],
+            output_patterns=["imputed_A", "imputed_B"],
             overwrite=False,
-            location="layers"
+            location="layers",
         )
 
         assert will_overwrite
-        assert 'layers.imputed_A' in overwritten
+        assert "layers.imputed_A" in overwritten
 
     def test_detect_overwrite_no_field_names_or_patterns(self, sample_adata):
         """Test that missing both field_names and output_patterns raises error."""
         with pytest.raises(ValueError, match="Either field_names or output_patterns"):
             detect_output_field_overwrite(
-                sample_adata,
-                analysis_type="da",
-                overwrite=False
+                sample_adata, analysis_type="da", overwrite=False
             )
 
     def test_detect_overwrite_no_analysis_type_or_result_type(self, sample_adata):
         """Test that missing both analysis_type and result_type raises error."""
         with pytest.raises(ValueError, match="Either analysis_type or result_type"):
             detect_output_field_overwrite(
-                sample_adata,
-                output_patterns=['field1'],
-                overwrite=False
+                sample_adata, output_patterns=["field1"], overwrite=False
             )
 
 
@@ -534,7 +507,7 @@ class TestValidateFieldRunId:
             field_name="test_field",
             location="obs",
             requested_run_id=0,
-            storage_key="kompot_da"
+            storage_key="kompot_da",
         )
 
         # Should be valid (True) when no tracking exists
@@ -545,20 +518,14 @@ class TestValidateFieldRunId:
     def test_validate_field_run_id_matching(self, sample_adata):
         """Test validation with matching run ID."""
         # Set up tracking info
-        sample_adata.uns['kompot_da'] = {
-            'anndata_fields': {
-                'obs': {
-                    'test_field': 0
-                }
-            }
-        }
+        sample_adata.uns["kompot_da"] = {"anndata_fields": {"obs": {"test_field": 0}}}
 
         is_valid, actual_run_id, warning = validate_field_run_id(
             sample_adata,
             field_name="test_field",
             location="obs",
             requested_run_id=0,
-            storage_key="kompot_da"
+            storage_key="kompot_da",
         )
 
         assert is_valid
@@ -567,20 +534,14 @@ class TestValidateFieldRunId:
 
     def test_validate_field_run_id_mismatch(self, sample_adata):
         """Test validation with mismatching run ID."""
-        sample_adata.uns['kompot_da'] = {
-            'anndata_fields': {
-                'obs': {
-                    'test_field': 1
-                }
-            }
-        }
+        sample_adata.uns["kompot_da"] = {"anndata_fields": {"obs": {"test_field": 1}}}
 
         is_valid, actual_run_id, warning = validate_field_run_id(
             sample_adata,
             field_name="test_field",
             location="obs",
             requested_run_id=0,
-            storage_key="kompot_da"
+            storage_key="kompot_da",
         )
 
         assert not is_valid
@@ -591,20 +552,14 @@ class TestValidateFieldRunId:
 
     def test_validate_field_run_id_field_not_tracked(self, sample_adata):
         """Test validation for field that isn't being tracked."""
-        sample_adata.uns['kompot_da'] = {
-            'anndata_fields': {
-                'obs': {
-                    'other_field': 0
-                }
-            }
-        }
+        sample_adata.uns["kompot_da"] = {"anndata_fields": {"obs": {"other_field": 0}}}
 
         is_valid, actual_run_id, warning = validate_field_run_id(
             sample_adata,
             field_name="test_field",
             location="obs",
             requested_run_id=0,
-            storage_key="kompot_da"
+            storage_key="kompot_da",
         )
 
         # Should be valid when field not tracked
@@ -678,9 +633,7 @@ class TestGetRunFromHistory:
         json_str = to_json_string(run_data)
 
         # Store as JSON string
-        sample_adata.uns['kompot_da'] = {
-            'run_history': [json_str]
-        }
+        sample_adata.uns["kompot_da"] = {"run_history": [json_str]}
 
         run_info = get_run_from_history(sample_adata, run_id=0, analysis_type="da")
         assert run_info is not None
@@ -688,9 +641,7 @@ class TestGetRunFromHistory:
 
     def test_get_run_from_history_invalid_json(self, sample_adata):
         """Test handling when run history item is invalid JSON."""
-        sample_adata.uns['kompot_da'] = {
-            'run_history': ["not_valid_json"]
-        }
+        sample_adata.uns["kompot_da"] = {"run_history": ["not_valid_json"]}
 
         run_info = get_run_from_history(sample_adata, run_id=0, analysis_type="da")
         # Should return empty dict instead of None
@@ -700,8 +651,8 @@ class TestGetRunFromHistory:
 
     def test_get_run_from_history_non_dict_item(self, sample_adata):
         """Test handling when run history item is not a dict."""
-        sample_adata.uns['kompot_da'] = {
-            'run_history': [123]  # Integer instead of dict
+        sample_adata.uns["kompot_da"] = {
+            "run_history": [123]  # Integer instead of dict
         }
 
         run_info = get_run_from_history(sample_adata, run_id=0, analysis_type="da")
@@ -713,14 +664,12 @@ class TestGetRunFromHistory:
     def test_get_run_from_history_with_history_key(self, sample_adata):
         """Test using history_key parameter for direct access."""
         # Create custom history location
-        sample_adata.uns['custom_storage'] = {
-            'run_history': [{"run_id": 0, "custom": True}]
+        sample_adata.uns["custom_storage"] = {
+            "run_history": [{"run_id": 0, "custom": True}]
         }
 
         run_info = get_run_from_history(
-            sample_adata,
-            run_id=0,
-            history_key="custom_storage.run_history"
+            sample_adata, run_id=0, history_key="custom_storage.run_history"
         )
 
         assert run_info is not None

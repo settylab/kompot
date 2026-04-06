@@ -15,6 +15,7 @@ import numpy as np
 # Serialization (Settings → dict for storage)
 # ---------------------------------------------------------------------------
 
+
 def build_params_dict(
     top_level: Dict[str, Any],
     extra_kwargs: Optional[Dict[str, Any]] = None,
@@ -64,9 +65,7 @@ def _settings_to_dict(obj) -> Dict[str, Any]:
     for k, v in d.items():
         if isinstance(v, np.ndarray):
             d[k] = f"<array shape={v.shape}>"
-        elif isinstance(v, (tuple, list)) and any(
-            isinstance(x, np.ndarray) for x in v
-        ):
+        elif isinstance(v, (tuple, list)) and any(isinstance(x, np.ndarray) for x in v):
             d[k] = f"<tuple of {len(v)} arrays>"
     return d
 
@@ -92,14 +91,17 @@ def _ensure_registry():
         StorageSettings,
         OutputSettings,
     )
-    _SETTINGS_REGISTRY.update({
-        "gp": GPSettings,
-        "fdr": FDRSettings,
-        "threshold": DAThresholdSettings,
-        "filter": FilterSettings,
-        "storage": StorageSettings,
-        "output": OutputSettings,
-    })
+
+    _SETTINGS_REGISTRY.update(
+        {
+            "gp": GPSettings,
+            "fdr": FDRSettings,
+            "threshold": DAThresholdSettings,
+            "filter": FilterSettings,
+            "storage": StorageSettings,
+            "output": OutputSettings,
+        }
+    )
 
 
 def reconstruct_settings(params: Dict[str, Any]) -> Dict[str, Any]:
@@ -161,8 +163,15 @@ def params_to_call_args(
     kwargs: Dict[str, Any] = {}
 
     # Top-level args
-    for key in ("groupby", "condition1", "condition2", "obsm_key",
-                "sample_col", "layer", "genes"):
+    for key in (
+        "groupby",
+        "condition1",
+        "condition2",
+        "obsm_key",
+        "sample_col",
+        "layer",
+        "genes",
+    ):
         if key in params:
             kwargs[key] = params[key]
 

@@ -4,13 +4,14 @@ import numpy as np
 import jax.numpy as jnp
 import logging
 from functools import wraps
-from typing import Any, Callable, Dict, List, Optional, Union, TypeVar, cast
+from typing import Any, Callable, List, Optional, TypeVar, cast
 from tqdm.auto import tqdm
 
 logger = logging.getLogger("kompot")
 
 # Type for the function to be decorated
-F = TypeVar('F', bound=Callable[..., Any])
+F = TypeVar("F", bound=Callable[..., Any])
+
 
 def is_jax_memory_error(error: Exception) -> bool:
     """
@@ -30,12 +31,15 @@ def is_jax_memory_error(error: Exception) -> bool:
         True if the error is a JAX memory error, False otherwise
     """
     error_str = str(error)
-    return any(msg in error_str.lower() for msg in [
-        "resource_exhausted",
-        "resource exhausted",
-        "out of memory",
-        "memory"
-    ])
+    return any(
+        msg in error_str.lower()
+        for msg in [
+            "resource_exhausted",
+            "resource exhausted",
+            "out of memory",
+            "memory",
+        ]
+    )
 
 
 def merge_batch_results(results: List[Any], concat_axis: int = 0) -> Any:
@@ -87,7 +91,9 @@ def merge_batch_results(results: List[Any], concat_axis: int = 0) -> Any:
                     if all(len(val.shape) == 0 for val in values):
                         # For true scalars (shape ()), create a new array
                         array_vals = [val.item() for val in values]
-                        merged[key] = jnp.array(array_vals) if is_jax else np.array(array_vals)
+                        merged[key] = (
+                            jnp.array(array_vals) if is_jax else np.array(array_vals)
+                        )
                     else:
                         # Standard case: concatenate arrays along specified axis
                         merged[key] = concat_fn(values, axis=concat_axis)
@@ -152,11 +158,12 @@ def batch_process(default_batch_size: int = 500):
     >>>     # Your prediction code here
     >>>     return result
     """
+
     def decorator(func: F) -> F:
         @wraps(func)
         def wrapper(self, X_new, *args, **kwargs):
             # Get batch size from instance or use default
-            batch_size = getattr(self, 'batch_size', default_batch_size)
+            batch_size = getattr(self, "batch_size", default_batch_size)
 
             # Use apply_batched to handle the batching
             return apply_batched(
@@ -166,9 +173,11 @@ def batch_process(default_batch_size: int = 500):
                 axis=0,
                 show_progress=False,
                 desc=None,
-                concat_axis=0
+                concat_axis=0,
             )
+
         return cast(F, wrapper)
+
     return decorator
 
 
@@ -177,7 +186,7 @@ def batched(
     axis: int = 0,
     desc: Optional[str] = None,
     show_progress: bool = True,
-    concat_axis: int = 0
+    concat_axis: int = 0,
 ) -> Callable[[F], F]:
     """
     Decorator that automatically applies batched processing to a function.
@@ -210,6 +219,7 @@ def batched(
     >>>     return np.mean(X, axis=1)
     >>> result = process_data(large_array)
     """
+
     def decorator(func: F) -> F:
         @wraps(func)
         def wrapper(X: Any, *args, **kwargs) -> Any:
@@ -220,9 +230,11 @@ def batched(
                 axis=axis,
                 show_progress=show_progress,
                 desc=desc,
-                concat_axis=concat_axis
+                concat_axis=concat_axis,
             )
+
         return cast(F, wrapper)
+
     return decorator
 
 
@@ -233,7 +245,7 @@ def apply_batched(
     axis: int = 0,
     show_progress: bool = True,
     desc: Optional[str] = None,
-    concat_axis: int = 0
+    concat_axis: int = 0,
 ) -> Any:
     """
     Apply a function to data in batches with automatic memory error handling.
@@ -289,12 +301,16 @@ def apply_batched(
             if is_jax_memory_error(e):
                 # Fall back to batched processing with smaller batch size
                 if batch_size is None or batch_size <= 0:
-                    logger.warning(f"Memory error encountered with batch_size=None. Falling back to batch_size=500")
+                    logger.warning(
+                        "Memory error encountered with batch_size=None. Falling back to batch_size=500"
+                    )
                     batch_size = 500
                 else:
                     # Reduce the current batch size to enable batching
                     new_batch_size = max(1, batch_size // 2)
-                    logger.warning(f"Memory error detected with batch_size={batch_size}. Falling back to batch_size={new_batch_size}")
+                    logger.warning(
+                        f"Memory error detected with batch_size={batch_size}. Falling back to batch_size={new_batch_size}"
+                    )
                     batch_size = new_batch_size
                 # Continue with batched processing below
             else:
@@ -338,7 +354,7 @@ def apply_batched(
                     desc=desc or f"Processing (batch_size={batch_size})",
                     disable=not show_progress,
                     initial=1,
-                    total=(n_samples + batch_size - 1) // batch_size
+                    total=(n_samples + batch_size - 1) // batch_size,
                 )
 
                 # Process remaining batches with pre-allocated output
@@ -366,7 +382,7 @@ def apply_batched(
                 progress_iter = tqdm(
                     range(first_batch_size, n_samples, batch_size),
                     desc=desc or f"Processing (batch_size={batch_size})",
-                    disable=not show_progress
+                    disable=not show_progress,
                 )
 
                 for start_idx in progress_iter:
@@ -389,9 +405,15 @@ def apply_batched(
                 new_batch_size = max(1, batch_size // 2)
                 if new_batch_size == batch_size:
                     # Can't reduce further (already at 1)
-                    logger.error(f"Memory error even with batch_size=1. Cannot process data.")
-                    raise RuntimeError(f"Out of memory even with smallest batch size (1). Error: {str(e)}") from e
-                logger.info(f"Memory error with batch_size={batch_size}. Retrying with batch_size={new_batch_size}")
+                    logger.error(
+                        "Memory error even with batch_size=1. Cannot process data."
+                    )
+                    raise RuntimeError(
+                        f"Out of memory even with smallest batch size (1). Error: {str(e)}"
+                    ) from e
+                logger.info(
+                    f"Memory error with batch_size={batch_size}. Retrying with batch_size={new_batch_size}"
+                )
                 batch_size = new_batch_size
             else:
                 # Non-memory error, raise immediately

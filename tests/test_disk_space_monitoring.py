@@ -11,7 +11,9 @@ def test_disk_space_utility_functions():
     from kompot.memory_utils import get_disk_space, estimate_disk_requirement
 
     # Test get_disk_space on /tmp
-    total_h, total_bytes, used_h, used_bytes, free_h, free_bytes = get_disk_space("/tmp")
+    total_h, total_bytes, used_h, used_bytes, free_h, free_bytes = get_disk_space(
+        "/tmp"
+    )
 
     # Should have valid values
     assert total_bytes > 0
@@ -20,7 +22,7 @@ def test_disk_space_utility_functions():
     assert total_bytes >= used_bytes + free_bytes  # Allow for some rounding
 
     # Human readable strings should have units
-    assert any(unit in total_h for unit in ['B', 'KB', 'MB', 'GB', 'TB'])
+    assert any(unit in total_h for unit in ["B", "KB", "MB", "GB", "TB"])
 
     # Test estimate_disk_requirement
     n_cells = 100
@@ -41,11 +43,7 @@ def test_disk_storage_space_check():
 
     with tempfile.TemporaryDirectory() as tmpdir:
         # This should succeed - we're not requesting huge amounts of space
-        storage = DiskStorage(
-            storage_dir=tmpdir,
-            n_cells=10,
-            n_genes=5
-        )
+        storage = DiskStorage(storage_dir=tmpdir, n_cells=10, n_genes=5)
 
         # storage_dir should be a unique subdirectory inside tmpdir
         assert storage.storage_dir.startswith(tmpdir)
@@ -67,7 +65,7 @@ def test_disk_storage_insufficient_space_error():
         with pytest.raises(IOError, match="Insufficient disk space"):
             storage = DiskStorage(
                 storage_dir=tmpdir,
-                expected_size_bytes=10**15  # 1 PB - should exceed available space
+                expected_size_bytes=10**15,  # 1 PB - should exceed available space
             )
 
 
@@ -146,7 +144,7 @@ def test_suggest_alternative_dirs():
         # Should be sorted by free space descending
         if len(alternatives) > 1:
             for i in range(len(alternatives) - 1):
-                assert alternatives[i][2] >= alternatives[i+1][2]
+                assert alternatives[i][2] >= alternatives[i + 1][2]
 
         # Clean up
         storage.cleanup()
@@ -203,44 +201,48 @@ def test_tmpdir_env_variable_respected():
             assert custom_tmpdir1 != custom_tmpdir2
 
             # Save original state
-            old_tmpdir = os.environ.get('TMPDIR')
+            old_tmpdir = os.environ.get("TMPDIR")
             old_tempdir = tempfile.tempdir
 
             try:
                 # Test with first custom TMPDIR
-                os.environ['TMPDIR'] = custom_tmpdir1
+                os.environ["TMPDIR"] = custom_tmpdir1
                 tempfile.tempdir = None  # Reset cache
 
                 storage1 = DiskStorage(n_cells=10, n_genes=5)
 
                 # Should be in custom_tmpdir1, not custom_tmpdir2
-                assert storage1.storage_dir.startswith(custom_tmpdir1), \
+                assert storage1.storage_dir.startswith(custom_tmpdir1), (
                     f"Expected storage in {custom_tmpdir1}, got {storage1.storage_dir}"
-                assert not storage1.storage_dir.startswith(custom_tmpdir2), \
+                )
+                assert not storage1.storage_dir.startswith(custom_tmpdir2), (
                     f"Should NOT be in {custom_tmpdir2}, but got {storage1.storage_dir}"
+                )
 
                 storage1.cleanup()
 
                 # Now change TMPDIR to second directory
-                os.environ['TMPDIR'] = custom_tmpdir2
+                os.environ["TMPDIR"] = custom_tmpdir2
                 tempfile.tempdir = None  # Reset cache again
 
                 storage2 = DiskStorage(n_cells=10, n_genes=5)
 
                 # Should be in custom_tmpdir2, not custom_tmpdir1
-                assert storage2.storage_dir.startswith(custom_tmpdir2), \
+                assert storage2.storage_dir.startswith(custom_tmpdir2), (
                     f"Expected storage in {custom_tmpdir2}, got {storage2.storage_dir}"
-                assert not storage2.storage_dir.startswith(custom_tmpdir1), \
+                )
+                assert not storage2.storage_dir.startswith(custom_tmpdir1), (
                     f"Should NOT be in {custom_tmpdir1}, but got {storage2.storage_dir}"
+                )
 
                 storage2.cleanup()
 
             finally:
                 # Restore original TMPDIR and tempdir cache
                 if old_tmpdir is None:
-                    os.environ.pop('TMPDIR', None)
+                    os.environ.pop("TMPDIR", None)
                 else:
-                    os.environ['TMPDIR'] = old_tmpdir
+                    os.environ["TMPDIR"] = old_tmpdir
                 tempfile.tempdir = old_tempdir
 
 

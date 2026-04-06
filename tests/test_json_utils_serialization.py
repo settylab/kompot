@@ -23,6 +23,7 @@ from kompot.anndata.utils.json_utils import (
 # json_utils tests
 # ===================================================================
 
+
 class TestJsonableEncoder:
     """Cover lines 35, 39 in json_utils.py."""
 
@@ -41,6 +42,7 @@ class TestJsonableEncoder:
         class Custom:
             def __str__(self):
                 return "custom_obj"
+
         assert jsonable_encoder(Custom()) == "custom_obj"
 
 
@@ -84,7 +86,9 @@ class TestGetJsonMetadata:
     def test_list_with_json_strings(self):
         # lines 139-148: list with string elements that are JSON
         adata = AnnData(X=np.zeros((2, 2)))
-        adata.uns["kompot_da"] = {"items": [json.dumps({"x": 1}), "plain", json.dumps([1, 2])]}
+        adata.uns["kompot_da"] = {
+            "items": [json.dumps({"x": 1}), "plain", json.dumps([1, 2])]
+        }
         result = get_json_metadata(adata, "kompot_da.items")
         assert result == [{"x": 1}, "plain", [1, 2]]
 
@@ -98,7 +102,9 @@ class TestGetJsonMetadata:
     def test_dict_with_json_string_values(self):
         # lines 150-160: dict values that are JSON strings
         adata = AnnData(X=np.zeros((2, 2)))
-        adata.uns["kompot_da"] = {"meta": {"a": json.dumps({"nested": True}), "b": "plain"}}
+        adata.uns["kompot_da"] = {
+            "meta": {"a": json.dumps({"nested": True}), "b": "plain"}
+        }
         result = get_json_metadata(adata, "kompot_da.meta")
         assert result == {"a": {"nested": True}, "b": "plain"}
 

@@ -2,6 +2,7 @@
 
 import logging
 import sys
+
 logger = logging.getLogger("kompot")
 
 # Import all plotting functions with error handling
@@ -9,10 +10,15 @@ __all__ = []
 
 try:
     from .volcano import volcano_de, volcano_da, multi_volcano_da
+
     __all__.extend(["volcano_de", "volcano_da", "multi_volcano_da"])
 except (ImportError, TypeError) as e:
     # Provide more specific error message for Python 3.12 metaclass issues
-    if sys.version_info >= (3, 12) and isinstance(e, TypeError) and "metaclass conflict" in str(e):
+    if (
+        sys.version_info >= (3, 12)
+        and isinstance(e, TypeError)
+        and "metaclass conflict" in str(e)
+    ):
         error_msg = (
             "Volcano plot functions unavailable due to metaclass conflict in scanpy with Python 3.12. "
             "You have two options to fix this:\n"
@@ -22,24 +28,38 @@ except (ImportError, TypeError) as e:
         logger.warning(f"Python 3.12 compatibility issue: {error_msg}")
     else:
         logger.warning(f"Could not import volcano plotting functions due to: {e}")
-    
+
     # Create stub functions that raise helpful errors
     def volcano_de(*args, **kwargs):
-        raise ImportError("Volcano plot functions unavailable due to scanpy compatibility issues. "
-                         "Please update scanpy or use Python 3.9-3.11 instead of 3.12.")
+        raise ImportError(
+            "Volcano plot functions unavailable due to scanpy compatibility issues. "
+            "Please update scanpy or use Python 3.9-3.11 instead of 3.12."
+        )
+
     def volcano_da(*args, **kwargs):
-        raise ImportError("Volcano plot functions unavailable due to scanpy compatibility issues. "
-                         "Please update scanpy or use Python 3.9-3.11 instead of 3.12.")
+        raise ImportError(
+            "Volcano plot functions unavailable due to scanpy compatibility issues. "
+            "Please update scanpy or use Python 3.9-3.11 instead of 3.12."
+        )
+
     def multi_volcano_da(*args, **kwargs):
-        raise ImportError("Multi volcano plot functions unavailable due to scanpy compatibility issues. "
-                         "Please update scanpy or use Python 3.9-3.11 instead of 3.12.")
+        raise ImportError(
+            "Multi volcano plot functions unavailable due to scanpy compatibility issues. "
+            "Please update scanpy or use Python 3.9-3.11 instead of 3.12."
+        )
+
 
 try:
     from .heatmap import heatmap, direction_barplot
+
     __all__.extend(["heatmap", "direction_barplot"])
 except (ImportError, TypeError) as e:
     # Provide more specific error message for Python 3.12 metaclass issues
-    if sys.version_info >= (3, 12) and isinstance(e, TypeError) and "metaclass conflict" in str(e):
+    if (
+        sys.version_info >= (3, 12)
+        and isinstance(e, TypeError)
+        and "metaclass conflict" in str(e)
+    ):
         error_msg = (
             "Heatmap functions unavailable due to metaclass conflict in scanpy with Python 3.12. "
             "You have two options to fix this:\n"
@@ -49,20 +69,31 @@ except (ImportError, TypeError) as e:
         logger.warning(f"Python 3.12 compatibility issue: {error_msg}")
     else:
         logger.warning(f"Could not import heatmap functions due to: {e}")
-    
+
     def heatmap(*args, **kwargs):
-        raise ImportError("Heatmap functions unavailable due to scanpy compatibility issues. "
-                         "Please update scanpy or use Python 3.9-3.11 instead of 3.12.")
+        raise ImportError(
+            "Heatmap functions unavailable due to scanpy compatibility issues. "
+            "Please update scanpy or use Python 3.9-3.11 instead of 3.12."
+        )
+
     def direction_barplot(*args, **kwargs):
-        raise ImportError("Direction barplot functions unavailable due to scanpy compatibility issues. "
-                         "Please update scanpy or use Python 3.9-3.11 instead of 3.12.")
+        raise ImportError(
+            "Direction barplot functions unavailable due to scanpy compatibility issues. "
+            "Please update scanpy or use Python 3.9-3.11 instead of 3.12."
+        )
+
 
 try:
     from .expression import plot_gene_expression
+
     __all__.append("plot_gene_expression")
 except (ImportError, TypeError) as e:
     # Provide more specific error message for Python 3.12 metaclass issues
-    if sys.version_info >= (3, 12) and isinstance(e, TypeError) and "metaclass conflict" in str(e):
+    if (
+        sys.version_info >= (3, 12)
+        and isinstance(e, TypeError)
+        and "metaclass conflict" in str(e)
+    ):
         error_msg = (
             "Gene expression plotting functions unavailable due to metaclass conflict in scanpy with Python 3.12. "
             "You have two options to fix this:\n"
@@ -71,18 +102,28 @@ except (ImportError, TypeError) as e:
         )
         logger.warning(f"Python 3.12 compatibility issue: {error_msg}")
     else:
-        logger.warning(f"Could not import gene expression plotting functions due to: {e}")
-    
+        logger.warning(
+            f"Could not import gene expression plotting functions due to: {e}"
+        )
+
     def plot_gene_expression(*args, **kwargs):
-        raise ImportError("Gene expression plotting functions unavailable due to scanpy compatibility issues. "
-                         "Please update scanpy or use Python 3.9-3.11 instead of 3.12.")
+        raise ImportError(
+            "Gene expression plotting functions unavailable due to scanpy compatibility issues. "
+            "Please update scanpy or use Python 3.9-3.11 instead of 3.12."
+        )
+
 
 try:
     from .embedding import embedding
+
     __all__.append("embedding")
 except (ImportError, TypeError) as e:
     # Provide more specific error message for Python 3.12 metaclass issues
-    if sys.version_info >= (3, 12) and isinstance(e, TypeError) and "metaclass conflict" in str(e):
+    if (
+        sys.version_info >= (3, 12)
+        and isinstance(e, TypeError)
+        and "metaclass conflict" in str(e)
+    ):
         error_msg = (
             "Embedding plotting function unavailable due to metaclass conflict in scanpy with Python 3.12. "
             "You have two options to fix this:\n"
@@ -92,13 +133,17 @@ except (ImportError, TypeError) as e:
         logger.warning(f"Python 3.12 compatibility issue: {error_msg}")
     else:
         logger.warning(f"Could not import embedding plotting function due to: {e}")
-    
+
     def embedding(*args, **kwargs):
-        raise ImportError("Embedding plotting function unavailable due to scanpy compatibility issues. "
-                         "Please update scanpy or use Python 3.9-3.11 instead of 3.12.")
+        raise ImportError(
+            "Embedding plotting function unavailable due to scanpy compatibility issues. "
+            "Please update scanpy or use Python 3.9-3.11 instead of 3.12."
+        )
+
 
 try:
     from .imputation import plot_imputation
+
     __all__.append("plot_imputation")
 except (ImportError, TypeError) as e:
     logger.warning(f"Could not import imputation plotting functions due to: {e}")
@@ -106,9 +151,11 @@ except (ImportError, TypeError) as e:
     def plot_imputation(*args, **kwargs):
         raise ImportError("Imputation plot unavailable due to missing dependencies.")
 
+
 # Import StringDB report class
 try:
     from .stringdb import StringDBReport
+
     __all__.append("StringDBReport")
 except ImportError as e:
     logger.warning(f"Could not import StringDBReport due to: {e}")
@@ -117,15 +164,19 @@ except ImportError as e:
         """Stub class when actual implementation is not available."""
 
         def __init__(self, *args, **kwargs):
-            raise ImportError("StringDBReport is unavailable due to missing dependencies. "
-                             "Make sure 'requests' and other required packages are installed.")
+            raise ImportError(
+                "StringDBReport is unavailable due to missing dependencies. "
+                "Make sure 'requests' and other required packages are installed."
+            )
+
 
 # Import field inference utilities (these are always available)
 try:
     from .field_inference import (
         infer_fields_from_run_info,
-        get_comparison_specific_fields
+        get_comparison_specific_fields,
     )
+
     __all__.extend(["infer_fields_from_run_info", "get_comparison_specific_fields"])
 except ImportError as e:
     logger.warning(f"Could not import field inference utilities due to: {e}")

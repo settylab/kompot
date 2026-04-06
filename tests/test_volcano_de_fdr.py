@@ -181,9 +181,9 @@ class TestVolcanoFDRBasicFunctionality:
         expected_y = -np.log10(np.maximum(original_fdr, 1e-300))
 
         # Check that we have the right total number of points and transformation is correct
-        assert len(all_y_data) == len(
-            expected_y
-        ), f"Expected {len(expected_y)} total points, got {len(all_y_data)}"
+        assert len(all_y_data) == len(expected_y), (
+            f"Expected {len(expected_y)} total points, got {len(all_y_data)}"
+        )
         np.testing.assert_allclose(np.sort(all_y_data), np.sort(expected_y), rtol=1e-5)
         plt.close(fig)
 
@@ -262,9 +262,9 @@ class TestVolcanoFDRColoring:
 
         # Test that custom categories exist
         custom_categories = adata.var["custom_category"].unique()
-        assert (
-            len(custom_categories) == 3
-        ), f"Should have 3 custom categories, got {len(custom_categories)}"
+        assert len(custom_categories) == 3, (
+            f"Should have 3 custom categories, got {len(custom_categories)}"
+        )
 
         plt.close(fig)
 
@@ -287,9 +287,9 @@ class TestVolcanoFDRColoring:
 
         # DE column should still exist and be unchanged
         final_count = np.sum(adata.var["kompot_de_A_to_B_is_de"])
-        assert (
-            final_count == initial_count
-        ), "DE column should be unchanged without update_de_classification"
+        assert final_count == initial_count, (
+            "DE column should be unchanged without update_de_classification"
+        )
         plt.close(fig)
 
 
@@ -314,7 +314,9 @@ class TestVolcanoFDRThresholds:
 
         # Should have horizontal lines (axhline creates Line2D objects)
         lines = ax.lines
-        horizontal_lines = [line for line in lines if line.get_xdata()[0] != line.get_xdata()[1]]
+        horizontal_lines = [
+            line for line in lines if line.get_xdata()[0] != line.get_xdata()[1]
+        ]
 
         assert len(horizontal_lines) > 0, "Should have horizontal threshold line"
         plt.close(fig)
@@ -363,7 +365,8 @@ class TestVolcanoFDRThresholds:
         horizontal_lines = [
             line
             for line in lines
-            if len(set(line.get_ydata())) == 1 and line.get_ydata()[0] > 0  # horizontal line
+            if len(set(line.get_ydata())) == 1
+            and line.get_ydata()[0] > 0  # horizontal line
         ]  # above x-axis
 
         assert len(horizontal_lines) > 0, "Should have horizontal threshold line"
@@ -399,9 +402,9 @@ class TestVolcanoFDRClassificationUpdates:
 
         # Should have more significant genes with lenient threshold
         final_count = np.sum(adata.var["kompot_de_A_to_B_is_de"])
-        assert (
-            final_count >= initial_count
-        ), "Should have at least as many significant genes with lenient threshold"
+        assert final_count >= initial_count, (
+            "Should have at least as many significant genes with lenient threshold"
+        )
         plt.close(fig)
 
     def test_update_classification_disabled(self):
@@ -425,7 +428,9 @@ class TestVolcanoFDRClassificationUpdates:
 
         # Should be unchanged
         final_count = np.sum(adata.var["kompot_de_A_to_B_is_de"])
-        assert final_count == initial_count, "Should not update classification when disabled"
+        assert final_count == initial_count, (
+            "Should not update classification when disabled"
+        )
         plt.close(fig)
 
     def test_update_classification_strict_threshold(self):
@@ -449,9 +454,9 @@ class TestVolcanoFDRClassificationUpdates:
 
         # Should have fewer significant genes with strict threshold
         final_count = np.sum(adata.var["kompot_de_A_to_B_is_de"])
-        assert (
-            final_count <= initial_count
-        ), "Should have fewer or equal significant genes with strict threshold"
+        assert final_count <= initial_count, (
+            "Should have fewer or equal significant genes with strict threshold"
+        )
         plt.close(fig)
 
 
@@ -464,7 +469,10 @@ class TestVolcanoFDRErrorHandling:
 
         # Remove FDR columns
         adata.var = adata.var.drop(
-            columns=["kompot_de_A_to_B_mahalanobis_local_fdr", "kompot_de_A_to_B_mahalanobis_tail_fdr"]
+            columns=[
+                "kompot_de_A_to_B_mahalanobis_local_fdr",
+                "kompot_de_A_to_B_mahalanobis_tail_fdr",
+            ]
         )
 
         fig, ax = plt.subplots()
@@ -574,7 +582,9 @@ class TestVolcanoFDRIntegration:
         )
 
         # Should have multiple scatter collections (background + highlighted)
-        assert len(ax.collections) > 1, "Should have multiple scatter collections for highlighting"
+        assert len(ax.collections) > 1, (
+            "Should have multiple scatter collections for highlighting"
+        )
         plt.close(fig)
 
     def test_fdr_with_custom_colors(self):

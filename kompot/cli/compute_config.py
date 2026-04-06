@@ -87,19 +87,19 @@ def _configure_thread_limits(n_threads: int):
     n_threads_str = str(n_threads)
 
     # OpenMP (used by NumPy, SciPy, etc.)
-    os.environ['OMP_NUM_THREADS'] = n_threads_str
+    os.environ["OMP_NUM_THREADS"] = n_threads_str
     logger.debug(f"  Set OMP_NUM_THREADS={n_threads_str}")
 
     # Intel MKL (if NumPy is built with MKL)
-    os.environ['MKL_NUM_THREADS'] = n_threads_str
+    os.environ["MKL_NUM_THREADS"] = n_threads_str
     logger.debug(f"  Set MKL_NUM_THREADS={n_threads_str}")
 
     # OpenBLAS (if NumPy is built with OpenBLAS)
-    os.environ['OPENBLAS_NUM_THREADS'] = n_threads_str
+    os.environ["OPENBLAS_NUM_THREADS"] = n_threads_str
     logger.debug(f"  Set OPENBLAS_NUM_THREADS={n_threads_str}")
 
     # BLAS (general)
-    os.environ['BLAS_NUM_THREADS'] = n_threads_str
+    os.environ["BLAS_NUM_THREADS"] = n_threads_str
     logger.debug(f"  Set BLAS_NUM_THREADS={n_threads_str}")
 
     logger.info(f"  NumPy/BLAS thread limit: {n_threads} threads")
@@ -123,43 +123,45 @@ def _configure_jax(use_gpu: bool, n_threads: int = None):
     if use_gpu:
         # Check if GPU is available
         try:
-            devices = jax.devices('gpu')
+            devices = jax.devices("gpu")
             if len(devices) > 0:
-                logger.info(f"  JAX: GPU mode enabled")
+                logger.info("  JAX: GPU mode enabled")
                 logger.info(f"    Available GPU devices: {len(devices)}")
                 for i, device in enumerate(devices):
                     logger.info(f"      Device {i}: {device}")
 
                 # Set default device to GPU
                 # Note: mellon may have set it to CPU, we override here
-                jax.config.update('jax_platform_name', 'gpu')
+                jax.config.update("jax_platform_name", "gpu")
             else:
-                logger.warning("  JAX: GPU requested but no GPU devices found, falling back to CPU")
-                jax.config.update('jax_platform_name', 'cpu')
+                logger.warning(
+                    "  JAX: GPU requested but no GPU devices found, falling back to CPU"
+                )
+                jax.config.update("jax_platform_name", "cpu")
                 use_gpu = False
         except RuntimeError as e:
             logger.warning(f"  JAX: GPU not available ({e}), using CPU")
-            jax.config.update('jax_platform_name', 'cpu')
+            jax.config.update("jax_platform_name", "cpu")
             use_gpu = False
     else:
         logger.info("  JAX: CPU mode (GPU disabled)")
-        jax.config.update('jax_platform_name', 'cpu')
+        jax.config.update("jax_platform_name", "cpu")
 
     # Configure thread limits for JAX/XLA
     if not use_gpu and n_threads is not None:
         # Set intra-op parallelism for CPU
-        xla_flags = os.environ.get('XLA_FLAGS', '')
+        xla_flags = os.environ.get("XLA_FLAGS", "")
 
         # Add thread limit to XLA_FLAGS
-        thread_flag = f'--xla_cpu_multi_thread_eigen=true intra_op_parallelism_threads={n_threads}'
+        thread_flag = f"--xla_cpu_multi_thread_eigen=true intra_op_parallelism_threads={n_threads}"
 
-        if 'intra_op_parallelism_threads' not in xla_flags:
+        if "intra_op_parallelism_threads" not in xla_flags:
             if xla_flags:
-                xla_flags = f'{xla_flags} {thread_flag}'
+                xla_flags = f"{xla_flags} {thread_flag}"
             else:
                 xla_flags = thread_flag
 
-            os.environ['XLA_FLAGS'] = xla_flags
+            os.environ["XLA_FLAGS"] = xla_flags
             logger.info(f"    JAX/XLA thread limit: {n_threads} threads")
             logger.debug(f"      XLA_FLAGS={xla_flags}")
         else:
@@ -181,7 +183,7 @@ def _configure_dask(n_threads: int = None):
 
         if n_threads is not None:
             # Configure Dask to use specified number of threads
-            dask.config.set(scheduler='threads', num_workers=n_threads)
+            dask.config.set(scheduler="threads", num_workers=n_threads)
             logger.info(f"  Dask: thread limit set to {n_threads} threads")
             logger.debug(f"      Dask scheduler: threads, num_workers={n_threads}")
         else:
@@ -206,10 +208,10 @@ def get_device_info():
         - jax_platform: str (current JAX platform)
     """
     info = {
-        'gpu_available': False,
-        'gpu_devices': [],
-        'cpu_count': os.cpu_count(),
-        'jax_platform': None
+        "gpu_available": False,
+        "gpu_devices": [],
+        "cpu_count": os.cpu_count(),
+        "jax_platform": None,
     }
 
     try:
@@ -218,16 +220,16 @@ def get_device_info():
         # Check current JAX platform
         try:
             current_backend = jax.devices()[0].platform
-            info['jax_platform'] = current_backend
+            info["jax_platform"] = current_backend
         except Exception:
-            info['jax_platform'] = 'unknown'
+            info["jax_platform"] = "unknown"
 
         # Check for GPU devices
         try:
-            gpu_devices = jax.devices('gpu')
+            gpu_devices = jax.devices("gpu")
             if len(gpu_devices) > 0:
-                info['gpu_available'] = True
-                info['gpu_devices'] = [str(d) for d in gpu_devices]
+                info["gpu_available"] = True
+                info["gpu_devices"] = [str(d) for d in gpu_devices]
         except RuntimeError:
             pass
 
@@ -245,7 +247,7 @@ def log_compute_environment():
     logger.info(f"  CPU cores: {info['cpu_count']}")
     logger.info(f"  JAX platform: {info['jax_platform']}")
     logger.info(f"  GPU available: {info['gpu_available']}")
-    if info['gpu_available']:
+    if info["gpu_available"]:
         logger.info(f"  GPU devices: {len(info['gpu_devices'])}")
-        for i, device in enumerate(info['gpu_devices']):
+        for i, device in enumerate(info["gpu_devices"]):
             logger.info(f"    {i}: {device}")

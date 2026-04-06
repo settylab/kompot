@@ -1,11 +1,10 @@
 """Cleanup utilities for removing large data from AnnData after differential analysis."""
 
 import logging
-from typing import Optional, Union, List, Dict, Set
+from typing import Optional, Union, List, Dict
 from anndata import AnnData
 
 from .utils.runinfo import RunInfo
-from .utils.field_tracking import get_run_from_history
 from .utils.json_utils import from_json_string
 
 logger = logging.getLogger("kompot")
@@ -14,7 +13,7 @@ logger = logging.getLogger("kompot")
 def cleanup(
     adata: AnnData,
     run_ids: Optional[Union[int, List[int]]] = None,
-    analysis_type: str = 'de',
+    analysis_type: str = "de",
     keep_layers: Optional[Union[bool, List[str]]] = None,
     keep_var_fields: Optional[Union[bool, List[str]]] = True,
     keep_obs_fields: Optional[Union[bool, List[str]]] = True,
@@ -142,8 +141,8 @@ def cleanup(
     - Use RunInfo to check which fields are present vs deleted
     """
     # For impute analysis, default to keeping the main result (imputed layer)
-    if analysis_type == 'impute' and keep_layers is None:
-        keep_layers = ['imputed']
+    if analysis_type == "impute" and keep_layers is None:
+        keep_layers = ["imputed"]
 
     if not inplace:
         adata = adata.copy()
@@ -152,14 +151,16 @@ def cleanup(
     storage_key = f"kompot_{analysis_type}"
 
     # Check if run history exists
-    if (storage_key not in adata.uns or
-        'run_history' not in adata.uns[storage_key] or
-        len(adata.uns[storage_key]['run_history']) == 0):
+    if (
+        storage_key not in adata.uns
+        or "run_history" not in adata.uns[storage_key]
+        or len(adata.uns[storage_key]["run_history"]) == 0
+    ):
         logger.warning(f"No run history found for {analysis_type} analysis.")
         return None if not inplace else adata
 
     # Get total number of runs
-    run_history = adata.uns[storage_key]['run_history']
+    run_history = adata.uns[storage_key]["run_history"]
     if isinstance(run_history, str):
         run_history = from_json_string(run_history)
     total_runs = len(run_history)
@@ -187,23 +188,25 @@ def cleanup(
 
         adjusted_run_id = run_info_obj.adjusted_run_id
         run_info = run_info_obj.get_raw_data()
-        field_mapping = run_info.get('field_mapping', {})
+        field_mapping = run_info.get("field_mapping", {})
 
         # Deserialize field_mapping if needed
         if isinstance(field_mapping, str):
             field_mapping = from_json_string(field_mapping)
 
         if not field_mapping:
-            logger.warning(f"No field_mapping found for run {adjusted_run_id}. Skipping.")
+            logger.warning(
+                f"No field_mapping found for run {adjusted_run_id}. Skipping."
+            )
             continue
 
         # Organize fields by location and type
         fields_by_location: Dict[str, Dict[str, List[str]]] = {
-            'layers': {},
-            'var': {},
-            'obs': {},
-            'obsp': {},
-            'varm': {},
+            "layers": {},
+            "var": {},
+            "obs": {},
+            "obsp": {},
+            "varm": {},
         }
 
         for field_name, field_info in field_mapping.items():
@@ -213,8 +216,8 @@ def cleanup(
             if not isinstance(field_info, dict):
                 continue
 
-            location = field_info.get('location')
-            field_type = field_info.get('type', 'unknown')
+            location = field_info.get("location")
+            field_type = field_info.get("type", "unknown")
 
             if location in fields_by_location:
                 if field_type not in fields_by_location[location]:
@@ -223,19 +226,18 @@ def cleanup(
 
         # Process each location based on user preferences
         deletion_params = {
-            'layers': keep_layers,
-            'var': keep_var_fields,
-            'obs': keep_obs_fields,
-            'obsp': keep_obsp_fields,
-            'varm': keep_varm_fields,
+            "layers": keep_layers,
+            "var": keep_var_fields,
+            "obs": keep_obs_fields,
+            "obsp": keep_obsp_fields,
+            "varm": keep_varm_fields,
         }
 
         deleted_fields: Dict[str, List[str]] = {}
 
         for location, keep_param in deletion_params.items():
             fields_to_delete = _determine_fields_to_delete(
-                fields_by_location[location],
-                keep_param
+                fields_by_location[location], keep_param
             )
 
             if fields_to_delete:
@@ -247,7 +249,9 @@ def cleanup(
         # Log summary for this run
         run_deleted = sum(len(fields) for fields in deleted_fields.values())
         if run_deleted > 0:
-            logger.info(f"Cleaned up {run_deleted} field(s) from run {adjusted_run_id}:")
+            logger.info(
+                f"Cleaned up {run_deleted} field(s) from run {adjusted_run_id}:"
+            )
             for location, fields in deleted_fields.items():
                 if fields:
                     logger.info(f"  {location} ({len(fields)} field(s)):")
@@ -257,16 +261,17 @@ def cleanup(
 
     # Final summary
     if total_deleted > 0:
-        logger.info(f"Total: Cleaned up {total_deleted} field(s) across {len(run_ids_to_process)} run(s)")
+        logger.info(
+            f"Total: Cleaned up {total_deleted} field(s) across {len(run_ids_to_process)} run(s)"
+        )
     else:
-        logger.info(f"No fields deleted.")
+        logger.info("No fields deleted.")
 
     return None if inplace else adata
 
 
 def _determine_fields_to_delete(
-    fields_by_type: Dict[str, List[str]],
-    keep_param: Optional[Union[bool, List[str]]]
+    fields_by_type: Dict[str, List[str]], keep_param: Optional[Union[bool, List[str]]]
 ) -> List[str]:
     """
     Determine which fields to delete based on user preference.
@@ -328,23 +333,23 @@ def _delete_field(adata: AnnData, location: str, field_name: str) -> bool:
         True if field was deleted, False if field didn't exist
     """
     try:
-        if location == 'var':
+        if location == "var":
             if field_name in adata.var.columns:
                 adata.var.drop(columns=[field_name], inplace=True)
                 return True
-        elif location == 'obs':
+        elif location == "obs":
             if field_name in adata.obs.columns:
                 adata.obs.drop(columns=[field_name], inplace=True)
                 return True
-        elif location == 'layers':
+        elif location == "layers":
             if field_name in adata.layers:
                 del adata.layers[field_name]
                 return True
-        elif location == 'obsp':
+        elif location == "obsp":
             if field_name in adata.obsp:
                 del adata.obsp[field_name]
                 return True
-        elif location == 'varm':
+        elif location == "varm":
             if field_name in adata.varm:
                 del adata.varm[field_name]
                 return True
@@ -356,9 +361,7 @@ def _delete_field(adata: AnnData, location: str, field_name: str) -> bool:
 
 
 def get_field_status(
-    adata: AnnData,
-    run_id: Optional[int] = None,
-    analysis_type: str = 'de'
+    adata: AnnData, run_id: Optional[int] = None, analysis_type: str = "de"
 ) -> Dict[str, Dict[str, Dict[str, bool]]]:
     """
     Get the status of all fields from a differential analysis run.
@@ -393,7 +396,7 @@ def get_field_status(
         return {}
 
     run_info = run_info_obj.get_raw_data()
-    field_mapping = run_info.get('field_mapping', {})
+    field_mapping = run_info.get("field_mapping", {})
 
     # Deserialize field_mapping if needed
     if isinstance(field_mapping, str):
@@ -412,8 +415,8 @@ def get_field_status(
         if not isinstance(field_info, dict):
             continue
 
-        location = field_info.get('location')
-        field_type = field_info.get('type', 'unknown')
+        location = field_info.get("location")
+        field_type = field_info.get("type", "unknown")
 
         if location not in status:
             status[location] = {}
@@ -429,14 +432,14 @@ def get_field_status(
 
 def _check_field_exists(adata: AnnData, location: str, field_name: str) -> bool:
     """Check if a field exists in the specified AnnData location."""
-    if location == 'var':
+    if location == "var":
         return field_name in adata.var.columns
-    elif location == 'obs':
+    elif location == "obs":
         return field_name in adata.obs.columns
-    elif location == 'layers':
+    elif location == "layers":
         return field_name in adata.layers
-    elif location == 'obsp':
+    elif location == "obsp":
         return field_name in adata.obsp
-    elif location == 'varm':
+    elif location == "varm":
         return field_name in adata.varm
     return False

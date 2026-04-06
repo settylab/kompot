@@ -1,13 +1,13 @@
 """Tests to improve coverage for kompot.plot.__init__ and kompot.plot.volcano.da."""
 
 import matplotlib
+
 matplotlib.use("Agg")
 
 import numpy as np
 import pandas as pd
 import pytest
 import matplotlib.pyplot as plt
-from unittest.mock import patch, MagicMock
 import anndata
 import json
 
@@ -15,6 +15,7 @@ import json
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_da_adata(n_cells=80):
     """Create a minimal AnnData with DA result columns and run history."""
@@ -79,42 +80,55 @@ class TestPlotInitImports:
 
     def test_volcano_de_accessible(self):
         from kompot.plot import volcano_de
+
         assert callable(volcano_de)
 
     def test_volcano_da_accessible(self):
         from kompot.plot import volcano_da
+
         assert callable(volcano_da)
 
     def test_multi_volcano_da_accessible(self):
         from kompot.plot import multi_volcano_da
+
         assert callable(multi_volcano_da)
 
     def test_heatmap_accessible(self):
         from kompot.plot import heatmap
+
         assert callable(heatmap)
 
     def test_direction_barplot_accessible(self):
         from kompot.plot import direction_barplot
+
         assert callable(direction_barplot)
 
     def test_plot_gene_expression_accessible(self):
         from kompot.plot import plot_gene_expression
+
         assert callable(plot_gene_expression)
 
     def test_embedding_accessible(self):
         from kompot.plot import embedding
+
         assert callable(embedding)
 
     def test_plot_imputation_accessible(self):
         from kompot.plot import plot_imputation
+
         assert callable(plot_imputation)
 
     def test_stringdb_report_accessible(self):
         from kompot.plot import StringDBReport
+
         assert StringDBReport is not None
 
     def test_field_inference_accessible(self):
-        from kompot.plot import infer_fields_from_run_info, get_comparison_specific_fields
+        from kompot.plot import (
+            infer_fields_from_run_info,
+            get_comparison_specific_fields,
+        )
+
         assert callable(infer_fields_from_run_info)
         assert callable(get_comparison_specific_fields)
 

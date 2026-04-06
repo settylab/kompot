@@ -30,6 +30,7 @@ from kompot.anndata.utils.field_tracking import (
 # field_tracking tests
 # ===================================================================
 
+
 class TestGetRunHistory:
     """Cover lines 40, 50-55 in field_tracking.py."""
 
@@ -94,20 +95,28 @@ class TestDetectOutputFieldOverwrite:
 
     def test_result_type_abundance(self):
         # line 381: abundance -> kompot_da
-        adata = AnnData(X=np.zeros((2, 2)), obs=pd.DataFrame({"da_col": [1, 2]}, index=["c0", "c1"]))
+        adata = AnnData(
+            X=np.zeros((2, 2)), obs=pd.DataFrame({"da_col": [1, 2]}, index=["c0", "c1"])
+        )
         has, fields, prev = detect_output_field_overwrite(
-            adata, result_type="differential abundance",
-            output_patterns=["da_col"], overwrite=False
+            adata,
+            result_type="differential abundance",
+            output_patterns=["da_col"],
+            overwrite=False,
         )
         assert has is True
         assert "obs.da_col" in fields
 
     def test_result_type_expression(self):
         # line 383-384: expression -> kompot_de
-        adata = AnnData(X=np.zeros((2, 2)), obs=pd.DataFrame({"de_col": [1, 2]}, index=["c0", "c1"]))
+        adata = AnnData(
+            X=np.zeros((2, 2)), obs=pd.DataFrame({"de_col": [1, 2]}, index=["c0", "c1"])
+        )
         has, fields, prev = detect_output_field_overwrite(
-            adata, result_type="differential expression",
-            output_patterns=["de_col"], overwrite=False
+            adata,
+            result_type="differential expression",
+            output_patterns=["de_col"],
+            overwrite=False,
         )
         assert has is True
 
@@ -115,7 +124,9 @@ class TestDetectOutputFieldOverwrite:
         # line 386: unknown result_type
         adata = AnnData(X=np.zeros((2, 2)))
         with pytest.raises(ValueError, match="Unknown result_type"):
-            detect_output_field_overwrite(adata, result_type="unknown_type", output_patterns=[])
+            detect_output_field_overwrite(
+                adata, result_type="unknown_type", output_patterns=[]
+            )
 
     def test_no_type_raises(self):
         # line 388: neither analysis_type nor result_type
@@ -125,7 +136,9 @@ class TestDetectOutputFieldOverwrite:
 
     def test_overwrite_true_returns_early(self):
         # line 391-392: overwrite=True short-circuits
-        adata = AnnData(X=np.zeros((2, 2)), obs=pd.DataFrame({"da_col": [1, 2]}, index=["c0", "c1"]))
+        adata = AnnData(
+            X=np.zeros((2, 2)), obs=pd.DataFrame({"da_col": [1, 2]}, index=["c0", "c1"])
+        )
         has, fields, prev = detect_output_field_overwrite(
             adata, analysis_type="da", output_patterns=["da_col"], overwrite=True
         )
@@ -138,8 +151,11 @@ class TestDetectOutputFieldOverwrite:
             var=pd.DataFrame({"my_var_col": [0.1, 0.2, 0.3]}, index=["g0", "g1", "g2"]),
         )
         has, fields, _ = detect_output_field_overwrite(
-            adata, analysis_type="de", output_patterns=["my_var_col"],
-            overwrite=False, location="var"
+            adata,
+            analysis_type="de",
+            output_patterns=["my_var_col"],
+            overwrite=False,
+            location="var",
         )
         assert has is True
         assert "var.my_var_col" in fields
@@ -149,8 +165,11 @@ class TestDetectOutputFieldOverwrite:
         adata = AnnData(X=np.zeros((2, 2)))
         adata.uns["my_key"] = "value"
         has, fields, _ = detect_output_field_overwrite(
-            adata, analysis_type="da", output_patterns=["my_key"],
-            overwrite=False, location="uns"
+            adata,
+            analysis_type="da",
+            output_patterns=["my_key"],
+            overwrite=False,
+            location="uns",
         )
         assert has is True
         assert "uns.my_key" in fields
@@ -160,8 +179,11 @@ class TestDetectOutputFieldOverwrite:
         adata = AnnData(X=np.zeros((2, 2)))
         adata.obsm["X_test"] = np.zeros((2, 3))
         has, fields, _ = detect_output_field_overwrite(
-            adata, analysis_type="da", output_patterns=["X_test"],
-            overwrite=False, location="obsm"
+            adata,
+            analysis_type="da",
+            output_patterns=["X_test"],
+            overwrite=False,
+            location="obsm",
         )
         assert has is True
         assert "obsm.X_test" in fields
@@ -171,8 +193,11 @@ class TestDetectOutputFieldOverwrite:
         adata = AnnData(X=np.zeros((2, 3)))
         adata.varm["test"] = np.zeros((3, 2))
         has, fields, _ = detect_output_field_overwrite(
-            adata, analysis_type="da", output_patterns=["test"],
-            overwrite=False, location="varm"
+            adata,
+            analysis_type="da",
+            output_patterns=["test"],
+            overwrite=False,
+            location="varm",
         )
         assert has is True
         assert "varm.test" in fields
@@ -182,8 +207,11 @@ class TestDetectOutputFieldOverwrite:
         adata = AnnData(X=np.zeros((2, 2)))
         adata.obsp["test"] = np.zeros((2, 2))
         has, fields, _ = detect_output_field_overwrite(
-            adata, analysis_type="da", output_patterns=["test"],
-            overwrite=False, location="obsp"
+            adata,
+            analysis_type="da",
+            output_patterns=["test"],
+            overwrite=False,
+            location="obsp",
         )
         assert has is True
         assert "obsp.test" in fields
@@ -193,23 +221,33 @@ class TestDetectOutputFieldOverwrite:
         adata = AnnData(X=np.zeros((2, 3)))
         adata.layers["test"] = np.zeros((2, 3))
         has, fields, _ = detect_output_field_overwrite(
-            adata, analysis_type="da", output_patterns=["test"],
-            overwrite=False, location="layers"
+            adata,
+            analysis_type="da",
+            output_patterns=["test"],
+            overwrite=False,
+            location="layers",
         )
         assert has is True
         assert "layers.test" in fields
 
     def test_with_tracking_and_result_key(self):
         # line 454: anndata_fields + result_key tracking lookup
-        adata = AnnData(X=np.zeros((2, 2)), obs=pd.DataFrame({"col": [1, 2]}, index=["c0", "c1"]))
+        adata = AnnData(
+            X=np.zeros((2, 2)), obs=pd.DataFrame({"col": [1, 2]}, index=["c0", "c1"])
+        )
         run0 = {"run_id": 0, "params": {}, "timestamp": "t0"}
         adata.uns["kompot_da"] = {
             "run_history": to_json_string([run0]),
-            "anndata_fields": to_json_string({"uns": {"my_result": 0}, "obs": {"col": 0}}),
+            "anndata_fields": to_json_string(
+                {"uns": {"my_result": 0}, "obs": {"col": 0}}
+            ),
         }
         has, fields, prev = detect_output_field_overwrite(
-            adata, analysis_type="da", output_patterns=["col"],
-            overwrite=False, result_key="my_result"
+            adata,
+            analysis_type="da",
+            output_patterns=["col"],
+            overwrite=False,
+            result_key="my_result",
         )
         assert has is True
         assert prev is not None
@@ -223,7 +261,9 @@ class TestValidateFieldRunId:
         adata.uns["kompot_da"] = {
             "anndata_fields": to_json_string({"obs": {"my_field": 0}})
         }
-        valid, actual, msg = validate_field_run_id(adata, "my_field", "obs", 0, "kompot_da")
+        valid, actual, msg = validate_field_run_id(
+            adata, "my_field", "obs", 0, "kompot_da"
+        )
         assert valid is True
         assert actual == 0
         assert msg is None
@@ -233,14 +273,18 @@ class TestValidateFieldRunId:
         adata.uns["kompot_da"] = {
             "anndata_fields": to_json_string({"obs": {"my_field": 1}})
         }
-        valid, actual, msg = validate_field_run_id(adata, "my_field", "obs", 0, "kompot_da")
+        valid, actual, msg = validate_field_run_id(
+            adata, "my_field", "obs", 0, "kompot_da"
+        )
         assert valid is False
         assert actual == 1
         assert "inconsistent" in msg
 
     def test_no_tracking_info(self):
         adata = AnnData(X=np.zeros((2, 2)))
-        valid, actual, msg = validate_field_run_id(adata, "my_field", "obs", 0, "kompot_da")
+        valid, actual, msg = validate_field_run_id(
+            adata, "my_field", "obs", 0, "kompot_da"
+        )
         assert valid is True
         assert actual is None
 
@@ -257,7 +301,9 @@ class TestGetRunFromHistory:
         adata = AnnData(X=np.zeros((2, 2)))
         run0 = {"run_id": 0, "params": {}}
         adata.uns["custom_key"] = {"sub": {"history": to_json_string([run0])}}
-        result = get_run_from_history(adata, run_id=0, history_key="custom_key.sub.history")
+        result = get_run_from_history(
+            adata, run_id=0, history_key="custom_key.sub.history"
+        )
         assert result is not None
 
     def test_history_key_no_dot(self):
@@ -277,14 +323,18 @@ class TestGetRunFromHistory:
         # line 602-603: nested path where intermediate is missing
         adata = AnnData(X=np.zeros((2, 2)))
         adata.uns["custom_key"] = {"sub": {}}
-        result = get_run_from_history(adata, run_id=0, history_key="custom_key.sub.missing.history")
+        result = get_run_from_history(
+            adata, run_id=0, history_key="custom_key.sub.missing.history"
+        )
         assert result is None
 
     def test_nested_history_path_final_missing(self):
         # line 607-608: nested path where final key is missing
         adata = AnnData(X=np.zeros((2, 2)))
         adata.uns["custom_key"] = {"sub": {"other": "stuff"}}
-        result = get_run_from_history(adata, run_id=0, history_key="custom_key.sub.history")
+        result = get_run_from_history(
+            adata, run_id=0, history_key="custom_key.sub.history"
+        )
         assert result is None
 
     def test_direct_path_missing(self):

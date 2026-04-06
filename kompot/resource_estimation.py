@@ -13,12 +13,14 @@ import logging
 
 try:
     import psutil
+
     PSUTIL_AVAILABLE = True
 except ImportError:
     PSUTIL_AVAILABLE = False
 
 try:
     import dask
+
     DASK_AVAILABLE = True
 except ImportError:
     DASK_AVAILABLE = False
@@ -28,7 +30,7 @@ logger = logging.getLogger("kompot")
 
 def human_readable_size(size_in_bytes: int) -> str:
     """Convert bytes to human-readable string (e.g., '1.23 GB')."""
-    units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB']
+    units = ["B", "KB", "MB", "GB", "TB", "PB"]
     size = float(size_in_bytes)
     unit_index = 0
 
@@ -42,6 +44,7 @@ def human_readable_size(size_in_bytes: int) -> str:
 @dataclass
 class ResourceRequirement:
     """A single resource requirement (memory or disk)."""
+
     name: str  # Descriptive name (e.g., "Covariance matrix")
     size_bytes: int  # Size in bytes
     resource_type: str  # 'memory' or 'disk'
@@ -58,6 +61,7 @@ class ResourceRequirement:
 @dataclass
 class ResourceAvailability:
     """Current system resource availability."""
+
     memory_total: int
     memory_available: int
     disk_path: str
@@ -84,9 +88,12 @@ class ResourceAvailability:
 @dataclass
 class ResourcePlan:
     """Complete resource usage plan and availability check."""
+
     requirements: List[ResourceRequirement] = field(default_factory=list)
     availability: Optional[ResourceAvailability] = None
-    output_fields: Dict[str, List[str]] = field(default_factory=dict)  # Fields that will be created
+    output_fields: Dict[str, List[str]] = field(
+        default_factory=dict
+    )  # Fields that will be created
     info: List[str] = field(default_factory=list)
     warnings: List[str] = field(default_factory=list)
     errors: List[str] = field(default_factory=list)
@@ -94,25 +101,27 @@ class ResourcePlan:
     @property
     def total_memory_required(self) -> int:
         """Total memory required in bytes."""
-        return sum(r.size_bytes for r in self.requirements if r.resource_type == 'memory')
+        return sum(
+            r.size_bytes for r in self.requirements if r.resource_type == "memory"
+        )
 
     @property
     def total_disk_required(self) -> int:
         """Total disk space required in bytes."""
-        return sum(r.size_bytes for r in self.requirements if r.resource_type == 'disk')
+        return sum(r.size_bytes for r in self.requirements if r.resource_type == "disk")
 
     @property
     def memory_ratio(self) -> float:
         """Ratio of required to available memory."""
         if self.availability is None or self.availability.memory_available == 0:
-            return float('inf')
+            return float("inf")
         return self.total_memory_required / self.availability.memory_available
 
     @property
     def disk_ratio(self) -> float:
         """Ratio of required to available disk space."""
         if self.availability is None or self.availability.disk_available == 0:
-            return float('inf')
+            return float("inf")
         return self.total_disk_required / self.availability.disk_available
 
     @property
@@ -120,9 +129,15 @@ class ResourcePlan:
         """Whether the plan is feasible (no errors)."""
         return len(self.errors) == 0
 
-    def add_requirement(self, name: str, size_bytes: int, resource_type: str,
-                       shape: Optional[Tuple] = None, field_name: Optional[str] = None,
-                       overwrite: bool = False):
+    def add_requirement(
+        self,
+        name: str,
+        size_bytes: int,
+        resource_type: str,
+        shape: Optional[Tuple] = None,
+        field_name: Optional[str] = None,
+        overwrite: bool = False,
+    ):
         """Add a resource requirement to the plan."""
         req = ResourceRequirement(
             name=name,
@@ -130,11 +145,13 @@ class ResourcePlan:
             resource_type=resource_type,
             shape=shape,
             field_name=field_name,
-            overwrite=overwrite
+            overwrite=overwrite,
         )
         self.requirements.append(req)
 
-    def check_availability(self, memory_threshold: float = 0.8, disk_threshold: float = 0.9):
+    def check_availability(
+        self, memory_threshold: float = 0.8, disk_threshold: float = 0.9
+    ):
         """
         Check resource availability and generate warnings/errors.
 
@@ -146,7 +163,9 @@ class ResourcePlan:
             Maximum fraction of available disk to use (default 0.9 = 90%)
         """
         if self.availability is None:
-            self.warnings.append("Could not check resource availability (psutil not installed)")
+            self.warnings.append(
+                "Could not check resource availability (psutil not installed)"
+            )
             return
 
         # Check memory
@@ -158,7 +177,7 @@ class ResourcePlan:
                 )
             elif self.memory_ratio > memory_threshold:
                 self.warnings.append(
-                    f"High memory usage: Will use {self.memory_ratio*100:.0f}% "
+                    f"High memory usage: Will use {self.memory_ratio * 100:.0f}% "
                     f"({human_readable_size(self.total_memory_required)}) "
                     f"of available memory ({self.availability.memory_available_human}). "
                     f"Consider using storage=StorageSettings(store_arrays_on_disk=True) to offload to disk."
@@ -170,7 +189,8 @@ class ResourcePlan:
                 # Get alternative suggestions
                 alternatives = suggest_alternative_disk_locations()
                 suitable_alternatives = [
-                    (path, free_h) for path, free_h, free_bytes in alternatives
+                    (path, free_h)
+                    for path, free_h, free_bytes in alternatives
                     if free_bytes >= self.total_disk_required
                 ][:3]  # Top 3
 
@@ -195,7 +215,7 @@ class ResourcePlan:
                 self.errors.append(error_msg)
             elif self.disk_ratio > disk_threshold:
                 self.warnings.append(
-                    f"High disk usage: Will use {self.disk_ratio*100:.0f}% "
+                    f"High disk usage: Will use {self.disk_ratio * 100:.0f}% "
                     f"({human_readable_size(self.total_disk_required)}) "
                     f"of available disk space ({self.availability.disk_available_human}). "
                     f"Consider using a larger disk via storage=StorageSettings(disk_storage_dir=...)."
@@ -223,26 +243,34 @@ class ResourcePlan:
         # System resources
         if self.availability:
             lines.append("\nSystem Resources:")
-            lines.append(f"  Memory: {self.availability.memory_available_human} available "
-                        f"(of {self.availability.memory_total_human} total)")
-            lines.append(f"  Disk:   {self.availability.disk_available_human} available at "
-                        f"{self.availability.disk_path}")
+            lines.append(
+                f"  Memory: {self.availability.memory_available_human} available "
+                f"(of {self.availability.memory_total_human} total)"
+            )
+            lines.append(
+                f"  Disk:   {self.availability.disk_available_human} available at "
+                f"{self.availability.disk_path}"
+            )
 
         # Requirements summary
-        lines.append(f"\nTotal Requirements:")
+        lines.append("\nTotal Requirements:")
         if self.total_memory_required > 0:
             ratio_pct = self.memory_ratio * 100 if self.availability else 0
-            lines.append(f"  Memory: {human_readable_size(self.total_memory_required)} "
-                        f"({ratio_pct:.0f}% of available)")
+            lines.append(
+                f"  Memory: {human_readable_size(self.total_memory_required)} "
+                f"({ratio_pct:.0f}% of available)"
+            )
         if self.total_disk_required > 0:
             ratio_pct = self.disk_ratio * 100 if self.availability else 0
-            lines.append(f"  Disk:   {human_readable_size(self.total_disk_required)} "
-                        f"({ratio_pct:.0f}% of available)")
+            lines.append(
+                f"  Disk:   {human_readable_size(self.total_disk_required)} "
+                f"({ratio_pct:.0f}% of available)"
+            )
 
         # Detailed breakdown
         if verbose and self.requirements:
-            mem_reqs = [r for r in self.requirements if r.resource_type == 'memory']
-            disk_reqs = [r for r in self.requirements if r.resource_type == 'disk']
+            mem_reqs = [r for r in self.requirements if r.resource_type == "memory"]
+            disk_reqs = [r for r in self.requirements if r.resource_type == "disk"]
 
             if mem_reqs:
                 lines.append("\nMemory Allocations:")
@@ -250,20 +278,24 @@ class ResourcePlan:
                     overwrite_mark = " [OVERWRITE]" if req.overwrite else ""
                     shape_info = f" {req.shape}" if req.shape else ""
                     field_info = f" → {req.field_name}" if req.field_name else ""
-                    lines.append(f"  • {req.name}{shape_info}: {req.size_human}{field_info}{overwrite_mark}")
+                    lines.append(
+                        f"  • {req.name}{shape_info}: {req.size_human}{field_info}{overwrite_mark}"
+                    )
 
             if disk_reqs:
                 lines.append("\nDisk Storage:")
                 for req in disk_reqs:
                     overwrite_mark = " [OVERWRITE]" if req.overwrite else ""
                     shape_info = f" {req.shape}" if req.shape else ""
-                    lines.append(f"  • {req.name}{shape_info}: {req.size_human}{overwrite_mark}")
+                    lines.append(
+                        f"  • {req.name}{shape_info}: {req.size_human}{overwrite_mark}"
+                    )
 
         # Output fields that will be created
         if self.output_fields:
             lines.append("\nOutput Fields:")
             # Get the map of fields that will be overwritten (field_name -> run_id)
-            overwrite_fields = getattr(self, '_overwrite_fields', {})
+            overwrite_fields = getattr(self, "_overwrite_fields", {})
 
             for location, fields in sorted(self.output_fields.items()):
                 if fields:
@@ -353,7 +385,7 @@ def get_system_resources(disk_path: Optional[str] = None) -> ResourceAvailabilit
         memory_available=mem_available,
         disk_path=disk_path,
         disk_total=disk_total,
-        disk_available=disk_free
+        disk_available=disk_free,
     )
 
 
@@ -386,7 +418,9 @@ def suggest_alternative_disk_locations() -> List[Tuple[str, str, int]]:
         if path and os.path.exists(path) and os.path.isdir(path):
             try:
                 avail = get_system_resources(path)
-                candidates.append((path, avail.disk_available_human, avail.disk_available))
+                candidates.append(
+                    (path, avail.disk_available_human, avail.disk_available)
+                )
             except:
                 pass
 
@@ -426,7 +460,7 @@ def estimate_differential_expression_resources(
     store_arrays_on_disk: bool = False,
     disk_storage_dir: Optional[str] = None,
     landmarks: Optional[np.ndarray] = None,
-    **kwargs
+    **kwargs,
 ) -> ResourcePlan:
     """
     Estimate resource requirements for differential expression analysis.
@@ -478,15 +512,15 @@ def estimate_differential_expression_resources(
     n_cells = adata.n_obs
 
     # Handle genes parameter
-    genes_param = kwargs.get('genes')
+    genes_param = kwargs.get("genes")
     if genes_param is not None:
         n_genes = len(genes_param)
     else:
         n_genes = adata.n_vars
 
     # Handle null_genes parameter - these are ADDED to the gene count for null distribution
-    null_genes_param = kwargs.get('null_genes', 2000)  # Default is 2000
-    compute_mahalanobis = kwargs.get('compute_mahalanobis', True)
+    null_genes_param = kwargs.get("null_genes", 2000)  # Default is 2000
+    compute_mahalanobis = kwargs.get("compute_mahalanobis", True)
 
     n_null_genes = 0
     if null_genes_param is not None and null_genes_param != 0 and compute_mahalanobis:
@@ -507,8 +541,8 @@ def estimate_differential_expression_resources(
         n_total_genes = n_genes
 
     # Handle landmarks
-    landmarks_param = kwargs.get('landmarks')
-    n_landmarks_param = kwargs.get('n_landmarks', 5000)
+    landmarks_param = kwargs.get("landmarks")
+    n_landmarks_param = kwargs.get("n_landmarks", 5000)
 
     if landmarks_param is not None:
         n_landmarks = len(landmarks_param)
@@ -520,13 +554,13 @@ def estimate_differential_expression_resources(
         n_landmarks = n_cells
 
     # Get the correct result_key (default is 'kompot_de' not 'de')
-    result_key = kwargs.get('result_key', 'kompot_de')
+    result_key = kwargs.get("result_key", "kompot_de")
 
     # Infer use_sample_variance from sample_col if not explicitly set
-    inferred_use_sv = use_sample_variance or (kwargs.get('sample_col') is not None)
+    inferred_use_sv = use_sample_variance or (kwargs.get("sample_col") is not None)
 
     # Check for empirical variance mode
-    use_empirical_variance = kwargs.get('use_empirical_variance', False)
+    use_empirical_variance = kwargs.get("use_empirical_variance", False)
 
     # Estimate memory requirements
 
@@ -552,15 +586,15 @@ def estimate_differential_expression_resources(
     plan.add_requirement(
         f"Mellon precision matrix L (condition 1, {l_desc})",
         L_size_cond1,
-        'memory',
-        shape=(n_train_cond1, n_train_cond1)
+        "memory",
+        shape=(n_train_cond1, n_train_cond1),
     )
 
     plan.add_requirement(
         f"Mellon precision matrix L (condition 2, {l_desc})",
         L_size_cond2,
-        'memory',
-        shape=(n_train_cond2, n_train_cond2)
+        "memory",
+        shape=(n_train_cond2, n_train_cond2),
     )
 
     # 1b. Empirical variance GP precision matrices (if use_empirical_variance)
@@ -570,14 +604,14 @@ def estimate_differential_expression_resources(
         plan.add_requirement(
             f"Empirical variance GP precision matrix (condition 1, {l_desc})",
             L_size_cond1,
-            'memory',
-            shape=(n_train_cond1, n_train_cond1)
+            "memory",
+            shape=(n_train_cond1, n_train_cond1),
         )
         plan.add_requirement(
             f"Empirical variance GP precision matrix (condition 2, {l_desc})",
             L_size_cond2,
-            'memory',
-            shape=(n_train_cond2, n_train_cond2)
+            "memory",
+            shape=(n_train_cond2, n_train_cond2),
         )
 
     # 1c. Temporary arrays during empirical variance fitting
@@ -586,14 +620,16 @@ def estimate_differential_expression_resources(
         n_cond1_cells = (adata.obs[groupby] == condition1).sum()
         n_cond2_cells = (adata.obs[groupby] == condition2).sum()
         fit_temp_size = (
-            estimate_array_size((n_cond1_cells, n_genes)) * 2 +  # imputed1 + residuals_sq1
-            estimate_array_size((n_cond2_cells, n_genes)) * 2    # imputed2 + residuals_sq2
+            estimate_array_size((n_cond1_cells, n_genes))
+            * 2  # imputed1 + residuals_sq1
+            + estimate_array_size((n_cond2_cells, n_genes))
+            * 2  # imputed2 + residuals_sq2
         )
         plan.add_requirement(
             "Temporary arrays during empirical variance fitting",
             fit_temp_size,
-            'memory',
-            shape=f"2×({n_cond1_cells}, {n_genes}) + 2×({n_cond2_cells}, {n_genes})"
+            "memory",
+            shape=f"2×({n_cond1_cells}, {n_genes}) + 2×({n_cond2_cells}, {n_genes})",
         )
         plan.info.append(
             f"Empirical variance fits 2 additional GPs to squared residuals. "
@@ -614,65 +650,67 @@ def estimate_differential_expression_resources(
         condition1=condition1,
         condition2=condition2,
         analysis_type="de",
-        with_sample_suffix=inferred_use_sv
+        with_sample_suffix=inferred_use_sv,
     )
 
     plan.add_requirement(
-        f"Imputed expression (condition 1)",
+        "Imputed expression (condition 1)",
         imputed_size,
-        'memory',
+        "memory",
         shape=(n_cells, n_total_genes),
-        field_name=f"adata.layers['{field_names['imputed_key_1']}']"
+        field_name=f"adata.layers['{field_names['imputed_key_1']}']",
     )
 
     plan.add_requirement(
-        f"Imputed expression (condition 2)",
+        "Imputed expression (condition 2)",
         imputed_size,
-        'memory',
+        "memory",
         shape=(n_cells, n_total_genes),
-        field_name=f"adata.layers['{field_names['imputed_key_2']}']"
+        field_name=f"adata.layers['{field_names['imputed_key_2']}']",
     )
 
     # Fold change layer
     plan.add_requirement(
-        f"Fold change",
+        "Fold change",
         imputed_size,
-        'memory',
+        "memory",
         shape=(n_cells, n_total_genes),
-        field_name=f"adata.layers['{field_names['fold_change_key']}']"
+        field_name=f"adata.layers['{field_names['fold_change_key']}']",
     )
 
     # Standard deviation layers (if sample variance is used)
     if inferred_use_sv:
         plan.add_requirement(
-            f"Standard deviation (condition 1)",
+            "Standard deviation (condition 1)",
             imputed_size,
-            'memory',
+            "memory",
             shape=(n_cells, n_total_genes),
-            field_name=f"adata.layers['{field_names['std_key_1']}']"
+            field_name=f"adata.layers['{field_names['std_key_1']}']",
         )
         plan.add_requirement(
-            f"Standard deviation (condition 2)",
+            "Standard deviation (condition 2)",
             imputed_size,
-            'memory',
+            "memory",
             shape=(n_cells, n_total_genes),
-            field_name=f"adata.layers['{field_names['std_key_2']}']"
+            field_name=f"adata.layers['{field_names['std_key_2']}']",
         )
 
     # Fold change z-scores layer (if store_additional_stats is enabled)
-    if kwargs.get('store_additional_stats', False):
+    if kwargs.get("store_additional_stats", False):
         plan.add_requirement(
-            f"Fold change z-scores",
+            "Fold change z-scores",
             imputed_size,
-            'memory',
+            "memory",
             shape=(n_cells, n_total_genes),
-            field_name=f"adata.layers['{field_names['fold_change_zscores_key']}']"
+            field_name=f"adata.layers['{field_names['fold_change_zscores_key']}']",
         )
 
     # Cell batching memory (temporary Kus matrix during prediction)
     # During prediction, mellon computes Kus = cov_func(X_batch, landmarks): (batch_cells, n_landmarks)
     # This is a temporary matrix that scales with batch_size
-    cell_batch_size = kwargs.get('batch_size', 100 if 'anndata' in str(type(adata)) else 500)
+    cell_batch_size = kwargs.get(
+        "batch_size", 100 if "anndata" in str(type(adata)) else 500
+    )
 
     # Determine effective batch size (use all cells if batch_size is None/0 or >= n_cells)
     if cell_batch_size is None or cell_batch_size <= 0 or cell_batch_size >= n_cells:
@@ -686,7 +724,9 @@ def estimate_differential_expression_resources(
     # 1. Kus = cov_func(X_batch, landmarks): (batch_cells, n_landmarks)
     # 2. Temporary result from matmul before assignment: (batch_cells, n_genes)
     # We do 3-6 operations: predict_cond1, predict_cond2, uncertainty1, uncertainty2, [sample_var1, sample_var2]
-    n_prediction_ops = 4 + (2 if inferred_use_sv else 0) + (2 if use_empirical_variance else 0)
+    n_prediction_ops = (
+        4 + (2 if inferred_use_sv else 0) + (2 if use_empirical_variance else 0)
+    )
 
     kus_size = estimate_array_size((effective_cell_batch, n_landmarks))
     temp_result_size = estimate_array_size((effective_cell_batch, n_total_genes))
@@ -696,13 +736,15 @@ def estimate_differential_expression_resources(
     plan.add_requirement(
         f"Temporary matrices during predictions (batch_size={cell_batch_size})",
         total_temp_per_op,
-        'memory',
-        shape=f"({effective_cell_batch}, {n_landmarks}) + ({effective_cell_batch}, {n_total_genes})"
+        "memory",
+        shape=f"({effective_cell_batch}, {n_landmarks}) + ({effective_cell_batch}, {n_total_genes})",
     )
 
     if batching_cells:
         # Cell batching is active - explain the savings
-        full_temp = estimate_array_size((n_cells, n_landmarks)) + estimate_array_size((n_cells, n_total_genes))
+        full_temp = estimate_array_size((n_cells, n_landmarks)) + estimate_array_size(
+            (n_cells, n_total_genes)
+        )
         plan.info.append(
             f"Cell batching reduces memory: Each of {n_prediction_ops} prediction operations uses "
             f"~{human_readable_size(total_temp_per_op)} temporary arrays instead of "
@@ -711,7 +753,9 @@ def estimate_differential_expression_resources(
     else:
         # No cell batching - suggest improvement
         smaller_batch = min(500, n_cells)
-        smaller_temp = estimate_array_size((smaller_batch, n_landmarks)) + estimate_array_size((smaller_batch, n_total_genes))
+        smaller_temp = estimate_array_size(
+            (smaller_batch, n_landmarks)
+        ) + estimate_array_size((smaller_batch, n_total_genes))
         plan.info.append(
             f"Cell batch_size ({cell_batch_size}) processes all {n_cells} cells at once. "
             f"Consider reducing via gp=GPSettings(batch_size={smaller_batch}) to lower peak memory by "
@@ -742,15 +786,17 @@ def estimate_differential_expression_resources(
     # Empirical variance adds 2 intermediate arrays during predict():
     # emp_var1 and emp_var2, each (n_cells, n_total_genes)
     n_empirical_variance_arrays = 2 if use_empirical_variance else 0
-    n_intermediate_arrays = 25 + n_empirical_variance_arrays  # base: 25 (reduced from 28 via manual optimizations 2025-10-13)
+    n_intermediate_arrays = (
+        25 + n_empirical_variance_arrays
+    )  # base: 25 (reduced from 28 via manual optimizations 2025-10-13)
     intermediate_array_size = estimate_array_size((n_cells, n_total_genes))
     total_intermediate_memory = n_intermediate_arrays * intermediate_array_size
 
     plan.add_requirement(
         f"Peak intermediate arrays during predictions (~{n_intermediate_arrays} arrays)",
         total_intermediate_memory,
-        'memory',
-        shape=f"{n_intermediate_arrays}×({n_cells}, {n_total_genes})"
+        "memory",
+        shape=f"{n_intermediate_arrays}×({n_cells}, {n_total_genes})",
     )
 
     plan.info.append(
@@ -763,20 +809,20 @@ def estimate_differential_expression_resources(
     cov_matrix_shape = (n_landmarks, n_landmarks)
     cov_size = estimate_array_size(cov_matrix_shape)
 
-    resource_type = 'memory'  # Function predictor covs are always in memory
+    resource_type = "memory"  # Function predictor covs are always in memory
     plan.add_requirement(
         "Function predictor covariances (per condition)",
         cov_size * 2,  # cov1 and cov2
         resource_type,
-        shape=cov_matrix_shape
+        shape=cov_matrix_shape,
     )
 
     # Combined covariance matrix (averaged)
     plan.add_requirement(
         "Combined covariance matrix",
         cov_size,  # (cov1 + cov2) / 2
-        'memory',
-        shape=cov_matrix_shape
+        "memory",
+        shape=cov_matrix_shape,
     )
 
     # Cholesky decomposition of combined covariance (for Mahalanobis computation)
@@ -784,8 +830,8 @@ def estimate_differential_expression_resources(
         plan.add_requirement(
             "Cholesky decomposition (for Mahalanobis)",
             cov_size,  # Same size as covariance matrix
-            'memory',
-            shape=cov_matrix_shape
+            "memory",
+            shape=cov_matrix_shape,
         )
 
     # 2b. Empirical variance at landmark points (during compute_mahalanobis_distances)
@@ -795,17 +841,21 @@ def estimate_differential_expression_resources(
         plan.add_requirement(
             "Empirical variance at landmarks (2 conditions + combined)",
             emp_var_landmark_size * 3,  # emp_var1, emp_var2, combined_emp_var
-            'memory',
-            shape=(n_landmarks, n_total_genes)
+            "memory",
+            shape=(n_landmarks, n_total_genes),
         )
 
     # 3. Sample variance covariance matrices (if enabled)
     if inferred_use_sv:
         # Count unique samples
-        sample_col = kwargs.get('sample_column') or kwargs.get('sample_col')
+        sample_col = kwargs.get("sample_column") or kwargs.get("sample_col")
         if sample_col and sample_col in adata.obs:
-            n_samples_cond1 = adata.obs[adata.obs[groupby] == condition1][sample_col].nunique()
-            n_samples_cond2 = adata.obs[adata.obs[groupby] == condition2][sample_col].nunique()
+            n_samples_cond1 = adata.obs[adata.obs[groupby] == condition1][
+                sample_col
+            ].nunique()
+            n_samples_cond2 = adata.obs[adata.obs[groupby] == condition2][
+                sample_col
+            ].nunique()
             n_samples = max(n_samples_cond1, n_samples_cond2)
 
             # Per-sample imputations: Each sample predictor imputes expression for all landmarks
@@ -817,8 +867,8 @@ def estimate_differential_expression_resources(
             plan.add_requirement(
                 f"Per-sample imputations ({n_samples} samples)",
                 per_sample_impute_size * 2,  # Both conditions
-                'memory',
-                shape=per_sample_impute_shape
+                "memory",
+                shape=per_sample_impute_shape,
             )
 
             # Sample variance creates PER-GENE covariance matrices
@@ -826,12 +876,12 @@ def estimate_differential_expression_resources(
             sv_cov_shape = (n_landmarks, n_landmarks, n_total_genes)
             sv_cov_size = estimate_array_size(sv_cov_shape)
 
-            resource_type = 'disk' if store_arrays_on_disk else 'memory'
+            resource_type = "disk" if store_arrays_on_disk else "memory"
             plan.add_requirement(
                 f"Sample covariances (per condition, {n_samples} samples)",
                 sv_cov_size * 2,  # variance1 and variance2 - both stored
                 resource_type,
-                shape=sv_cov_shape
+                shape=sv_cov_shape,
             )
 
             # Note: combined_variance (variance1 + variance2) behavior differs by storage type:
@@ -840,10 +890,10 @@ def estimate_differential_expression_resources(
             if not store_arrays_on_disk:
                 # In memory: variance1, variance2, and combined_variance all exist as separate arrays
                 plan.add_requirement(
-                    f"Combined sample covariances (temporary)",
+                    "Combined sample covariances (temporary)",
                     sv_cov_size,
-                    'memory',
-                    shape=sv_cov_shape
+                    "memory",
+                    shape=sv_cov_shape,
                 )
                 total_sv = sv_cov_size * 3  # variance1 + variance2 + combined
                 plan.warnings.append(
@@ -854,9 +904,7 @@ def estimate_differential_expression_resources(
             if store_arrays_on_disk:
                 # Add note about disk location
                 if disk_storage_dir:
-                    plan.info.append(
-                        f"Disk arrays will be stored at: {check_path}"
-                    )
+                    plan.info.append(f"Disk arrays will be stored at: {check_path}")
                 else:
                     plan.info.append(
                         f"Disk arrays will be stored at system temp: {check_path}. "
@@ -871,7 +919,7 @@ def estimate_differential_expression_resources(
                     )
 
     # Add batch_size information
-    batch_size = kwargs.get('batch_size', 100 if 'anndata' in str(type(adata)) else 500)
+    batch_size = kwargs.get("batch_size", 100 if "anndata" in str(type(adata)) else 500)
 
     if compute_mahalanobis:
         if not inferred_use_sv:
@@ -880,7 +928,11 @@ def estimate_differential_expression_resources(
             # While theoretically we might expect 4× (batch_diffs, solved, solved**2, workspace),
             # actual measurements show ~1× due to in-place operations and immediate deallocation.
             # Using 1.5× as a conservative estimate to account for temporary workspace.
-            total_batch_genes = batch_size if batch_size > 0 and batch_size < n_total_genes else n_total_genes
+            total_batch_genes = (
+                batch_size
+                if batch_size > 0 and batch_size < n_total_genes
+                else n_total_genes
+            )
             actual_batch_mem = estimate_array_size((total_batch_genes, n_landmarks))
 
             # Add this as a memory requirement so it shows in the allocations list
@@ -888,8 +940,8 @@ def estimate_differential_expression_resources(
             plan.add_requirement(
                 f"Mahalanobis batch processing (batch_size={batch_size})",
                 actual_batch_mem,
-                'memory',
-                shape=batch_shape
+                "memory",
+                shape=batch_shape,
             )
 
             plan.info.append(
@@ -905,12 +957,14 @@ def estimate_differential_expression_resources(
             if use_empirical_variance:
                 w_matrix_size = estimate_array_size((n_landmarks, n_landmarks))
                 diag_var_size = estimate_array_size((n_total_genes, n_landmarks))
-                batch_weights_size = estimate_array_size((total_batch_genes, n_landmarks)) * 2  # h + weights
+                batch_weights_size = (
+                    estimate_array_size((total_batch_genes, n_landmarks)) * 2
+                )  # h + weights
                 plan.add_requirement(
                     "Empirical variance factor trick (W matrix + diagonal variance)",
                     w_matrix_size + diag_var_size + batch_weights_size,
-                    'memory',
-                    shape=f"({n_landmarks}, {n_landmarks}) + ({n_total_genes}, {n_landmarks}) + 2×({total_batch_genes}, {n_landmarks})"
+                    "memory",
+                    shape=f"({n_landmarks}, {n_landmarks}) + ({n_total_genes}, {n_landmarks}) + 2×({total_batch_genes}, {n_landmarks})",
                 )
 
             # If batch_size is 0 or greater than genes, warn about memory
@@ -936,18 +990,21 @@ def estimate_differential_expression_resources(
     field_tracking = None
     try:
         from .anndata.utils.json_utils import get_json_metadata
+
         field_tracking = get_json_metadata(adata, f"{storage_key}.anndata_fields")
     except Exception:
         pass
 
     for location, patterns in all_patterns.items():
         try:
-            has_loc_overwrites, loc_fields, loc_prev_run = detect_output_field_overwrite(
-                adata=adata,
-                analysis_type="de",
-                result_key=result_key,
-                output_patterns=patterns,
-                location=location
+            has_loc_overwrites, loc_fields, loc_prev_run = (
+                detect_output_field_overwrite(
+                    adata=adata,
+                    analysis_type="de",
+                    result_key=result_key,
+                    output_patterns=patterns,
+                    location=location,
+                )
             )
 
             has_overwrites = has_overwrites or has_loc_overwrites
@@ -968,7 +1025,7 @@ def estimate_differential_expression_resources(
                     overwrite_fields_map[field_name] = run_id
             if loc_prev_run is not None:
                 prev_run = loc_prev_run
-        except Exception as e:
+        except Exception:
             # If checking fails, continue without overwrite info
             # Silently ignore - this is expected if fields don't exist yet
             pass
@@ -979,16 +1036,18 @@ def estimate_differential_expression_resources(
             prev_timestamp = prev_run.get("timestamp", "unknown time")
             prev_params = prev_run.get("params", {})
             from kompot.anndata.utils.params import params_get as _pg
-            prev_cond1 = _pg(prev_params, 'condition1', 'unknown')
-            prev_cond2 = _pg(prev_params, 'condition2', 'unknown')
-            prev_use_sv = _pg(prev_params, 'use_sample_variance', False)
-            prev_null_genes = _pg(prev_params, 'null_genes', None)
+
+            prev_cond1 = _pg(prev_params, "condition1", "unknown")
+            prev_cond2 = _pg(prev_params, "condition2", "unknown")
+            prev_use_sv = _pg(prev_params, "use_sample_variance", False)
+            prev_null_genes = _pg(prev_params, "null_genes", None)
 
             # Try to get the run_id from tracking metadata
             run_id = None
             storage_key = "kompot_de"
             try:
                 from .anndata.utils.json_utils import get_json_metadata
+
                 tracking = get_json_metadata(adata, f"{storage_key}.anndata_fields")
                 if tracking and "uns" in tracking and result_key in tracking["uns"]:
                     run_id = tracking["uns"][result_key]
@@ -1032,34 +1091,42 @@ def estimate_differential_expression_resources(
             field_names["imputed_key_1"],
             field_names["imputed_key_2"],
             field_names["fold_change_key"],
-        ]
+        ],
     }
 
     # Add FDR fields if null_genes is used
     if n_null_genes > 0:
-        plan.output_fields["adata.var"].extend([
-            field_names["mahalanobis_local_fdr_key"],
-            field_names["is_de_key"],
-        ])
-        if kwargs.get('store_additional_stats', False):
-            plan.output_fields["adata.var"].extend([
-                field_names["mahalanobis_pvalue_key"],
-                field_names["mahalanobis_tail_fdr_key"],
-            ])
+        plan.output_fields["adata.var"].extend(
+            [
+                field_names["mahalanobis_local_fdr_key"],
+                field_names["is_de_key"],
+            ]
+        )
+        if kwargs.get("store_additional_stats", False):
+            plan.output_fields["adata.var"].extend(
+                [
+                    field_names["mahalanobis_pvalue_key"],
+                    field_names["mahalanobis_tail_fdr_key"],
+                ]
+            )
 
     # Add std layers if sample variance
     if inferred_use_sv:
-        plan.output_fields["adata.layers"].extend([
-            field_names["std_key_1"],
-            field_names["std_key_2"],
-        ])
+        plan.output_fields["adata.layers"].extend(
+            [
+                field_names["std_key_1"],
+                field_names["std_key_2"],
+            ]
+        )
 
     # Add fold change z-scores if store_additional_stats
-    if kwargs.get('store_additional_stats', False):
-        plan.output_fields["adata.layers"].append(field_names["fold_change_zscores_key"])
+    if kwargs.get("store_additional_stats", False):
+        plan.output_fields["adata.layers"].append(
+            field_names["fold_change_zscores_key"]
+        )
 
     # Add posterior covariance if store_posterior_covariance
-    if kwargs.get('store_posterior_covariance', False):
+    if kwargs.get("store_posterior_covariance", False):
         plan.output_fields["adata.obsp"] = [field_names["posterior_covariance_key"]]
 
     # Check availability
@@ -1074,7 +1141,7 @@ def dry_run_differential_expression(
     condition1: str,
     condition2: str,
     verbose: bool = True,
-    **kwargs
+    **kwargs,
 ) -> ResourcePlan:
     """Deprecated: use ``kompot.de(..., dry_run=True)`` instead.
 
@@ -1181,6 +1248,7 @@ def dry_run_differential_expression(
     informed decisions about parameters.
     """
     import warnings
+
     warnings.warn(
         "dry_run_differential_expression() is deprecated. "
         "Use kompot.de(..., dry_run=True) instead.",
@@ -1204,7 +1272,7 @@ def analyze_covariance_memory_requirements(
     max_memory_ratio: float = 0.8,
     analysis_name: str = "Covariance Matrix Memory Analysis",
     store_arrays_on_disk: bool = False,
-    log_level: str = "info"
+    log_level: str = "info",
 ) -> Dict[str, Any]:
     """
     Backward-compatible wrapper for analyze_memory_requirements.
@@ -1240,23 +1308,18 @@ def analyze_covariance_memory_requirements(
     cov_size = estimate_array_size(cov_shape)
 
     # Add requirement
-    plan.add_requirement(
-        analysis_name,
-        cov_size,
-        'memory',
-        shape=cov_shape
-    )
+    plan.add_requirement(analysis_name, cov_size, "memory", shape=cov_shape)
 
     # Check availability
     plan.check_availability(memory_threshold=max_memory_ratio)
 
     # Format logs in the old style
     log_func = {
-        'debug': logger.debug,
-        'info': logger.info,
-        'warning': logger.warning,
-        'error': logger.error,
-        'critical': logger.critical
+        "debug": logger.debug,
+        "info": logger.info,
+        "warning": logger.warning,
+        "error": logger.error,
+        "critical": logger.critical,
     }.get(log_level.lower(), logger.info)
 
     # Use debug level if disk storage is already enabled
@@ -1273,10 +1336,14 @@ def analyze_covariance_memory_requirements(
         if plan.memory_ratio > max_memory_ratio:
             logger.warning(
                 f"CRITICAL: Memory usage ({plan.requirements[0].size_human}) exceeds "
-                f"{max_memory_ratio*100:.0f}% of available memory "
+                f"{max_memory_ratio * 100:.0f}% of available memory "
                 f"({plan.availability.memory_available_human}).\n"
                 f"Consider storage=StorageSettings(store_arrays_on_disk=True)"
-                + (" with dask installed" if DASK_AVAILABLE else " (install dask for better performance)")
+                + (
+                    " with dask installed"
+                    if DASK_AVAILABLE
+                    else " (install dask for better performance)"
+                )
             )
         elif plan.memory_ratio > max_memory_ratio * 0.5:
             logger.warning(
@@ -1288,19 +1355,23 @@ def analyze_covariance_memory_requirements(
 
     # Return in old format
     return {
-        'array_sizes': [{
-            'index': 0,
-            'shape': cov_shape,
-            'size_str': plan.requirements[0].size_human,
-            'size_bytes': cov_size
-        }],
-        'total_size': plan.requirements[0].size_human,
-        'total_bytes': cov_size,
-        'available_memory': plan.availability.memory_available_human,
-        'available_bytes': plan.availability.memory_available,
-        'memory_ratio': plan.memory_ratio,
-        'status': 'critical' if plan.memory_ratio > max_memory_ratio
-                 else 'warning' if plan.memory_ratio > max_memory_ratio * 0.5
-                 else 'ok',
-        'should_use_disk': plan.memory_ratio > max_memory_ratio * 0.5
+        "array_sizes": [
+            {
+                "index": 0,
+                "shape": cov_shape,
+                "size_str": plan.requirements[0].size_human,
+                "size_bytes": cov_size,
+            }
+        ],
+        "total_size": plan.requirements[0].size_human,
+        "total_bytes": cov_size,
+        "available_memory": plan.availability.memory_available_human,
+        "available_bytes": plan.availability.memory_available,
+        "memory_ratio": plan.memory_ratio,
+        "status": "critical"
+        if plan.memory_ratio > max_memory_ratio
+        else "warning"
+        if plan.memory_ratio > max_memory_ratio * 0.5
+        else "ok",
+        "should_use_disk": plan.memory_ratio > max_memory_ratio * 0.5,
     }

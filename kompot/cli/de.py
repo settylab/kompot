@@ -1,14 +1,20 @@
 """CLI command for differential expression analysis."""
+
 import argparse
 import sys
 from pathlib import Path
-from typing import Optional
 import logging
 
 import anndata as ad
 
 from ..anndata import de
-from ..settings import GPSettings, FDRSettings, FilterSettings, StorageSettings, OutputSettings
+from ..settings import (
+    GPSettings,
+    FDRSettings,
+    FilterSettings,
+    StorageSettings,
+    OutputSettings,
+)
 from .utils import load_config, merge_args_with_config, validate_anndata_path
 from .compute_config import configure_compute
 
@@ -31,154 +37,145 @@ def add_de_parser(subparsers) -> argparse.ArgumentParser:
         The DE parser
     """
     parser = subparsers.add_parser(
-        'de',
-        help='Differential expression analysis',
-        description='Compute differential expression between two conditions'
+        "de",
+        help="Differential expression analysis",
+        description="Compute differential expression between two conditions",
     )
 
     # Required arguments
-    parser.add_argument(
-        'input',
-        type=str,
-        help='Input AnnData file (.h5ad or .zarr)'
-    )
+    parser.add_argument("input", type=str, help="Input AnnData file (.h5ad or .zarr)")
 
     # Output
     parser.add_argument(
-        '-o', '--output',
+        "-o",
+        "--output",
         type=str,
-        help='Output AnnData file (.h5ad or .zarr). Required unless --table-output is specified.'
+        help="Output AnnData file (.h5ad or .zarr). Required unless --table-output is specified.",
     )
 
     parser.add_argument(
-        '-t', '--table-output',
+        "-t",
+        "--table-output",
         type=str,
-        help='Output only the DE results as a table (.csv or .tsv). Contains gene-level statistics from adata.var.'
+        help="Output only the DE results as a table (.csv or .tsv). Contains gene-level statistics from adata.var.",
     )
 
     # Config file
     parser.add_argument(
-        '-c', '--config',
+        "-c",
+        "--config",
         type=str,
-        help='YAML or JSON config file with advanced parameters'
+        help="YAML or JSON config file with advanced parameters",
     )
 
     # Basic required parameters
     parser.add_argument(
-        '--groupby',
-        type=str,
-        help='Column in adata.obs containing condition labels'
+        "--groupby", type=str, help="Column in adata.obs containing condition labels"
     )
 
     parser.add_argument(
-        '--condition1',
-        type=str,
-        help='Label for first condition (reference)'
+        "--condition1", type=str, help="Label for first condition (reference)"
     )
 
     parser.add_argument(
-        '--condition2',
-        type=str,
-        help='Label for second condition (comparison)'
+        "--condition2", type=str, help="Label for second condition (comparison)"
     )
 
     # Common optional parameters
     parser.add_argument(
-        '--obsm-key',
+        "--obsm-key",
         type=str,
-        help='Key in adata.obsm for cell states (default: DM_EigenVectors)'
+        help="Key in adata.obsm for cell states (default: DM_EigenVectors)",
     )
 
     parser.add_argument(
-        '--layer',
+        "--layer",
         type=str,
-        help='Layer in adata.layers for expression data (default: None, use X)'
+        help="Layer in adata.layers for expression data (default: None, use X)",
     )
 
     parser.add_argument(
-        '--result-key',
+        "--result-key",
         type=str,
-        help='Key for storing results in adata.uns (default: kompot_de)'
+        help="Key for storing results in adata.uns (default: kompot_de)",
     )
 
     parser.add_argument(
-        '--n-landmarks',
+        "--n-landmarks",
         type=int,
-        help='Number of landmarks for approximation (default: 5000)'
+        help="Number of landmarks for approximation (default: 5000)",
     )
 
     parser.add_argument(
-        '--sample-col',
+        "--sample-col",
         type=str,
-        help='Column in adata.obs with sample labels for sample variance estimation'
+        help="Column in adata.obs with sample labels for sample variance estimation",
     )
 
     parser.add_argument(
-        '--batch-size',
+        "--batch-size",
         type=int,
-        help='Batch size for memory-efficient processing (default: 0, no batching)'
+        help="Batch size for memory-efficient processing (default: 0, no batching)",
     )
 
     parser.add_argument(
-        '--fdr-threshold',
+        "--fdr-threshold",
         type=float,
-        help='FDR threshold for significance (default: 0.05)'
+        help="FDR threshold for significance (default: 0.05)",
     )
 
     parser.add_argument(
-        '--null-genes',
+        "--null-genes",
         type=int,
-        help='Number of null genes for FDR estimation (default: 2000)'
+        help="Number of null genes for FDR estimation (default: 2000)",
     )
 
     parser.add_argument(
-        '--null-seed',
+        "--null-seed",
         type=int,
-        help='Random seed for null gene selection and shuffling (default: 42)'
+        help="Random seed for null gene selection and shuffling (default: 42)",
     )
 
     # Boolean flags
     parser.add_argument(
-        '--no-progress',
-        action='store_true',
-        help='Disable progress bars'
+        "--no-progress", action="store_true", help="Disable progress bars"
     )
 
     parser.add_argument(
-        '--store-landmarks',
-        action='store_true',
-        help='Store landmarks in AnnData for reuse'
+        "--store-landmarks",
+        action="store_true",
+        help="Store landmarks in AnnData for reuse",
     )
 
     parser.add_argument(
-        '--store-additional-stats',
-        action='store_true',
-        help='Store additional statistics'
+        "--store-additional-stats",
+        action="store_true",
+        help="Store additional statistics",
     )
 
     parser.add_argument(
-        '--overwrite',
-        action='store_true',
-        help='Overwrite existing results without warning'
+        "--overwrite",
+        action="store_true",
+        help="Overwrite existing results without warning",
     )
 
     parser.add_argument(
-        '--use-empirical-variance',
-        action='store_true',
-        help='Estimate per-gene heteroscedastic noise from squared residuals to deflate significance for high-noise genes'
+        "--use-empirical-variance",
+        action="store_true",
+        help="Estimate per-gene heteroscedastic noise from squared residuals to deflate significance for high-noise genes",
     )
 
     # Compute configuration
     parser.add_argument(
-        '--use-gpu',
-        action='store_true',
-        help='Use GPU for computation (requires CUDA-enabled JAX)'
+        "--use-gpu",
+        action="store_true",
+        help="Use GPU for computation (requires CUDA-enabled JAX)",
     )
 
     parser.add_argument(
-        '--threads',
+        "--threads",
         type=int,
-        help='Number of threads to use for JAX, NumPy, and Dask (default: all available cores)'
+        help="Number of threads to use for JAX, NumPy, and Dask (default: all available cores)",
     )
 
     parser.set_defaults(func=run_de)
@@ -204,7 +201,11 @@ def run_de(args):
     input_path = validate_anndata_path(args.input)
 
     logger.info(f"Loading AnnData from {input_path}")
-    adata = ad.read_h5ad(input_path) if str(input_path).endswith('.h5ad') else ad.read_zarr(input_path)
+    adata = (
+        ad.read_h5ad(input_path)
+        if str(input_path).endswith(".h5ad")
+        else ad.read_zarr(input_path)
+    )
     logger.info(f"Loaded AnnData: {adata.n_obs} cells × {adata.n_vars} genes")
 
     # Load config if provided
@@ -215,8 +216,8 @@ def run_de(args):
 
     # Configure compute resources (must be done AFTER mellon import in _compute_differential_expression)
     # Extract compute config before other processing
-    use_gpu = getattr(args, 'use_gpu', False)
-    n_threads = getattr(args, 'threads', None)
+    use_gpu = getattr(args, "use_gpu", False)
+    n_threads = getattr(args, "threads", None)
 
     # Log configuration before compute setup
     if use_gpu:
@@ -230,19 +231,32 @@ def run_de(args):
 
     # Convert args to dict, removing None values and CLI-specific args
     args_dict = {
-        k: v for k, v in vars(args).items()
-        if v is not None and k not in ['input', 'output', 'table_output', 'config', 'func', 'verbose', 'command', 'use_gpu', 'threads']
+        k: v
+        for k, v in vars(args).items()
+        if v is not None
+        and k
+        not in [
+            "input",
+            "output",
+            "table_output",
+            "config",
+            "func",
+            "verbose",
+            "command",
+            "use_gpu",
+            "threads",
+        ]
     }
 
     # Handle no_progress -> progress conversion
-    if 'no_progress' in args_dict:
-        args_dict['progress'] = not args_dict.pop('no_progress')
+    if "no_progress" in args_dict:
+        args_dict["progress"] = not args_dict.pop("no_progress")
 
     # Merge with config (CLI args take precedence)
     params = merge_args_with_config(args_dict, config)
 
     # Validate required parameters
-    required = ['groupby', 'condition1', 'condition2']
+    required = ["groupby", "condition1", "condition2"]
     missing = [p for p in required if p not in params]
     if missing:
         logger.error(f"Missing required parameters: {', '.join(missing)}")
@@ -254,7 +268,7 @@ def run_de(args):
     logger.info(f"  Condition 1: {params['condition1']}")
     logger.info(f"  Condition 2: {params['condition2']}")
     logger.info(f"  ObsM key: {params.get('obsm_key', 'X_pca')}")
-    if params.get('layer'):
+    if params.get("layer"):
         logger.info(f"  Layer: {params['layer']}")
 
     # Configure computational backend
@@ -264,7 +278,6 @@ def run_de(args):
     logger.info("Configuring computational backend...")
     try:
         # Import mellon to trigger its JAX configuration
-        import mellon
         # Now configure our settings (will override mellon's CPU-only default if needed)
         configure_compute(use_gpu=use_gpu, n_threads=n_threads)
     except Exception as e:
@@ -273,45 +286,73 @@ def run_de(args):
     logger.info("")
 
     # Extract required params
-    groupby = params.pop('groupby')
-    condition1 = params.pop('condition1')
-    condition2 = params.pop('condition2')
-    obsm_key = params.pop('obsm_key', 'DM_EigenVectors')
-    layer = params.pop('layer', None)
-    sample_col = params.pop('sample_col', None)
+    groupby = params.pop("groupby")
+    condition1 = params.pop("condition1")
+    condition2 = params.pop("condition2")
+    obsm_key = params.pop("obsm_key", "DM_EigenVectors")
+    layer = params.pop("layer", None)
+    sample_col = params.pop("sample_col", None)
 
     # Build Settings from remaining params
-    gp_keys = {'sigma', 'ls', 'ls_factor', 'n_landmarks', 'use_empirical_variance',
-               'batch_size', 'eps', 'jit_compile', 'random_state'}
+    gp_keys = {
+        "sigma",
+        "ls",
+        "ls_factor",
+        "n_landmarks",
+        "use_empirical_variance",
+        "batch_size",
+        "eps",
+        "jit_compile",
+        "random_state",
+    }
     gp_kwargs = {k: params.pop(k) for k in list(params) if k in gp_keys}
     gp = GPSettings(**gp_kwargs) if gp_kwargs else None
 
     fdr_kwargs = {}
-    if 'null_genes' in params:
-        fdr_kwargs['null_genes'] = params.pop('null_genes')
-    if 'null_seed' in params:
-        fdr_kwargs['null_seed'] = params.pop('null_seed')
-    if 'fdr_threshold' in params:
-        fdr_kwargs['threshold'] = params.pop('fdr_threshold')
+    if "null_genes" in params:
+        fdr_kwargs["null_genes"] = params.pop("null_genes")
+    if "null_seed" in params:
+        fdr_kwargs["null_seed"] = params.pop("null_seed")
+    if "fdr_threshold" in params:
+        fdr_kwargs["threshold"] = params.pop("fdr_threshold")
     fdr = FDRSettings(**fdr_kwargs) if fdr_kwargs else None
 
-    filter_keys = {'cell_filter', 'groups', 'min_cells', 'min_percentage', 'check_representation'}
+    filter_keys = {
+        "cell_filter",
+        "groups",
+        "min_cells",
+        "min_percentage",
+        "check_representation",
+    }
     filter_kwargs = {k: params.pop(k) for k in list(params) if k in filter_keys}
     filter_settings = FilterSettings(**filter_kwargs) if filter_kwargs else None
 
-    storage_keys = {'result_key', 'overwrite', 'store_landmarks', 'store_posterior_covariance',
-                    'store_additional_stats', 'store_arrays_on_disk', 'disk_storage_dir',
-                    'max_memory_ratio'}
+    storage_keys = {
+        "result_key",
+        "overwrite",
+        "store_landmarks",
+        "store_posterior_covariance",
+        "store_additional_stats",
+        "store_arrays_on_disk",
+        "disk_storage_dir",
+        "max_memory_ratio",
+    }
     storage_kwargs = {k: params.pop(k) for k in list(params) if k in storage_keys}
     storage = StorageSettings(**storage_kwargs) if storage_kwargs else None
 
-    output_keys = {'copy', 'inplace', 'return_full_results', 'compute_mahalanobis',
-                   'allow_single_condition_variance', 'progress'}
+    output_keys = {
+        "copy",
+        "inplace",
+        "return_full_results",
+        "compute_mahalanobis",
+        "allow_single_condition_variance",
+        "progress",
+    }
     output_kwargs = {k: params.pop(k) for k in list(params) if k in output_keys}
 
     # Handle return_full_results for table output
     if args.table_output:
-        output_kwargs['return_full_results'] = True
+        output_kwargs["return_full_results"] = True
     output = OutputSettings(**output_kwargs) if output_kwargs else None
 
     # Run analysis
@@ -340,12 +381,14 @@ def run_de(args):
         output_path = Path(args.output)
         logger.info(f"Saving results to {output_path}")
 
-        if str(output_path).endswith('.h5ad'):
+        if str(output_path).endswith(".h5ad"):
             adata.write_h5ad(output_path)
-        elif str(output_path).endswith('.zarr'):
+        elif str(output_path).endswith(".zarr"):
             adata.write_zarr(output_path)
         else:
-            logger.error(f"Unsupported output format: {output_path.suffix}. Use .h5ad or .zarr")
+            logger.error(
+                f"Unsupported output format: {output_path.suffix}. Use .h5ad or .zarr"
+            )
             sys.exit(1)
 
     # Save table output if specified
@@ -356,14 +399,18 @@ def run_de(args):
         output_df = result_dict["table"]
 
         # Determine separator based on file extension
-        if str(table_path).endswith('.tsv'):
-            output_df.to_csv(table_path, sep='\t')
-        elif str(table_path).endswith('.csv'):
+        if str(table_path).endswith(".tsv"):
+            output_df.to_csv(table_path, sep="\t")
+        elif str(table_path).endswith(".csv"):
             output_df.to_csv(table_path)
         else:
-            logger.error(f"Unsupported table format: {table_path.suffix}. Use .csv or .tsv")
+            logger.error(
+                f"Unsupported table format: {table_path.suffix}. Use .csv or .tsv"
+            )
             sys.exit(1)
 
-        logger.info(f"Saved {len(output_df.columns)} columns for {len(output_df)} genes")
+        logger.info(
+            f"Saved {len(output_df.columns)} columns for {len(output_df)} genes"
+        )
 
     logger.info("Differential expression analysis completed successfully")

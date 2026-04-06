@@ -1,8 +1,9 @@
 """Utility functions for CLI."""
+
 import yaml
 import json
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 import logging
 
 
@@ -28,18 +29,22 @@ def load_config(config_path: str) -> Dict[str, Any]:
     if not config_file.exists():
         raise FileNotFoundError(f"Config file not found: {config_path}")
 
-    with open(config_file, 'r') as f:
-        if config_file.suffix in ['.yaml', '.yml']:
+    with open(config_file, "r") as f:
+        if config_file.suffix in [".yaml", ".yml"]:
             config = yaml.safe_load(f)
-        elif config_file.suffix == '.json':
+        elif config_file.suffix == ".json":
             config = json.load(f)
         else:
-            raise ValueError(f"Unsupported config format: {config_file.suffix}. Use .yaml, .yml, or .json")
+            raise ValueError(
+                f"Unsupported config format: {config_file.suffix}. Use .yaml, .yml, or .json"
+            )
 
     return config if config is not None else {}
 
 
-def merge_args_with_config(args_dict: Dict[str, Any], config: Dict[str, Any]) -> Dict[str, Any]:
+def merge_args_with_config(
+    args_dict: Dict[str, Any], config: Dict[str, Any]
+) -> Dict[str, Any]:
     """
     Merge command-line arguments with config file, preferring CLI args.
 
@@ -85,7 +90,7 @@ def validate_anndata_path(path: str) -> Path:
     if not anndata_path.exists():
         raise FileNotFoundError(f"AnnData file not found: {path}")
 
-    valid_extensions = ['.h5ad', '.zarr']
+    valid_extensions = [".h5ad", ".zarr"]
     if not any(str(anndata_path).endswith(ext) for ext in valid_extensions):
         logger.warning(
             f"File {path} does not have a standard AnnData extension "
@@ -106,7 +111,7 @@ def setup_logging(verbose: bool = False):
     """
     level = logging.DEBUG if verbose else logging.INFO
     logging.basicConfig(
-        format='[%(asctime)s] [%(levelname)-8s] %(message)s',
+        format="[%(asctime)s] [%(levelname)-8s] %(message)s",
         level=level,
-        datefmt='%Y-%m-%d %H:%M:%S'
+        datefmt="%Y-%m-%d %H:%M:%S",
     )

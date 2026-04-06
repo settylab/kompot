@@ -2,7 +2,7 @@
 
 import logging
 import numpy as np
-from typing import Optional, List, Union
+from typing import Optional, List
 
 logger = logging.getLogger("kompot")
 
@@ -89,14 +89,11 @@ def plot_imputation(
     # --- Validate embedding ---
     if basis not in adata.obsm:
         raise ValueError(
-            f"'{basis}' not found in adata.obsm. "
-            f"Available: {list(adata.obsm.keys())}"
+            f"'{basis}' not found in adata.obsm. Available: {list(adata.obsm.keys())}"
         )
     coords = adata.obsm[basis]
     if coords.shape[1] < 2:
-        raise ValueError(
-            f"Embedding must have >= 2 dimensions, got {coords.shape[1]}"
-        )
+        raise ValueError(f"Embedding must have >= 2 dimensions, got {coords.shape[1]}")
 
     # --- Auto-detect condition label ---
     if condition is None:
@@ -152,9 +149,7 @@ def plot_imputation(
             key_std = f"_kompot_plot_std_{gene}"
             total_std = np.asarray(adata.layers[std_key][mask, gene_idx])
             if has_obs_var:
-                obs_var_vals = np.asarray(
-                    adata.layers[obs_var_key][mask, gene_idx]
-                )
+                obs_var_vals = np.asarray(adata.layers[obs_var_key][mask, gene_idx])
                 # epistemic std = sqrt(total_var - obs_var)
                 epistemic_var = np.maximum(total_std**2 - obs_var_vals, 0)
                 adata_sub.obs[key_std] = np.sqrt(epistemic_var)

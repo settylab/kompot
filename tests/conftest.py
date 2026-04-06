@@ -7,11 +7,12 @@ import pandas as pd
 import anndata as ad
 
 # Configure JAX to use CPU only for tests (must be set before JAX import)
-os.environ['JAX_PLATFORMS'] = 'cpu'
-os.environ['JAX_ENABLE_X64'] = 'True'
+os.environ["JAX_PLATFORMS"] = "cpu"
+os.environ["JAX_ENABLE_X64"] = "True"
 
 
 # ===== Pytest Configuration =====
+
 
 def pytest_configure(config):
     """Register custom markers."""
@@ -19,14 +20,14 @@ def pytest_configure(config):
         "markers", "slow: marks tests as slow (deselect with '-m \"not slow\"')"
     )
     config.addinivalue_line(
-        "markers", "integration: marks tests as integration tests (deselect with '-m \"not integration\"')"
+        "markers",
+        "integration: marks tests as integration tests (deselect with '-m \"not integration\"')",
     )
-    config.addinivalue_line(
-        "markers", "memory: marks tests that measure memory usage"
-    )
+    config.addinivalue_line("markers", "memory: marks tests that measure memory usage")
 
 
 # ===== Shared Test Data Fixtures =====
+
 
 @pytest.fixture
 def tiny_adata():
@@ -53,17 +54,16 @@ def tiny_adata():
     cell_states = np.random.randn(n_cells, n_features)
 
     # Metadata
-    conditions = ['A'] * 10 + ['B'] * 10
-    samples = (['sample1'] * 5 + ['sample2'] * 5 +
-               ['sample3'] * 5 + ['sample4'] * 5)
+    conditions = ["A"] * 10 + ["B"] * 10
+    samples = ["sample1"] * 5 + ["sample2"] * 5 + ["sample3"] * 5 + ["sample4"] * 5
 
     adata = ad.AnnData(X)
-    adata.obsm['X_pca'] = cell_states
-    adata.obsm['DM_EigenVectors'] = cell_states.copy()
-    adata.obs['condition'] = pd.Categorical(conditions)
-    adata.obs['sample'] = pd.Categorical(samples)
-    adata.obs_names = [f'cell_{i}' for i in range(n_cells)]
-    adata.var_names = [f'gene_{i}' for i in range(n_genes)]
+    adata.obsm["X_pca"] = cell_states
+    adata.obsm["DM_EigenVectors"] = cell_states.copy()
+    adata.obs["condition"] = pd.Categorical(conditions)
+    adata.obs["sample"] = pd.Categorical(samples)
+    adata.obs_names = [f"cell_{i}" for i in range(n_cells)]
+    adata.var_names = [f"gene_{i}" for i in range(n_genes)]
 
     return adata
 
@@ -89,17 +89,16 @@ def small_adata():
     X = np.random.randn(n_cells, n_genes)
     cell_states = np.random.randn(n_cells, n_features)
 
-    conditions = ['A'] * 25 + ['B'] * 25
-    samples = (['sample1'] * 12 + ['sample2'] * 13 +
-               ['sample3'] * 12 + ['sample4'] * 13)
+    conditions = ["A"] * 25 + ["B"] * 25
+    samples = ["sample1"] * 12 + ["sample2"] * 13 + ["sample3"] * 12 + ["sample4"] * 13
 
     adata = ad.AnnData(X)
-    adata.obsm['X_pca'] = cell_states
-    adata.obsm['DM_EigenVectors'] = cell_states.copy()
-    adata.obs['condition'] = pd.Categorical(conditions)
-    adata.obs['sample'] = pd.Categorical(samples)
-    adata.obs_names = [f'cell_{i}' for i in range(n_cells)]
-    adata.var_names = [f'gene_{i}' for i in range(n_genes)]
+    adata.obsm["X_pca"] = cell_states
+    adata.obsm["DM_EigenVectors"] = cell_states.copy()
+    adata.obs["condition"] = pd.Categorical(conditions)
+    adata.obs["sample"] = pd.Categorical(samples)
+    adata.obs_names = [f"cell_{i}" for i in range(n_cells)]
+    adata.var_names = [f"gene_{i}" for i in range(n_genes)]
 
     return adata
 
@@ -125,17 +124,25 @@ def medium_adata():
     X = np.random.randn(n_cells, n_genes)
     cell_states = np.random.randn(n_cells, n_features)
 
-    conditions = ['A'] * 50 + ['B'] * 50
-    samples = (['sample1'] * 12 + ['sample2'] * 13 + ['sample3'] * 12 + ['sample4'] * 13 +
-               ['sample5'] * 12 + ['sample6'] * 13 + ['sample7'] * 12 + ['sample8'] * 13)
+    conditions = ["A"] * 50 + ["B"] * 50
+    samples = (
+        ["sample1"] * 12
+        + ["sample2"] * 13
+        + ["sample3"] * 12
+        + ["sample4"] * 13
+        + ["sample5"] * 12
+        + ["sample6"] * 13
+        + ["sample7"] * 12
+        + ["sample8"] * 13
+    )
 
     adata = ad.AnnData(X)
-    adata.obsm['X_pca'] = cell_states
-    adata.obsm['DM_EigenVectors'] = cell_states.copy()
-    adata.obs['condition'] = pd.Categorical(conditions)
-    adata.obs['sample'] = pd.Categorical(samples)
-    adata.obs_names = [f'cell_{i}' for i in range(n_cells)]
-    adata.var_names = [f'gene_{i}' for i in range(n_genes)]
+    adata.obsm["X_pca"] = cell_states
+    adata.obsm["DM_EigenVectors"] = cell_states.copy()
+    adata.obs["condition"] = pd.Categorical(conditions)
+    adata.obs["sample"] = pd.Categorical(samples)
+    adata.obs_names = [f"cell_{i}" for i in range(n_cells)]
+    adata.var_names = [f"gene_{i}" for i in range(n_genes)]
 
     return adata
 
@@ -159,24 +166,31 @@ def adata_with_batch():
     X = np.random.randn(n_cells, n_genes)
     cell_states = np.random.randn(n_cells, n_features)
 
-    conditions = ['A'] * 30 + ['B'] * 30
-    batches = ['batch1'] * 20 + ['batch2'] * 20 + ['batch3'] * 20
-    samples = (['sample1'] * 10 + ['sample2'] * 10 + ['sample3'] * 10 +
-               ['sample4'] * 10 + ['sample5'] * 10 + ['sample6'] * 10)
+    conditions = ["A"] * 30 + ["B"] * 30
+    batches = ["batch1"] * 20 + ["batch2"] * 20 + ["batch3"] * 20
+    samples = (
+        ["sample1"] * 10
+        + ["sample2"] * 10
+        + ["sample3"] * 10
+        + ["sample4"] * 10
+        + ["sample5"] * 10
+        + ["sample6"] * 10
+    )
 
     adata = ad.AnnData(X)
-    adata.obsm['X_pca'] = cell_states
-    adata.obsm['DM_EigenVectors'] = cell_states.copy()
-    adata.obs['condition'] = pd.Categorical(conditions)
-    adata.obs['batch'] = pd.Categorical(batches)
-    adata.obs['sample'] = pd.Categorical(samples)
-    adata.obs_names = [f'cell_{i}' for i in range(n_cells)]
-    adata.var_names = [f'gene_{i}' for i in range(n_genes)]
+    adata.obsm["X_pca"] = cell_states
+    adata.obsm["DM_EigenVectors"] = cell_states.copy()
+    adata.obs["condition"] = pd.Categorical(conditions)
+    adata.obs["batch"] = pd.Categorical(batches)
+    adata.obs["sample"] = pd.Categorical(samples)
+    adata.obs_names = [f"cell_{i}" for i in range(n_cells)]
+    adata.var_names = [f"gene_{i}" for i in range(n_genes)]
 
     return adata
 
 
 # ===== Fast Test Parameters =====
+
 
 @pytest.fixture
 def fast_de_params():
@@ -189,10 +203,10 @@ def fast_de_params():
     - No progress bars
     """
     return {
-        'n_landmarks': 10,
-        'null_genes': 0,  # Disable FDR for speed
-        'progress': False,
-        'batch_size': 0,  # No batching needed for small datasets
+        "n_landmarks": 10,
+        "null_genes": 0,  # Disable FDR for speed
+        "progress": False,
+        "batch_size": 0,  # No batching needed for small datasets
     }
 
 
@@ -206,13 +220,14 @@ def fast_da_params():
     - No progress bars
     """
     return {
-        'n_landmarks': 10,
-        'progress': False,
-        'batch_size': 0,
+        "n_landmarks": 10,
+        "progress": False,
+        "batch_size": 0,
     }
 
 
 # ===== Integration Test Parameters =====
+
 
 @pytest.fixture
 def integration_de_params():
@@ -224,10 +239,10 @@ def integration_de_params():
     - Enable FDR with reduced null genes
     """
     return {
-        'n_landmarks': 50,
-        'null_genes': 500,  # Reduced from 2000 for faster tests
-        'progress': False,
-        'batch_size': 0,
+        "n_landmarks": 50,
+        "null_genes": 500,  # Reduced from 2000 for faster tests
+        "progress": False,
+        "batch_size": 0,
     }
 
 
@@ -237,13 +252,14 @@ def integration_da_params():
     Parameters for integration differential abundance tests.
     """
     return {
-        'n_landmarks': 50,
-        'progress': False,
-        'batch_size': 0,
+        "n_landmarks": 50,
+        "progress": False,
+        "batch_size": 0,
     }
 
 
 # ===== Temporary Directory Fixtures =====
+
 
 @pytest.fixture
 def temp_dir(tmp_path):

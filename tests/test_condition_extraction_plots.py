@@ -9,7 +9,6 @@ All tests use custom result_keys since the default case is trivially correct.
 """
 
 import numpy as np
-import pytest
 import pandas as pd
 import anndata as ad
 import matplotlib
@@ -71,9 +70,7 @@ def _make_da_adata(condition1, condition2, result_key="custom_da", extra_run=Non
     adata.uns["kompot_da"] = {"run_history": "[]"}
 
     if extra_run is not None:
-        fn_extra = generate_output_field_names(
-            extra_run, condition1, condition2, "da"
-        )
+        fn_extra = generate_output_field_names(extra_run, condition1, condition2, "da")
         extra_info = {
             "result_key": extra_run,
             "field_names": fn_extra,
@@ -127,9 +124,7 @@ def _make_de_adata(condition1, condition2, result_key="custom_de", extra_run=Non
     adata.uns["kompot_de"] = {"run_history": "[]"}
 
     if extra_run is not None:
-        fn_extra = generate_output_field_names(
-            extra_run, condition1, condition2, "de"
-        )
+        fn_extra = generate_output_field_names(extra_run, condition1, condition2, "de")
         extra_info = {
             "result_key": extra_run,
             "imputed_layer_keys": {
@@ -203,9 +198,7 @@ class TestVolcanoDaConditionExtraction:
         """Conditions with spaces must resolve from run_info params."""
         from kompot.plot.volcano.da import volcano_da
 
-        adata, fn = _make_da_adata(
-            "Wild Type", "Knock Out", result_key="wt_ko_da"
-        )
+        adata, fn = _make_da_adata("Wild Type", "Knock Out", result_key="wt_ko_da")
         fig = volcano_da(adata, return_fig=True)
         ax = fig.axes[0]
         xlabel = ax.get_xlabel()
@@ -264,9 +257,7 @@ class TestVolcanoDeConditionExtraction:
         """Conditions with spaces must resolve from run_info params."""
         from kompot.plot.volcano.de import volcano_de
 
-        adata, fn = _make_de_adata(
-            "Wild Type", "Knock Out", result_key="wt_ko_de"
-        )
+        adata, fn = _make_de_adata("Wild Type", "Knock Out", result_key="wt_ko_de")
         fig = volcano_de(adata, return_fig=True)
         ax = fig.axes[0]
         xlabel = ax.get_xlabel()
@@ -288,9 +279,7 @@ class TestMultiVolcanoDaConditionExtraction:
         from kompot.plot.volcano.multi_da import multi_volcano_da
 
         adata, fn = _make_da_adata("Young", "Old", result_key="age_da")
-        fig = multi_volcano_da(
-            adata, groupby="cell_type", return_fig=True
-        )
+        fig = multi_volcano_da(adata, groupby="cell_type", return_fig=True)
         # Find the axis that has the xlabel with conditions
         xlabels = [ax.get_xlabel() for ax in fig.axes]
         xlabel = next((x for x in xlabels if "Log Fold Change" in x), "")
@@ -304,9 +293,7 @@ class TestMultiVolcanoDaConditionExtraction:
         adata, fn = _make_da_adata(
             "Pre-treatment", "Post-treatment", result_key="treat_da"
         )
-        fig = multi_volcano_da(
-            adata, groupby="cell_type", return_fig=True
-        )
+        fig = multi_volcano_da(adata, groupby="cell_type", return_fig=True)
         xlabels = [ax.get_xlabel() for ax in fig.axes]
         xlabel = next((x for x in xlabels if "Log Fold Change" in x), "")
         assert "Pre-treatment" in xlabel
@@ -317,12 +304,8 @@ class TestMultiVolcanoDaConditionExtraction:
         """Conditions with spaces must resolve from run_info params."""
         from kompot.plot.volcano.multi_da import multi_volcano_da
 
-        adata, fn = _make_da_adata(
-            "Wild Type", "Knock Out", result_key="wt_ko_da"
-        )
-        fig = multi_volcano_da(
-            adata, groupby="cell_type", return_fig=True
-        )
+        adata, fn = _make_da_adata("Wild Type", "Knock Out", result_key="wt_ko_da")
+        fig = multi_volcano_da(adata, groupby="cell_type", return_fig=True)
         xlabels = [ax.get_xlabel() for ax in fig.axes]
         xlabel = next((x for x in xlabels if "Log Fold Change" in x), "")
         assert "Wild Type" in xlabel
@@ -377,9 +360,7 @@ class TestDirectionBarplotConditionExtraction:
         """Conditions with spaces must resolve from run_info params."""
         from kompot.plot.heatmap.direction_plot import direction_barplot
 
-        adata, fn = _make_da_adata(
-            "Wild Type", "Knock Out", result_key="wt_ko_da"
-        )
+        adata, fn = _make_da_adata("Wild Type", "Knock Out", result_key="wt_ko_da")
         fig = direction_barplot(
             adata,
             category_column="cell_type",

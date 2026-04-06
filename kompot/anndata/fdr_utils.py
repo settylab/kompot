@@ -17,7 +17,9 @@ logger = logging.getLogger("kompot")
 
 
 def prepare_null_genes(
-    null_genes: Union[int, List[int], None], available_genes: List[str], null_seed: Optional[int]
+    null_genes: Union[int, List[int], None],
+    available_genes: List[str],
+    null_seed: Optional[int],
 ) -> Tuple[List[int], bool]:
     """
     Select null genes for FDR calculation.
@@ -46,10 +48,14 @@ def prepare_null_genes(
                 f"Requested {null_genes} null genes but only {n_available} genes available. "
                 f"Using sampling with replacement."
             )
-            null_gene_indices = rng.choice(n_available, size=null_genes, replace=True).tolist()
+            null_gene_indices = rng.choice(
+                n_available, size=null_genes, replace=True
+            ).tolist()
             used_replacement = True
         else:
-            null_gene_indices = rng.choice(n_available, size=null_genes, replace=False).tolist()
+            null_gene_indices = rng.choice(
+                n_available, size=null_genes, replace=False
+            ).tolist()
             used_replacement = False
 
     elif isinstance(null_genes, list):
@@ -59,20 +65,27 @@ def prepare_null_genes(
         if not all(isinstance(idx, int) for idx in null_gene_indices):
             raise ValueError("All elements in null_genes list must be integers")
 
-        invalid_indices = [idx for idx in null_gene_indices if idx < 0 or idx >= n_available]
+        invalid_indices = [
+            idx for idx in null_gene_indices if idx < 0 or idx >= n_available
+        ]
         if invalid_indices:
             raise ValueError(
-                f"Invalid gene indices: {invalid_indices}. Must be between 0 and {n_available-1}"
+                f"Invalid gene indices: {invalid_indices}. Must be between 0 and {n_available - 1}"
             )
 
     else:
-        raise ValueError(f"null_genes must be int, list of ints, or None, got {type(null_genes)}")
+        raise ValueError(
+            f"null_genes must be int, list of ints, or None, got {type(null_genes)}"
+        )
 
     return null_gene_indices, used_replacement
 
 
 def generate_shuffled_expression(
-    expr1: np.ndarray, expr2: np.ndarray, null_gene_indices: List[int], null_seed: Optional[int]
+    expr1: np.ndarray,
+    expr2: np.ndarray,
+    null_gene_indices: List[int],
+    null_seed: Optional[int],
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     Generate shuffled expression matrices for null genes.
@@ -158,7 +171,9 @@ def compute_fdr_statistics(
         non_zero = pvalues[~zero_mask]
         min_pval = np.min(non_zero) if len(non_zero) > 0 else 1.0 / n_null
         pvalues[zero_mask] = min_pval
-        logger.debug(f"Set minimum p-value to {min_pval} for {np.sum(zero_mask)} zero p-values")
+        logger.debug(
+            f"Set minimum p-value to {min_pval} for {np.sum(zero_mask)} zero p-values"
+        )
 
     # Step 2: Compute local FDR and tail FDR from Grenander-estimated densities.
     # Both are derived from the same monotone density/survival function estimates
@@ -311,10 +326,16 @@ def _compute_fdr_from_densities(
     monotone_tail_fdr = _pava_decreasing(raw_tail_fdr)
 
     # Interpolate to evaluate at real distances
-    lfdr_func = interp1d(grid, monotone_lfdr, kind="linear",
-                         bounds_error=False, fill_value=(1.0, 0.0))
-    tfdr_func = interp1d(grid, monotone_tail_fdr, kind="linear",
-                         bounds_error=False, fill_value=(1.0, 0.0))
+    lfdr_func = interp1d(
+        grid, monotone_lfdr, kind="linear", bounds_error=False, fill_value=(1.0, 0.0)
+    )
+    tfdr_func = interp1d(
+        grid,
+        monotone_tail_fdr,
+        kind="linear",
+        bounds_error=False,
+        fill_value=(1.0, 0.0),
+    )
 
     local_fdr = np.clip(lfdr_func(real_distances), 0.0, 1.0)
     tail_fdr = np.clip(tfdr_func(real_distances), 0.0, 1.0)
@@ -518,9 +539,7 @@ def recompute_fdr(
         result_key = "kompot_de"
     run_info = get_run_from_history(adata, run_id=run_id, analysis_type="de")
     if run_info is None:
-        raise ValueError(
-            f"No DE run found with run_id={run_id} under '{result_key}'."
-        )
+        raise ValueError(f"No DE run found with run_id={run_id} under '{result_key}'.")
 
     field_mapping = run_info.get("field_mapping", {})
 
@@ -620,9 +639,7 @@ def extract_null_distribution(
         result_key = "kompot_de"
     run_info = get_run_from_history(adata, run_id=run_id, analysis_type="de")
     if run_info is None:
-        raise ValueError(
-            f"No DE run found with run_id={run_id} under '{result_key}'."
-        )
+        raise ValueError(f"No DE run found with run_id={run_id} under '{result_key}'.")
 
     field_mapping = run_info.get("field_mapping", {})
 

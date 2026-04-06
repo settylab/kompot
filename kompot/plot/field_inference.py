@@ -5,7 +5,7 @@ and provides proper warnings for overwrites and fallbacks.
 """
 
 import logging
-from typing import Optional, Tuple, Dict, Any, List
+from typing import Optional, Dict, List
 from anndata import AnnData
 
 logger = logging.getLogger("kompot")
@@ -19,7 +19,7 @@ def infer_fields_from_run_info(
     condition2: Optional[str] = None,
     result_key: Optional[str] = None,
     required_fields: Optional[List[str]] = None,
-    strict: bool = True
+    strict: bool = True,
 ) -> Dict[str, Optional[str]]:
     """
     Safely infer field names from run info with proper warnings.
@@ -57,8 +57,7 @@ def infer_fields_from_run_info(
     ValueError
         If strict=True and required fields cannot be uniquely identified.
     """
-    from ..anndata.utils import get_run_from_history, get_run_history
-    from ..plot.volcano import _extract_conditions_from_key
+    from ..anndata.utils import get_run_from_history
 
     if required_fields is None:
         if analysis_type == "da":
@@ -83,10 +82,10 @@ def infer_fields_from_run_info(
 
         # Check if user-specified conditions match run info
         run_conditions = None
-        if 'params' in run_info:
-            params = run_info['params']
-            if 'condition1' in params and 'condition2' in params:
-                run_conditions = (params['condition1'], params['condition2'])
+        if "params" in run_info:
+            params = run_info["params"]
+            if "condition1" in params and "condition2" in params:
+                run_conditions = (params["condition1"], params["condition2"])
 
                 # Warn if user conditions don't match run info
                 if condition1 is not None and condition2 is not None:
@@ -117,7 +116,7 @@ def infer_fields_from_run_info(
                     "zscore_key": field_names.get("zscore_key"),
                     "ptp_key": field_names.get("ptp_key"),
                     "density_key_1": field_names.get("density_key_1"),
-                    "density_key_2": field_names.get("density_key_2")
+                    "density_key_2": field_names.get("density_key_2"),
                 }
             elif analysis_type == "de":
                 field_mapping = {
@@ -126,8 +125,12 @@ def infer_fields_from_run_info(
                     "ptp_key": field_names.get("ptp_key"),
                     "is_de_key": field_names.get("is_de_key"),
                     "mahalanobis_pvalue_key": field_names.get("mahalanobis_pvalue_key"),
-                    "mahalanobis_local_fdr_key": field_names.get("mahalanobis_local_fdr_key"),
-                    "mahalanobis_tail_fdr_key": field_names.get("mahalanobis_tail_fdr_key")
+                    "mahalanobis_local_fdr_key": field_names.get(
+                        "mahalanobis_local_fdr_key"
+                    ),
+                    "mahalanobis_tail_fdr_key": field_names.get(
+                        "mahalanobis_tail_fdr_key"
+                    ),
                 }
 
             # Check if the fields exist in the data
@@ -149,10 +152,14 @@ def infer_fields_from_run_info(
         warnings_issued.append(warning)
 
     # Step 2: For missing fields, try intelligent fallback with proper warnings
-    missing_fields = [field for field in required_fields if inferred_fields[field] is None]
+    missing_fields = [
+        field for field in required_fields if inferred_fields[field] is None
+    ]
 
     if missing_fields:
-        logger.warning(f"Attempting fallback inference for missing fields: {missing_fields}")
+        logger.warning(
+            f"Attempting fallback inference for missing fields: {missing_fields}"
+        )
 
         # Get the appropriate data section
         data_section = adata.obs if analysis_type == "da" else adata.var
@@ -165,7 +172,7 @@ def infer_fields_from_run_info(
                 condition1,
                 condition2,
                 result_key,
-                strict
+                strict,
             )
 
             if inferred_field is not None:
@@ -178,7 +185,9 @@ def infer_fields_from_run_info(
     _check_for_overwrites(adata, analysis_type, inferred_fields, warnings_issued)
 
     # Step 4: Validate that required fields were found
-    still_missing = [field for field in required_fields if inferred_fields[field] is None]
+    still_missing = [
+        field for field in required_fields if inferred_fields[field] is None
+    ]
 
     if still_missing:
         error_msg = f"Could not infer required fields: {still_missing}"
@@ -196,7 +205,9 @@ def infer_fields_from_run_info(
         logger.info(f"Successfully inferred fields: {found_fields}")
 
     if warnings_issued:
-        logger.warning(f"Field inference completed with {len(warnings_issued)} warnings")
+        logger.warning(
+            f"Field inference completed with {len(warnings_issued)} warnings"
+        )
 
     return inferred_fields
 
@@ -208,7 +219,7 @@ def _fallback_field_inference(
     condition1: Optional[str],
     condition2: Optional[str],
     result_key: Optional[str],
-    strict: bool
+    strict: bool,
 ) -> Optional[str]:
     """Fallback field inference using pattern matching."""
     from ..plot.volcano import _extract_conditions_from_key
@@ -223,7 +234,7 @@ def _fallback_field_inference(
         "is_de_key": ["is_de", "significant"],
         "zscore_key": ["zscore", "z_score"],
         "density_key_1": ["log_density"],
-        "density_key_2": ["log_density"]
+        "density_key_2": ["log_density"],
     }
 
     if field_type not in patterns:
@@ -287,7 +298,7 @@ def _check_for_overwrites(
     adata: AnnData,
     analysis_type: str,
     inferred_fields: Dict[str, Optional[str]],
-    warnings_issued: List[str]
+    warnings_issued: List[str],
 ) -> None:
     """
     Check for potential data overwrites using the robust field tracking system.
@@ -295,19 +306,18 @@ def _check_for_overwrites(
     This function is consistent with the RunInfo._check_overwritten_fields() approach
     and uses the same field tracking mechanism for detecting overwrites.
     """
-    from ..anndata.utils.field_tracking import validate_field_run_id, get_run_from_history
+    from ..anndata.utils.field_tracking import get_run_from_history
     from ..anndata.utils.json_utils import from_json_string
 
     storage_key = f"kompot_{analysis_type}"
 
     # Check if we have field tracking information
-    if (storage_key not in adata.uns or
-        'anndata_fields' not in adata.uns[storage_key]):
+    if storage_key not in adata.uns or "anndata_fields" not in adata.uns[storage_key]:
         return  # No tracking information available
 
     # Get field tracking data
     try:
-        tracking = adata.uns[storage_key]['anndata_fields']
+        tracking = adata.uns[storage_key]["anndata_fields"]
         if isinstance(tracking, str):
             tracking = from_json_string(tracking)
     except Exception as e:
@@ -337,9 +347,11 @@ def _check_for_overwrites(
 
         # Try to get the latest run to compare
         try:
-            latest_run_info = get_run_from_history(adata, run_id=-1, analysis_type=analysis_type)
-            if latest_run_info and 'adjusted_run_id' in latest_run_info:
-                latest_run_id = latest_run_info['adjusted_run_id']
+            latest_run_info = get_run_from_history(
+                adata, run_id=-1, analysis_type=analysis_type
+            )
+            if latest_run_info and "adjusted_run_id" in latest_run_info:
+                latest_run_id = latest_run_info["adjusted_run_id"]
             else:
                 continue  # Can't determine latest run
         except Exception:
@@ -347,9 +359,11 @@ def _check_for_overwrites(
 
         # Check if the field was written by a different run than the latest
         if current_owner_run != latest_run_id:
-            warning = (f"Field '{field_name}' was last written by run {current_owner_run}, "
-                      f"but current context expects run {latest_run_id}. "
-                      f"The field may have been overwritten.")
+            warning = (
+                f"Field '{field_name}' was last written by run {current_owner_run}, "
+                f"but current context expects run {latest_run_id}. "
+                f"The field may have been overwritten."
+            )
             logger.warning(warning)
             warnings_issued.append(warning)
 
@@ -360,17 +374,16 @@ def _check_for_overwrites(
         )
 
         if potential_writers > 1:
-            warning = (f"Field '{field_name}' has been written by {potential_writers} different runs, "
-                      f"indicating potential overwrites")
+            warning = (
+                f"Field '{field_name}' has been written by {potential_writers} different runs, "
+                f"indicating potential overwrites"
+            )
             logger.warning(warning)
             warnings_issued.append(warning)
 
 
 def _count_potential_field_writers(
-    adata: AnnData,
-    analysis_type: str,
-    field_type: str,
-    field_name: str
+    adata: AnnData, analysis_type: str, field_type: str, field_name: str
 ) -> int:
     """
     Count how many runs could have written to a specific field.
@@ -400,7 +413,7 @@ def get_comparison_specific_fields(
     condition1: str,
     condition2: str,
     run_id: int = -1,
-    result_key: Optional[str] = None
+    result_key: Optional[str] = None,
 ) -> Dict[str, str]:
     """
     Get field names for a specific comparison with validation.
@@ -441,7 +454,7 @@ def get_comparison_specific_fields(
         condition1=condition1,
         condition2=condition2,
         result_key=result_key,
-        strict=True
+        strict=True,
     )
 
     # Validate that the fields actually correspond to the requested comparison

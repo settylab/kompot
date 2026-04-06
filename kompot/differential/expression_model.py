@@ -45,6 +45,7 @@ class CenteredLinear(Covariance):
     def k(self, x, y):
         from jax.numpy import einsum
         from mellon.base_cov import select_active_dims
+
         x = select_active_dims(x, self.active_dims)
         y = select_active_dims(y, self.active_dims)
         if self.mu is not None:
@@ -55,6 +56,7 @@ class CenteredLinear(Covariance):
     def diag(self, x):
         from jax.numpy import sum as jsum
         from mellon.base_cov import select_active_dims
+
         x = select_active_dims(x, self.active_dims)
         if self.mu is not None:
             x = x - self.mu
@@ -89,12 +91,11 @@ def _build_matern52_linear(X, ls):
         ls_linear = 1.0  # degenerate case: constant coordinates
     cov_func = Matern52(ls=ls) + CenteredLinear(ls=ls_linear, mu=mu)
     logger.debug(
-        "Matern52+CenteredLinear: ls_matern=%.4f, ls_linear=%.4f "
-        "(mean||x-mu||^2)",
-        ls, ls_linear,
+        "Matern52+CenteredLinear: ls_matern=%.4f, ls_linear=%.4f (mean||x-mu||^2)",
+        ls,
+        ls_linear,
     )
     return cov_func
-
 
 
 class ExpressionModel:
@@ -242,8 +243,10 @@ class ExpressionModel:
         # ---- covariance function ----
         # Unless the caller provides an explicit cov_func or cov_func_curry,
         # build a Matern52 kernel.
-        if "cov_func" not in estimator_defaults and \
-                "cov_func_curry" not in estimator_defaults:
+        if (
+            "cov_func" not in estimator_defaults
+            and "cov_func_curry" not in estimator_defaults
+        ):
             from mellon.parameters import compute_nn_distances, compute_ls
 
             if ls is not None:
@@ -272,7 +275,11 @@ class ExpressionModel:
             and not obs_var_injected
         )
 
-        if self.use_empirical_variance and not per_sample_empirical and not obs_var_injected:
+        if (
+            self.use_empirical_variance
+            and not per_sample_empirical
+            and not obs_var_injected
+        ):
             estimator_defaults["obs_variance"] = True
 
         # ---- fit mellon GP ----
@@ -282,7 +289,11 @@ class ExpressionModel:
         self._predictor = self._estimator.predict
 
         # ---- empirical variance validation ----
-        if self.use_empirical_variance and not per_sample_empirical and not obs_var_injected:
+        if (
+            self.use_empirical_variance
+            and not per_sample_empirical
+            and not obs_var_injected
+        ):
             if not hasattr(self._predictor, "obs_variance"):
                 raise ValueError(
                     "use_empirical_variance=True requires predictors fitted with "
@@ -295,16 +306,16 @@ class ExpressionModel:
             if sample_estimator_ls is not None:
                 sample_kw["ls"] = sample_estimator_ls
                 # Rebuild kernel with the overridden ls when using built-in
-                if "cov_func" in sample_kw and \
-                        "cov_func_curry" not in estimator_defaults:
+                if (
+                    "cov_func" in sample_kw
+                    and "cov_func_curry" not in estimator_defaults
+                ):
                     sample_kw["cov_func"] = Matern52(ls=sample_estimator_ls)
             else:
                 try:
                     sample_kw["ls"] = self.ls
                 except (AttributeError, TypeError) as e:
-                    logger.warning(
-                        f"Could not extract ls for sample variance: {e}"
-                    )
+                    logger.warning(f"Could not extract ls for sample variance: {e}")
 
             try:
                 sve = SampleVarianceEstimator(
@@ -324,9 +335,7 @@ class ExpressionModel:
             except ValueError:
                 if not allow_single_condition_variance:
                     raise
-                logger.info(
-                    "Sample variance estimation failed for this condition."
-                )
+                logger.info("Sample variance estimation failed for this condition.")
                 self._sample_variance_predictor = None
 
         # ---- per-sample empirical variance ----
@@ -352,7 +361,8 @@ class ExpressionModel:
                 sample_est = mellon.FunctionEstimator(**per_sample_kw)
                 sample_est.fit(X[mask], y[mask])
                 all_loo_sq[mask] = sample_est.predict.loo_residuals_squared(
-                    X[mask], y[mask],
+                    X[mask],
+                    y[mask],
                 )
 
             # Smooth pooled within-sample squared residuals with a single GP
@@ -486,7 +496,9 @@ class ExpressionModel:
         if isinstance(cov, np.ndarray) and cov.ndim == 1:
             cov = cov[:, np.newaxis]
         obs = self.obs_variance(X, batch_size=batch_size, progress=progress)
-        sam = self.sample_variance(X, diag=True, batch_size=batch_size, progress=progress)
+        sam = self.sample_variance(
+            X, diag=True, batch_size=batch_size, progress=progress
+        )
         return cov + obs + sam
 
     def std(self, X, batch_size=None, progress=True):
@@ -545,7 +557,4 @@ class ExpressionModel:
             return False
         if self._within_sample_obs_var_predictor is not None:
             return True
-        return (
-            self._predictor is not None
-            and hasattr(self._predictor, "obs_variance")
-        )
+        return self._predictor is not None and hasattr(self._predictor, "obs_variance")

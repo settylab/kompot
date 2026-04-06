@@ -8,4 +8,6 @@ It needs significant updates to be compatible.
 import pytest
 
 # Skip all tests in this file
-pytestmark = pytest.mark.skip(reason="Tests need to be updated after changes to landmark management")
+pytestmark = pytest.mark.skip(
+    reason="Tests need to be updated after changes to landmark management"
+)

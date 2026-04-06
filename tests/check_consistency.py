@@ -72,7 +72,9 @@ def check_config(name, prefix, results, ref_dir, atol=1e-6):
 def main():
     ref_dir = "/tmp/kompot_reference"
     if not os.path.isdir(ref_dir):
-        print(f"ERROR: Reference directory {ref_dir} not found. Run generate_reference_outputs.py first.")
+        print(
+            f"ERROR: Reference directory {ref_dir} not found. Run generate_reference_outputs.py first."
+        )
         sys.exit(1)
 
     X1, y1, X2, y2, X_new = make_synthetic_data(seed=42)

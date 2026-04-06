@@ -31,10 +31,7 @@ def medium_adata():
     cell_states = rng.randn(n_cells, n_features).astype(np.float64)
 
     conditions = ["A"] * 100 + ["B"] * 100
-    samples = (
-        ["s1"] * 50 + ["s2"] * 50 +
-        ["s3"] * 50 + ["s4"] * 50
-    )
+    samples = ["s1"] * 50 + ["s2"] * 50 + ["s3"] * 50 + ["s4"] * 50
 
     adata = ad.AnnData(X)
     adata.obsm["X_pca"] = cell_states
@@ -145,9 +142,9 @@ class TestDryRunEmpiricalVarianceEstimates:
         )
 
         req_names = [r.name for r in plan.requirements]
-        assert any("Temporary arrays during empirical variance fitting" in n for n in req_names), (
-            f"Missing fitting temp arrays requirement. Got: {req_names}"
-        )
+        assert any(
+            "Temporary arrays during empirical variance fitting" in n for n in req_names
+        ), f"Missing fitting temp arrays requirement. Got: {req_names}"
 
     def test_intermediate_array_count_increases(self, medium_adata):
         """Intermediate array count should be higher with empirical variance."""
@@ -243,7 +240,7 @@ class TestDryRunEmpiricalVarianceEstimates:
 # misses most of it. We use subprocess maxrss (resource.getrusage) which
 # captures the full resident set size including JAX/C allocations.
 
-_MEASURE_SCRIPT = '''
+_MEASURE_SCRIPT = """
 import sys, json, resource, tempfile, os
 import numpy as np
 import pandas as pd
@@ -287,7 +284,7 @@ maxrss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
 if sys.platform == "linux":
     maxrss *= 1024
 print(json.dumps({"maxrss": maxrss, "use_empirical_variance": use_ev}))
-'''
+"""
 
 
 def _run_measure(use_ev: bool) -> int:
@@ -323,8 +320,10 @@ class TestEmpiricalMemoryValidation:
         rss_off = _run_measure(use_ev=False)
         rss_on = _run_measure(use_ev=True)
 
-        print(f"\n[maxrss] Without EV: {rss_off:,} bytes, With EV: {rss_on:,} bytes, "
-              f"Increase: {rss_on - rss_off:,} bytes ({(rss_on - rss_off) / max(rss_off, 1) * 100:.1f}%)")
+        print(
+            f"\n[maxrss] Without EV: {rss_off:,} bytes, With EV: {rss_on:,} bytes, "
+            f"Increase: {rss_on - rss_off:,} bytes ({(rss_on - rss_off) / max(rss_off, 1) * 100:.1f}%)"
+        )
 
         assert rss_on >= rss_off, (
             f"Peak RSS with EV ({rss_on:,}) should be >= without ({rss_off:,})"
@@ -364,7 +363,9 @@ class TestEmpiricalMemoryValidation:
         rss_on = _run_measure(use_ev=True)
         actual_increase = rss_on - rss_off
 
-        print(f"\n[increase] Estimated: {est_increase:,} bytes, Actual: {actual_increase:,} bytes")
+        print(
+            f"\n[increase] Estimated: {est_increase:,} bytes, Actual: {actual_increase:,} bytes"
+        )
 
         assert est_increase > 0, "Estimated increase should be positive"
         assert actual_increase >= 0, "Actual increase should be non-negative"

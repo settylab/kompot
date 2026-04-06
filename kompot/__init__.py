@@ -18,6 +18,7 @@ from mellon import DensityEstimator, FunctionEstimator, Predictor
 # Set mellon logger level to warning to reduce verbosity
 import mellon
 import logging
+
 mellon.logger.setLevel(logging.WARNING)
 
 # Import core functionality directly - using relative imports
@@ -101,37 +102,48 @@ logger = logging.getLogger("kompot")
 __all__ = [
     # Version
     "__version__",
-
     # Mellon re-exports
-    "DensityEstimator", "FunctionEstimator", "Predictor",
-
+    "DensityEstimator",
+    "FunctionEstimator",
+    "Predictor",
     # Core differential analysis classes
-    "DifferentialAbundance", "DifferentialExpression", "ExpressionModel", "SampleVarianceEstimator",
-
+    "DifferentialAbundance",
+    "DifferentialExpression",
+    "ExpressionModel",
+    "SampleVarianceEstimator",
     # AnnData interface
-    "de", "da",
-
+    "de",
+    "da",
     # Settings dataclasses
-    "GPSettings", "FDRSettings", "DAThresholdSettings",
-    "FilterSettings", "StorageSettings", "OutputSettings", "ModelSettings",
-
+    "GPSettings",
+    "FDRSettings",
+    "DAThresholdSettings",
+    "FilterSettings",
+    "StorageSettings",
+    "OutputSettings",
+    "ModelSettings",
     # Utility functions
-    "compute_mahalanobis_distance", "find_landmarks",
-    "batch_process", "apply_batched",
-
+    "compute_mahalanobis_distance",
+    "find_landmarks",
+    "batch_process",
+    "apply_batched",
     # Resource estimation
     "dry_run_differential_expression",
-
     # Standalone FDR
-    "compute_fdr", "recompute_fdr", "extract_null_distribution",
-
+    "compute_fdr",
+    "recompute_fdr",
+    "extract_null_distribution",
     # AnnData functionality (deprecated, use de()/da())
-    "compute_differential_abundance", "compute_differential_expression",
-    "impute_expression", "compute_imputed_expression",
-    "check_underrepresentation", "RunInfo", "RunComparison",
-    "cleanup", "get_field_status",
-
+    "compute_differential_abundance",
+    "compute_differential_expression",
+    "impute_expression",
+    "compute_imputed_expression",
+    "check_underrepresentation",
+    "RunInfo",
+    "RunComparison",
+    "cleanup",
+    "get_field_status",
     # Submodules
-    "plot", "anndata"
+    "plot",
+    "anndata",
 ]
-

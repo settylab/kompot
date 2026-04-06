@@ -20,48 +20,50 @@ def create_de_test_data(n_cells=50, n_genes=15, with_layer=False, with_samples=T
     X[X < 0] = 0  # Non-negative
 
     obs_data = {
-        'condition': ['A'] * (n_cells // 2) + ['B'] * (n_cells // 2),
-        'celltype': np.random.choice(['T', 'B', 'NK'], n_cells)
+        "condition": ["A"] * (n_cells // 2) + ["B"] * (n_cells // 2),
+        "celltype": np.random.choice(["T", "B", "NK"], n_cells),
     }
 
     if with_samples:
         # Create 3 samples per condition
         samples = []
         for i in range(n_cells):
-            cond = obs_data['condition'][i]
+            cond = obs_data["condition"][i]
             sample_id = i % 3
-            samples.append(f'{cond}_sample_{sample_id}')
-        obs_data['sample'] = samples
+            samples.append(f"{cond}_sample_{sample_id}")
+        obs_data["sample"] = samples
 
     obs = pd.DataFrame(obs_data)
-    obsm = {'DM_EigenVectors': np.random.normal(0, 1, (n_cells, 10))}
-    var = pd.DataFrame(index=[f'gene_{i}' for i in range(n_genes)])
+    obsm = {"DM_EigenVectors": np.random.normal(0, 1, (n_cells, 10))}
+    var = pd.DataFrame(index=[f"gene_{i}" for i in range(n_genes)])
 
     layers = {}
     if with_layer:
-        layers['raw'] = X.copy() * 1.5
+        layers["raw"] = X.copy() * 1.5
 
-    return anndata.AnnData(X=X, obs=obs, var=var, obsm=obsm, layers=layers if with_layer else None)
+    return anndata.AnnData(
+        X=X, obs=obs, var=var, obsm=obsm, layers=layers if with_layer else None
+    )
 
 
 def test_de_with_specific_genes_list():
     """Test DE with specific list of genes."""
     adata = create_de_test_data()
 
-    genes_to_test = ['gene_0', 'gene_2', 'gene_5', 'gene_8']
+    genes_to_test = ["gene_0", "gene_2", "gene_5", "gene_8"]
 
     result = compute_differential_expression(
         adata,
-        groupby='condition',
-        condition1='A',
-        condition2='B',
+        groupby="condition",
+        condition1="A",
+        condition2="B",
         genes=genes_to_test,
         n_landmarks=10,
         null_genes=None,
-        progress=False
+        progress=False,
     )
 
-    assert 'kompot_de' in adata.uns or result is not None
+    assert "kompot_de" in adata.uns or result is not None
 
 
 def test_de_with_layer():
@@ -70,16 +72,16 @@ def test_de_with_layer():
 
     result = compute_differential_expression(
         adata,
-        groupby='condition',
-        condition1='A',
-        condition2='B',
-        layer='raw',
+        groupby="condition",
+        condition1="A",
+        condition2="B",
+        layer="raw",
         n_landmarks=10,
         null_genes=None,
-        progress=False
+        progress=False,
     )
 
-    assert 'kompot_de' in adata.uns or result is not None
+    assert "kompot_de" in adata.uns or result is not None
 
 
 def test_de_with_custom_landmarks():
@@ -88,19 +90,19 @@ def test_de_with_custom_landmarks():
 
     # Provide custom landmarks
     landmarks = np.random.choice(adata.n_obs, size=30, replace=False)
-    landmarks_coords = adata.obsm['DM_EigenVectors'][landmarks]
+    landmarks_coords = adata.obsm["DM_EigenVectors"][landmarks]
 
     result = compute_differential_expression(
         adata,
-        groupby='condition',
-        condition1='A',
-        condition2='B',
+        groupby="condition",
+        condition1="A",
+        condition2="B",
         landmarks=landmarks_coords,
         null_genes=None,
-        progress=False
+        progress=False,
     )
 
-    assert 'kompot_de' in adata.uns or result is not None
+    assert "kompot_de" in adata.uns or result is not None
 
 
 @pytest.mark.skip(reason="Sample variance test needs more samples per condition")
@@ -110,56 +112,56 @@ def test_de_with_sample_variance():
 
     result = compute_differential_expression(
         adata,
-        groupby='condition',
-        condition1='A',
-        condition2='B',
+        groupby="condition",
+        condition1="A",
+        condition2="B",
         use_sample_variance=True,
-        sample_col='sample',
+        sample_col="sample",
         n_landmarks=10,
         null_genes=None,
-        progress=False
+        progress=False,
     )
 
-    assert 'kompot_de' in adata.uns or result is not None
+    assert "kompot_de" in adata.uns or result is not None
 
 
 def test_de_with_cell_filter_string():
     """Test DE with cell_filter as string column."""
     adata = create_de_test_data()
-    adata.obs['use_cell'] = np.random.choice([True, False], adata.n_obs)
+    adata.obs["use_cell"] = np.random.choice([True, False], adata.n_obs)
 
     result = compute_differential_expression(
         adata,
-        groupby='condition',
-        condition1='A',
-        condition2='B',
-        cell_filter='use_cell',
+        groupby="condition",
+        condition1="A",
+        condition2="B",
+        cell_filter="use_cell",
         n_landmarks=10,
         null_genes=None,
-        progress=False
+        progress=False,
     )
 
-    assert 'kompot_de' in adata.uns or result is not None
+    assert "kompot_de" in adata.uns or result is not None
 
 
 def test_de_with_cell_filter_dict():
     """Test DE with cell_filter as dictionary."""
     adata = create_de_test_data()
 
-    cell_filter = {'celltype': ['T', 'B']}
+    cell_filter = {"celltype": ["T", "B"]}
 
     result = compute_differential_expression(
         adata,
-        groupby='condition',
-        condition1='A',
-        condition2='B',
+        groupby="condition",
+        condition1="A",
+        condition2="B",
         cell_filter=cell_filter,
         n_landmarks=10,
         null_genes=None,
-        progress=False
+        progress=False,
     )
 
-    assert 'kompot_de' in adata.uns or result is not None
+    assert "kompot_de" in adata.uns or result is not None
 
 
 def test_de_with_groups_column():
@@ -168,16 +170,16 @@ def test_de_with_groups_column():
 
     result = compute_differential_expression(
         adata,
-        groupby='condition',
-        condition1='A',
-        condition2='B',
-        groups='celltype',
+        groupby="condition",
+        condition1="A",
+        condition2="B",
+        groups="celltype",
         n_landmarks=10,
         null_genes=None,
-        progress=False
+        progress=False,
     )
 
-    assert 'kompot_de' in adata.uns or result is not None
+    assert "kompot_de" in adata.uns or result is not None
 
 
 def test_de_with_groups_dict():
@@ -186,22 +188,22 @@ def test_de_with_groups_dict():
 
     # Create custom groups
     groups_dict = {
-        'T_cells': adata.obs['celltype'] == 'T',
-        'Other': adata.obs['celltype'].isin(['B', 'NK'])
+        "T_cells": adata.obs["celltype"] == "T",
+        "Other": adata.obs["celltype"].isin(["B", "NK"]),
     }
 
     result = compute_differential_expression(
         adata,
-        groupby='condition',
-        condition1='A',
-        condition2='B',
+        groupby="condition",
+        condition1="A",
+        condition2="B",
         groups=groups_dict,
         n_landmarks=10,
         null_genes=None,
-        progress=False
+        progress=False,
     )
 
-    assert 'kompot_de' in adata.uns or result is not None
+    assert "kompot_de" in adata.uns or result is not None
 
 
 def test_de_store_landmarks():
@@ -210,16 +212,16 @@ def test_de_store_landmarks():
 
     result = compute_differential_expression(
         adata,
-        groupby='condition',
-        condition1='A',
-        condition2='B',
+        groupby="condition",
+        condition1="A",
+        condition2="B",
         store_landmarks=True,
         n_landmarks=10,
         null_genes=None,
-        progress=False
+        progress=False,
     )
 
-    assert 'kompot_de' in adata.uns or result is not None
+    assert "kompot_de" in adata.uns or result is not None
 
 
 def test_de_return_full_results():
@@ -228,13 +230,13 @@ def test_de_return_full_results():
 
     result = compute_differential_expression(
         adata,
-        groupby='condition',
-        condition1='A',
-        condition2='B',
+        groupby="condition",
+        condition1="A",
+        condition2="B",
         return_full_results=True,
         n_landmarks=10,
         null_genes=None,
-        progress=False
+        progress=False,
     )
 
     assert result is not None
@@ -247,16 +249,16 @@ def test_de_store_posterior_covariance():
 
     result = compute_differential_expression(
         adata,
-        groupby='condition',
-        condition1='A',
-        condition2='B',
+        groupby="condition",
+        condition1="A",
+        condition2="B",
         store_posterior_covariance=True,
         n_landmarks=10,
         null_genes=None,
-        progress=False
+        progress=False,
     )
 
-    assert 'kompot_de' in adata.uns or result is not None
+    assert "kompot_de" in adata.uns or result is not None
 
 
 def test_de_with_disk_storage():
@@ -266,16 +268,16 @@ def test_de_with_disk_storage():
     with tempfile.TemporaryDirectory() as tmpdir:
         result = compute_differential_expression(
             adata,
-            groupby='condition',
-            condition1='A',
-            condition2='B',
+            groupby="condition",
+            condition1="A",
+            condition2="B",
             disk_storage_dir=tmpdir,
             n_landmarks=10,
             null_genes=None,
-            progress=False
+            progress=False,
         )
 
-        assert 'kompot_de' in adata.uns or result is not None
+        assert "kompot_de" in adata.uns or result is not None
 
 
 def test_de_with_custom_ls():
@@ -284,16 +286,16 @@ def test_de_with_custom_ls():
 
     result = compute_differential_expression(
         adata,
-        groupby='condition',
-        condition1='A',
-        condition2='B',
+        groupby="condition",
+        condition1="A",
+        condition2="B",
         ls=0.5,
         n_landmarks=10,
         null_genes=None,
-        progress=False
+        progress=False,
     )
 
-    assert 'kompot_de' in adata.uns or result is not None
+    assert "kompot_de" in adata.uns or result is not None
 
 
 def test_de_with_custom_sigma():
@@ -302,16 +304,16 @@ def test_de_with_custom_sigma():
 
     result = compute_differential_expression(
         adata,
-        groupby='condition',
-        condition1='A',
-        condition2='B',
+        groupby="condition",
+        condition1="A",
+        condition2="B",
         sigma=2.0,
         n_landmarks=10,
         null_genes=None,
-        progress=False
+        progress=False,
     )
 
-    assert 'kompot_de' in adata.uns or result is not None
+    assert "kompot_de" in adata.uns or result is not None
 
 
 def test_de_compute_mahalanobis_false():
@@ -320,16 +322,16 @@ def test_de_compute_mahalanobis_false():
 
     result = compute_differential_expression(
         adata,
-        groupby='condition',
-        condition1='A',
-        condition2='B',
+        groupby="condition",
+        condition1="A",
+        condition2="B",
         compute_mahalanobis=False,
         n_landmarks=10,
         null_genes=None,
-        progress=False
+        progress=False,
     )
 
-    assert 'kompot_de' in adata.uns or result is not None
+    assert "kompot_de" in adata.uns or result is not None
 
 
 def test_de_with_custom_batch_size():
@@ -338,16 +340,16 @@ def test_de_with_custom_batch_size():
 
     result = compute_differential_expression(
         adata,
-        groupby='condition',
-        condition1='A',
-        condition2='B',
+        groupby="condition",
+        condition1="A",
+        condition2="B",
         batch_size=50,
         n_landmarks=10,
         null_genes=None,
-        progress=False
+        progress=False,
     )
 
-    assert 'kompot_de' in adata.uns or result is not None
+    assert "kompot_de" in adata.uns or result is not None
 
 
 def test_de_with_custom_eps():
@@ -356,16 +358,16 @@ def test_de_with_custom_eps():
 
     result = compute_differential_expression(
         adata,
-        groupby='condition',
-        condition1='A',
-        condition2='B',
+        groupby="condition",
+        condition1="A",
+        condition2="B",
         eps=1e-10,
         n_landmarks=10,
         null_genes=None,
-        progress=False
+        progress=False,
     )
 
-    assert 'kompot_de' in adata.uns or result is not None
+    assert "kompot_de" in adata.uns or result is not None
 
 
 def test_de_with_random_state():
@@ -374,26 +376,26 @@ def test_de_with_random_state():
 
     result1 = compute_differential_expression(
         adata,
-        groupby='condition',
-        condition1='A',
-        condition2='B',
+        groupby="condition",
+        condition1="A",
+        condition2="B",
         random_state=42,
         n_landmarks=10,
         null_genes=None,
         progress=False,
-        copy=True
+        copy=True,
     )
 
     result2 = compute_differential_expression(
         adata,
-        groupby='condition',
-        condition1='A',
-        condition2='B',
+        groupby="condition",
+        condition1="A",
+        condition2="B",
         random_state=42,
         n_landmarks=10,
         null_genes=None,
         progress=False,
-        copy=True
+        copy=True,
     )
 
     # Results should be identical with same random state
@@ -407,16 +409,16 @@ def test_de_with_min_cells():
 
     result = compute_differential_expression(
         adata,
-        groupby='condition',
-        condition1='A',
-        condition2='B',
+        groupby="condition",
+        condition1="A",
+        condition2="B",
         min_cells=5,
         n_landmarks=10,
         null_genes=None,
-        progress=False
+        progress=False,
     )
 
-    assert 'kompot_de' in adata.uns or result is not None
+    assert "kompot_de" in adata.uns or result is not None
 
 
 def test_de_with_min_percentage():
@@ -425,19 +427,21 @@ def test_de_with_min_percentage():
 
     result = compute_differential_expression(
         adata,
-        groupby='condition',
-        condition1='A',
-        condition2='B',
+        groupby="condition",
+        condition1="A",
+        condition2="B",
         min_percentage=0.05,
         n_landmarks=10,
         null_genes=None,
-        progress=False
+        progress=False,
     )
 
-    assert 'kompot_de' in adata.uns or result is not None
+    assert "kompot_de" in adata.uns or result is not None
 
 
-@pytest.mark.skip(reason="inplace=False parameter appears to not prevent modification of original adata")
+@pytest.mark.skip(
+    reason="inplace=False parameter appears to not prevent modification of original adata"
+)
 def test_de_inplace_false():
     """Test DE with inplace=False."""
     adata = create_de_test_data()
@@ -445,13 +449,13 @@ def test_de_inplace_false():
 
     result = compute_differential_expression(
         adata,
-        groupby='condition',
-        condition1='A',
-        condition2='B',
+        groupby="condition",
+        condition1="A",
+        condition2="B",
         inplace=False,
         n_landmarks=10,
         null_genes=None,
-        progress=False
+        progress=False,
     )
 
     # Original adata should not be modified
@@ -464,16 +468,16 @@ def test_de_store_additional_stats():
 
     result = compute_differential_expression(
         adata,
-        groupby='condition',
-        condition1='A',
-        condition2='B',
+        groupby="condition",
+        condition1="A",
+        condition2="B",
         store_additional_stats=True,
         n_landmarks=10,
         null_genes=None,
-        progress=False
+        progress=False,
     )
 
-    assert 'kompot_de' in adata.uns or result is not None
+    assert "kompot_de" in adata.uns or result is not None
 
 
 def test_de_with_fdr_enabled():
@@ -482,17 +486,17 @@ def test_de_with_fdr_enabled():
 
     result = compute_differential_expression(
         adata,
-        groupby='condition',
-        condition1='A',
-        condition2='B',
+        groupby="condition",
+        condition1="A",
+        condition2="B",
         null_genes=10,  # Enable FDR
         null_seed=42,
         fdr_threshold=0.1,
         n_landmarks=10,
-        progress=False
+        progress=False,
     )
 
-    assert 'kompot_de' in adata.uns or result is not None
+    assert "kompot_de" in adata.uns or result is not None
 
 
 def test_de_with_allow_single_condition_variance():
@@ -501,13 +505,13 @@ def test_de_with_allow_single_condition_variance():
 
     result = compute_differential_expression(
         adata,
-        groupby='condition',
-        condition1='A',
-        condition2='B',
+        groupby="condition",
+        condition1="A",
+        condition2="B",
         allow_single_condition_variance=True,
         n_landmarks=10,
         null_genes=None,
-        progress=False
+        progress=False,
     )
 
-    assert 'kompot_de' in adata.uns or result is not None
+    assert "kompot_de" in adata.uns or result is not None

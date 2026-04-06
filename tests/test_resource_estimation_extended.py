@@ -1,16 +1,14 @@
 """Tests for resource_estimation.py to improve coverage."""
 
 import numpy as np
-import pytest
 import tempfile
-import os
 
 from kompot.resource_estimation import (
     ResourceRequirement,
     ResourceAvailability,
     ResourcePlan,
     human_readable_size,
-    dry_run_differential_expression
+    dry_run_differential_expression,
 )
 
 
@@ -36,7 +34,7 @@ def test_resource_requirement_properties():
         resource_type="memory",
         shape=(100, 100),
         field_name="test_field",
-        overwrite=True
+        overwrite=True,
     )
 
     assert req.name == "Test array"
@@ -51,10 +49,7 @@ def test_resource_requirement_properties():
 def test_resource_requirement_no_overwrite():
     """Test ResourceRequirement with overwrite=False."""
     req = ResourceRequirement(
-        name="Test",
-        size_bytes=100,
-        resource_type="disk",
-        overwrite=False
+        name="Test", size_bytes=100, resource_type="disk", overwrite=False
     )
 
     assert req.overwrite is False
@@ -67,7 +62,7 @@ def test_resource_availability_properties():
         memory_available=8 * 1024 * 1024 * 1024,  # 8 GB
         disk_path="/tmp",
         disk_total=100 * 1024 * 1024 * 1024,  # 100 GB
-        disk_available=50 * 1024 * 1024 * 1024  # 50 GB
+        disk_available=50 * 1024 * 1024 * 1024,  # 50 GB
     )
 
     assert "GB" in avail.memory_total_human
@@ -106,7 +101,7 @@ def test_resource_plan_with_messages():
     plan = ResourcePlan(
         info=["Info message 1", "Info message 2"],
         warnings=["Warning 1"],
-        errors=["Error 1", "Error 2"]
+        errors=["Error 1", "Error 2"],
     )
 
     assert len(plan.info) == 2
@@ -116,12 +111,7 @@ def test_resource_plan_with_messages():
 
 def test_resource_plan_with_output_fields():
     """Test ResourcePlan with output fields."""
-    plan = ResourcePlan(
-        output_fields={
-            "uns": ["field1", "field2"],
-            "varm": ["field3"]
-        }
-    )
+    plan = ResourcePlan(output_fields={"uns": ["field1", "field2"], "varm": ["field3"]})
 
     assert "uns" in plan.output_fields
     assert "varm" in plan.output_fields
@@ -136,7 +126,7 @@ def test_resource_plan_with_availability():
         memory_available=4 * 1024 * 1024 * 1024,
         disk_path="/tmp",
         disk_total=100 * 1024 * 1024 * 1024,
-        disk_available=50 * 1024 * 1024 * 1024
+        disk_available=50 * 1024 * 1024 * 1024,
     )
 
     plan = ResourcePlan(availability=avail)
@@ -154,21 +144,19 @@ def test_dry_run_basic():
     np.random.seed(42)
     n_cells, n_genes = 100, 20
     X = np.random.normal(0, 1, (n_cells, n_genes))
-    obs = pd.DataFrame({
-        'condition': ['A'] * 50 + ['B'] * 50,
-        'celltype': np.random.choice(['T', 'B', 'NK'], n_cells)
-    })
-    obsm = {'DM_EigenVectors': np.random.normal(0, 1, (n_cells, 10))}
-    var = pd.DataFrame(index=[f'gene_{i}' for i in range(n_genes)])
+    obs = pd.DataFrame(
+        {
+            "condition": ["A"] * 50 + ["B"] * 50,
+            "celltype": np.random.choice(["T", "B", "NK"], n_cells),
+        }
+    )
+    obsm = {"DM_EigenVectors": np.random.normal(0, 1, (n_cells, 10))}
+    var = pd.DataFrame(index=[f"gene_{i}" for i in range(n_genes)])
     adata = anndata.AnnData(X=X, obs=obs, var=var, obsm=obsm)
 
     # Run dry run
     plan = dry_run_differential_expression(
-        adata,
-        groupby='condition',
-        condition1='A',
-        condition2='B',
-        verbose=False
+        adata, groupby="condition", condition1="A", condition2="B", verbose=False
     )
 
     assert isinstance(plan, ResourcePlan)
@@ -183,18 +171,18 @@ def test_dry_run_with_landmarks():
     np.random.seed(42)
     n_cells, n_genes = 100, 20
     X = np.random.normal(0, 1, (n_cells, n_genes))
-    obs = pd.DataFrame({'condition': ['A'] * 50 + ['B'] * 50})
-    obsm = {'DM_EigenVectors': np.random.normal(0, 1, (n_cells, 10))}
-    var = pd.DataFrame(index=[f'gene_{i}' for i in range(n_genes)])
+    obs = pd.DataFrame({"condition": ["A"] * 50 + ["B"] * 50})
+    obsm = {"DM_EigenVectors": np.random.normal(0, 1, (n_cells, 10))}
+    var = pd.DataFrame(index=[f"gene_{i}" for i in range(n_genes)])
     adata = anndata.AnnData(X=X, obs=obs, var=var, obsm=obsm)
 
     plan = dry_run_differential_expression(
         adata,
-        groupby='condition',
-        condition1='A',
-        condition2='B',
+        groupby="condition",
+        condition1="A",
+        condition2="B",
         n_landmarks=30,
-        verbose=False
+        verbose=False,
     )
 
     assert isinstance(plan, ResourcePlan)
@@ -208,19 +196,19 @@ def test_dry_run_with_disk_storage():
     np.random.seed(42)
     n_cells, n_genes = 100, 20
     X = np.random.normal(0, 1, (n_cells, n_genes))
-    obs = pd.DataFrame({'condition': ['A'] * 50 + ['B'] * 50})
-    obsm = {'DM_EigenVectors': np.random.normal(0, 1, (n_cells, 10))}
-    var = pd.DataFrame(index=[f'gene_{i}' for i in range(n_genes)])
+    obs = pd.DataFrame({"condition": ["A"] * 50 + ["B"] * 50})
+    obsm = {"DM_EigenVectors": np.random.normal(0, 1, (n_cells, 10))}
+    var = pd.DataFrame(index=[f"gene_{i}" for i in range(n_genes)])
     adata = anndata.AnnData(X=X, obs=obs, var=var, obsm=obsm)
 
     with tempfile.TemporaryDirectory() as tmpdir:
         plan = dry_run_differential_expression(
             adata,
-            groupby='condition',
-            condition1='A',
-            condition2='B',
+            groupby="condition",
+            condition1="A",
+            condition2="B",
             disk_storage_dir=tmpdir,
-            verbose=False
+            verbose=False,
         )
 
         assert isinstance(plan, ResourcePlan)
@@ -236,21 +224,23 @@ def test_dry_run_with_groups():
     np.random.seed(42)
     n_cells, n_genes = 100, 20
     X = np.random.normal(0, 1, (n_cells, n_genes))
-    obs = pd.DataFrame({
-        'condition': ['A'] * 50 + ['B'] * 50,
-        'celltype': np.random.choice(['T', 'B'], n_cells)
-    })
-    obsm = {'DM_EigenVectors': np.random.normal(0, 1, (n_cells, 10))}
-    var = pd.DataFrame(index=[f'gene_{i}' for i in range(n_genes)])
+    obs = pd.DataFrame(
+        {
+            "condition": ["A"] * 50 + ["B"] * 50,
+            "celltype": np.random.choice(["T", "B"], n_cells),
+        }
+    )
+    obsm = {"DM_EigenVectors": np.random.normal(0, 1, (n_cells, 10))}
+    var = pd.DataFrame(index=[f"gene_{i}" for i in range(n_genes)])
     adata = anndata.AnnData(X=X, obs=obs, var=var, obsm=obsm)
 
     plan = dry_run_differential_expression(
         adata,
-        groupby='condition',
-        condition1='A',
-        condition2='B',
-        groups='celltype',
-        verbose=False
+        groupby="condition",
+        condition1="A",
+        condition2="B",
+        groups="celltype",
+        verbose=False,
     )
 
     assert isinstance(plan, ResourcePlan)
@@ -264,20 +254,20 @@ def test_dry_run_with_genes_subset():
     np.random.seed(42)
     n_cells, n_genes = 100, 20
     X = np.random.normal(0, 1, (n_cells, n_genes))
-    obs = pd.DataFrame({'condition': ['A'] * 50 + ['B'] * 50})
-    obsm = {'DM_EigenVectors': np.random.normal(0, 1, (n_cells, 10))}
-    var = pd.DataFrame(index=[f'gene_{i}' for i in range(n_genes)])
+    obs = pd.DataFrame({"condition": ["A"] * 50 + ["B"] * 50})
+    obsm = {"DM_EigenVectors": np.random.normal(0, 1, (n_cells, 10))}
+    var = pd.DataFrame(index=[f"gene_{i}" for i in range(n_genes)])
     adata = anndata.AnnData(X=X, obs=obs, var=var, obsm=obsm)
 
     # Test with subset of genes
-    gene_subset = [f'gene_{i}' for i in range(10)]
+    gene_subset = [f"gene_{i}" for i in range(10)]
     plan = dry_run_differential_expression(
         adata,
-        groupby='condition',
-        condition1='A',
-        condition2='B',
+        groupby="condition",
+        condition1="A",
+        condition2="B",
         genes=gene_subset,
-        verbose=False
+        verbose=False,
     )
 
     assert isinstance(plan, ResourcePlan)
@@ -291,22 +281,24 @@ def test_dry_run_with_sample_variance():
     np.random.seed(42)
     n_cells, n_genes = 120, 20
     X = np.random.normal(0, 1, (n_cells, n_genes))
-    obs = pd.DataFrame({
-        'condition': ['A'] * 60 + ['B'] * 60,
-        'sample': [f'sample_{i%3}' for i in range(n_cells)]
-    })
-    obsm = {'DM_EigenVectors': np.random.normal(0, 1, (n_cells, 10))}
-    var = pd.DataFrame(index=[f'gene_{i}' for i in range(n_genes)])
+    obs = pd.DataFrame(
+        {
+            "condition": ["A"] * 60 + ["B"] * 60,
+            "sample": [f"sample_{i % 3}" for i in range(n_cells)],
+        }
+    )
+    obsm = {"DM_EigenVectors": np.random.normal(0, 1, (n_cells, 10))}
+    var = pd.DataFrame(index=[f"gene_{i}" for i in range(n_genes)])
     adata = anndata.AnnData(X=X, obs=obs, var=var, obsm=obsm)
 
     plan = dry_run_differential_expression(
         adata,
-        groupby='condition',
-        condition1='A',
-        condition2='B',
+        groupby="condition",
+        condition1="A",
+        condition2="B",
         use_sample_variance=True,
-        sample_col='sample',
-        verbose=False
+        sample_col="sample",
+        verbose=False,
     )
 
     assert isinstance(plan, ResourcePlan)
@@ -320,18 +312,18 @@ def test_dry_run_with_result_key():
     np.random.seed(42)
     n_cells, n_genes = 100, 20
     X = np.random.normal(0, 1, (n_cells, n_genes))
-    obs = pd.DataFrame({'condition': ['A'] * 50 + ['B'] * 50})
-    obsm = {'DM_EigenVectors': np.random.normal(0, 1, (n_cells, 10))}
-    var = pd.DataFrame(index=[f'gene_{i}' for i in range(n_genes)])
+    obs = pd.DataFrame({"condition": ["A"] * 50 + ["B"] * 50})
+    obsm = {"DM_EigenVectors": np.random.normal(0, 1, (n_cells, 10))}
+    var = pd.DataFrame(index=[f"gene_{i}" for i in range(n_genes)])
     adata = anndata.AnnData(X=X, obs=obs, var=var, obsm=obsm)
 
     plan = dry_run_differential_expression(
         adata,
-        groupby='condition',
-        condition1='A',
-        condition2='B',
-        result_key='my_custom_de',
-        verbose=False
+        groupby="condition",
+        condition1="A",
+        condition2="B",
+        result_key="my_custom_de",
+        verbose=False,
     )
 
     assert isinstance(plan, ResourcePlan)
@@ -345,18 +337,18 @@ def test_dry_run_reports_errors():
     np.random.seed(42)
     n_cells, n_genes = 100, 20
     X = np.random.normal(0, 1, (n_cells, n_genes))
-    obs = pd.DataFrame({'condition': ['A'] * 50 + ['B'] * 50})
-    obsm = {'DM_EigenVectors': np.random.normal(0, 1, (n_cells, 10))}
-    var = pd.DataFrame(index=[f'gene_{i}' for i in range(n_genes)])
+    obs = pd.DataFrame({"condition": ["A"] * 50 + ["B"] * 50})
+    obsm = {"DM_EigenVectors": np.random.normal(0, 1, (n_cells, 10))}
+    var = pd.DataFrame(index=[f"gene_{i}" for i in range(n_genes)])
     adata = anndata.AnnData(X=X, obs=obs, var=var, obsm=obsm)
 
     # Test with non-existent condition - should include error in plan
     plan = dry_run_differential_expression(
         adata,
-        groupby='condition',
-        condition1='A',
-        condition2='nonexistent',
-        verbose=False
+        groupby="condition",
+        condition1="A",
+        condition2="nonexistent",
+        verbose=False,
     )
 
     # Should have errors in the plan
@@ -366,9 +358,7 @@ def test_dry_run_reports_errors():
 def test_resource_requirement_disk_type():
     """Test ResourceRequirement with disk resource type."""
     req = ResourceRequirement(
-        name="Disk array",
-        size_bytes=10 * 1024 * 1024,
-        resource_type="disk"
+        name="Disk array", size_bytes=10 * 1024 * 1024, resource_type="disk"
     )
 
     assert req.resource_type == "disk"

@@ -451,7 +451,11 @@ class TestEstimateDEResources:
             store_additional_stats=True,
         )
         report = plan.format_report()
-        assert "z-score" in report.lower() or "zscores" in report.lower() or len(plan.requirements) > 0
+        assert (
+            "z-score" in report.lower()
+            or "zscores" in report.lower()
+            or len(plan.requirements) > 0
+        )
 
     def test_overwrite_detection(self, small_adata):
         """Cover lines 940-1020: existing results overwrite detection."""
@@ -460,12 +464,8 @@ class TestEstimateDEResources:
         )
 
         # Add fake existing DE results to trigger overwrite detection
-        small_adata.var["kompot_de_A_to_B_mahalanobis"] = np.zeros(
-            small_adata.n_vars
-        )
-        small_adata.var["kompot_de_A_to_B_mean_lfc"] = np.zeros(
-            small_adata.n_vars
-        )
+        small_adata.var["kompot_de_A_to_B_mahalanobis"] = np.zeros(small_adata.n_vars)
+        small_adata.var["kompot_de_A_to_B_mean_lfc"] = np.zeros(small_adata.n_vars)
 
         # Add run history
         small_adata.uns["kompot_de_run_history"] = [
