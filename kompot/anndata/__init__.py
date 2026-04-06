@@ -2,6 +2,13 @@
 AnnData integration for Kompot.
 """
 
+# Import submodules so they are accessible as attributes
+# (e.g. kompot.anndata.differential_abundance, kompot.anndata.utils).
+# Required on Python 3.10 for unittest.mock.patch to resolve module paths.
+from . import differential_abundance  # noqa: F401
+from . import differential_expression  # noqa: F401
+from . import utils  # noqa: F401
+
 from .differential_abundance import da, compute_differential_abundance
 from .differential_expression import de, compute_differential_expression
 from .impute import impute_expression, compute_imputed_expression
