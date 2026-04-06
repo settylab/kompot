@@ -1,4 +1,4 @@
-"""CLI command for differential abundance analysis."""
+"""CLI command for expression imputation."""
 
 import argparse
 import sys
@@ -7,8 +7,8 @@ import logging
 
 import anndata as ad
 
-from ..anndata import da
-from ..settings import GPSettings, DAThresholdSettings, StorageSettings, OutputSettings
+from ..anndata import impute_expression
+from ..settings import GPSettings, StorageSettings, OutputSettings
 from .utils import load_config, merge_args_with_config, validate_anndata_path
 from .compute_config import configure_compute
 
@@ -16,9 +16,8 @@ from .compute_config import configure_compute
 logger = logging.getLogger("kompot.cli")
 
 
-def add_da_parser(subparsers) -> argparse.ArgumentParser:
-    """
-    Add differential abundance subcommand parser.
+def add_impute_parser(subparsers) -> argparse.ArgumentParser:
+    """Add expression imputation subcommand parser.
 
     Parameters
     ----------
@@ -28,12 +27,12 @@ def add_da_parser(subparsers) -> argparse.ArgumentParser:
     Returns
     -------
     argparse.ArgumentParser
-        The DA parser
+        The impute parser
     """
     parser = subparsers.add_parser(
-        "da",
-        help="Differential abundance analysis",
-        description="Compute differential abundance between two conditions",
+        "impute",
+        help="Expression imputation via GP smoothing",
+        description="Impute gene expression for a single condition using GP smoothing",
     )
 
     # Required arguments
@@ -51,7 +50,7 @@ def add_da_parser(subparsers) -> argparse.ArgumentParser:
         "-t",
         "--table-output",
         type=str,
-        help="Output only the DA results as a table (.csv or .tsv). Contains cell-level statistics from adata.obs.",
+        help="Output gene-level summary table (.csv or .tsv) with mean imputed values and std.",
     )
 
     # Config file
@@ -62,17 +61,17 @@ def add_da_parser(subparsers) -> argparse.ArgumentParser:
         help="YAML or JSON config file with advanced parameters",
     )
 
-    # Basic required parameters
+    # Condition selection
     parser.add_argument(
-        "--groupby", type=str, help="Column in adata.obs containing condition labels"
+        "--groupby",
+        type=str,
+        help="Column in adata.obs containing condition labels",
     )
 
     parser.add_argument(
-        "--condition1", type=str, help="Label for first condition (reference)"
-    )
-
-    parser.add_argument(
-        "--condition2", type=str, help="Label for second condition (comparison)"
+        "--condition",
+        type=str,
+        help="Which condition to impute (requires --groupby). If omitted, all cells are used.",
     )
 
     # Common optional parameters
@@ -83,15 +82,21 @@ def add_da_parser(subparsers) -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
+        "--layer",
+        type=str,
+        help="Layer in adata.layers for expression data (default: None, use X)",
+    )
+
+    parser.add_argument(
         "--result-key",
         type=str,
-        help="Key for storing results in adata.uns (default: kompot_da)",
+        help="Key for storing results in adata.uns (default: kompot_impute)",
     )
 
     parser.add_argument(
         "--n-landmarks",
         type=int,
-        help="Number of landmarks for approximation (default: None, use all points)",
+        help="Number of landmarks for Nystrom approximation (default: 5000)",
     )
 
     parser.add_argument(
@@ -103,19 +108,14 @@ def add_da_parser(subparsers) -> argparse.ArgumentParser:
     parser.add_argument(
         "--batch-size",
         type=int,
-        help="Batch size for memory-efficient processing (default: 0, no batching)",
+        help="Cells per batch during prediction (default: 500)",
     )
 
+    # GP parameters
     parser.add_argument(
-        "--log-fold-change-threshold",
+        "--sigma",
         type=float,
-        help="Threshold for log fold change significance (default: 1.0)",
-    )
-
-    parser.add_argument(
-        "--ptp-threshold",
-        type=float,
-        help="Posterior tail probability threshold (default: 0.05)",
+        help="Noise level for the GP (default: 1.0)",
     )
 
     parser.add_argument(
@@ -125,35 +125,30 @@ def add_da_parser(subparsers) -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
+        "--eps",
+        type=float,
+        help="Numerical stability constant (default: 1e-8)",
+    )
+
+    parser.add_argument(
         "--random-state",
         type=int,
-        help="Random seed for reproducible landmark selection (default: None)",
+        help="Random seed for landmark selection (default: None)",
     )
 
-    # Memory management
+    # Gene selection
     parser.add_argument(
-        "--store-arrays-on-disk",
-        action="store_true",
-        help="Store large intermediate arrays on disk instead of RAM",
-    )
-
-    parser.add_argument(
-        "--disk-storage-dir",
+        "--genes",
         type=str,
-        help="Directory for disk-backed arrays (default: system temp)",
-    )
-
-    parser.add_argument(
-        "--max-memory-ratio",
-        type=float,
-        help="Fraction of RAM before triggering disk storage (default: 0.8)",
+        nargs="+",
+        help="Subset of genes to impute (default: all)",
     )
 
     # Boolean flags
     parser.add_argument(
-        "--store-landmarks",
+        "--use-empirical-variance",
         action="store_true",
-        help="Store landmarks in AnnData for reuse",
+        help="Estimate per-gene heteroscedastic noise from GP residuals",
     )
 
     parser.add_argument(
@@ -163,7 +158,9 @@ def add_da_parser(subparsers) -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
-        "--no-progress", action="store_true", help="Disable progress bars"
+        "--no-progress",
+        action="store_true",
+        help="Disable progress bars",
     )
 
     # Compute configuration
@@ -179,14 +176,13 @@ def add_da_parser(subparsers) -> argparse.ArgumentParser:
         help="Number of threads to use for JAX, NumPy, and Dask (default: all available cores)",
     )
 
-    parser.set_defaults(func=run_da)
+    parser.set_defaults(func=run_impute)
 
     return parser
 
 
-def run_da(args):
-    """
-    Run differential abundance analysis.
+def run_impute(args):
+    """Run expression imputation.
 
     Parameters
     ----------
@@ -215,12 +211,10 @@ def run_da(args):
         logger.info(f"Loading configuration from {args.config}")
         config = load_config(args.config)
 
-    # Configure compute resources (must be done AFTER mellon import in compute_differential_abundance)
-    # Extract compute config before other processing
+    # Configure compute resources
     use_gpu = getattr(args, "use_gpu", False)
     n_threads = getattr(args, "threads", None)
 
-    # Log configuration before compute setup
     if use_gpu:
         logger.info("GPU acceleration: ENABLED")
     else:
@@ -256,78 +250,53 @@ def run_da(args):
     # Merge with config (CLI args take precedence)
     params = merge_args_with_config(args_dict, config)
 
-    # Validate required parameters
-    required = ["groupby", "condition1", "condition2"]
-    missing = [p for p in required if p not in params]
-    if missing:
-        logger.error(f"Missing required parameters: {', '.join(missing)}")
-        logger.error("Provide them via CLI arguments or config file")
-        sys.exit(1)
-
-    logger.info("Starting differential abundance analysis")
-    logger.info(f"  Groupby: {params['groupby']}")
-    logger.info(f"  Condition 1: {params['condition1']}")
-    logger.info(f"  Condition 2: {params['condition2']}")
-    logger.info(f"  ObsM key: {params.get('obsm_key', 'X_pca')}")
+    logger.info("Starting expression imputation")
+    if params.get("groupby") and params.get("condition"):
+        logger.info(f"  Groupby: {params['groupby']}")
+        logger.info(f"  Condition: {params['condition']}")
+    else:
+        logger.info("  Using all cells")
+    logger.info(f"  ObsM key: {params.get('obsm_key', 'DM_EigenVectors')}")
+    if params.get("layer"):
+        logger.info(f"  Layer: {params['layer']}")
 
     # Configure computational backend
-    # This must be called AFTER mellon import (which happens in compute_differential_abundance)
-    # So we do a "lazy" import here to trigger mellon import, then configure
     logger.info("")
     logger.info("Configuring computational backend...")
     try:
-        # Import mellon to trigger its JAX configuration
-        # Now configure our settings (will override mellon's CPU-only default if needed)
         configure_compute(use_gpu=use_gpu, n_threads=n_threads)
     except Exception as e:
         logger.warning(f"Could not configure compute backend: {e}")
         logger.warning("Proceeding with default configuration")
     logger.info("")
 
-    # Extract required params
-    groupby = params.pop("groupby")
-    condition1 = params.pop("condition1")
-    condition2 = params.pop("condition2")
+    # Extract top-level params
+    groupby = params.pop("groupby", None)
+    condition = params.pop("condition", None)
     obsm_key = params.pop("obsm_key", "DM_EigenVectors")
+    layer = params.pop("layer", None)
+    genes = params.pop("genes", None)
     sample_col = params.pop("sample_col", None)
 
     # Build Settings from remaining params
     gp_keys = {
-        "n_landmarks",
-        "landmarks",
+        "sigma",
+        "ls",
         "ls_factor",
+        "n_landmarks",
+        "use_empirical_variance",
         "batch_size",
-        "jit_compile",
+        "eps",
         "random_state",
     }
     gp_kwargs = {k: params.pop(k) for k in list(params) if k in gp_keys}
     gp = GPSettings(**gp_kwargs) if gp_kwargs else None
 
-    threshold_kwargs = {}
-    if "log_fold_change_threshold" in params:
-        threshold_kwargs["lfc_threshold"] = params.pop("log_fold_change_threshold")
-    if "ptp_threshold" in params:
-        threshold_kwargs["ptp_threshold"] = params.pop("ptp_threshold")
-    threshold = DAThresholdSettings(**threshold_kwargs) if threshold_kwargs else None
-
-    storage_keys = {
-        "result_key",
-        "overwrite",
-        "store_landmarks",
-        "store_arrays_on_disk",
-        "disk_storage_dir",
-        "max_memory_ratio",
-    }
+    storage_keys = {"result_key", "overwrite"}
     storage_kwargs = {k: params.pop(k) for k in list(params) if k in storage_keys}
     storage = StorageSettings(**storage_kwargs) if storage_kwargs else None
 
-    output_keys = {
-        "copy",
-        "inplace",
-        "return_full_results",
-        "allow_single_condition_variance",
-        "progress",
-    }
+    output_keys = {"progress", "return_full_results"}
     output_kwargs = {k: params.pop(k) for k in list(params) if k in output_keys}
 
     # Handle return_full_results for table output
@@ -337,21 +306,21 @@ def run_da(args):
 
     # Run analysis
     try:
-        result_dict = da(
+        result = impute_expression(
             adata,
             groupby=groupby,
-            condition1=condition1,
-            condition2=condition2,
+            condition=condition,
             obsm_key=obsm_key,
+            layer=layer,
+            genes=genes,
             sample_col=sample_col,
             gp=gp,
-            threshold=threshold,
             storage=storage,
             output=output,
-            **params,  # remaining params forwarded as density_kwargs
+            **params,  # remaining params forwarded as function_kwargs
         )
     except Exception as e:
-        logger.error(f"Analysis failed: {str(e)}")
+        logger.error(f"Imputation failed: {str(e)}")
         raise
 
     # Save AnnData output if specified
@@ -372,11 +341,10 @@ def run_da(args):
     # Save table output if specified
     if args.table_output:
         table_path = Path(args.table_output)
-        logger.info(f"Saving DA results table to {table_path}")
+        logger.info(f"Saving imputation summary to {table_path}")
 
-        output_df = result_dict["table"]
+        output_df = result["table"]
 
-        # Determine separator based on file extension
         if str(table_path).endswith(".tsv"):
             output_df.to_csv(table_path, sep="\t")
         elif str(table_path).endswith(".csv"):
@@ -388,7 +356,7 @@ def run_da(args):
             sys.exit(1)
 
         logger.info(
-            f"Saved {len(output_df.columns)} columns for {len(output_df)} cells"
+            f"Saved {len(output_df.columns)} columns for {len(output_df)} genes"
         )
 
-    logger.info("Differential abundance analysis completed successfully")
+    logger.info("Expression imputation completed successfully")

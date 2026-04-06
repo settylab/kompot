@@ -35,6 +35,11 @@ jit_compile: false             # Use JAX JIT compilation
 # GP kernel parameters:
 ls_factor: 10.0                # Length scale multiplication factor
 
+# Memory management:
+store_arrays_on_disk: null     # Store large arrays on disk (null = auto)
+disk_storage_dir: null         # Directory for disk storage
+max_memory_ratio: 0.8          # Max memory usage ratio
+
 # Output options:
 progress: true                 # Show progress bars (not used in CLI)
 overwrite: null                # Overwrite existing results (null = warn)

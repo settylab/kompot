@@ -1,0 +1,43 @@
+# Configuration template for expression imputation
+# This file shows all available parameters for kompot impute command
+#
+# Usage: kompot impute input.h5ad -o output.h5ad -c impute_config.yaml
+#
+# Condition selection (optional):
+groupby: null                  # Column in adata.obs with condition labels
+condition: null                # Which condition to impute (requires groupby)
+
+# Cell state representation:
+obsm_key: "DM_EigenVectors"   # Key in adata.obsm (e.g., X_pca, DM_EigenVectors)
+
+# Expression data:
+layer: null                    # Layer in adata.layers (null = use adata.X)
+
+# Gene selection:
+genes: null                    # List of gene names to impute (null = all)
+
+# Result storage:
+result_key: "kompot_impute"    # Key for storing results in adata.uns
+
+# Landmark approximation:
+n_landmarks: 5000              # Number of landmarks for Nystrom approximation
+
+# Sample variance (for biological replicates):
+sample_col: null               # Column in adata.obs with sample IDs
+
+# Empirical variance (heteroscedastic noise):
+use_empirical_variance: true   # Estimate per-gene noise from GP residuals
+
+# GP kernel parameters:
+sigma: 1.0                     # Noise level for function estimator
+ls: null                       # Length scale (null = auto-estimate)
+ls_factor: 10.0                # Length scale multiplication factor
+eps: 1.0e-8                    # Numerical stability constant
+
+# Computation parameters:
+batch_size: 500                # Cells per batch during prediction
+random_state: null             # Random seed for landmark selection
+
+# Output options:
+progress: true                 # Show progress bars
+overwrite: null                # Overwrite existing results (null = warn)

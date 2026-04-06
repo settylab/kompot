@@ -38,7 +38,9 @@ All notable changes to this project will be documented in this file.
  - Consistent parameter naming across plot functions: `background_color_key` → `color`, `de_column` → `direction_column`, `embedding_key` → `basis`.
  - `RunInfo` HTML display now shows parameters hierarchically by Settings group (`gp.sigma`, `fdr.threshold`, …) instead of a flat list.
  - `RunComparison` shows individual changed fields (e.g. `gp.ls_factor: 10.0 → 5.0`) instead of opaque dict diffs.
+ - **`kompot impute` CLI command** for single-condition GP smoothing from the command line, matching the full Python API (condition selection, gene subsetting, empirical variance, sample variance).
  - `--no-progress` flag added to the DA CLI; progress bars can now be fully suppressed in both DA and DE.
+ - DA CLI now exposes `--store-arrays-on-disk`, `--disk-storage-dir`, and `--max-memory-ratio`, matching the DE CLI's StorageSettings coverage.
  - FDR is disabled by default when `sample_col` is provided (not yet calibrated for sample variance). Override with `FDRSettings(null_genes=...)`.
  - Remove `statsmodels` dependency.
 
