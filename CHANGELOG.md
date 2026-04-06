@@ -6,9 +6,9 @@ All notable changes to this project will be documented in this file.
 
 ### New simplified API
 
- - **`kompot.de()` and `kompot.da()` replace the old `compute_differential_*` functions.** Related parameters are grouped into Settings dataclasses (`GPSettings`, `FDRSettings`, `FilterSettings`, `StorageSettings`, `OutputSettings`) so the common case stays simple while advanced options remain discoverable. The old functions still work but emit a deprecation warning.
+ - **`kompot.de()`, `kompot.da()`, and `kompot.impute_expression()` now use Settings dataclasses** (`GPSettings`, `FDRSettings`, `FilterSettings`, `StorageSettings`, `OutputSettings`) so the common case stays simple while advanced options remain discoverable. The old `compute_differential_*` and `compute_imputed_expression()` functions still work but emit a deprecation warning.
  - **`dry_run=True`** on `de()` prints a resource plan (memory, disk, field overwrites) without running the analysis. Replaces the standalone `dry_run_differential_expression()`.
- - **`ModelSettings`** lets you inject pre-fitted predictors into `de()` / `da()` to skip fitting or reuse models across runs.
+ - **`ModelSettings`** lets you inject pre-fitted predictors into `de()`, `da()`, and `impute_expression()` to skip fitting or reuse models across runs.
 
 ### New features
 
