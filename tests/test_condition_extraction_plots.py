@@ -104,9 +104,9 @@ def _make_de_adata(condition1, condition2, result_key="custom_de", extra_run=Non
     fn = generate_output_field_names(result_key, condition1, condition2, "de")
     run_info = {
         "result_key": result_key,
-        "imputed_layer_keys": {
-            "condition1": fn["imputed_key_1"],
-            "condition2": fn["imputed_key_2"],
+        "smoothed_layer_keys": {
+            "condition1": fn["smoothed_key_1"],
+            "condition2": fn["smoothed_key_2"],
             "fold_change": fn["fold_change_key"],
         },
         "field_names": fn,
@@ -127,9 +127,9 @@ def _make_de_adata(condition1, condition2, result_key="custom_de", extra_run=Non
         fn_extra = generate_output_field_names(extra_run, condition1, condition2, "de")
         extra_info = {
             "result_key": extra_run,
-            "imputed_layer_keys": {
-                "condition1": fn_extra["imputed_key_1"],
-                "condition2": fn_extra["imputed_key_2"],
+            "smoothed_layer_keys": {
+                "condition1": fn_extra["smoothed_key_1"],
+                "condition2": fn_extra["smoothed_key_2"],
                 "fold_change": fn_extra["fold_change_key"],
             },
             "field_names": fn_extra,

@@ -223,8 +223,8 @@ class TestGenerateOutputFieldNames:
         assert "mahalanobis_key" in field_names
         assert "ptp_key" in field_names
         assert "mean_lfc_key" in field_names
-        assert "imputed_key_1" in field_names
-        assert "imputed_key_2" in field_names
+        assert "smoothed_key_1" in field_names
+        assert "smoothed_key_2" in field_names
         assert "fold_change_key" in field_names
         assert "fold_change_zscores_key" in field_names
         assert "std_key_1" in field_names
@@ -269,7 +269,7 @@ class TestGenerateOutputFieldNames:
 
         # Check fields WITHOUT sample suffix
         assert "_sample" not in field_names["mean_lfc_key"]
-        assert "_sample" not in field_names["imputed_key_1"]
+        assert "_sample" not in field_names["smoothed_key_1"]
         assert "_sample" not in field_names["fold_change_key"]
 
         # With sample variance, std keys should be in layers
@@ -433,18 +433,18 @@ class TestDetectOutputFieldOverwrite:
 
     def test_detect_overwrite_layers_location(self, sample_adata):
         """Test detection for layers location."""
-        sample_adata.layers["imputed_A"] = np.random.randn(50, 30)
+        sample_adata.layers["smoothed_A"] = np.random.randn(50, 30)
 
         will_overwrite, overwritten, prev_run = detect_output_field_overwrite(
             sample_adata,
             analysis_type="de",
-            output_patterns=["imputed_A", "imputed_B"],
+            output_patterns=["smoothed_A", "smoothed_B"],
             overwrite=False,
             location="layers",
         )
 
         assert will_overwrite
-        assert "layers.imputed_A" in overwritten
+        assert "layers.smoothed_A" in overwritten
 
     def test_detect_overwrite_no_field_names_or_patterns(self, sample_adata):
         """Test that missing both field_names and output_patterns raises error."""

@@ -394,12 +394,12 @@ class TestPlotFunctions:
             np.random.randn(self.adata.n_vars)
         )
 
-        # Create layers for imputed expression and fold changes
-        self.adata.layers["de_run2_A_imputed"] = self.adata.X.copy()
-        self.adata.layers["de_run2_B_imputed"] = self.adata.X.copy() + 0.5
+        # Create layers for smoothed expression and fold changes
+        self.adata.layers["de_run2_A_smoothed"] = self.adata.X.copy()
+        self.adata.layers["de_run2_B_smoothed"] = self.adata.X.copy() + 0.5
         self.adata.layers["de_run2_fold_change"] = (
-            self.adata.layers["de_run2_B_imputed"]
-            - self.adata.layers["de_run2_A_imputed"]
+            self.adata.layers["de_run2_B_smoothed"]
+            - self.adata.layers["de_run2_A_smoothed"]
         )
 
         # Add layer keys to run info
@@ -419,8 +419,8 @@ class TestPlotFunctions:
             for run in run_history:
                 if isinstance(run, dict) and run.get("expression_key") == "de_run2":
                     if "field_names" in run:
-                        run["field_names"]["imputed_key_1"] = "de_run2_A_imputed"
-                        run["field_names"]["imputed_key_2"] = "de_run2_B_imputed"
+                        run["field_names"]["smoothed_key_1"] = "de_run2_A_smoothed"
+                        run["field_names"]["smoothed_key_2"] = "de_run2_B_smoothed"
                         run["field_names"]["fold_change_key"] = "de_run2_fold_change"
                     break
 

@@ -618,9 +618,9 @@ class DifferentialExpression:
                 fold_change_subset = fold_change
             # If provided fold_change is not available, compute it directly
             else:
-                condition1_imputed = self.function_predictor1(X)
-                condition2_imputed = self.function_predictor2(X)
-                fold_change_subset = condition2_imputed - condition1_imputed
+                condition1_smoothed = self.function_predictor1(X)
+                condition2_smoothed = self.function_predictor2(X)
+                fold_change_subset = condition2_smoothed - condition1_smoothed
 
             # Points for sample variance computation
             variance_points = X
@@ -903,8 +903,8 @@ class DifferentialExpression:
         -------
         dict
             Dictionary containing the predictions:
-            - 'condition1_imputed': Imputed expression for condition 1
-            - 'condition2_imputed': Imputed expression for condition 2
+            - 'condition1_smoothed': Smoothed expression for condition 1
+            - 'condition2_smoothed': Smoothed expression for condition 2
             - 'condition1_std': Posterior standard deviation for condition 1
             - 'condition2_std': Posterior standard deviation for condition 2
             - 'fold_change': Fold change between conditions
@@ -918,11 +918,11 @@ class DifferentialExpression:
 
         batch_size = getattr(self, "batch_size", None)
 
-        # Imputed expression via ExpressionModel
-        condition1_imputed = self.model1.predict(
+        # Smoothed expression via ExpressionModel
+        condition1_smoothed = self.model1.predict(
             X_new, batch_size=batch_size, progress=progress
         )
-        condition2_imputed = self.model2.predict(
+        condition2_smoothed = self.model2.predict(
             X_new, batch_size=batch_size, progress=progress
         )
 
@@ -937,7 +937,7 @@ class DifferentialExpression:
         condition2_std = np.sqrt(total_var2 + self.eps)
 
         # Fold change
-        fold_change = condition2_imputed - condition1_imputed
+        fold_change = condition2_smoothed - condition1_smoothed
 
         # Combined variance for z-scores
         total_variance = total_var1 + total_var2
@@ -951,8 +951,8 @@ class DifferentialExpression:
         del total_variance
 
         result = {
-            "condition1_imputed": condition1_imputed,
-            "condition2_imputed": condition2_imputed,
+            "condition1_smoothed": condition1_smoothed,
+            "condition2_smoothed": condition2_smoothed,
             "condition1_std": condition1_std,
             "condition2_std": condition2_std,
             "fold_change": fold_change,

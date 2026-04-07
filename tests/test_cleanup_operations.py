@@ -20,8 +20,8 @@ def _make_run_history_entry(
     """Build a minimal run history entry for cleanup/get_field_status tests."""
     if field_mapping is None:
         field_mapping = {
-            f"{result_key}_A_imputed": {"location": "layers", "type": "imputed"},
-            f"{result_key}_B_imputed": {"location": "layers", "type": "imputed"},
+            f"{result_key}_A_smoothed": {"location": "layers", "type": "smoothed"},
+            f"{result_key}_B_smoothed": {"location": "layers", "type": "smoothed"},
             f"{result_key}_A_to_B_fold_change": {
                 "location": "layers",
                 "type": "fold_change",
@@ -75,10 +75,10 @@ def _make_adata_with_run(
 
     if populate_fields:
         # layers
-        adata.layers[f"{result_key}_A_imputed"] = np.random.randn(n_obs, n_vars).astype(
+        adata.layers[f"{result_key}_A_smoothed"] = np.random.randn(n_obs, n_vars).astype(
             np.float32
         )
-        adata.layers[f"{result_key}_B_imputed"] = np.random.randn(n_obs, n_vars).astype(
+        adata.layers[f"{result_key}_B_smoothed"] = np.random.randn(n_obs, n_vars).astype(
             np.float32
         )
         adata.layers[f"{result_key}_A_to_B_fold_change"] = np.random.randn(
@@ -138,25 +138,25 @@ class TestCleanupNoHistory:
 
 
 class TestCleanupImpute:
-    """Cover cleanup line 146: impute analysis_type default keep_layers."""
+    """Cover cleanup line 146: smooth analysis_type default keep_layers."""
 
-    def test_cleanup_impute_keeps_imputed_by_default(self):
-        """For impute, default keep_layers should be ['imputed']."""
+    def test_cleanup_smooth_keeps_smoothed_by_default(self):
+        """For smooth, default keep_layers should be ['smoothed']."""
         from kompot.anndata.cleanup import cleanup
 
-        adata = _make_adata_with_run(analysis_type="impute", result_key="imp")
-        # Rename storage key for impute
-        adata.uns["kompot_impute"] = adata.uns.pop(
-            "kompot_impute", adata.uns.pop("kompot_de", None)
+        adata = _make_adata_with_run(analysis_type="smooth", result_key="imp")
+        # Rename storage key for smooth
+        adata.uns["kompot_smooth"] = adata.uns.pop(
+            "kompot_smooth", adata.uns.pop("kompot_de", None)
         )
 
         # Re-create properly
-        adata = _make_adata_with_run(analysis_type="impute", result_key="imp")
-        # After cleanup, imputed layers should be kept
-        cleanup(adata, analysis_type="impute")
-        # The imputed layers should be kept (keep_layers=['imputed'])
-        assert "imp_A_imputed" in adata.layers
-        assert "imp_B_imputed" in adata.layers
+        adata = _make_adata_with_run(analysis_type="smooth", result_key="imp")
+        # After cleanup, smoothed layers should be kept
+        cleanup(adata, analysis_type="smooth")
+        # The smoothed layers should be kept (keep_layers=['smoothed'])
+        assert "imp_A_smoothed" in adata.layers
+        assert "imp_B_smoothed" in adata.layers
         # fold_change should be deleted
         assert "imp_A_to_B_fold_change" not in adata.layers
 
@@ -189,7 +189,7 @@ class TestCleanupNotInplace:
         result = cleanup(adata, analysis_type="de", inplace=False)
         assert isinstance(result, AnnData)
         # Original should still have its layers
-        assert "res_A_imputed" in adata.layers
+        assert "res_A_smoothed" in adata.layers
 
 
 class TestCleanupFieldMapping:
@@ -205,7 +205,7 @@ class TestCleanupFieldMapping:
         entry["field_mapping"] = json.dumps(entry["field_mapping"])
         cleanup(adata, analysis_type="de")
         # Layers should be removed
-        assert "res_A_imputed" not in adata.layers
+        assert "res_A_smoothed" not in adata.layers
 
     def test_cleanup_empty_field_mapping(self):
         """Cover lines 196-198: empty field_mapping."""
@@ -233,7 +233,7 @@ class TestCleanupRunIds:
 
         adata = _make_adata_with_run()
         cleanup(adata, run_ids=[0], analysis_type="de")
-        assert "res_A_imputed" not in adata.layers
+        assert "res_A_smoothed" not in adata.layers
 
     def test_cleanup_single_run_id(self):
         """Cover line 174: run_ids as int."""
@@ -241,7 +241,7 @@ class TestCleanupRunIds:
 
         adata = _make_adata_with_run()
         cleanup(adata, run_ids=0, analysis_type="de")
-        assert "res_A_imputed" not in adata.layers
+        assert "res_A_smoothed" not in adata.layers
 
 
 class TestCleanupKeepParams:
@@ -253,7 +253,7 @@ class TestCleanupKeepParams:
 
         adata = _make_adata_with_run()
         cleanup(adata, keep_layers=True, analysis_type="de")
-        assert "res_A_imputed" in adata.layers
+        assert "res_A_smoothed" in adata.layers
 
     def test_keep_layers_false(self):
         """Cover keep_param=False: delete all."""
@@ -261,16 +261,16 @@ class TestCleanupKeepParams:
 
         adata = _make_adata_with_run()
         cleanup(adata, keep_layers=False, analysis_type="de")
-        assert "res_A_imputed" not in adata.layers
+        assert "res_A_smoothed" not in adata.layers
 
     def test_keep_layers_list(self):
         """Cover keep_param as list: keep only specified types."""
         from kompot.anndata.cleanup import cleanup
 
         adata = _make_adata_with_run()
-        cleanup(adata, keep_layers=["imputed"], analysis_type="de")
-        # imputed layers kept
-        assert "res_A_imputed" in adata.layers
+        cleanup(adata, keep_layers=["smoothed"], analysis_type="de")
+        # smoothed layers kept
+        assert "res_A_smoothed" in adata.layers
         # fold_change deleted
         assert "res_A_to_B_fold_change" not in adata.layers
 
@@ -310,7 +310,7 @@ class TestCleanupKeepParams:
         """Cover line 309: default return [] for unrecognized keep_param."""
         from kompot.anndata.cleanup import _determine_fields_to_delete
 
-        fields_by_type = {"imputed": ["f1", "f2"]}
+        fields_by_type = {"smoothed": ["f1", "f2"]}
         # Pass an unrecognized type (e.g., an int)
         result = _determine_fields_to_delete(fields_by_type, 42)
         assert result == []
@@ -384,8 +384,8 @@ class TestGetFieldStatus:
         adata = _make_adata_with_run()
         status = get_field_status(adata, run_id=0, analysis_type="de")
         assert "layers" in status
-        assert "imputed" in status["layers"]
-        assert status["layers"]["imputed"]["res_A_imputed"] is True
+        assert "smoothed" in status["layers"]
+        assert status["layers"]["smoothed"]["res_A_smoothed"] is True
 
     def test_get_field_status_missing_fields(self):
         """Cover checking for deleted/missing fields."""
@@ -393,9 +393,9 @@ class TestGetFieldStatus:
 
         adata = _make_adata_with_run()
         # Remove a field
-        del adata.layers["res_A_imputed"]
+        del adata.layers["res_A_smoothed"]
         status = get_field_status(adata, run_id=0, analysis_type="de")
-        assert status["layers"]["imputed"]["res_A_imputed"] is False
+        assert status["layers"]["smoothed"]["res_A_smoothed"] is False
 
     def test_get_field_status_no_run_history(self):
         """Cover lines 391-393: ValueError from RunInfo."""
@@ -487,7 +487,7 @@ class TestCleanupFieldInfoDeserialization:
         for key in list(fm.keys()):
             fm[key] = json.dumps(fm[key])
         cleanup(adata, analysis_type="de")
-        assert "res_A_imputed" not in adata.layers
+        assert "res_A_smoothed" not in adata.layers
 
     def test_cleanup_field_info_not_dict(self):
         """Cover line 214: field_info that is not a dict after deserialization."""

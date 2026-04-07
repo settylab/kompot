@@ -112,13 +112,13 @@ def _make_de_adata(
     adata = AnnData(X=X, obs=obs, var=var)
     adata.obsm["X_umap"] = rng.randn(n_obs, 2).astype(np.float32)
 
-    imputed1 = f"{result_key}_{condition1}_imputed"
-    imputed2 = f"{result_key}_{condition2}_imputed"
+    smoothed1 = f"{result_key}_{condition1}_smoothed"
+    smoothed2 = f"{result_key}_{condition2}_smoothed"
     fc_layer = f"{result_key}_{condition1}_to_{condition2}_fold_change"
 
     if with_layers:
-        adata.layers[imputed1] = rng.randn(n_obs, n_vars).astype(np.float32)
-        adata.layers[imputed2] = rng.randn(n_obs, n_vars).astype(np.float32)
+        adata.layers[smoothed1] = rng.randn(n_obs, n_vars).astype(np.float32)
+        adata.layers[smoothed2] = rng.randn(n_obs, n_vars).astype(np.float32)
         adata.layers[fc_layer] = rng.randn(n_obs, n_vars).astype(np.float32)
 
     if with_run_history:
@@ -134,13 +134,13 @@ def _make_de_adata(
                         "field_names": {
                             "mean_lfc_key": lfc_col,
                             "mahalanobis_key": mahal_col,
-                            "imputed_key_1": imputed1,
-                            "imputed_key_2": imputed2,
+                            "smoothed_key_1": smoothed1,
+                            "smoothed_key_2": smoothed2,
                             "fold_change_key": fc_layer,
                         },
-                        "imputed_layer_keys": {
-                            "condition1": imputed1,
-                            "condition2": imputed2,
+                        "smoothed_layer_keys": {
+                            "condition1": smoothed1,
+                            "condition2": smoothed2,
                             "fold_change": fc_layer,
                         },
                         "adjusted_run_id": 0,

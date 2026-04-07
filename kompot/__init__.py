@@ -58,6 +58,8 @@ from .anndata import (
     da,
     compute_differential_abundance,
     compute_differential_expression,
+    smooth_expression,
+    compute_smoothed_expression,
     impute_expression,
     compute_imputed_expression,
     check_underrepresentation,
@@ -133,7 +135,10 @@ __all__ = [
     "compute_fdr",
     "recompute_fdr",
     "extract_null_distribution",
-    # AnnData functionality (deprecated, use de()/da())
+    # Expression smoothing
+    "smooth_expression",
+    "compute_smoothed_expression",
+    # AnnData functionality (deprecated, use de()/da()/smooth_expression())
     "compute_differential_abundance",
     "compute_differential_expression",
     "impute_expression",

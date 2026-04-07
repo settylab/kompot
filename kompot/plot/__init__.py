@@ -142,14 +142,18 @@ except (ImportError, TypeError) as e:
 
 
 try:
-    from .imputation import plot_imputation
+    from .smoothing import plot_smoothing
+    from .imputation import plot_imputation  # deprecated alias
 
-    __all__.append("plot_imputation")
+    __all__.extend(["plot_smoothing", "plot_imputation"])
 except (ImportError, TypeError) as e:
-    logger.warning(f"Could not import imputation plotting functions due to: {e}")
+    logger.warning(f"Could not import smoothing plotting functions due to: {e}")
+
+    def plot_smoothing(*args, **kwargs):
+        raise ImportError("Smoothing plot unavailable due to missing dependencies.")
 
     def plot_imputation(*args, **kwargs):
-        raise ImportError("Imputation plot unavailable due to missing dependencies.")
+        raise ImportError("Smoothing plot unavailable due to missing dependencies.")
 
 
 # Import StringDB report class

@@ -1,6 +1,6 @@
-"""Tests for kompot/plot/imputation.py targeting uncovered lines.
+"""Tests for kompot/plot/smoothing.py targeting uncovered lines.
 
-Covers plot_imputation rendering with and without scanpy, std/obs_variance
+Covers plot_smoothing rendering with and without scanpy, std/obs_variance
 layers, auto gene selection, missing basis/layers, save paths, and
 internal helpers (_detect_condition_label, _get_raw, _scatter_fallback).
 """
@@ -27,11 +27,11 @@ def _close_figures():
     plt.close("all")
 
 
-class TestPlotImputation:
-    """Tests for plot_imputation targeting uncovered lines."""
+class TestPlotSmoothing:
+    """Tests for plot_smoothing targeting uncovered lines."""
 
-    def _make_imputation_adata(self, with_std=True, with_obs_var=True):
-        """Build AnnData with imputation layers."""
+    def _make_smoothing_adata(self, with_std=True, with_obs_var=True):
+        """Build AnnData with smoothing layers."""
         rng = np.random.RandomState(42)
         n_obs, n_vars = 50, 8
         X = rng.randn(n_obs, n_vars).astype(np.float32)
@@ -41,8 +41,8 @@ class TestPlotImputation:
         adata.obsm["X_umap"] = rng.randn(n_obs, 2).astype(np.float32)
 
         cond = "treated"
-        prefix = "kompot_impute"
-        adata.layers[f"{prefix}_{cond}_imputed"] = rng.randn(n_obs, n_vars).astype(
+        prefix = "kompot_smooth"
+        adata.layers[f"{prefix}_{cond}_smoothed"] = rng.randn(n_obs, n_vars).astype(
             np.float32
         )
         if with_std:
@@ -55,27 +55,27 @@ class TestPlotImputation:
             ).astype(np.float32)
         return adata
 
-    def test_plot_imputation_basic(self):
-        """Lines 218-226, 242-249, 268-275, 293-300: basic imputation plot with scanpy."""
-        from kompot.plot.imputation import plot_imputation
+    def test_plot_smoothing_basic(self):
+        """Lines 218-226, 242-249, 268-275, 293-300: basic smoothing plot with scanpy."""
+        from kompot.plot.smoothing import plot_smoothing
 
-        adata = self._make_imputation_adata()
-        fig = plot_imputation(
+        adata = self._make_smoothing_adata()
+        fig = plot_smoothing(
             adata,
             genes=["gene_0", "gene_1"],
             return_fig=True,
         )
         assert fig is not None
 
-    def test_plot_imputation_no_scanpy(self):
+    def test_plot_smoothing_no_scanpy(self):
         """Lines 218-226, 242-249, 268-275, 293-300: fallback without scanpy."""
-        from kompot.plot import imputation as imp_mod
+        from kompot.plot import smoothing as imp_mod
 
         old = imp_mod._has_scanpy
         try:
             imp_mod._has_scanpy = False
-            adata = self._make_imputation_adata()
-            fig = imp_mod.plot_imputation(
+            adata = self._make_smoothing_adata()
+            fig = imp_mod.plot_smoothing(
                 adata,
                 genes=["gene_0", "gene_1"],
                 return_fig=True,
@@ -84,78 +84,78 @@ class TestPlotImputation:
         finally:
             imp_mod._has_scanpy = old
 
-    def test_plot_imputation_no_std(self):
+    def test_plot_smoothing_no_std(self):
         """Lines 329, 332: no std layer."""
-        from kompot.plot.imputation import plot_imputation
+        from kompot.plot.smoothing import plot_smoothing
 
-        adata = self._make_imputation_adata(with_std=False, with_obs_var=False)
-        fig = plot_imputation(adata, genes=["gene_0"], return_fig=True)
+        adata = self._make_smoothing_adata(with_std=False, with_obs_var=False)
+        fig = plot_smoothing(adata, genes=["gene_0"], return_fig=True)
         assert fig is not None
 
-    def test_plot_imputation_auto_genes(self):
+    def test_plot_smoothing_auto_genes(self):
         """Lines 337-343: auto gene selection."""
-        from kompot.plot.imputation import plot_imputation
+        from kompot.plot.smoothing import plot_smoothing
 
-        adata = self._make_imputation_adata()
-        fig = plot_imputation(adata, genes=None, n_top_genes=3, return_fig=True)
+        adata = self._make_smoothing_adata()
+        fig = plot_smoothing(adata, genes=None, n_top_genes=3, return_fig=True)
         assert fig is not None
 
-    def test_plot_imputation_missing_basis(self):
+    def test_plot_smoothing_missing_basis(self):
         """Lines 97: missing basis raises ValueError."""
-        from kompot.plot.imputation import plot_imputation
+        from kompot.plot.smoothing import plot_smoothing
 
-        adata = self._make_imputation_adata()
+        adata = self._make_smoothing_adata()
         with pytest.raises(ValueError, match="not found"):
-            plot_imputation(adata, basis="X_nonexistent")
+            plot_smoothing(adata, basis="X_nonexistent")
 
-    def test_plot_imputation_missing_layers(self):
-        """Line 110: missing imputation layers raises ValueError."""
-        from kompot.plot.imputation import plot_imputation
+    def test_plot_smoothing_missing_layers(self):
+        """Line 110: missing smoothing layers raises ValueError."""
+        from kompot.plot.smoothing import plot_smoothing
 
-        adata = self._make_imputation_adata()
-        with pytest.raises(ValueError, match="No imputation layers"):
-            plot_imputation(adata, result_key="nonexistent_key")
+        adata = self._make_smoothing_adata()
+        with pytest.raises(ValueError, match="No smoothing layers"):
+            plot_smoothing(adata, result_key="nonexistent_key")
 
-    def test_plot_imputation_custom_title(self):
+    def test_plot_smoothing_custom_title(self):
         """Line 329: custom title."""
-        from kompot.plot.imputation import plot_imputation
+        from kompot.plot.smoothing import plot_smoothing
 
-        adata = self._make_imputation_adata()
-        fig = plot_imputation(
+        adata = self._make_smoothing_adata()
+        fig = plot_smoothing(
             adata, genes=["gene_0"], title="Custom Title", return_fig=True
         )
         assert fig is not None
 
-    def test_plot_imputation_save(self, tmp_path):
+    def test_plot_smoothing_save(self, tmp_path):
         """Lines 349-358: save and return."""
-        from kompot.plot.imputation import plot_imputation
+        from kompot.plot.smoothing import plot_smoothing
 
-        adata = self._make_imputation_adata()
-        path = str(tmp_path / "imputation.png")
-        fig = plot_imputation(adata, genes=["gene_0"], save=path, return_fig=True)
+        adata = self._make_smoothing_adata()
+        path = str(tmp_path / "smoothing.png")
+        fig = plot_smoothing(adata, genes=["gene_0"], save=path, return_fig=True)
         assert fig is not None
         assert os.path.exists(path)
 
     def test_scanpy_import_false(self):
         """Lines 20-21: scanpy import failure flag."""
-        from kompot.plot import imputation as imp_mod
+        from kompot.plot import smoothing as imp_mod
 
         # Just verify the flag exists
         assert hasattr(imp_mod, "_has_scanpy")
 
-    def test_plot_imputation_no_obs_variance(self):
+    def test_plot_smoothing_no_obs_variance(self):
         """Lines 122-124: has_std but no obs_variance."""
-        from kompot.plot.imputation import plot_imputation
+        from kompot.plot.smoothing import plot_smoothing
 
-        adata = self._make_imputation_adata(with_obs_var=False)
-        fig = plot_imputation(adata, genes=["gene_0"], return_fig=True)
+        adata = self._make_smoothing_adata(with_obs_var=False)
+        fig = plot_smoothing(adata, genes=["gene_0"], return_fig=True)
         assert fig is not None
 
 
-class TestImputationDeep:
-    """Deeper coverage for imputation.py."""
+class TestSmoothingDeep:
+    """Deeper coverage for smoothing.py."""
 
-    def _make_imputation_adata(self, with_std=True, with_obs_var=True):
+    def _make_smoothing_adata(self, with_std=True, with_obs_var=True):
         rng = np.random.RandomState(42)
         n_obs, n_vars = 50, 8
         X = rng.randn(n_obs, n_vars).astype(np.float32)
@@ -164,8 +164,8 @@ class TestImputationDeep:
         adata.obs_names = [f"cell_{i}" for i in range(n_obs)]
         adata.obsm["X_umap"] = rng.randn(n_obs, 2).astype(np.float32)
         cond = "treated"
-        prefix = "kompot_impute"
-        adata.layers[f"{prefix}_{cond}_imputed"] = rng.randn(n_obs, n_vars).astype(
+        prefix = "kompot_smooth"
+        adata.layers[f"{prefix}_{cond}_smoothed"] = rng.randn(n_obs, n_vars).astype(
             np.float32
         )
         if with_std:
@@ -180,15 +180,15 @@ class TestImputationDeep:
 
     def test_detect_condition_label_error(self):
         """Lines 361-371: _detect_condition_label raises when no matching layers."""
-        from kompot.plot.imputation import _detect_condition_label
+        from kompot.plot.smoothing import _detect_condition_label
 
         adata = AnnData(np.random.randn(5, 3))
-        with pytest.raises(ValueError, match="No imputation layers"):
-            _detect_condition_label(adata, "kompot_impute")
+        with pytest.raises(ValueError, match="No smoothing layers"):
+            _detect_condition_label(adata, "kompot_smooth")
 
     def test_get_raw_sparse(self):
         """Lines 335-343: _get_raw with sparse matrix."""
-        from kompot.plot.imputation import _get_raw
+        from kompot.plot.smoothing import _get_raw
         from scipy.sparse import csr_matrix
 
         adata = AnnData(csr_matrix(np.random.randn(10, 5)))
@@ -198,7 +198,7 @@ class TestImputationDeep:
 
     def test_scatter_fallback(self):
         """Lines 346-358: _scatter_fallback."""
-        from kompot.plot.imputation import _scatter_fallback
+        from kompot.plot.smoothing import _scatter_fallback
 
         fig, ax = plt.subplots()
         xy = np.random.randn(20, 2)
@@ -208,9 +208,9 @@ class TestImputationDeep:
 
     def test_embedding_dim_too_small(self):
         """Line 97: embedding has < 2 dimensions."""
-        from kompot.plot.imputation import plot_imputation
+        from kompot.plot.smoothing import plot_smoothing
 
-        adata = self._make_imputation_adata()
+        adata = self._make_smoothing_adata()
         adata.obsm["X_1d"] = np.random.randn(adata.n_obs, 1)
         with pytest.raises(ValueError, match="2 dimensions"):
-            plot_imputation(adata, basis="X_1d")
+            plot_smoothing(adata, basis="X_1d")

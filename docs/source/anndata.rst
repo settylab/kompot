@@ -62,7 +62,7 @@ The dry run output shows:
 
 - **System Resources**: Available memory and disk space
 - **Total Requirements**: Memory and disk needed with percentage of available
-- **Memory Allocations**: Detailed breakdown of each array (precision matrices, imputed expression, covariances)
+- **Memory Allocations**: Detailed breakdown of each array (precision matrices, smoothed expression, covariances)
 - **Output Fields**: All fields that will be created, with ``[OVERWRITES run_id=X]`` markers for existing fields
 - **Warnings**: Field overwrite information showing previous run timestamp, conditions, and parameters
 - **Status**: Whether the analysis is feasible given available resources

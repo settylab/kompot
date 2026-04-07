@@ -1,4 +1,4 @@
-"""Tests for the impute CLI command."""
+"""Tests for the smooth CLI command."""
 
 import subprocess
 import sys
@@ -37,9 +37,9 @@ def temp_dir():
     shutil.rmtree(tmpdir)
 
 
-class TestCLIImpute:
-    def test_impute_basic(self, sample_adata, temp_dir):
-        """Test basic impute with h5ad output."""
+class TestCLISmooth:
+    def test_smooth_basic(self, sample_adata, temp_dir):
+        """Test basic smooth with h5ad output."""
         input_file = Path(temp_dir) / "input.h5ad"
         output_file = Path(temp_dir) / "output.h5ad"
         sample_adata.write_h5ad(input_file)
@@ -48,7 +48,7 @@ class TestCLIImpute:
             sys.executable,
             "-m",
             "kompot.cli",
-            "impute",
+            "smooth",
             str(input_file),
             "-o",
             str(output_file),
@@ -68,11 +68,11 @@ class TestCLIImpute:
         import anndata as ad
 
         adata_out = ad.read_h5ad(output_file)
-        assert "kompot_impute_all_imputed" in adata_out.layers
-        assert "kompot_impute_all_std" in adata_out.layers
+        assert "kompot_smooth_all_smoothed" in adata_out.layers
+        assert "kompot_smooth_all_std" in adata_out.layers
 
-    def test_impute_with_condition(self, sample_adata, temp_dir):
-        """Test impute with condition selection."""
+    def test_smooth_with_condition(self, sample_adata, temp_dir):
+        """Test smooth with condition selection."""
         input_file = Path(temp_dir) / "input.h5ad"
         output_file = Path(temp_dir) / "output.h5ad"
         sample_adata.write_h5ad(input_file)
@@ -81,7 +81,7 @@ class TestCLIImpute:
             sys.executable,
             "-m",
             "kompot.cli",
-            "impute",
+            "smooth",
             str(input_file),
             "-o",
             str(output_file),
@@ -102,10 +102,10 @@ class TestCLIImpute:
         import anndata as ad
 
         adata_out = ad.read_h5ad(output_file)
-        assert "kompot_impute_A_imputed" in adata_out.layers
+        assert "kompot_smooth_A_smoothed" in adata_out.layers
 
-    def test_impute_table_output(self, sample_adata, temp_dir):
-        """Test impute with table output."""
+    def test_smooth_table_output(self, sample_adata, temp_dir):
+        """Test smooth with table output."""
         input_file = Path(temp_dir) / "input.h5ad"
         table_file = Path(temp_dir) / "results.csv"
         sample_adata.write_h5ad(input_file)
@@ -114,7 +114,7 @@ class TestCLIImpute:
             sys.executable,
             "-m",
             "kompot.cli",
-            "impute",
+            "smooth",
             str(input_file),
             "-t",
             str(table_file),
@@ -130,12 +130,12 @@ class TestCLIImpute:
         assert table_file.exists()
 
         df = pd.read_csv(table_file, index_col=0)
-        assert "mean_imputed" in df.columns
+        assert "mean_smoothed" in df.columns
         assert "mean_std" in df.columns
         assert len(df) == sample_adata.n_vars
 
-    def test_impute_with_config(self, sample_adata, temp_dir):
-        """Test impute with YAML config file."""
+    def test_smooth_with_config(self, sample_adata, temp_dir):
+        """Test smooth with YAML config file."""
         input_file = Path(temp_dir) / "input.h5ad"
         output_file = Path(temp_dir) / "output.h5ad"
         config_file = Path(temp_dir) / "config.yaml"
@@ -154,7 +154,7 @@ class TestCLIImpute:
             sys.executable,
             "-m",
             "kompot.cli",
-            "impute",
+            "smooth",
             str(input_file),
             "-o",
             str(output_file),
@@ -166,7 +166,7 @@ class TestCLIImpute:
         assert result.returncode == 0, f"CLI failed: {result.stderr}"
         assert output_file.exists()
 
-    def test_impute_no_output_fails(self, sample_adata, temp_dir):
+    def test_smooth_no_output_fails(self, sample_adata, temp_dir):
         """Test that missing output args fails."""
         input_file = Path(temp_dir) / "input.h5ad"
         sample_adata.write_h5ad(input_file)
@@ -175,7 +175,7 @@ class TestCLIImpute:
             sys.executable,
             "-m",
             "kompot.cli",
-            "impute",
+            "smooth",
             str(input_file),
             "--obsm-key",
             "X_pca",
@@ -184,8 +184,8 @@ class TestCLIImpute:
         result = subprocess.run(cmd, capture_output=True, text=True)
         assert result.returncode != 0
 
-    def test_impute_with_empirical_variance(self, sample_adata, temp_dir):
-        """Test impute with --use-empirical-variance flag."""
+    def test_smooth_with_empirical_variance(self, sample_adata, temp_dir):
+        """Test smooth with --use-empirical-variance flag."""
         input_file = Path(temp_dir) / "input.h5ad"
         output_file = Path(temp_dir) / "output.h5ad"
         sample_adata.write_h5ad(input_file)
@@ -194,7 +194,7 @@ class TestCLIImpute:
             sys.executable,
             "-m",
             "kompot.cli",
-            "impute",
+            "smooth",
             str(input_file),
             "-o",
             str(output_file),
@@ -212,10 +212,10 @@ class TestCLIImpute:
         import anndata as ad
 
         adata_out = ad.read_h5ad(output_file)
-        assert "kompot_impute_all_obs_variance" in adata_out.layers
+        assert "kompot_smooth_all_obs_variance" in adata_out.layers
 
-    def test_impute_gene_subset(self, sample_adata, temp_dir):
-        """Test impute with gene subsetting."""
+    def test_smooth_gene_subset(self, sample_adata, temp_dir):
+        """Test smooth with gene subsetting."""
         input_file = Path(temp_dir) / "input.h5ad"
         output_file = Path(temp_dir) / "output.h5ad"
         sample_adata.write_h5ad(input_file)
@@ -224,7 +224,7 @@ class TestCLIImpute:
             sys.executable,
             "-m",
             "kompot.cli",
-            "impute",
+            "smooth",
             str(input_file),
             "-o",
             str(output_file),
@@ -244,7 +244,7 @@ class TestCLIImpute:
         import anndata as ad
 
         adata_out = ad.read_h5ad(output_file)
-        imputed = adata_out.layers["kompot_impute_all_imputed"]
+        smoothed = adata_out.layers["kompot_smooth_all_smoothed"]
         # Gene_0 and Gene_1 should have values, others NaN
-        assert not np.all(np.isnan(imputed[:, 0]))
-        assert np.all(np.isnan(imputed[:, 2]))
+        assert not np.all(np.isnan(smoothed[:, 0]))
+        assert np.all(np.isnan(smoothed[:, 2]))

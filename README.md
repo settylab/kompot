@@ -17,7 +17,7 @@ Kompot implements methodologies from the Mellon package for computing differenti
 Key features:
 
 - Computation of differential abundance between conditions
-- Gene expression imputation and uncertainty estimation
+- Gene expression smoothing and uncertainty estimation
 - Mahalanobis distance calculation for differential expression significance
 - JAX-accelerated computations with optional GPU support
 - Disk-backed covariance storage for sample variance estimation

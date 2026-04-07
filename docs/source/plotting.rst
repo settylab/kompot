@@ -25,10 +25,10 @@ Direction Plots
 
 .. autofunction:: kompot.plot.direction_barplot
 
-Imputation Plots
------------------
+Smoothing Plots
+----------------
 
-.. autofunction:: kompot.plot.plot_imputation
+.. autofunction:: kompot.plot.plot_smoothing
 
 Embedding Plots
 ---------------

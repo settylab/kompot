@@ -329,8 +329,8 @@ class TestDifferentialExpressionEmpiricalVariance:
         de.fit(X1, y1, X2, y2, ls_factor=10.0)
         res = de.predict(X1, compute_mahalanobis=True, progress=False)
 
-        assert res["condition1_imputed"].shape == (n_cells, n_genes)
-        assert res["condition2_imputed"].shape == (n_cells, n_genes)
+        assert res["condition1_smoothed"].shape == (n_cells, n_genes)
+        assert res["condition2_smoothed"].shape == (n_cells, n_genes)
         assert res["condition1_std"].shape == (n_cells, n_genes)
         assert res["condition2_std"].shape == (n_cells, n_genes)
         assert res["fold_change"].shape == (n_cells, n_genes)

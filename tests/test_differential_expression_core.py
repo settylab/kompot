@@ -341,8 +341,8 @@ class TestDifferentialExpressionPredict:
 
                     results = de.predict(X_test, compute_mahalanobis=True)
 
-                    assert "condition1_imputed" in results
-                    assert "condition2_imputed" in results
+                    assert "condition1_smoothed" in results
+                    assert "condition2_smoothed" in results
                     assert "condition1_std" in results
                     assert "condition2_std" in results
                     assert "fold_change" in results
@@ -662,11 +662,11 @@ class TestDifferentialExpressionBatching:
 
                     # Check basic results
                     assert results["fold_change"].shape == (5, 3)  # 5 cells, 3 genes
-                    assert results["condition1_imputed"].shape == (
+                    assert results["condition1_smoothed"].shape == (
                         5,
                         3,
                     )  # 5 cells, 3 genes
-                    assert results["condition2_imputed"].shape == (
+                    assert results["condition2_smoothed"].shape == (
                         5,
                         3,
                     )  # 5 cells, 3 genes

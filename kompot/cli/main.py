@@ -59,7 +59,7 @@ def main():
     from .de import add_de_parser
     from .da import add_da_parser
     from .dm import add_dm_parser
-    from .impute import add_impute_parser
+    from .smooth import add_smooth_parser
 
     parser = argparse.ArgumentParser(
         prog="kompot",
@@ -90,7 +90,7 @@ def main():
     add_dm_parser(subparsers)
     add_de_parser(subparsers)
     add_da_parser(subparsers)
-    add_impute_parser(subparsers)
+    add_smooth_parser(subparsers)
 
     # Parse arguments
     args = parser.parse_args()

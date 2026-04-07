@@ -107,7 +107,7 @@ def plot_gene_expression(
     """
     Visualize expression patterns for a specific gene across conditions.
 
-    Creates a figure with multiple panels showing original expression, imputed expression
+    Creates a figure with multiple panels showing original expression, smoothed expression
     for each condition, and fold change.
 
     Parameters
@@ -270,7 +270,7 @@ def plot_gene_expression(
         logger.warning("Falling back to standard coordinates.")
         basis = None
 
-    # Determine condition-specific imputed expression layer names from run_info.
+    # Determine condition-specific smoothed expression layer names from run_info.
     # We never silently fall back to pattern-matching layer names, as that could
     # pick layers from a different run with a different result_key prefix.
     condition1_layer = None
@@ -285,35 +285,39 @@ def plot_gene_expression(
         # Determine if the user swapped conditions relative to the run
         swapped = param_condition1 == condition2 and param_condition2 == condition1
 
-        # Primary source: imputed_layer_keys (stores the full layer names directly)
-        if "imputed_layer_keys" in run_info:
-            imputed_keys = run_info["imputed_layer_keys"]
-
+        # Primary source: smoothed_layer_keys (or legacy imputed_layer_keys)
+        layer_keys = run_info.get(
+            "smoothed_layer_keys", run_info.get("imputed_layer_keys")
+        )
+        if layer_keys:
             if swapped:
-                condition1_layer = imputed_keys.get("condition2")
-                condition2_layer = imputed_keys.get("condition1")
+                condition1_layer = layer_keys.get("condition2")
+                condition2_layer = layer_keys.get("condition1")
             else:
-                condition1_layer = imputed_keys.get("condition1")
-                condition2_layer = imputed_keys.get("condition2")
-            fold_change_layer = imputed_keys.get("fold_change")
+                condition1_layer = layer_keys.get("condition1")
+                condition2_layer = layer_keys.get("condition2")
+            fold_change_layer = layer_keys.get("fold_change")
 
         # Fallback source: field_names dict
         elif "field_names" in run_info:
             fn = run_info["field_names"]
-            if "imputed_key_1" in fn and "imputed_key_2" in fn:
+            # Support both new (smoothed_key_*) and legacy (imputed_key_*)
+            key1 = fn.get("smoothed_key_1", fn.get("imputed_key_1"))
+            key2 = fn.get("smoothed_key_2", fn.get("imputed_key_2"))
+            if key1 and key2:
                 if swapped:
-                    condition1_layer = fn["imputed_key_2"]
-                    condition2_layer = fn["imputed_key_1"]
+                    condition1_layer = key2
+                    condition2_layer = key1
                 else:
-                    condition1_layer = fn["imputed_key_1"]
-                    condition2_layer = fn["imputed_key_2"]
+                    condition1_layer = key1
+                    condition2_layer = key2
             fold_change_layer = fn.get("fold_change_key")
 
         # Log what we resolved
         if condition1_layer:
-            logger.info(f"Using imputed layer '{condition1_layer}' for '{condition1}'")
+            logger.info(f"Using smoothed layer '{condition1_layer}' for '{condition1}'")
         if condition2_layer:
-            logger.info(f"Using imputed layer '{condition2_layer}' for '{condition2}'")
+            logger.info(f"Using smoothed layer '{condition2_layer}' for '{condition2}'")
         if fold_change_layer:
             logger.info(f"Using fold_change layer '{fold_change_layer}' from run_info")
 
@@ -325,9 +329,9 @@ def plot_gene_expression(
     ):
         missing = []
         if condition1_layer is None:
-            missing.append(f"condition1 ('{condition1}') imputed layer")
+            missing.append(f"condition1 ('{condition1}') smoothed layer")
         if condition2_layer is None:
-            missing.append(f"condition2 ('{condition2}') imputed layer")
+            missing.append(f"condition2 ('{condition2}') smoothed layer")
         if fold_change_layer is None:
             missing.append("fold_change layer")
         logger.warning(
@@ -412,7 +416,7 @@ def plot_gene_expression(
         axs[0, 0].spines["top"].set_visible(False)
         axs[0, 0].spines["right"].set_visible(False)
 
-    # Panel 2: Condition 1 imputed expression
+    # Panel 2: Condition 1 smoothed expression
     if condition1_layer and condition1_layer in adata.layers:
         if basis and _has_scanpy:
             sc.pl.embedding(
@@ -490,7 +494,7 @@ def plot_gene_expression(
         )
         axs[0, 1].set_axis_off()
 
-    # Panel 3: Condition 2 imputed expression
+    # Panel 3: Condition 2 smoothed expression
     if condition2_layer and condition2_layer in adata.layers:
         if basis and _has_scanpy:
             sc.pl.embedding(

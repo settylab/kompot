@@ -453,8 +453,8 @@ def test_differential_expression_with_sample_variance_disk_backed():
 
             # Check if shapes match
             for key in [
-                "condition1_imputed",
-                "condition2_imputed",
+                "condition1_smoothed",
+                "condition2_smoothed",
                 "fold_change",
                 "mahalanobis_distances",
             ]:
@@ -463,19 +463,19 @@ def test_differential_expression_with_sample_variance_disk_backed():
             # Imputed values should be identical - these don't depend on disk storage
             # but verify that the basic functionality is working
             np.testing.assert_allclose(
-                memory_results["condition1_imputed"],
-                disk_results["condition1_imputed"],
+                memory_results["condition1_smoothed"],
+                disk_results["condition1_smoothed"],
                 rtol=1e-5,
                 atol=1e-8,
-                err_msg="Imputed condition1 values should be identical with and without disk storage",
+                err_msg="Smoothed condition1 values should be identical with and without disk storage",
             )
 
             np.testing.assert_allclose(
-                memory_results["condition2_imputed"],
-                disk_results["condition2_imputed"],
+                memory_results["condition2_smoothed"],
+                disk_results["condition2_smoothed"],
                 rtol=1e-5,
                 atol=1e-8,
-                err_msg="Imputed condition2 values should be identical with and without disk storage",
+                err_msg="Smoothed condition2 values should be identical with and without disk storage",
             )
 
             # Fold changes should be identical

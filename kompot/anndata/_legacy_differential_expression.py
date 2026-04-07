@@ -332,8 +332,8 @@ def compute_differential_expression(
     - adata.var[f"{result_key}_mean_lfc"]: Mean log fold change for each gene
     - adata.var[f"{result_key}_mahalanobis_local_fdr"]: Local FDR values using empirical null estimation similar to R's fdrtool (if null_genes is not None)
     - adata.var[f"{result_key}_is_de"]: Boolean indicator of differential expression at specified local FDR threshold (if null_genes is not None)
-    - adata.layers[f"{result_key}_condition1_imputed"]: Imputed expression for condition 1
-    - adata.layers[f"{result_key}_condition2_imputed"]: Imputed expression for condition 2
+    - adata.layers[f"{result_key}_condition1_smoothed"]: Imputed expression for condition 1
+    - adata.layers[f"{result_key}_condition2_smoothed"]: Imputed expression for condition 2
     - adata.layers[f"{result_key}_fold_change"]: Log fold change for each cell and gene
 
     **Stored only when store_additional_stats=True:**
@@ -347,7 +347,7 @@ def compute_differential_expression(
       the posterior covariance matrix. Shape (n_cells, n_cells).
     - adata.uns[result_key]: Dictionary with additional information and parameters
 
-    Posterior standard deviations of imputed expression values are stored in:
+    Posterior standard deviations of smoothed expression values are stored in:
     - If sample_col is not None (with sample variance):
       - adata.layers[f"{result_key}_{condition1}_std"]: Cell-wise standard deviation for condition 1 (sparse matrix)
       - adata.layers[f"{result_key}_{condition2}_std"]: Cell-wise standard deviation for condition 2 (sparse matrix)
@@ -495,7 +495,7 @@ def compute_differential_expression(
                         message += (
                             f" Fields that will be overwritten: {field_list}. "
                             f"Note: Only fields NOT affected by sample variance (like mean_log_fold_change, "
-                            f"imputed data, fold_change) will be overwritten since they "
+                            f"smoothed data, fold_change) will be overwritten since they "
                             f"don't use the sample variance suffix. These results will likely be identical "
                             f"if other parameters haven't changed."
                         )
@@ -503,7 +503,7 @@ def compute_differential_expression(
                         message += (
                             f" Fields that will be overwritten: {field_list}. "
                             f"Note: Only fields NOT affected by sample variance (like mean_log_fold_change, "
-                            f"imputed data, fold_change) will be overwritten since they "
+                            f"smoothed data, fold_change) will be overwritten since they "
                             f"don't use the sample variance suffix."
                         )
                     else:
@@ -1063,8 +1063,8 @@ def compute_differential_expression(
             # Remove null genes from all result arrays
             for key in [
                 "mean_log_fold_change",
-                "condition1_imputed",
-                "condition2_imputed",
+                "condition1_smoothed",
+                "condition2_smoothed",
                 "fold_change",
                 "fold_change_zscores",
                 "condition1_std",
@@ -1072,8 +1072,8 @@ def compute_differential_expression(
             ]:
                 if key in expression_results:
                     if key in [
-                        "condition1_imputed",
-                        "condition2_imputed",
+                        "condition1_smoothed",
+                        "condition2_smoothed",
                         "fold_change",
                         "fold_change_zscores",
                         "condition1_std",
@@ -1449,26 +1449,26 @@ def compute_differential_expression(
 
         # Process the data to match the shape of the full gene set
         if n_selected_genes < len(adata.var_names):
-            # We need to expand the imputed data to the full gene set
+            # We need to expand the smoothed data to the full gene set
             # Use the standardized field names
             # Create descriptive layer names - these are NOT affected by sample variance
-            imputed1_key = field_names["imputed_key_1"]
-            imputed2_key = field_names["imputed_key_2"]
+            smoothed1_key = field_names["smoothed_key_1"]
+            smoothed2_key = field_names["smoothed_key_2"]
             fold_change_key = field_names["fold_change_key"]
 
             # Initialize layers only if they don't already exist
-            if imputed1_key not in adata.layers:
+            if smoothed1_key not in adata.layers:
                 # Only use sparse if working with a subset of genes
                 if len(selected_genes) < len(adata.var_names):
-                    adata.layers[imputed1_key] = sparse.csr_matrix(adata.shape)
+                    adata.layers[smoothed1_key] = sparse.csr_matrix(adata.shape)
                 else:
-                    adata.layers[imputed1_key] = np.zeros(adata.shape)
-            if imputed2_key not in adata.layers:
+                    adata.layers[smoothed1_key] = np.zeros(adata.shape)
+            if smoothed2_key not in adata.layers:
                 # Only use sparse if working with a subset of genes
                 if len(selected_genes) < len(adata.var_names):
-                    adata.layers[imputed2_key] = sparse.csr_matrix(adata.shape)
+                    adata.layers[smoothed2_key] = sparse.csr_matrix(adata.shape)
                 else:
-                    adata.layers[imputed2_key] = np.zeros(adata.shape)
+                    adata.layers[smoothed2_key] = np.zeros(adata.shape)
             if fold_change_key not in adata.layers:
                 # Only use sparse if working with a subset of genes
                 if len(selected_genes) < len(adata.var_names):
@@ -1491,8 +1491,8 @@ def compute_differential_expression(
                     )
 
             # Convert JAX arrays to NumPy arrays if needed
-            condition1_imputed = np.array(expression_results["condition1_imputed"])
-            condition2_imputed = np.array(expression_results["condition2_imputed"])
+            condition1_smoothed = np.array(expression_results["condition1_smoothed"])
+            condition2_smoothed = np.array(expression_results["condition2_smoothed"])
             fold_change = np.array(expression_results["fold_change"])
             fold_change_zscores = np.array(expression_results["fold_change_zscores"])
             condition1_std = np.array(expression_results["condition1_std"])
@@ -1536,8 +1536,8 @@ def compute_differential_expression(
                 # This prevents the "Changing the sparsity structure of a csr_matrix is expensive" warning
                 # and significantly improves performance when writing column-by-column
                 layers_to_convert = [
-                    imputed1_key,
-                    imputed2_key,
+                    smoothed1_key,
+                    smoothed2_key,
                     fold_change_key,
                     field_names["std_key_1"],
                     field_names["std_key_2"],
@@ -1572,8 +1572,8 @@ def compute_differential_expression(
                 # Use vectorized operations for bulk assignment where possible
                 # For LIL matrices, per-gene assignment is efficient and won't trigger warnings
                 for i, gene_idx in enumerate(gene_indices):
-                    lil_layers[imputed1_key][:, gene_idx] = condition1_imputed[:, i]
-                    lil_layers[imputed2_key][:, gene_idx] = condition2_imputed[:, i]
+                    lil_layers[smoothed1_key][:, gene_idx] = condition1_smoothed[:, i]
+                    lil_layers[smoothed2_key][:, gene_idx] = condition2_smoothed[:, i]
                     lil_layers[fold_change_key][:, gene_idx] = fold_change[:, i]
                     lil_layers[field_names["std_key_1"]][:, gene_idx] = condition1_std[
                         :, i
@@ -1607,7 +1607,7 @@ def compute_differential_expression(
                 ]
 
                 # Convert CSR matrices to LIL format for efficient column-wise assignment
-                layers_to_convert_novar = [imputed1_key, imputed2_key, fold_change_key]
+                layers_to_convert_novar = [smoothed1_key, smoothed2_key, fold_change_key]
                 if store_additional_stats:
                     layers_to_convert_novar.append(
                         field_names["fold_change_zscores_key"]
@@ -1642,13 +1642,13 @@ def compute_differential_expression(
                         )
                     )
 
-                # Map imputed values to the correct positions
+                # Map smoothed values to the correct positions
                 for i, gene in enumerate(selected_genes):
                     gene_idx = list(adata.var_names).index(gene)
-                    lil_layers_novar[imputed1_key][:, gene_idx] = condition1_imputed[
+                    lil_layers_novar[smoothed1_key][:, gene_idx] = condition1_smoothed[
                         :, i
                     ]
-                    lil_layers_novar[imputed2_key][:, gene_idx] = condition2_imputed[
+                    lil_layers_novar[smoothed2_key][:, gene_idx] = condition2_smoothed[
                         :, i
                     ]
                     lil_layers_novar[fold_change_key][:, gene_idx] = fold_change[:, i]
@@ -1669,8 +1669,8 @@ def compute_differential_expression(
                             adata.layers[layer_key] = lil_layers_novar[layer_key]
         else:
             # Convert JAX arrays to NumPy arrays if needed
-            condition1_imputed = np.array(expression_results["condition1_imputed"])
-            condition2_imputed = np.array(expression_results["condition2_imputed"])
+            condition1_smoothed = np.array(expression_results["condition1_smoothed"])
+            condition2_smoothed = np.array(expression_results["condition2_smoothed"])
             fold_change = np.array(expression_results["fold_change"])
             fold_change_zscores = np.array(expression_results["fold_change_zscores"])
             condition1_std = np.array(expression_results["condition1_std"])
@@ -1678,14 +1678,14 @@ def compute_differential_expression(
 
             # Use the standardized field names
             # Create descriptive layer names - these are NOT affected by sample variance
-            imputed1_key = field_names["imputed_key_1"]
-            imputed2_key = field_names["imputed_key_2"]
+            smoothed1_key = field_names["smoothed_key_1"]
+            smoothed2_key = field_names["smoothed_key_2"]
             fold_change_key = field_names["fold_change_key"]
 
             if sample_col is not None:
                 # With sample variance, store as cell-by-gene layers
-                adata.layers[imputed1_key] = condition1_imputed
-                adata.layers[imputed2_key] = condition2_imputed
+                adata.layers[smoothed1_key] = condition1_smoothed
+                adata.layers[smoothed2_key] = condition2_smoothed
                 adata.layers[fold_change_key] = fold_change
                 # Only store fold_change_zscores if user requested additional stats
                 if store_additional_stats:
@@ -1710,8 +1710,8 @@ def compute_differential_expression(
                 ]
 
                 # Use dense arrays for layers, initialize with NaN
-                imputed1_layer = np.full(adata.shape, np.nan)
-                imputed2_layer = np.full(adata.shape, np.nan)
+                smoothed1_layer = np.full(adata.shape, np.nan)
+                smoothed2_layer = np.full(adata.shape, np.nan)
                 fold_change_layer = np.full(adata.shape, np.nan)
                 fold_change_zscores_layer = np.full(adata.shape, np.nan)
 
@@ -1719,14 +1719,14 @@ def compute_differential_expression(
                 filtered_indices = np.where(filter_mask)[0]
 
                 # Vectorized assignment using advanced indexing
-                imputed1_layer[filtered_indices] = condition1_imputed
-                imputed2_layer[filtered_indices] = condition2_imputed
+                smoothed1_layer[filtered_indices] = condition1_smoothed
+                smoothed2_layer[filtered_indices] = condition2_smoothed
                 fold_change_layer[filtered_indices] = fold_change
                 fold_change_zscores_layer[filtered_indices] = fold_change_zscores
 
                 # Store in adata.layers
-                adata.layers[imputed1_key] = imputed1_layer
-                adata.layers[imputed2_key] = imputed2_layer
+                adata.layers[smoothed1_key] = smoothed1_layer
+                adata.layers[smoothed2_key] = smoothed2_layer
                 adata.layers[fold_change_key] = fold_change_layer
                 # Only store fold_change_zscores if user requested additional stats
                 if store_additional_stats:
@@ -1829,9 +1829,9 @@ def compute_differential_expression(
                 else None
             ),
             "fdr_results": fdr_results.get("summary_stats") if fdr_results else None,
-            "imputed_layer_keys": {
-                "condition1": field_names["imputed_key_1"],
-                "condition2": field_names["imputed_key_2"],
+            "smoothed_layer_keys": {
+                "condition1": field_names["smoothed_key_1"],
+                "condition2": field_names["smoothed_key_2"],
                 "fold_change": field_names["fold_change_key"],
             },
             "field_names": field_names,
@@ -1858,14 +1858,14 @@ def compute_differential_expression(
                 "description": "Mean log fold change values",
             },
             # Layer fields
-            field_names["imputed_key_1"]: {
+            field_names["smoothed_key_1"]: {
                 "location": "layers",
-                "type": "imputed",
+                "type": "smoothed",
                 "description": f"Imputed expression for {condition1}",
             },
-            field_names["imputed_key_2"]: {
+            field_names["smoothed_key_2"]: {
                 "location": "layers",
-                "type": "imputed",
+                "type": "smoothed",
                 "description": f"Imputed expression for {condition2}",
             },
             field_names["fold_change_key"]: {
@@ -1889,24 +1889,24 @@ def compute_differential_expression(
             field_mapping[field_names["std_key_1"]] = {
                 "location": "layers",
                 "type": "std_with_sample_var",
-                "description": f"Posterior standard deviation of imputed expression for {condition1} (with sample variance)",
+                "description": f"Posterior standard deviation of smoothed expression for {condition1} (with sample variance)",
             }
             field_mapping[field_names["std_key_2"]] = {
                 "location": "layers",
                 "type": "std_with_sample_var",
-                "description": f"Posterior standard deviation of imputed expression for {condition2} (with sample variance)",
+                "description": f"Posterior standard deviation of smoothed expression for {condition2} (with sample variance)",
             }
         else:
             # Without sample variance, posterior standard deviations are in obs (same for all genes)
             field_mapping[field_names["std_key_1"]] = {
                 "location": "obs",
                 "type": "std",
-                "description": f"Posterior standard deviation of imputed expression for {condition1} (same for all genes)",
+                "description": f"Posterior standard deviation of smoothed expression for {condition1} (same for all genes)",
             }
             field_mapping[field_names["std_key_2"]] = {
                 "location": "obs",
                 "type": "std",
-                "description": f"Posterior standard deviation of imputed expression for {condition2} (same for all genes)",
+                "description": f"Posterior standard deviation of smoothed expression for {condition2} (same for all genes)",
             }
 
         # Add optional fields if present

@@ -6,13 +6,13 @@ All notable changes to this project will be documented in this file.
 
 ### New simplified API
 
- - **`kompot.de()`, `kompot.da()`, and `kompot.impute_expression()` now use Settings dataclasses** (`GPSettings`, `FDRSettings`, `FilterSettings`, `StorageSettings`, `OutputSettings`) so the common case stays simple while advanced options remain discoverable. The old `compute_differential_*` and `compute_imputed_expression()` functions still work but emit a deprecation warning.
+ - **`kompot.de()`, `kompot.da()`, and `kompot.smooth_expression()` now use Settings dataclasses** (`GPSettings`, `FDRSettings`, `FilterSettings`, `StorageSettings`, `OutputSettings`) so the common case stays simple while advanced options remain discoverable. The old `compute_differential_*`, `compute_smoothed_expression()`, and `impute_expression()` functions still work but emit a deprecation warning.
  - **`dry_run=True`** on `de()` prints a resource plan (memory, disk, field overwrites) without running the analysis. Replaces the standalone `dry_run_differential_expression()`.
- - **`ModelSettings`** lets you inject pre-fitted predictors into `de()`, `da()`, and `impute_expression()` to skip fitting or reuse models across runs.
+ - **`ModelSettings`** lets you inject pre-fitted predictors into `de()`, `da()`, and `smooth_expression()` to skip fitting or reuse models across runs.
 
 ### New features
 
- - **Null distribution inspection**: `return_full_results=True` now includes a `"null"` key in the result dict exposing all null gene data: Mahalanobis distances, imputed expression, fold changes, z-scores, and standard deviations. A lightweight alternative (`OutputSettings(return_null_data=True)`) returns only the summary table and metadata (gene indices, names, seed, provenance) without the full expression matrices.
+ - **Null distribution inspection**: `return_full_results=True` now includes a `"null"` key in the result dict exposing all null gene data: Mahalanobis distances, smoothed expression, fold changes, z-scores, and standard deviations. A lightweight alternative (`OutputSettings(return_null_data=True)`) returns only the summary table and metadata (gene indices, names, seed, provenance) without the full expression matrices.
  - **External null distributions for FDR**: supply your own null distribution instead of relying on column-shuffled null genes.
    - `FDRSettings(null_mahalanobis=...)`: pre-computed null Mahalanobis distances (e.g., from a control-vs-control run).
    - `FDRSettings(null_expression=(expr1, expr2))`: raw null expression matrices fitted through the same GP model.
@@ -33,12 +33,12 @@ All notable changes to this project will be documented in this file.
 
 ### Improvements
 
- - **Input validation at construction time**: all Settings dataclasses now validate fields in `__post_init__`. Invalid values like `GPSettings(sigma=-1)` or `FDRSettings(threshold=1.5)` raise immediately with a clear message instead of failing deep inside mellon or JAX. The public API functions (`de()`, `da()`, `impute_expression()`) also validate AnnData inputs upfront (obsm key shape, condition existence, `condition1 != condition2`, gene names, landmarks dimensions).
+ - **Input validation at construction time**: all Settings dataclasses now validate fields in `__post_init__`. Invalid values like `GPSettings(sigma=-1)` or `FDRSettings(threshold=1.5)` raise immediately with a clear message instead of failing deep inside mellon or JAX. The public API functions (`de()`, `da()`, `smooth_expression()`) also validate AnnData inputs upfront (obsm key shape, condition existence, `condition1 != condition2`, gene names, landmarks dimensions).
  - Plotting functions return `Optional[plt.Figure]` (controlled by `return_fig`) instead of `(fig, ax)` tuples, and no longer call `plt.show()`.
  - Consistent parameter naming across plot functions: `background_color_key` → `color`, `de_column` → `direction_column`, `embedding_key` → `basis`.
  - `RunInfo` HTML display now shows parameters hierarchically by Settings group (`gp.sigma`, `fdr.threshold`, …) instead of a flat list.
  - `RunComparison` shows individual changed fields (e.g. `gp.ls_factor: 10.0 → 5.0`) instead of opaque dict diffs.
- - **`kompot impute` CLI command** for single-condition GP smoothing from the command line, matching the full Python API (condition selection, gene subsetting, empirical variance, sample variance).
+ - **`kompot smooth` CLI command** for single-condition GP smoothing from the command line, matching the full Python API (condition selection, gene subsetting, empirical variance, sample variance).
  - `--no-progress` flag added to the DA CLI; progress bars can now be fully suppressed in both DA and DE.
  - DA CLI now exposes `--store-arrays-on-disk`, `--disk-storage-dir`, and `--max-memory-ratio`, matching the DE CLI's StorageSettings coverage.
  - FDR is disabled by default when `sample_col` is provided (not yet calibrated for sample variance). Override with `FDRSettings(null_genes=...)`.

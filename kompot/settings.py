@@ -1,5 +1,5 @@
 """Settings dataclasses for the ``kompot.de()``, ``kompot.da()``, and
-``kompot.impute_expression()`` interfaces.
+``kompot.smooth_expression()`` interfaces.
 
 These group related parameters into discoverable objects with sensible
 defaults.  Override only what you need::

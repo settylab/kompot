@@ -139,8 +139,8 @@ class TestReturnFullResultsNull:
 
         # Core expression matrices should always be present
         for key in (
-            "condition1_imputed",
-            "condition2_imputed",
+            "condition1_smoothed",
+            "condition2_smoothed",
             "fold_change",
         ):
             assert key in null, f"Missing key: {key}"
@@ -283,8 +283,8 @@ class TestReturnNullDataLightweight:
         assert isinstance(null["table"], pd.DataFrame)
         assert null["seed"] == 42
         for key in (
-            "condition1_imputed",
-            "condition2_imputed",
+            "condition1_smoothed",
+            "condition2_smoothed",
             "fold_change",
             "fold_change_zscores",
         ):
@@ -324,8 +324,8 @@ class TestReturnNullDataLightweight:
         expression_results = {
             "mean_log_fold_change": rng.randn(n_real + n_null),
             "mahalanobis_distances": np.abs(rng.randn(n_real + n_null)),
-            "condition1_imputed": rng.randn(n_cells, n_real + n_null),
-            "condition2_imputed": rng.randn(n_cells, n_real + n_null),
+            "condition1_smoothed": rng.randn(n_cells, n_real + n_null),
+            "condition2_smoothed": rng.randn(n_cells, n_real + n_null),
             "fold_change": rng.randn(n_cells, n_real + n_null),
             "fold_change_zscores": rng.randn(n_cells, n_real + n_null),
             "condition1_std": rng.randn(n_cells, n_real + n_null),
@@ -357,8 +357,8 @@ class TestReturnNullDataLightweight:
 
         # Expression matrices should NOT be present
         for key in (
-            "condition1_imputed",
-            "condition2_imputed",
+            "condition1_smoothed",
+            "condition2_smoothed",
             "fold_change",
             "fold_change_zscores",
             "condition1_std",
@@ -378,8 +378,8 @@ class TestReturnNullDataLightweight:
         expression_results = {
             "mean_log_fold_change": rng.randn(n_real + n_null),
             "mahalanobis_distances": np.abs(rng.randn(n_real + n_null)),
-            "condition1_imputed": rng.randn(n_cells, n_real + n_null),
-            "condition2_imputed": rng.randn(n_cells, n_real + n_null),
+            "condition1_smoothed": rng.randn(n_cells, n_real + n_null),
+            "condition2_smoothed": rng.randn(n_cells, n_real + n_null),
             "fold_change": rng.randn(n_cells, n_real + n_null),
             "fold_change_zscores": rng.randn(n_cells, n_real + n_null),
             "condition1_std": rng.randn(n_cells, n_real + n_null),
@@ -405,8 +405,8 @@ class TestReturnNullDataLightweight:
 
         # Expression matrices SHOULD be present
         for key in (
-            "condition1_imputed",
-            "condition2_imputed",
+            "condition1_smoothed",
+            "condition2_smoothed",
             "fold_change",
             "fold_change_zscores",
             "condition1_std",

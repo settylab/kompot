@@ -31,8 +31,8 @@ def make_synthetic_data(seed=42):
 
 
 KEYS = [
-    "condition1_imputed",
-    "condition2_imputed",
+    "condition1_smoothed",
+    "condition2_smoothed",
     "condition1_std",
     "condition2_std",
     "fold_change",

@@ -654,19 +654,19 @@ def estimate_differential_expression_resources(
     )
 
     plan.add_requirement(
-        "Imputed expression (condition 1)",
+        "Smoothed expression (condition 1)",
         imputed_size,
         "memory",
         shape=(n_cells, n_total_genes),
-        field_name=f"adata.layers['{field_names['imputed_key_1']}']",
+        field_name=f"adata.layers['{field_names['smoothed_key_1']}']",
     )
 
     plan.add_requirement(
-        "Imputed expression (condition 2)",
+        "Smoothed expression (condition 2)",
         imputed_size,
         "memory",
         shape=(n_cells, n_total_genes),
-        field_name=f"adata.layers['{field_names['imputed_key_2']}']",
+        field_name=f"adata.layers['{field_names['smoothed_key_2']}']",
     )
 
     # Fold change layer
@@ -1088,8 +1088,8 @@ def estimate_differential_expression_resources(
             field_names["mean_lfc_key"],
         ],
         "adata.layers": [
-            field_names["imputed_key_1"],
-            field_names["imputed_key_2"],
+            field_names["smoothed_key_1"],
+            field_names["smoothed_key_2"],
             field_names["fold_change_key"],
         ],
     }
@@ -1216,8 +1216,8 @@ def dry_run_differential_expression(
     >>> # The output shows which fields will be overwritten with their run_id:
     >>> # Output Fields:
     >>> #   adata.layers:
-    >>> #     - kompot_de_Young_imputed [OVERWRITES run_id=0]
-    >>> #     - kompot_de_Old_imputed [OVERWRITES run_id=0]
+    >>> #     - kompot_de_Young_smoothed [OVERWRITES run_id=0]
+    >>> #     - kompot_de_Old_smoothed [OVERWRITES run_id=0]
     >>> #   adata.var:
     >>> #     - kompot_de_Young_to_Old_mean_lfc [OVERWRITES run_id=0]
     >>> #

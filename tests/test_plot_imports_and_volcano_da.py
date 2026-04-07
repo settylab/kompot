@@ -113,10 +113,10 @@ class TestPlotInitImports:
 
         assert callable(embedding)
 
-    def test_plot_imputation_accessible(self):
-        from kompot.plot import plot_imputation
+    def test_plot_smoothing_accessible(self):
+        from kompot.plot import plot_smoothing
 
-        assert callable(plot_imputation)
+        assert callable(plot_smoothing)
 
     def test_stringdb_report_accessible(self):
         from kompot.plot import StringDBReport

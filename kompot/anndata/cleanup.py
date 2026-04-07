@@ -25,7 +25,7 @@ def cleanup(
     Remove large data (layers, obsp, varm) from differential analysis results.
 
     This function helps reduce AnnData object size by removing large arrays like
-    imputed expression layers, fold change layers, and posterior covariance matrices
+    smoothed expression layers, fold change layers, and posterior covariance matrices
     while retaining the statistical results in var/obs columns.
 
     Parameters
@@ -39,7 +39,7 @@ def cleanup(
         - If list: Cleans up specified runs
     analysis_type : str, default 'de'
         Type of analysis: 'de' for differential expression, 'da' for
-        differential abundance, or 'impute' for expression imputation
+        differential abundance, or 'smooth' for expression smoothing
     keep_layers : bool or list of str, optional
         - If None (default): Remove all layers from specified run(s)
         - If False: Remove all layers from specified run(s)
@@ -80,7 +80,7 @@ def cleanup(
     -----
     Layer field types:
 
-    - ``'imputed'``: Imputed expression for each condition
+    - ``'smoothed'``: Smoothed expression for each condition
     - ``'fold_change'``: Log fold change for each cell and gene
     - ``'fold_change_zscores'``: Z-scores of log fold changes
     - ``'std_with_sample_var'``: Posterior standard deviations with sample variance
@@ -136,13 +136,16 @@ def cleanup(
     -----
     - By default, cleans up ALL runs to maximize space savings
     - By default, keeps all statistical results (var/obs fields) but removes layers
-    - Large data typically in: layers (imputed, fold_change), obsp (covariance)
+    - Large data typically in: layers (smoothed, fold_change), obsp (covariance)
     - This does NOT modify the run history - deleted fields are marked as missing
     - Use RunInfo to check which fields are present vs deleted
     """
-    # For impute analysis, default to keeping the main result (imputed layer)
-    if analysis_type == "impute" and keep_layers is None:
-        keep_layers = ["imputed"]
+    # For smooth analysis, default to keeping the main result (smoothed layer)
+    # Also accept legacy "impute" analysis_type
+    if analysis_type == "impute":
+        analysis_type = "smooth"
+    if analysis_type == "smooth" and keep_layers is None:
+        keep_layers = ["smoothed"]
 
     if not inplace:
         adata = adata.copy()
@@ -375,7 +378,7 @@ def get_field_status(
     run_id : int, optional
         Run ID to check. If None, uses most recent run.
     analysis_type : str, default 'de'
-        Type of analysis: 'de', 'da', or 'impute'
+        Type of analysis: 'de', 'da', or 'smooth'
 
     Returns
     -------
@@ -386,8 +389,8 @@ def get_field_status(
     Examples
     --------
     >>> status = get_field_status(adata)
-    >>> print(status['layers']['imputed'])
-    {'result_A_imputed': True, 'result_B_imputed': False}
+    >>> print(status['layers']['smoothed'])
+    {'result_A_smoothed': True, 'result_B_smoothed': False}
     """
     try:
         run_info_obj = RunInfo(adata, run_id=run_id, analysis_type=analysis_type)

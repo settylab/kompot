@@ -70,8 +70,8 @@ class TestCleanupFunctionality:
         )
 
         # Verify layers exist
-        assert "test_cleanup_A_imputed" in adata.layers
-        assert "test_cleanup_B_imputed" in adata.layers
+        assert "test_cleanup_A_smoothed" in adata.layers
+        assert "test_cleanup_B_smoothed" in adata.layers
         assert "test_cleanup_A_to_B_fold_change" in adata.layers
 
         # Verify var fields exist
@@ -82,8 +82,8 @@ class TestCleanupFunctionality:
         cleanup(adata)
 
         # Layers should be gone
-        assert "test_cleanup_A_imputed" not in adata.layers
-        assert "test_cleanup_B_imputed" not in adata.layers
+        assert "test_cleanup_A_smoothed" not in adata.layers
+        assert "test_cleanup_B_smoothed" not in adata.layers
         assert "test_cleanup_A_to_B_fold_change" not in adata.layers
 
         # Var fields should still be present
@@ -115,9 +115,9 @@ class TestCleanupFunctionality:
         # Keep only fold_change layers
         cleanup(adata, keep_layers=["fold_change"])
 
-        # Imputed layers should be removed
-        assert "test_keep_A_imputed" not in adata.layers
-        assert "test_keep_B_imputed" not in adata.layers
+        # Smoothed layers should be removed
+        assert "test_keep_A_smoothed" not in adata.layers
+        assert "test_keep_B_smoothed" not in adata.layers
 
         # Fold change layer should remain
         assert "test_keep_A_to_B_fold_change" in adata.layers
@@ -147,8 +147,8 @@ class TestCleanupFunctionality:
         cleanup(adata, keep_layers=True)
 
         # All layers should remain
-        assert "test_keep_all_A_imputed" in adata.layers
-        assert "test_keep_all_B_imputed" in adata.layers
+        assert "test_keep_all_A_smoothed" in adata.layers
+        assert "test_keep_all_B_smoothed" in adata.layers
         assert "test_keep_all_A_to_B_fold_change" in adata.layers
 
     def test_cleanup_remove_var_fields(self):
@@ -251,10 +251,10 @@ class TestCleanupFunctionality:
         adata_cleaned = cleanup(adata, inplace=False)
 
         # Original should still have layers
-        assert "test_copy_A_imputed" in adata.layers
+        assert "test_copy_A_smoothed" in adata.layers
 
         # Copy should not have layers
-        assert "test_copy_A_imputed" not in adata_cleaned.layers
+        assert "test_copy_A_smoothed" not in adata_cleaned.layers
 
     def test_get_field_status(self):
         """Test get_field_status function."""
@@ -354,12 +354,12 @@ class TestCleanupFunctionality:
         cleanup(adata, run_ids=0, keep_layers=False)
 
         # First run layers should be removed
-        assert "test_run1_A_imputed" not in adata.layers
-        assert "test_run1_B_imputed" not in adata.layers
+        assert "test_run1_A_smoothed" not in adata.layers
+        assert "test_run1_B_smoothed" not in adata.layers
 
         # Second run layers should still exist
-        assert "test_run2_A_imputed" in adata.layers
-        assert "test_run2_B_imputed" in adata.layers
+        assert "test_run2_A_smoothed" in adata.layers
+        assert "test_run2_B_smoothed" in adata.layers
 
 
 class TestRunInfoMissingFields:

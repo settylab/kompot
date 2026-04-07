@@ -228,8 +228,8 @@ def generate_output_field_names(
                 "mahalanobis_key": f"{result_key}_{cond1_safe}_to_{cond2_safe}_mahalanobis{suffix}",
                 "ptp_key": f"{result_key}_{cond1_safe}_to_{cond2_safe}_ptp{suffix}",
                 "mean_lfc_key": f"{result_key}_{cond1_safe}_to_{cond2_safe}_mean_lfc",
-                "imputed_key_1": f"{result_key}_{cond1_safe}_imputed",
-                "imputed_key_2": f"{result_key}_{cond2_safe}_imputed",
+                "smoothed_key_1": f"{result_key}_{cond1_safe}_smoothed",
+                "smoothed_key_2": f"{result_key}_{cond2_safe}_smoothed",
                 "fold_change_key": f"{result_key}_{cond1_safe}_to_{cond2_safe}_fold_change",
                 "fold_change_zscores_key": f"{result_key}_{cond1_safe}_to_{cond2_safe}_fold_change_zscores{suffix}",
                 "std_key_1": f"{result_key}_{cond1_safe}_std",
@@ -260,8 +260,8 @@ def generate_output_field_names(
                 # FDR fields will be added conditionally below when null genes are used
             ],
             "layers": [
-                field_names["imputed_key_1"],  # Not impacted by sample variance
-                field_names["imputed_key_2"],  # Not impacted by sample variance
+                field_names["smoothed_key_1"],  # Not impacted by sample variance
+                field_names["smoothed_key_2"],  # Not impacted by sample variance
                 field_names["fold_change_key"],  # Not impacted by sample variance
                 field_names["fold_change_zscores_key"],  # Impacted by sample variance
             ],

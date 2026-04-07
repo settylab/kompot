@@ -3,7 +3,7 @@
 Provides two layers:
 1. Scalar/type validators (re-exported from mellon + kompot-specific).
 2. AnnData cross-cutting checks used at the top of ``de()``, ``da()``,
-   ``impute_expression()``.
+   ``smooth_expression()``.
 """
 
 import logging

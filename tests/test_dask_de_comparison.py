@@ -99,21 +99,21 @@ def test_disk_backed_de_without_sample_variance():
     # Verify keys are the same
     assert set(results["with_dask"].keys()) == set(results["without_dask"].keys())
 
-    # Check if the imputed values match (these should be identical)
+    # Check if the smoothed values match (these should be identical)
     np.testing.assert_allclose(
-        results["with_dask"]["condition1_imputed"],
-        results["without_dask"]["condition1_imputed"],
+        results["with_dask"]["condition1_smoothed"],
+        results["without_dask"]["condition1_smoothed"],
         rtol=1e-5,
         atol=1e-8,
-        err_msg="Imputed condition1 values differ between Dask and non-Dask implementations",
+        err_msg="Smoothed condition1 values differ between Dask and non-Dask implementations",
     )
 
     np.testing.assert_allclose(
-        results["with_dask"]["condition2_imputed"],
-        results["without_dask"]["condition2_imputed"],
+        results["with_dask"]["condition2_smoothed"],
+        results["without_dask"]["condition2_smoothed"],
         rtol=1e-5,
         atol=1e-8,
-        err_msg="Imputed condition2 values differ between Dask and non-Dask implementations",
+        err_msg="Smoothed condition2 values differ between Dask and non-Dask implementations",
     )
 
     # Check fold changes

@@ -51,13 +51,13 @@ def _make_de_adata(
     adata = AnnData(X=X, obs=obs, var=var)
     adata.obsm["X_umap"] = rng.randn(n_obs, 2).astype(np.float32)
 
-    imputed1 = f"{result_key}_{condition1}_imputed"
-    imputed2 = f"{result_key}_{condition2}_imputed"
+    smoothed1 = f"{result_key}_{condition1}_smoothed"
+    smoothed2 = f"{result_key}_{condition2}_smoothed"
     fc_layer = f"{result_key}_{condition1}_to_{condition2}_fold_change"
 
     if with_layers:
-        adata.layers[imputed1] = rng.randn(n_obs, n_vars).astype(np.float32)
-        adata.layers[imputed2] = rng.randn(n_obs, n_vars).astype(np.float32)
+        adata.layers[smoothed1] = rng.randn(n_obs, n_vars).astype(np.float32)
+        adata.layers[smoothed2] = rng.randn(n_obs, n_vars).astype(np.float32)
         adata.layers[fc_layer] = rng.randn(n_obs, n_vars).astype(np.float32)
 
     if with_run_history:
@@ -73,13 +73,13 @@ def _make_de_adata(
                         "field_names": {
                             "mean_lfc_key": lfc_col,
                             "mahalanobis_key": mahal_col,
-                            "imputed_key_1": imputed1,
-                            "imputed_key_2": imputed2,
+                            "smoothed_key_1": smoothed1,
+                            "smoothed_key_2": smoothed2,
                             "fold_change_key": fc_layer,
                         },
-                        "imputed_layer_keys": {
-                            "condition1": imputed1,
-                            "condition2": imputed2,
+                        "smoothed_layer_keys": {
+                            "condition1": smoothed1,
+                            "condition2": smoothed2,
                             "fold_change": fc_layer,
                         },
                         "adjusted_run_id": 0,
@@ -269,7 +269,7 @@ class TestPlotGeneExpression:
         assert fig is not None
 
     def test_missing_layers_warning(self):
-        """Lines 278-279, 293: missing imputed layers -> warning."""
+        """Lines 278-279, 293: missing smoothed layers -> warning."""
         from kompot.plot.expression import plot_gene_expression
 
         adata = _make_de_adata(with_layers=False)
@@ -285,15 +285,15 @@ class TestPlotGeneExpression:
         assert fig is not None
 
     def test_field_names_fallback(self):
-        """Lines 280-282: field_names fallback when no imputed_layer_keys."""
+        """Lines 280-282: field_names fallback when no smoothed_layer_keys."""
         from kompot.plot.expression import plot_gene_expression
 
         adata = _make_de_adata(with_layers=True)
         lfc_col = [c for c in adata.var.columns if "mean_lfc" in c][0]
         mahal_col = [c for c in adata.var.columns if "mahalanobis" in c][0]
-        # Remove imputed_layer_keys from run info to hit field_names fallback
+        # Remove smoothed_layer_keys from run info to hit field_names fallback
         run_history = json.loads(adata.uns["kompot_de"]["run_history"])
-        del run_history[0]["imputed_layer_keys"]
+        del run_history[0]["smoothed_layer_keys"]
         adata.uns["kompot_de"]["run_history"] = json.dumps(run_history)
         fig = plot_gene_expression(
             adata,
@@ -325,7 +325,7 @@ class TestExpressionEdgeCases:
     """Additional expression plot edge cases."""
 
     def test_swapped_conditions(self):
-        """Lines 265-267: swapped condition order -> imputed_layer_keys swap."""
+        """Lines 265-267: swapped condition order -> smoothed_layer_keys swap."""
         from kompot.plot.expression import plot_gene_expression
 
         adata = _make_de_adata(condition1="Young", condition2="Old")

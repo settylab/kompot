@@ -149,7 +149,7 @@ def _check_overwrites(
                     message += (
                         f" Fields that will be overwritten: {field_list}. "
                         f"Note: Only fields NOT affected by sample variance (like "
-                        f"mean_log_fold_change, imputed data, fold_change) will be "
+                        f"mean_log_fold_change, smoothed data, fold_change) will be "
                         f"overwritten since they don't use the sample variance suffix. "
                         f"These results will likely be identical if other parameters "
                         f"haven't changed."
@@ -158,7 +158,7 @@ def _check_overwrites(
                     message += (
                         f" Fields that will be overwritten: {field_list}. "
                         f"Note: Only fields NOT affected by sample variance (like "
-                        f"mean_log_fold_change, imputed data, fold_change) will be "
+                        f"mean_log_fold_change, smoothed data, fold_change) will be "
                         f"overwritten since they don't use the sample variance suffix."
                     )
                 else:
@@ -782,8 +782,8 @@ def _compute_fdr(
         if return_full_results:
             n_total = n_real + len(null_gene_names)
             for key in (
-                "condition1_imputed",
-                "condition2_imputed",
+                "condition1_smoothed",
+                "condition2_smoothed",
                 "fold_change",
                 "fold_change_zscores",
                 "condition1_std",
@@ -801,8 +801,8 @@ def _compute_fdr(
     # Strip null genes from expression_results
     for key in [
         "mean_log_fold_change",
-        "condition1_imputed",
-        "condition2_imputed",
+        "condition1_smoothed",
+        "condition2_smoothed",
         "fold_change",
         "fold_change_zscores",
         "condition1_std",
@@ -810,8 +810,8 @@ def _compute_fdr(
     ]:
         if key in expression_results:
             if key in (
-                "condition1_imputed",
-                "condition2_imputed",
+                "condition1_smoothed",
+                "condition2_smoothed",
                 "fold_change",
                 "fold_change_zscores",
                 "condition1_std",
@@ -993,15 +993,15 @@ def _store_de_results(
             adata.var = pd.concat([adata.var, new_df], axis=1)
 
     # --- layers ---
-    condition1_imputed = np.array(expression_results["condition1_imputed"])
-    condition2_imputed = np.array(expression_results["condition2_imputed"])
+    condition1_smoothed = np.array(expression_results["condition1_smoothed"])
+    condition2_smoothed = np.array(expression_results["condition2_smoothed"])
     fold_change = np.array(expression_results["fold_change"])
     fold_change_zscores = np.array(expression_results["fold_change_zscores"])
     condition1_std = np.array(expression_results["condition1_std"])
     condition2_std = np.array(expression_results["condition2_std"])
 
-    imputed1_key = field_names["imputed_key_1"]
-    imputed2_key = field_names["imputed_key_2"]
+    smoothed1_key = field_names["smoothed_key_1"]
+    smoothed2_key = field_names["smoothed_key_2"]
     fold_change_key = field_names["fold_change_key"]
 
     subset_of_genes = n_selected < len(adata.var_names)
@@ -1011,8 +1011,8 @@ def _store_de_results(
             adata,
             selected_genes,
             filter_mask,
-            condition1_imputed,
-            condition2_imputed,
+            condition1_smoothed,
+            condition2_smoothed,
             fold_change,
             fold_change_zscores,
             condition1_std,
@@ -1025,8 +1025,8 @@ def _store_de_results(
         _store_layers_full(
             adata,
             filter_mask,
-            condition1_imputed,
-            condition2_imputed,
+            condition1_smoothed,
+            condition2_smoothed,
             fold_change,
             fold_change_zscores,
             condition1_std,
@@ -1050,8 +1050,8 @@ def _store_layers_subset(
     adata,
     selected_genes,
     filter_mask,
-    cond1_imputed,
-    cond2_imputed,
+    cond1_smoothed,
+    cond2_smoothed,
     fold_change,
     fold_change_zscores,
     cond1_std,
@@ -1061,13 +1061,13 @@ def _store_layers_subset(
     store_additional_stats,
 ):
     """Store layers when only a subset of genes was analysed."""
-    imputed1_key = field_names["imputed_key_1"]
-    imputed2_key = field_names["imputed_key_2"]
+    smoothed1_key = field_names["smoothed_key_1"]
+    smoothed2_key = field_names["smoothed_key_2"]
     fold_change_key = field_names["fold_change_key"]
     use_sparse = len(selected_genes) < len(adata.var_names)
 
-    _init_layer(adata, imputed1_key, use_sparse)
-    _init_layer(adata, imputed2_key, use_sparse)
+    _init_layer(adata, smoothed1_key, use_sparse)
+    _init_layer(adata, smoothed2_key, use_sparse)
     _init_layer(adata, fold_change_key, use_sparse)
     if store_additional_stats:
         _init_layer(adata, field_names["fold_change_zscores_key"], use_sparse)
@@ -1080,8 +1080,8 @@ def _store_layers_subset(
         _init_layer(adata, field_names["std_key_2"], use_sparse)
 
         layers_to_convert = [
-            imputed1_key,
-            imputed2_key,
+            smoothed1_key,
+            smoothed2_key,
             fold_change_key,
             field_names["std_key_1"],
             field_names["std_key_2"],
@@ -1107,8 +1107,8 @@ def _store_layers_subset(
             )
 
         for i, gi in enumerate(gene_indices):
-            lil_layers[imputed1_key][:, gi] = cond1_imputed[:, i]
-            lil_layers[imputed2_key][:, gi] = cond2_imputed[:, i]
+            lil_layers[smoothed1_key][:, gi] = cond1_smoothed[:, i]
+            lil_layers[smoothed2_key][:, gi] = cond2_smoothed[:, i]
             lil_layers[fold_change_key][:, gi] = fold_change[:, i]
             lil_layers[field_names["std_key_1"]][:, gi] = cond1_std[:, i]
             lil_layers[field_names["std_key_2"]][:, gi] = cond2_std[:, i]
@@ -1121,7 +1121,7 @@ def _store_layers_subset(
         adata.obs.loc[filter_mask, field_names["std_key_1"]] = cond1_std[:, 0]
         adata.obs.loc[filter_mask, field_names["std_key_2"]] = cond2_std[:, 0]
 
-        layers_to_convert = [imputed1_key, imputed2_key, fold_change_key]
+        layers_to_convert = [smoothed1_key, smoothed2_key, fold_change_key]
         if store_additional_stats:
             layers_to_convert.append(field_names["fold_change_zscores_key"])
 
@@ -1146,8 +1146,8 @@ def _store_layers_subset(
 
         for i, gene in enumerate(selected_genes):
             gi = list(adata.var_names).index(gene)
-            lil_layers[imputed1_key][:, gi] = cond1_imputed[:, i]
-            lil_layers[imputed2_key][:, gi] = cond2_imputed[:, i]
+            lil_layers[smoothed1_key][:, gi] = cond1_smoothed[:, i]
+            lil_layers[smoothed2_key][:, gi] = cond2_smoothed[:, i]
             lil_layers[fold_change_key][:, gi] = fold_change[:, i]
             if store_additional_stats:
                 lil_layers[field_names["fold_change_zscores_key"]][:, gi] = (
@@ -1160,8 +1160,8 @@ def _store_layers_subset(
 def _store_layers_full(
     adata,
     filter_mask,
-    cond1_imputed,
-    cond2_imputed,
+    cond1_smoothed,
+    cond2_smoothed,
     fold_change,
     fold_change_zscores,
     cond1_std,
@@ -1171,13 +1171,13 @@ def _store_layers_full(
     store_additional_stats,
 ):
     """Store layers when all genes were analysed (no subsetting)."""
-    imputed1_key = field_names["imputed_key_1"]
-    imputed2_key = field_names["imputed_key_2"]
+    smoothed1_key = field_names["smoothed_key_1"]
+    smoothed2_key = field_names["smoothed_key_2"]
     fold_change_key = field_names["fold_change_key"]
 
     if sample_col is not None:
-        adata.layers[imputed1_key] = cond1_imputed
-        adata.layers[imputed2_key] = cond2_imputed
+        adata.layers[smoothed1_key] = cond1_smoothed
+        adata.layers[smoothed2_key] = cond2_smoothed
         adata.layers[fold_change_key] = fold_change
         if store_additional_stats:
             adata.layers[field_names["fold_change_zscores_key"]] = fold_change_zscores
@@ -1191,18 +1191,18 @@ def _store_layers_full(
 
         filtered_indices = np.where(filter_mask)[0]
 
-        imputed1_layer = np.full(adata.shape, np.nan)
-        imputed2_layer = np.full(adata.shape, np.nan)
+        smoothed1_layer = np.full(adata.shape, np.nan)
+        smoothed2_layer = np.full(adata.shape, np.nan)
         fc_layer = np.full(adata.shape, np.nan)
         fc_z_layer = np.full(adata.shape, np.nan)
 
-        imputed1_layer[filtered_indices] = cond1_imputed
-        imputed2_layer[filtered_indices] = cond2_imputed
+        smoothed1_layer[filtered_indices] = cond1_smoothed
+        smoothed2_layer[filtered_indices] = cond2_smoothed
         fc_layer[filtered_indices] = fold_change
         fc_z_layer[filtered_indices] = fold_change_zscores
 
-        adata.layers[imputed1_key] = imputed1_layer
-        adata.layers[imputed2_key] = imputed2_layer
+        adata.layers[smoothed1_key] = smoothed1_layer
+        adata.layers[smoothed2_key] = smoothed2_layer
         adata.layers[fold_change_key] = fc_layer
         if store_additional_stats:
             adata.layers[field_names["fold_change_zscores_key"]] = fc_z_layer
@@ -1575,14 +1575,14 @@ def _build_field_mapping(
             "type": "mean_log_fold_change",
             "description": "Mean log fold change values",
         },
-        field_names["imputed_key_1"]: {
+        field_names["smoothed_key_1"]: {
             "location": "layers",
-            "type": "imputed",
+            "type": "smoothed",
             "description": f"Imputed expression for {condition1}",
         },
-        field_names["imputed_key_2"]: {
+        field_names["smoothed_key_2"]: {
             "location": "layers",
-            "type": "imputed",
+            "type": "smoothed",
             "description": f"Imputed expression for {condition2}",
         },
         field_names["fold_change_key"]: {
@@ -1612,7 +1612,7 @@ def _build_field_mapping(
                 "location": "layers",
                 "type": "std_with_sample_var",
                 "description": (
-                    f"Posterior standard deviation of imputed expression for "
+                    f"Posterior standard deviation of smoothed expression for "
                     f"{cond} (with sample variance)"
                 ),
             }
@@ -1625,7 +1625,7 @@ def _build_field_mapping(
                 "location": "obs",
                 "type": "std",
                 "description": (
-                    f"Posterior standard deviation of imputed expression for "
+                    f"Posterior standard deviation of smoothed expression for "
                     f"{cond} (same for all genes)"
                 ),
             }
@@ -1812,9 +1812,9 @@ def _record_de_run_info(
             else None
         ),
         "fdr_results": fdr_results.get("summary_stats") if fdr_results else None,
-        "imputed_layer_keys": {
-            "condition1": field_names["imputed_key_1"],
-            "condition2": field_names["imputed_key_2"],
+        "smoothed_layer_keys": {
+            "condition1": field_names["smoothed_key_1"],
+            "condition2": field_names["smoothed_key_2"],
             "fold_change": field_names["fold_change_key"],
         },
         "field_names": field_names,

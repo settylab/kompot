@@ -13,7 +13,7 @@ logger = logging.getLogger("kompot")
 
 class RunInfo:
     """
-    Class for accessing run information for differential analysis or imputation.
+    Class for accessing run information for differential analysis or smoothing.
 
     Provides access to run history, parameters, and result fields.
 
@@ -26,7 +26,7 @@ class RunInfo:
     adjusted_run_id : int
         Actual run ID after adjusting for negative indexing
     analysis_type : str
-        Type of analysis: 'de', 'da', or 'impute'
+        Type of analysis: 'de', 'da', or 'smooth'
     storage_key : str
         Key for accessing the analysis data in adata.uns
     run_info : dict
@@ -57,7 +57,7 @@ class RunInfo:
             Run ID to retrieve. Negative indices count from the end.
             If None, uses the most recent run (-1).
         analysis_type : str, optional
-            Type of analysis: 'de', 'da', or 'impute'. If None, attempts
+            Type of analysis: 'de', 'da', or 'smooth'. If None, attempts
             to detect from ``adata.uns``.
         """
         self.adata = adata
@@ -73,20 +73,26 @@ class RunInfo:
             elif "kompot_da" in adata.uns and "run_history" in adata.uns["kompot_da"]:
                 analysis_type = "da"
             elif (
+                "kompot_smooth" in adata.uns
+                and "run_history" in adata.uns["kompot_smooth"]
+            ):
+                analysis_type = "smooth"
+            elif (
                 "kompot_impute" in adata.uns
                 and "run_history" in adata.uns["kompot_impute"]
             ):
+                # Legacy backward compatibility
                 analysis_type = "impute"
             else:
                 raise ValueError(
                     "Could not detect analysis type. "
-                    "Please specify 'de', 'da', or 'impute'."
+                    "Please specify 'de', 'da', or 'smooth'."
                 )
 
-        if analysis_type not in ("de", "da", "impute"):
+        if analysis_type not in ("de", "da", "smooth", "impute"):
             raise ValueError(
                 f"Invalid analysis_type: {analysis_type}. "
-                "Must be 'de', 'da', or 'impute'."
+                "Must be 'de', 'da', or 'smooth'."
             )
 
         self.analysis_type = analysis_type
@@ -291,7 +297,7 @@ class RunInfo:
             List of dictionaries with missing field information, each containing:
             - field: The field name
             - location: The location in AnnData (obs, var, layers, obsp, varm)
-            - type: The field type (e.g., 'imputed', 'fold_change', etc.)
+            - type: The field type (e.g., 'smoothed', 'fold_change', etc.)
             - description: Description of the field
         """
         missing = []
@@ -429,7 +435,7 @@ class RunInfo:
             Dictionary with run summary
         """
         # Get basic information without field data
-        if self.analysis_type == "impute":
+        if self.analysis_type in ("smooth", "impute"):
             cond = _pg(self.params, "condition", None)
             conditions_str = cond if cond else "all cells"
         else:

@@ -69,7 +69,7 @@ Kompot implements methodologies from the Mellon package for computing differenti
 Key features:
 
 - Computation of differential abundance between conditions
-- Gene expression imputation and uncertainty estimation
+- Gene expression smoothing and uncertainty estimation
 - Mahalanobis distance calculation for differential expression significance
 - Weighted log fold change analysis with density difference weighting
 - Support for covariance matrices and optional landmarks
@@ -138,7 +138,7 @@ See :doc:`simplified` for the full API and all available settings.
 
 - :doc:`Advanced Differential Expression <notebooks/02_differential_expression_detailed>` - Parameter customization, multiple comparisons, and visualization options
 - :doc:`Sample Variance Analysis <notebooks/03_sample_variance>` - Accounting for biological replicates in multi-sample studies
-- :doc:`Gene Expression Imputation <notebooks/04_expression_model>` - GP imputation, uncertainty decomposition, and CITE-seq validation
+- :doc:`Gene Expression Smoothing <notebooks/04_expression_model>` - GP smoothing, uncertainty decomposition, and CITE-seq validation
 
 Command-Line Interface
 ^^^^^^^^^^^^^^^^^^^^^^^

@@ -1,11 +1,11 @@
-# Configuration template for expression imputation
-# This file shows all available parameters for kompot impute command
+# Configuration template for expression smoothing
+# This file shows all available parameters for kompot smooth command
 #
-# Usage: kompot impute input.h5ad -o output.h5ad -c impute_config.yaml
+# Usage: kompot smooth input.h5ad -o output.h5ad -c smooth_config.yaml
 #
 # Condition selection (optional):
 groupby: null                  # Column in adata.obs with condition labels
-condition: null                # Which condition to impute (requires groupby)
+condition: null                # Which condition to smooth (requires groupby)
 
 # Cell state representation:
 obsm_key: "DM_EigenVectors"   # Key in adata.obsm (e.g., X_pca, DM_EigenVectors)
@@ -14,10 +14,10 @@ obsm_key: "DM_EigenVectors"   # Key in adata.obsm (e.g., X_pca, DM_EigenVectors)
 layer: null                    # Layer in adata.layers (null = use adata.X)
 
 # Gene selection:
-genes: null                    # List of gene names to impute (null = all)
+genes: null                    # List of gene names to smooth (null = all)
 
 # Result storage:
-result_key: "kompot_impute"    # Key for storing results in adata.uns
+result_key: "kompot_smooth"    # Key for storing results in adata.uns
 
 # Landmark approximation:
 n_landmarks: 5000              # Number of landmarks for Nystrom approximation

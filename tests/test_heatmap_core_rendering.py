@@ -50,8 +50,8 @@ def heatmap_adata():
     adata.layers["kompot_de_ctrl_to_treat_fold_change"] = np.random.randn(
         n_cells, n_genes
     )
-    adata.layers["kompot_de_ctrl_imputed"] = np.random.rand(n_cells, n_genes)
-    adata.layers["kompot_de_treat_imputed"] = np.random.rand(n_cells, n_genes)
+    adata.layers["kompot_de_ctrl_smoothed"] = np.random.rand(n_cells, n_genes)
+    adata.layers["kompot_de_treat_smoothed"] = np.random.rand(n_cells, n_genes)
 
     # Add run_history in uns under kompot_de storage key
     adata.uns["kompot_de"] = {
@@ -70,8 +70,8 @@ def heatmap_adata():
                     "mean_lfc_key": "kompot_de_ctrl_to_treat_mean_lfc",
                     "is_de_key": "kompot_de_ctrl_to_treat_is_de",
                     "fold_change_key": "kompot_de_ctrl_to_treat_fold_change",
-                    "imputed_key_1": "kompot_de_ctrl_imputed",
-                    "imputed_key_2": "kompot_de_treat_imputed",
+                    "smoothed_key_1": "kompot_de_ctrl_smoothed",
+                    "smoothed_key_2": "kompot_de_treat_smoothed",
                 },
             }
         ]

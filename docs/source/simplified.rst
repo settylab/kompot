@@ -64,10 +64,10 @@ Differential Abundance
 .. autofunction:: kompot.da
 
 
-Expression Imputation
----------------------
+Expression Smoothing
+--------------------
 
-.. autofunction:: kompot.impute_expression
+.. autofunction:: kompot.smooth_expression
 
 
 Settings

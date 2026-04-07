@@ -1197,22 +1197,22 @@ def test_gene_subset_order_preservation():
         return_full_results=True,
     )
 
-    # Get the imputed layers for both conditions
-    imputed_key_1 = "test_patterned_A_imputed"
-    imputed_key_2 = "test_patterned_B_imputed"
+    # Get the smoothed layers for both conditions
+    smoothed_key_1 = "test_patterned_A_smoothed"
+    smoothed_key_2 = "test_patterned_B_smoothed"
     # Verify fold change z-scores layer is created
     fold_change_zscores_key = "test_patterned_A_to_B_fold_change_zscores"
     assert fold_change_zscores_key in adata_patterned.layers
 
-    # Check that the imputed values for the selected genes match the expected pattern
-    # The imputed values should reflect the original values in the gene pattern
+    # Check that the smoothed values for the selected genes match the expected pattern
+    # The smoothed values should reflect the original values in the gene pattern
 
     # Get the indices of the subset genes in the original adata.var_names
     subset_indices = [
         list(adata_patterned.var_names).index(gene) for gene in gene_subset_patterned
     ]
 
-    # For each gene in the subset, verify the imputed values match the expected pattern
+    # For each gene in the subset, verify the smoothed values match the expected pattern
     for i, gene in enumerate(gene_subset_patterned):
         # Get the index of this gene in the original adata
         original_idx = list(adata_patterned.var_names).index(gene)
@@ -1220,12 +1220,12 @@ def test_gene_subset_order_preservation():
         # The value should match the original pattern (idx + 1)
         expected_value = original_idx + 1
 
-        # Get the actual imputed values for this gene
+        # Get the actual smoothed values for this gene
         gene_idx = list(adata_patterned.var_names).index(gene)
-        actual_values_1 = adata_patterned.layers[imputed_key_1][:, gene_idx]
-        actual_values_2 = adata_patterned.layers[imputed_key_2][:, gene_idx]
+        actual_values_1 = adata_patterned.layers[smoothed_key_1][:, gene_idx]
+        actual_values_2 = adata_patterned.layers[smoothed_key_2][:, gene_idx]
 
-        # The mean imputed value should be close to the expected value
+        # The mean smoothed value should be close to the expected value
         # (allowing for some deviation due to the Gaussian process)
         assert np.isclose(np.mean(actual_values_1), expected_value, atol=1.0)
         assert np.isclose(np.mean(actual_values_2), expected_value, atol=1.0)

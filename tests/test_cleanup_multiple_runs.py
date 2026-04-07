@@ -96,20 +96,20 @@ class TestCleanupMultipleRuns:
         )
 
         # Verify all runs created their fields
-        assert "run1_A_imputed" in adata.layers
-        assert "run2_A_imputed" in adata.layers
-        assert "run3_A_imputed" in adata.layers
+        assert "run1_A_smoothed" in adata.layers
+        assert "run2_A_smoothed" in adata.layers
+        assert "run3_A_smoothed" in adata.layers
 
         # Clean up run 1
         cleanup(adata, run_ids=0, keep_layers=False)
 
         # Run 1 layers should be gone
-        assert "run1_A_imputed" not in adata.layers
-        assert "run1_B_imputed" not in adata.layers
+        assert "run1_A_smoothed" not in adata.layers
+        assert "run1_B_smoothed" not in adata.layers
 
         # Run 2 and 3 layers should still exist
-        assert "run2_A_imputed" in adata.layers
-        assert "run3_A_imputed" in adata.layers
+        assert "run2_A_smoothed" in adata.layers
+        assert "run3_A_smoothed" in adata.layers
 
         # Verify RunInfo for run 1 shows missing fields
         run_info_1 = RunInfo(adata, run_id=0, analysis_type="de")
@@ -386,13 +386,13 @@ class TestCleanupMultipleRuns:
                 n_landmarks=5,
             )
 
-        # Clean up only imputed layers from both runs, keep fold_change
+        # Clean up only smoothed layers from both runs, keep fold_change
         cleanup(adata, run_ids=0, keep_layers=["fold_change", "fold_change_zscores"])
         cleanup(adata, run_ids=1, keep_layers=["fold_change", "fold_change_zscores"])
 
         # Imputed layers should be gone
-        assert "run0_A_imputed" not in adata.layers
-        assert "run1_A_imputed" not in adata.layers
+        assert "run0_A_smoothed" not in adata.layers
+        assert "run1_A_smoothed" not in adata.layers
 
         # Fold change layers should remain
         assert "run0_A_to_B_fold_change" in adata.layers
@@ -678,7 +678,7 @@ class TestCleanupEdgeCases:
         )
 
         # Everything should still be there
-        assert "test_A_imputed" in adata.layers
+        assert "test_A_smoothed" in adata.layers
 
 
 if __name__ == "__main__":

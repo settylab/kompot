@@ -173,7 +173,7 @@ class TestPlotGeneExpressionParameters:
             10, 0.3, (n_cells, n_genes)
         ).astype(float)
 
-        # Run DE to create results and imputed layers
+        # Run DE to create results and smoothed layers
         compute_differential_expression(
             self.adata,
             groupby="condition",
@@ -560,7 +560,7 @@ class TestConditionExtractionPriority:
     These tests mock run_info directly (no DE computation) so they run fast.
     They verify the fix for the bug where _extract_conditions_from_key would
     extract wrong condition fragments from multi-word condition names, causing
-    the wrong imputed layer (possibly from a different run) to be used.
+    the wrong smoothed layer (possibly from a different run) to be used.
     """
 
     @staticmethod
@@ -584,9 +584,9 @@ class TestConditionExtractionPriority:
         fn = generate_output_field_names(result_key, condition1, condition2, "de")
         run_info = {
             "result_key": result_key,
-            "imputed_layer_keys": {
-                "condition1": fn["imputed_key_1"],
-                "condition2": fn["imputed_key_2"],
+            "smoothed_layer_keys": {
+                "condition1": fn["smoothed_key_1"],
+                "condition2": fn["smoothed_key_2"],
                 "fold_change": fn["fold_change_key"],
             },
             "field_names": fn,
@@ -598,8 +598,8 @@ class TestConditionExtractionPriority:
         }
 
         # Add layers
-        adata.layers[fn["imputed_key_1"]] = np.ones((n_cells, n_genes))
-        adata.layers[fn["imputed_key_2"]] = np.ones((n_cells, n_genes)) * 2
+        adata.layers[fn["smoothed_key_1"]] = np.ones((n_cells, n_genes))
+        adata.layers[fn["smoothed_key_2"]] = np.ones((n_cells, n_genes)) * 2
         adata.layers[fn["fold_change_key"]] = np.ones((n_cells, n_genes)) * 0.5
         # Add var columns so key inference works
         adata.var[fn["mean_lfc_key"]] = 0.1
@@ -614,9 +614,9 @@ class TestConditionExtractionPriority:
             )
             extra_info = {
                 "result_key": extra_run,
-                "imputed_layer_keys": {
-                    "condition1": fn_extra["imputed_key_1"],
-                    "condition2": fn_extra["imputed_key_2"],
+                "smoothed_layer_keys": {
+                    "condition1": fn_extra["smoothed_key_1"],
+                    "condition2": fn_extra["smoothed_key_2"],
                     "fold_change": fn_extra["fold_change_key"],
                 },
                 "field_names": fn_extra,
@@ -626,8 +626,8 @@ class TestConditionExtractionPriority:
                     "result_key": extra_run,
                 },
             }
-            adata.layers[fn_extra["imputed_key_1"]] = np.ones((n_cells, n_genes)) * 10
-            adata.layers[fn_extra["imputed_key_2"]] = np.ones((n_cells, n_genes)) * 20
+            adata.layers[fn_extra["smoothed_key_1"]] = np.ones((n_cells, n_genes)) * 10
+            adata.layers[fn_extra["smoothed_key_2"]] = np.ones((n_cells, n_genes)) * 20
             adata.layers[fn_extra["fold_change_key"]] = np.ones((n_cells, n_genes)) * 5
             adata.var[fn_extra["mean_lfc_key"]] = 0.2
             adata.var[fn_extra["mahalanobis_key"]] = 2.0
@@ -652,7 +652,7 @@ class TestConditionExtractionPriority:
         result = plot_gene_expression(adata, "gene_0", return_fig=True)
         assert result is not None
         fig = result
-        # axes[2] is the condition2 imputed panel (row=1, col=0 in 2x2 grid)
+        # axes[2] is the condition2 smoothed panel (row=1, col=0 in 2x2 grid)
         panel_title = fig.axes[2].get_title()
         assert "Old" in panel_title
         assert "Not available" not in panel_title
@@ -668,7 +668,7 @@ class TestConditionExtractionPriority:
         result = plot_gene_expression(adata, "gene_0", return_fig=True)
         assert result is not None
         fig = result
-        # axes[1]=cond1 imputed, axes[2]=cond2 imputed
+        # axes[1]=cond1 smoothed, axes[2]=cond2 smoothed
         assert "Not available" not in fig.axes[1].get_title()
         assert "Not available" not in fig.axes[2].get_title()
         plt.close(fig)
@@ -732,7 +732,7 @@ class TestConditionExtractionPriority:
         )
         assert result is not None
         fig = result
-        # With no run_info and no layers, imputed panels must say 'Not available'
+        # With no run_info and no layers, smoothed panels must say 'Not available'
         assert "Not available" in fig.axes[1].get_title()
         assert "Not available" in fig.axes[2].get_title()
         plt.close(fig)

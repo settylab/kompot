@@ -372,8 +372,8 @@ def test_differential_expression_fit():
     )  # Skip Mahalanobis for simpler test
 
     # Check predictions dictionary contains expected keys
-    assert "condition1_imputed" in predictions
-    assert "condition2_imputed" in predictions
+    assert "condition1_smoothed" in predictions
+    assert "condition2_smoothed" in predictions
     assert "fold_change" in predictions
     assert "fold_change_zscores" in predictions
     assert "mean_log_fold_change" in predictions
@@ -383,7 +383,7 @@ def test_differential_expression_fit():
     # Check shapes
     expected_rows = X_condition1.shape[0] + X_condition2.shape[0]
     expected_cols = y_condition1.shape[1]
-    assert predictions["condition1_imputed"].shape == (expected_rows, expected_cols)
+    assert predictions["condition1_smoothed"].shape == (expected_rows, expected_cols)
     assert predictions["fold_change"].shape == (expected_rows, expected_cols)
 
     # Check values
@@ -437,20 +437,20 @@ def test_differential_expression_predict():
 
     # Check output structure
     assert isinstance(predictions, dict)
-    assert "condition1_imputed" in predictions
-    assert "condition2_imputed" in predictions
+    assert "condition1_smoothed" in predictions
+    assert "condition2_smoothed" in predictions
     assert "fold_change" in predictions
     assert "fold_change_zscores" in predictions
 
     # Check shapes
-    assert predictions["condition1_imputed"].shape == (
+    assert predictions["condition1_smoothed"].shape == (
         len(X_new),
         y_condition1.shape[1],
     )
     assert predictions["fold_change"].shape == (len(X_new), y_condition1.shape[1])
 
     # Check values
-    assert np.isfinite(predictions["condition1_imputed"]).all()
+    assert np.isfinite(predictions["condition1_smoothed"]).all()
     assert np.isfinite(predictions["fold_change"]).all()
     assert np.isfinite(predictions["fold_change_zscores"]).all()
 
@@ -482,8 +482,8 @@ def test_differential_expression_predict():
     )
 
     # Should include all basic metrics
-    assert "condition1_imputed" in predictions_with_function_predictors
-    assert "condition2_imputed" in predictions_with_function_predictors
+    assert "condition1_smoothed" in predictions_with_function_predictors
+    assert "condition2_smoothed" in predictions_with_function_predictors
     assert "fold_change" in predictions_with_function_predictors
     assert "fold_change_zscores" in predictions_with_function_predictors
     assert "mean_log_fold_change" in predictions_with_function_predictors
