@@ -143,16 +143,12 @@ except (ImportError, TypeError) as e:
 
 try:
     from .smoothing import plot_smoothing
-    from .imputation import plot_imputation  # deprecated alias
 
-    __all__.extend(["plot_smoothing", "plot_imputation"])
+    __all__.append("plot_smoothing")
 except (ImportError, TypeError) as e:
     logger.warning(f"Could not import smoothing plotting functions due to: {e}")
 
     def plot_smoothing(*args, **kwargs):
-        raise ImportError("Smoothing plot unavailable due to missing dependencies.")
-
-    def plot_imputation(*args, **kwargs):
         raise ImportError("Smoothing plot unavailable due to missing dependencies.")
 
 

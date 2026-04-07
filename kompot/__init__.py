@@ -60,8 +60,6 @@ from .anndata import (
     compute_differential_expression,
     smooth_expression,
     compute_smoothed_expression,
-    impute_expression,
-    compute_imputed_expression,
     check_underrepresentation,
     RunInfo,
     RunComparison,
@@ -138,11 +136,9 @@ __all__ = [
     # Expression smoothing
     "smooth_expression",
     "compute_smoothed_expression",
-    # AnnData functionality (deprecated, use de()/da()/smooth_expression())
+    # AnnData functionality (deprecated, use de()/da())
     "compute_differential_abundance",
     "compute_differential_expression",
-    "impute_expression",
-    "compute_imputed_expression",
     "check_underrepresentation",
     "RunInfo",
     "RunComparison",

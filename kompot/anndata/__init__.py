@@ -12,7 +12,6 @@ from . import utils  # noqa: F401
 from .differential_abundance import da, compute_differential_abundance
 from .differential_expression import de, compute_differential_expression
 from .smooth import smooth_expression, compute_smoothed_expression
-from .impute import impute_expression, compute_imputed_expression  # deprecated aliases
 from .utils import RunInfo, RunComparison, check_underrepresentation
 from .cleanup import cleanup, get_field_status
 from .fdr_utils import recompute_fdr, extract_null_distribution
@@ -24,8 +23,6 @@ __all__ = [
     "compute_differential_expression",
     "smooth_expression",
     "compute_smoothed_expression",
-    "impute_expression",
-    "compute_imputed_expression",
     "RunInfo",
     "RunComparison",
     "check_underrepresentation",
