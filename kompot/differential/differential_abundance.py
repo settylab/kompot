@@ -217,22 +217,32 @@ class DifferentialAbundance:
             # Update defaults with user-provided values (user-provided settings will override ls_factor if ls is specified)
             estimator_defaults.update(density_kwargs)
 
-            # Use provided landmarks if available, otherwise compute them if requested
+            # Use provided landmarks if available, otherwise compute them if requested.
+            # gp_type="fixed" is set on the estimator so the landmarks act as fixed
+            # inducing points for both per-condition density estimators — i.e. shared
+            # across conditions, mirroring DifferentialExpression. Without this, mellon's
+            # auto-select picks FULL whenever a condition has fewer cells than the
+            # shared landmark grid, silently discarding the cross-condition sharing.
             if landmarks is not None:
                 logger.info(f"Using provided landmarks with shape {landmarks.shape}")
                 estimator_defaults["landmarks"] = landmarks
+                estimator_defaults["gp_type"] = "fixed"
                 # Store provided landmarks for future use
                 self.computed_landmarks = landmarks
             elif self.n_landmarks is not None:
-                # Use mellon's compute_landmarks function to get properly distributed landmarks
-                # Pass the random_state parameter directly to ensure reproducible results
+                # Use mellon's compute_landmarks function to get properly distributed landmarks.
+                # gp_type="fixed" guarantees a populated landmark array even when
+                # n_landmarks >= n_combined, so both per-condition density estimators
+                # share the same inducing points.
                 X_combined = np.vstack([X_condition1, X_condition2])
                 computed_landmarks = compute_landmarks(
                     X_combined,
+                    gp_type="fixed",
                     n_landmarks=self.n_landmarks,
                     random_state=self.random_state,
                 )
                 estimator_defaults["landmarks"] = computed_landmarks
+                estimator_defaults["gp_type"] = "fixed"
                 # Store computed landmarks for future use
                 self.computed_landmarks = computed_landmarks
 
