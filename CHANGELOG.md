@@ -23,7 +23,7 @@ All notable changes to this project will be documented in this file.
  - **`DifferentialExpression.compute_fdr(null_mahal)`**: sklearn-like method to compute FDR after `predict(compute_mahalanobis=True)`.
  - **Empirical variance** (`GPSettings(use_empirical_variance=True)`): estimates per-gene heteroscedastic noise from GP residuals and adjusts Mahalanobis distances accordingly. Works with or without biological replicates.
  - **`CenteredLinear` kernel** for better extrapolation at cell-state boundaries (opt-in via `cov_func`; default remains Matern52).
- - **More accurate uncertainty**: density estimators now use mellon 1.7.0's default Laplacian optimizer instead of ADVI.
+ - **More accurate uncertainty**: density estimators now use mellon 1.7.1's default Laplacian optimizer instead of ADVI.
 
 ### Run history and reproducibility
 
@@ -46,6 +46,7 @@ All notable changes to this project will be documented in this file.
 
 ### Bug fixes
 
+ - **Restore shared-landmark precomputation in DE** (requires mellon ≥ 1.7.1). Mellon's `compute_landmarks` had a silent string-vs-enum bug where `gp_type="fixed"` did not match `GaussianProcessType.FIXED`, causing the function to return `None` instead of the documented fall-through. Kompot's shared-landmark precomputation in `DifferentialExpression.fit()` and the per-condition fallback in `ExpressionModel.fit()` both routed through this code path, so on every DE call kompot was silently dropping the cross-condition shared landmark grid (each condition ended up with an independent full GP) and ignoring the user-supplied `random_state` for landmark selection (mellon's internal `_compute_landmarks` fell back to the hardcoded `DEFAULT_RANDOM_SEED=42`). Pinning `mellon>=1.7.1` enables the fix transparently — no kompot code changes were required.
  - Fix local FDR numerical instability (Grenander estimator replaces statsmodels Poisson GLM).
  - Fix tail FDR: replace Benjamini-Hochberg on empirical p-values (which breaks when `n_null` << `n_genes`) with fdrtool-style survival function ratio `Fdr(d) = S_null(d) / S_mix(d)`.
  - Fix `cell_filter` docs: parameter includes matching cells, not excludes.
