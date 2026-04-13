@@ -572,14 +572,16 @@ def test_landmark_reuse_and_storage():
     anndata_fields3 = from_json_string(adata.uns["kompot_de"]["anndata_fields"])
     assert "reuse_landmarks_run" in anndata_fields3.get("uns", {})
 
-    # Check if landmarks are stored in the result
+    # Check if landmarks are stored in the result.
+    # This run uses n_landmarks=50 on 50 combined cells, so with gp_type="fixed"
+    # compute_landmarks returns all 50 cells as landmarks.
     if (
         "reuse_landmarks_run" in adata.uns
         and "landmarks" in adata.uns["reuse_landmarks_run"]
     ):
         reused_landmarks = adata.uns["reuse_landmarks_run"]["landmarks"]
-        assert reused_landmarks.shape == landmarks_shape, (
-            "Expected reused landmarks to have the same shape"
+        assert reused_landmarks.shape == (50, 5), (
+            f"Expected (50, 5) landmarks for n_landmarks=50, got {reused_landmarks.shape}"
         )
 
     # Test sequential reuse by keeping one of the landmarks and deleting the other
