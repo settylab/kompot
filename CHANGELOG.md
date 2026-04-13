@@ -2,7 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.7.0]
+## [0.7.0] - 2026-04-13
+
+### Breaking changes
+
+ - **Drop Python 3.9 support**: kompot now requires Python ≥ 3.10 (driven by mellon ≥ 1.7.0 dependency).
 
 ### New simplified API
 
@@ -51,6 +55,7 @@ All notable changes to this project will be documented in this file.
  - Fix local FDR numerical instability (Grenander estimator replaces statsmodels Poisson GLM).
  - Fix tail FDR: replace Benjamini-Hochberg on empirical p-values (which breaks when `n_null` << `n_genes`) with fdrtool-style survival function ratio `Fdr(d) = S_null(d) / S_mix(d)`.
  - Fix `cell_filter` docs: parameter includes matching cells, not excludes.
+ - Fix missing `field_mapping` in DA run history: `append_to_run_history` was called before `field_mapping` was computed, so DA history entries never recorded which fields were written.
 
 ## [0.6.3]
 

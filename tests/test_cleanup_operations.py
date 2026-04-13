@@ -75,12 +75,12 @@ def _make_adata_with_run(
 
     if populate_fields:
         # layers
-        adata.layers[f"{result_key}_A_smoothed"] = np.random.randn(n_obs, n_vars).astype(
-            np.float32
-        )
-        adata.layers[f"{result_key}_B_smoothed"] = np.random.randn(n_obs, n_vars).astype(
-            np.float32
-        )
+        adata.layers[f"{result_key}_A_smoothed"] = np.random.randn(
+            n_obs, n_vars
+        ).astype(np.float32)
+        adata.layers[f"{result_key}_B_smoothed"] = np.random.randn(
+            n_obs, n_vars
+        ).astype(np.float32)
         adata.layers[f"{result_key}_A_to_B_fold_change"] = np.random.randn(
             n_obs, n_vars
         ).astype(np.float32)

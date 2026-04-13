@@ -1607,7 +1607,11 @@ def compute_differential_expression(
                 ]
 
                 # Convert CSR matrices to LIL format for efficient column-wise assignment
-                layers_to_convert_novar = [smoothed1_key, smoothed2_key, fold_change_key]
+                layers_to_convert_novar = [
+                    smoothed1_key,
+                    smoothed2_key,
+                    fold_change_key,
+                ]
                 if store_additional_stats:
                     layers_to_convert_novar.append(
                         field_names["fold_change_zscores_key"]

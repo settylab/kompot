@@ -50,11 +50,11 @@ extensions = [
 ]
 
 # Configure nbsphinx to keep section headers in the content but manage TOC better
-nbsphinx_prompt_width = '0'
+nbsphinx_prompt_width = "0"
 
 # Configure nbsphinx execution behavior
 # Never execute notebooks - use existing outputs
-nbsphinx_execute = 'never'
+nbsphinx_execute = "never"
 nbsphinx_allow_errors = True
 
 
@@ -70,28 +70,28 @@ def copy_nbsphinx_images_and_fix_paths(app, exception):
 
     # Source: where nbsphinx extracts base64 images
     # Use app.doctreedir which is the actual doctrees path set by -d option
-    doctrees_nbsphinx = Path(app.doctreedir) / 'nbsphinx'
+    doctrees_nbsphinx = Path(app.doctreedir) / "nbsphinx"
 
     # Destination: where Sphinx serves images from
-    html_images = Path(app.outdir) / '_images'
+    html_images = Path(app.outdir) / "_images"
 
-    print(f'Checking for images in: {doctrees_nbsphinx}')
-    print(f'Output directory: {app.outdir}')
+    print(f"Checking for images in: {doctrees_nbsphinx}")
+    print(f"Output directory: {app.outdir}")
 
     if not doctrees_nbsphinx.exists():
-        print(f'Directory {doctrees_nbsphinx} does not exist, skipping image copy')
+        print(f"Directory {doctrees_nbsphinx} does not exist, skipping image copy")
         return
 
     html_images.mkdir(exist_ok=True, parents=True)
 
     # Copy all PNG files from nbsphinx cache to _images
     copied_images = set()
-    for img_file in doctrees_nbsphinx.glob('*.png'):
+    for img_file in doctrees_nbsphinx.glob("*.png"):
         dest = html_images / img_file.name
         if not dest.exists():
             shutil.copy2(img_file, dest)
             copied_images.add(img_file.name)
-            print(f'Copied {img_file.name} to _images/')
+            print(f"Copied {img_file.name} to _images/")
 
     if not copied_images:
         return
@@ -99,21 +99,22 @@ def copy_nbsphinx_images_and_fix_paths(app, exception):
     # Fix image paths in HTML files
     # Pattern: ../../_build/doctrees/nbsphinx/IMAGE.png -> ../_images/IMAGE.png
     pattern = re.compile(r'\.\./\.\./\_build/doctrees/nbsphinx/([^"\']+\.png)')
-    replacement = r'../_images/\1'
+    replacement = r"../_images/\1"
 
-    notebooks_dir = Path(app.outdir) / 'notebooks'
+    notebooks_dir = Path(app.outdir) / "notebooks"
     if notebooks_dir.exists():
-        for html_file in notebooks_dir.glob('*.html'):
-            content = html_file.read_text(encoding='utf-8')
+        for html_file in notebooks_dir.glob("*.html"):
+            content = html_file.read_text(encoding="utf-8")
             new_content = pattern.sub(replacement, content)
             if new_content != content:
-                html_file.write_text(new_content, encoding='utf-8')
-                print(f'Fixed image paths in {html_file.name}')
+                html_file.write_text(new_content, encoding="utf-8")
+                print(f"Fixed image paths in {html_file.name}")
 
 
 def setup(app):
     """Setup function to register Sphinx event handlers."""
-    app.connect('build-finished', copy_nbsphinx_images_and_fix_paths)
+    app.connect("build-finished", copy_nbsphinx_images_and_fix_paths)
+
 
 # Add a prolog to control figure rendering
 nbsphinx_prolog = """
@@ -131,7 +132,7 @@ nbsphinx_prolog = """
     </style>
 """
 
-if os.environ.get('READTHEDOCS') == 'True':
+if os.environ.get("READTHEDOCS") == "True":
     extensions.append("sphinx_github_style")
 
 # sphinx_github_style config
@@ -145,7 +146,12 @@ templates_path = ["_templates"]
 # List of patterns, relative to source directory, that match files and
 # directories to ignore when looking for source files.
 # This pattern also affects html_static_path and html_extra_path.
-exclude_patterns = ["_build", "**.ipynb_checkpoints", "**/plotting_notebook.ipynb", "**/plotting_notebook-highres.ipynb"]
+exclude_patterns = [
+    "_build",
+    "**.ipynb_checkpoints",
+    "**/plotting_notebook.ipynb",
+    "**/plotting_notebook-highres.ipynb",
+]
 
 
 # -- Options for HTML output -------------------------------------------------
