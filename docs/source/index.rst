@@ -26,7 +26,7 @@
    Getting Started <notebooks/01_getting_started.ipynb>
    Advanced Differential Expression <notebooks/02_differential_expression_detailed.ipynb>
    Sample Variance Analysis <notebooks/03_sample_variance.ipynb>
-   Gene Expression Imputation <notebooks/04_expression_model.ipynb>
+   Gene Expression Smoothing <notebooks/04_expression_model.ipynb>
 
 .. |doi| image:: https://zenodo.org/badge/944121568.svg
    :target: https://zenodo.org/badge/latestdoi/944121568

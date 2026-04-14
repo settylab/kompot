@@ -22,6 +22,7 @@ Differential Abundance
    :members:
    :undoc-members:
    :show-inheritance:
+   :exclude-members: compute_differential_abundance
 
 Differential Expression
 -----------------------
@@ -30,6 +31,16 @@ Differential Expression
    :members:
    :undoc-members:
    :show-inheritance:
+   :exclude-members: compute_differential_expression
+
+Smooth Expression
+-----------------
+
+.. automodule:: kompot.anndata.smooth
+   :members:
+   :undoc-members:
+   :show-inheritance:
+   :exclude-members: compute_smoothed_expression
 
 Resource Estimation
 -------------------
@@ -71,7 +82,7 @@ Utilities
 ---------
 
 .. autoclass:: kompot.anndata.utils.RunInfo
-   :members: __init__, get_summary, get_data, compare_with
+   :members: __init__, get_summary, get_data, compare_with, to_settings, call_args
    :show-inheritance:
 
 Cleanup Utilities
