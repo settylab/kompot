@@ -40,9 +40,6 @@ All commands support:
 Quick Start
 -----------
 
-Complete Workflow
-^^^^^^^^^^^^^^^^^
-
 .. code-block:: bash
 
    # 1. Compute diffusion maps (preprocessing)
@@ -54,54 +51,18 @@ Complete Workflow
    kompot de input_with_dm.h5ad -o de_results.h5ad \
      --groupby condition \
      --condition1 control \
-     --condition2 treatment \
-     --obsm-key DM_EigenVectors
+     --condition2 treatment
 
    # 3. Run differential abundance
    kompot da input_with_dm.h5ad -o da_results.h5ad \
      --groupby condition \
      --condition1 control \
-     --condition2 treatment \
-     --obsm-key DM_EigenVectors
+     --condition2 treatment
 
    # 4. Smooth gene expression for a single condition
    kompot smooth input_with_dm.h5ad -o smoothed.h5ad \
      --groupby condition \
-     --condition treatment \
-     --obsm-key DM_EigenVectors
-
-Diffusion Maps (Preprocessing)
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-.. code-block:: bash
-
-   kompot dm input.h5ad -o output.h5ad \
-     --pca-key X_pca \
-     --n-components 10 \
-     --knn 30
-
-Differential Expression (Basic)
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-.. code-block:: bash
-
-   kompot de input.h5ad -o output.h5ad \
-     --groupby condition \
-     --condition1 control \
-     --condition2 treatment \
-     --obsm-key X_pca \
-     --layer logged_counts
-
-Differential Abundance (Basic)
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-.. code-block:: bash
-
-   kompot da input.h5ad -o output.h5ad \
-     --groupby condition \
-     --condition1 control \
-     --condition2 treatment \
-     --obsm-key X_pca
+     --condition treatment
 
 Using Config Files
 ^^^^^^^^^^^^^^^^^^
