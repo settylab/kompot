@@ -24,11 +24,12 @@ Verify installation:
 Overview
 --------
 
-The CLI provides three main commands:
+The CLI provides four main commands:
 
 - ``kompot dm`` - Compute diffusion maps (preprocessing with Palantir)
 - ``kompot de`` - Differential expression analysis
 - ``kompot da`` - Differential abundance analysis
+- ``kompot smooth`` - Smooth gene expression for a single condition
 
 All commands support:
 
@@ -45,22 +46,28 @@ Complete Workflow
 .. code-block:: bash
 
    # 1. Compute diffusion maps (preprocessing)
-   kompot dm input.h5ad -o input_with_dm.h5ad \\
-     --pca-key X_pca \\
+   kompot dm input.h5ad -o input_with_dm.h5ad \
+     --pca-key X_pca \
      --n-components 10
 
    # 2. Run differential expression
-   kompot de input_with_dm.h5ad -o de_results.h5ad \\
-     --groupby condition \\
-     --condition1 control \\
-     --condition2 treatment \\
+   kompot de input_with_dm.h5ad -o de_results.h5ad \
+     --groupby condition \
+     --condition1 control \
+     --condition2 treatment \
      --obsm-key DM_EigenVectors
 
    # 3. Run differential abundance
-   kompot da input_with_dm.h5ad -o da_results.h5ad \\
-     --groupby condition \\
-     --condition1 control \\
-     --condition2 treatment \\
+   kompot da input_with_dm.h5ad -o da_results.h5ad \
+     --groupby condition \
+     --condition1 control \
+     --condition2 treatment \
+     --obsm-key DM_EigenVectors
+
+   # 4. Smooth gene expression for a single condition
+   kompot smooth input_with_dm.h5ad -o smoothed.h5ad \
+     --groupby condition \
+     --condition treatment \
      --obsm-key DM_EigenVectors
 
 Diffusion Maps (Preprocessing)
@@ -68,9 +75,9 @@ Diffusion Maps (Preprocessing)
 
 .. code-block:: bash
 
-   kompot dm input.h5ad -o output.h5ad \\
-     --pca-key X_pca \\
-     --n-components 10 \\
+   kompot dm input.h5ad -o output.h5ad \
+     --pca-key X_pca \
+     --n-components 10 \
      --knn 30
 
 Differential Expression (Basic)
@@ -78,11 +85,11 @@ Differential Expression (Basic)
 
 .. code-block:: bash
 
-   kompot de input.h5ad -o output.h5ad \\
-     --groupby condition \\
-     --condition1 control \\
-     --condition2 treatment \\
-     --obsm-key X_pca \\
+   kompot de input.h5ad -o output.h5ad \
+     --groupby condition \
+     --condition1 control \
+     --condition2 treatment \
+     --obsm-key X_pca \
      --layer logged_counts
 
 Differential Abundance (Basic)
@@ -90,10 +97,10 @@ Differential Abundance (Basic)
 
 .. code-block:: bash
 
-   kompot da input.h5ad -o output.h5ad \\
-     --groupby condition \\
-     --condition1 control \\
-     --condition2 treatment \\
+   kompot da input.h5ad -o output.h5ad \
+     --groupby condition \
+     --condition1 control \
+     --condition2 treatment \
      --obsm-key X_pca
 
 Using Config Files
@@ -104,9 +111,9 @@ For complex analyses with many parameters, use config files:
 .. code-block:: bash
 
    # Get template (copy from installed package)
-   python -c "from pathlib import Path; import shutil; \\
-   import kompot; \\
-   src = Path(kompot.__file__).parent / 'cli' / 'templates' / 'de_config_minimal.yaml'; \\
+   python -c "from pathlib import Path; import shutil; \
+   import kompot; \
+   src = Path(kompot.__file__).parent / 'cli' / 'templates' / 'de_config_minimal.yaml'; \
    shutil.copy(src, 'my_de_config.yaml')"
 
    # Edit config file
@@ -119,8 +126,8 @@ CLI arguments override config file values:
 
 .. code-block:: bash
 
-   kompot de input.h5ad -o output.h5ad \\
-     -c my_config.yaml \\
+   kompot de input.h5ad -o output.h5ad \
+     -c my_config.yaml \
      --batch-size 50  # Overrides batch_size in config
 
 Diffusion Maps Command
@@ -165,16 +172,16 @@ Example: Complete Preprocessing
 .. code-block:: bash
 
    # Starting with raw AnnData (assuming PCA already computed)
-   kompot dm bone_marrow.h5ad -o bone_marrow_dm.h5ad \\
-     --pca-key X_pca \\
-     --n-components 10 \\
+   kompot dm bone_marrow.h5ad -o bone_marrow_dm.h5ad \
+     --pca-key X_pca \
+     --n-components 10 \
      --knn 30
 
    # Then run differential analysis
-   kompot de bone_marrow_dm.h5ad -o results.h5ad \\
-     --groupby Age \\
-     --condition1 Young \\
-     --condition2 Old \\
+   kompot de bone_marrow_dm.h5ad -o results.h5ad \
+     --groupby Age \
+     --condition1 Young \
+     --condition2 Old \
      --obsm-key DM_EigenVectors
 
 Why Diffusion Maps?
@@ -267,17 +274,17 @@ Example: Complete Analysis
 
 .. code-block:: bash
 
-   kompot de bone_marrow.h5ad -o results.h5ad \\
-     --groupby Age \\
-     --condition1 Young \\
-     --condition2 Old \\
-     --obsm-key DM_EigenVectors \\
-     --layer logged_counts \\
-     --sample-col Sample \\
-     --n-landmarks 5000 \\
-     --batch-size 100 \\
-     --fdr-threshold 0.05 \\
-     --null-genes 2000 \\
+   kompot de bone_marrow.h5ad -o results.h5ad \
+     --groupby Age \
+     --condition1 Young \
+     --condition2 Old \
+     --obsm-key DM_EigenVectors \
+     --layer logged_counts \
+     --sample-col Sample \
+     --n-landmarks 5000 \
+     --batch-size 100 \
+     --fdr-threshold 0.05 \
+     --null-genes 2000 \
      --store-additional-stats
 
 Differential Abundance Command
@@ -348,15 +355,88 @@ Example: Complete Analysis
 
 .. code-block:: bash
 
-   kompot da bone_marrow.h5ad -o results.h5ad \\
-     --groupby Age \\
-     --condition1 Young \\
-     --condition2 Old \\
-     --obsm-key DM_EigenVectors \\
-     --sample-col Sample \\
-     --n-landmarks 3000 \\
-     --log-fold-change-threshold 1.0 \\
+   kompot da bone_marrow.h5ad -o results.h5ad \
+     --groupby Age \
+     --condition1 Young \
+     --condition2 Old \
+     --obsm-key DM_EigenVectors \
+     --sample-col Sample \
+     --n-landmarks 3000 \
+     --log-fold-change-threshold 1.0 \
      --ptp-threshold 0.05
+
+Smooth Command
+--------------
+
+The ``smooth`` command smooths gene expression for a single condition using GP regression. This is useful for denoising expression data or preparing smoothed expression for downstream analysis.
+
+Basic Usage
+^^^^^^^^^^^
+
+.. code-block:: bash
+
+   kompot smooth INPUT -o OUTPUT [OPTIONS]
+   kompot smooth INPUT -t TABLE_OUTPUT [OPTIONS]
+
+At least one output must be specified: ``-o/--output`` for full AnnData or ``-t/--table-output`` for CSV/TSV summary table (mean smoothed values and standard deviations per gene).
+
+Common Options
+^^^^^^^^^^^^^^
+
+.. code-block:: text
+
+   --groupby COLUMN          # Column in adata.obs with condition labels
+   --condition LABEL         # Which condition to smooth (requires --groupby)
+   --obsm-key KEY            # Cell state representation (default: DM_EigenVectors)
+   --layer LAYER             # Expression data layer (default: None, use X)
+   --result-key KEY          # Storage key (default: kompot_smooth)
+   --n-landmarks N           # Number of landmarks (default: 5000)
+   --sample-col COLUMN       # Sample ID column for sample variance estimation
+   --batch-size N            # Cells per batch (default: 500)
+   --genes GENE [GENE ...]   # Subset of genes to smooth (default: all)
+
+GP Options
+^^^^^^^^^^
+
+.. code-block:: text
+
+   --sigma FLOAT             # Noise level for the GP (default: 1.0)
+   --ls-factor FLOAT         # Length scale factor (default: 10.0)
+   --eps FLOAT               # Numerical stability constant (default: 1e-8)
+   --random-state INT        # Random seed for landmark selection
+
+Boolean Flags
+^^^^^^^^^^^^^
+
+.. code-block:: text
+
+   --use-empirical-variance  # Estimate per-gene heteroscedastic noise from GP residuals
+   --overwrite               # Overwrite existing results without warning
+   --no-progress             # Disable progress bars
+   --use-gpu                 # Use GPU acceleration (requires CUDA-enabled JAX)
+
+Example: Smooth Treatment Condition
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+.. code-block:: bash
+
+   kompot smooth bone_marrow.h5ad -o smoothed.h5ad \
+     --groupby Age \
+     --condition Old \
+     --obsm-key DM_EigenVectors \
+     --layer logged_counts \
+     --n-landmarks 5000
+
+Example: Gene Summary Table
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+.. code-block:: bash
+
+   kompot smooth bone_marrow.h5ad \
+     -t gene_summary.csv \
+     --groupby Age \
+     --condition Old \
+     --genes CD34 CD38 THY1
 
 Configuration Files
 -------------------
@@ -477,6 +557,7 @@ Kompot provides ready-to-use templates:
 - ``kompot/cli/templates/dm_config_template.yaml``
 - ``kompot/cli/templates/de_config_template.yaml``
 - ``kompot/cli/templates/da_config_template.yaml``
+- ``kompot/cli/templates/smooth_config_template.yaml``
 
 Pipeline Integration
 --------------------
@@ -526,20 +607,20 @@ Shell Script Example
        echo "Processing ${sample}..."
 
        # Step 1: Compute diffusion maps
-       kompot dm \\
-           data/${sample}.h5ad \\
-           -o temp/${sample}_dm.h5ad \\
-           --pca-key X_pca \\
+       kompot dm \
+           data/${sample}.h5ad \
+           -o temp/${sample}_dm.h5ad \
+           --pca-key X_pca \
            --n-components 10
 
        # Step 2: Differential expression
-       kompot de \\
-           temp/${sample}_dm.h5ad \\
-           -o results/${sample}_de.h5ad \\
-           --groupby condition \\
-           --condition1 control \\
-           --condition2 treatment \\
-           --obsm-key DM_EigenVectors \\
+       kompot de \
+           temp/${sample}_dm.h5ad \
+           -o results/${sample}_de.h5ad \
+           --groupby condition \
+           --condition1 control \
+           --condition2 treatment \
+           --obsm-key DM_EigenVectors \
            --batch-size 100
 
        if [ $? -eq 0 ]; then
@@ -695,6 +776,7 @@ Getting Help
    # Command-specific help
    kompot de --help
    kompot da --help
+   kompot smooth --help
    kompot dm --help
 
    # Check version
