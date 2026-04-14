@@ -74,6 +74,17 @@ kompot de input.h5ad -o output.h5ad \
   --groupby condition \
   --condition1 control \
   --condition2 treatment
+
+# Differential abundance
+kompot da input.h5ad -o output.h5ad \
+  --groupby condition \
+  --condition1 control \
+  --condition2 treatment
+
+# Smooth gene expression for a single condition
+kompot smooth input.h5ad -o output.h5ad \
+  --groupby condition \
+  --condition treatment
 ```
 
 ## Documentation
