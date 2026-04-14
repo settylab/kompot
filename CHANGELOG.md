@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### New features
+
+ - **`--dry-run` flag for `kompot de` CLI**: estimates memory, disk, and output field requirements without running the analysis. Outputs machine-parseable JSON to stdout and a human-readable report to stderr. Exit code reflects feasibility.
+ - **`kompot.configure_logging(stream)`**: reconfigure the kompot logger output stream. The CLI now logs to stderr by default, keeping stdout clean for machine-parseable output (dry-run JSON, table output).
+
+### Improvements
+
+ - **CLI logs to stderr**: all `kompot` CLI commands now write log messages to stderr instead of stdout, so stdout is reserved for data output.
+ - **`kompot smooth` documented in CLI guide**: added full command reference, options, and examples to the Sphinx CLI docs.
+ - Fix double-backslash rendering in all CLI doc code blocks.
+ - Exclude deprecated `compute_differential_*` functions from Sphinx automodule output.
+ - Add `smooth_expression()` module to Sphinx API docs.
+ - Add `RunInfo.to_settings()` and `call_args()` to documented members.
+ - Fix "Gene Expression Imputation" → "Gene Expression Smoothing" in docs toctree.
+
 ## [0.7.0] - 2026-04-13
 
 ### Breaking changes
