@@ -253,26 +253,24 @@ Example: Dry Run (Resource Estimation)
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Use ``--dry-run`` to check memory and disk requirements before committing
-to a long analysis. JSON is written to stdout (or ``-o`` file); the
-human-readable report goes to stderr.
+to a long analysis. JSON is written to stdout; the human-readable report
+goes to stderr. Use the same arguments as the real run (``-o`` is ignored).
 
 .. code-block:: bash
 
-   # Print JSON plan to stdout, human report to stderr
+   # Check resources (human report on stderr, JSON on stdout)
    kompot de bone_marrow.h5ad --dry-run \
      --groupby Age \
      --condition1 Young \
      --condition2 Old
 
-   # Save plan to a file for pipeline consumption
-   kompot de bone_marrow.h5ad --dry-run -o plan.json \
-     --groupby Age \
-     --condition1 Young \
-     --condition2 Old
-
-   # Parse in a pipeline (e.g., check feasibility before submitting a job)
+   # Save JSON plan and check feasibility in a pipeline
    kompot de input.h5ad --dry-run --groupby cond --condition1 A --condition2 B \
-     | jq '.feasible'
+     > plan.json && echo "feasible"
+
+   # Parse specific fields with jq
+   kompot de input.h5ad --dry-run --groupby cond --condition1 A --condition2 B \
+     2>/dev/null | jq '.memory.total_human'
 
 The exit code is ``0`` if the plan is feasible, ``1`` if not.
 

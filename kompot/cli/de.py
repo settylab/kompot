@@ -183,8 +183,8 @@ def add_de_parser(subparsers) -> argparse.ArgumentParser:
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Estimate resource requirements and print a plan instead of running the analysis. "
-        "Outputs JSON to stdout for pipeline integration; human-readable report to stderr.",
+        help="Estimate resource requirements instead of running the analysis. "
+        "JSON to stdout, human-readable report to stderr. -o/--output is ignored.",
     )
 
     # Compute configuration
@@ -409,17 +409,9 @@ def run_de(args):
             logger.error(f"Dry run failed: {str(e)}")
             raise
 
-        # Machine-parseable JSON output
-        plan_dict = plan.to_dict()
-        if args.output:
-            output_path = Path(args.output)
-            with open(output_path, "w") as f:
-                json.dump(plan_dict, f, default=_json_default, indent=2)
-                f.write("\n")
-            logger.info(f"Resource plan written to {output_path}")
-        else:
-            json.dump(plan_dict, sys.stdout, default=_json_default, indent=2)
-            print(file=sys.stdout)  # trailing newline
+        # Machine-parseable JSON to stdout
+        json.dump(plan.to_dict(), sys.stdout, default=_json_default, indent=2)
+        print(file=sys.stdout)  # trailing newline
         sys.exit(0 if plan.is_feasible else 1)
 
     # Run analysis
