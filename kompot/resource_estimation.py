@@ -340,6 +340,87 @@ class ResourcePlan:
 
         return "\n".join(lines)
 
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialize the resource plan to a JSON-compatible dictionary.
+
+        Designed for machine-parseable output in CLI pipelines.
+
+        Returns
+        -------
+        dict
+            Dictionary with keys: feasible, status, memory, disk,
+            output_fields, info, warnings, errors.
+        """
+        memory_reqs = [r for r in self.requirements if r.resource_type == "memory"]
+        disk_reqs = [r for r in self.requirements if r.resource_type == "disk"]
+
+        result: Dict[str, Any] = {
+            "feasible": self.is_feasible,
+            "status": (
+                "infeasible"
+                if self.errors
+                else "warnings" if self.warnings else "ok"
+            ),
+        }
+
+        # Memory section
+        mem: Dict[str, Any] = {
+            "total_bytes": self.total_memory_required,
+            "total_human": human_readable_size(self.total_memory_required),
+        }
+        if self.availability:
+            mem["available_bytes"] = self.availability.memory_available
+            mem["available_human"] = self.availability.memory_available_human
+            mem["ratio"] = round(self.memory_ratio, 4)
+        mem["allocations"] = [
+            {
+                "name": r.name,
+                "bytes": r.size_bytes,
+                "human": r.size_human,
+                **({"shape": list(r.shape)} if r.shape else {}),
+                **({"field": r.field_name} if r.field_name else {}),
+                **({"overwrite": True} if r.overwrite else {}),
+            }
+            for r in memory_reqs
+        ]
+        result["memory"] = mem
+
+        # Disk section
+        dsk: Dict[str, Any] = {
+            "total_bytes": self.total_disk_required,
+            "total_human": human_readable_size(self.total_disk_required),
+        }
+        if self.availability:
+            dsk["available_bytes"] = self.availability.disk_available
+            dsk["available_human"] = self.availability.disk_available_human
+            dsk["path"] = self.availability.disk_path
+            dsk["ratio"] = round(self.disk_ratio, 4)
+        dsk["allocations"] = [
+            {
+                "name": r.name,
+                "bytes": r.size_bytes,
+                "human": r.size_human,
+                **({"shape": list(r.shape)} if r.shape else {}),
+                **({"overwrite": True} if r.overwrite else {}),
+            }
+            for r in disk_reqs
+        ]
+        result["disk"] = dsk
+
+        # Output fields
+        if self.output_fields:
+            result["output_fields"] = self.output_fields
+
+        # Messages
+        if self.info:
+            result["info"] = self.info
+        if self.warnings:
+            result["warnings"] = self.warnings
+        if self.errors:
+            result["errors"] = self.errors
+
+        return result
+
 
 def get_system_resources(disk_path: Optional[str] = None) -> ResourceAvailability:
     """

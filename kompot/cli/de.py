@@ -1,6 +1,7 @@
 """CLI command for differential expression analysis."""
 
 import argparse
+import json
 import sys
 from pathlib import Path
 import logging
@@ -20,6 +21,19 @@ from .compute_config import configure_compute
 
 
 logger = logging.getLogger("kompot.cli")
+
+
+def _json_default(obj):
+    """JSON serializer for numpy types."""
+    import numpy as np
+
+    if isinstance(obj, (np.integer,)):
+        return int(obj)
+    if isinstance(obj, (np.floating,)):
+        return float(obj)
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
 
 
 def add_de_parser(subparsers) -> argparse.ArgumentParser:
@@ -165,6 +179,14 @@ def add_de_parser(subparsers) -> argparse.ArgumentParser:
         help="Estimate per-gene heteroscedastic noise from squared residuals to deflate significance for high-noise genes",
     )
 
+    # Dry run
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Estimate resource requirements and print a plan instead of running the analysis. "
+        "Outputs JSON to stdout for pipeline integration; human-readable report to stderr.",
+    )
+
     # Compute configuration
     parser.add_argument(
         "--use-gpu",
@@ -192,8 +214,8 @@ def run_de(args):
     args
         Parsed arguments from argparse
     """
-    # Validate output arguments
-    if not args.output and not args.table_output:
+    # Validate output arguments (not required for dry-run)
+    if not args.dry_run and not args.output and not args.table_output:
         logger.error("Either --output or --table-output must be specified")
         sys.exit(1)
 
@@ -245,6 +267,7 @@ def run_de(args):
             "command",
             "use_gpu",
             "threads",
+            "dry_run",
         ]
     }
 
@@ -355,23 +378,53 @@ def run_de(args):
         output_kwargs["return_full_results"] = True
     output = OutputSettings(**output_kwargs) if output_kwargs else None
 
+    # Build shared call kwargs
+    call_kwargs = dict(
+        groupby=groupby,
+        condition1=condition1,
+        condition2=condition2,
+        obsm_key=obsm_key,
+        layer=layer,
+        sample_col=sample_col,
+        gp=gp,
+        fdr=fdr,
+        filter=filter_settings,
+        storage=storage,
+        output=output,
+        **params,  # remaining params forwarded as function_kwargs
+    )
+
+    # Dry run: estimate resources, output JSON to stdout, report to stderr
+    if args.dry_run:
+        import io
+
+        try:
+            old_stdout = sys.stdout
+            sys.stdout = sys.stderr  # capture de()'s print(plan.format_report())
+            try:
+                plan = de(adata, dry_run=True, **call_kwargs)
+            finally:
+                sys.stdout = old_stdout
+        except Exception as e:
+            logger.error(f"Dry run failed: {str(e)}")
+            raise
+
+        # Machine-parseable JSON output
+        plan_dict = plan.to_dict()
+        if args.output:
+            output_path = Path(args.output)
+            with open(output_path, "w") as f:
+                json.dump(plan_dict, f, default=_json_default, indent=2)
+                f.write("\n")
+            logger.info(f"Resource plan written to {output_path}")
+        else:
+            json.dump(plan_dict, sys.stdout, default=_json_default, indent=2)
+            print(file=sys.stdout)  # trailing newline
+        sys.exit(0 if plan.is_feasible else 1)
+
     # Run analysis
     try:
-        result_dict = de(
-            adata,
-            groupby=groupby,
-            condition1=condition1,
-            condition2=condition2,
-            obsm_key=obsm_key,
-            layer=layer,
-            sample_col=sample_col,
-            gp=gp,
-            fdr=fdr,
-            filter=filter_settings,
-            storage=storage,
-            output=output,
-            **params,  # remaining params forwarded as function_kwargs
-        )
+        result_dict = de(adata, **call_kwargs)
     except Exception as e:
         logger.error(f"Analysis failed: {str(e)}")
         raise

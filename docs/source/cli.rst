@@ -208,6 +208,7 @@ Boolean Flags
 
 .. code-block:: text
 
+   --dry-run                  # Estimate resources, print plan, exit (no analysis)
    --no-progress             # Disable progress bars
    --store-landmarks           # Store landmarks for reuse
    --store-additional-stats    # Store extra statistics
@@ -247,6 +248,33 @@ Example: Complete Analysis
      --fdr-threshold 0.05 \
      --null-genes 2000 \
      --store-additional-stats
+
+Example: Dry Run (Resource Estimation)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Use ``--dry-run`` to check memory and disk requirements before committing
+to a long analysis. JSON is written to stdout (or ``-o`` file); the
+human-readable report goes to stderr.
+
+.. code-block:: bash
+
+   # Print JSON plan to stdout, human report to stderr
+   kompot de bone_marrow.h5ad --dry-run \
+     --groupby Age \
+     --condition1 Young \
+     --condition2 Old
+
+   # Save plan to a file for pipeline consumption
+   kompot de bone_marrow.h5ad --dry-run -o plan.json \
+     --groupby Age \
+     --condition1 Young \
+     --condition2 Old
+
+   # Parse in a pipeline (e.g., check feasibility before submitting a job)
+   kompot de input.h5ad --dry-run --groupby cond --condition1 A --condition2 B \
+     | jq '.feasible'
+
+The exit code is ``0`` if the plan is feasible, ``1`` if not.
 
 Differential Abundance Command
 -------------------------------

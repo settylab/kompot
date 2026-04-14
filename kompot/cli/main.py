@@ -95,8 +95,12 @@ def main():
     # Parse arguments
     args = parser.parse_args()
 
-    # Setup logging
+    # Setup logging — CLI always logs to stderr so stdout stays clean
+    # for machine-parseable output (e.g., --dry-run JSON, --table-output)
     setup_logging(args.verbose)
+    from .. import configure_logging
+
+    configure_logging(stream=sys.stderr)
 
     # If no command provided, print help
     if not args.command:
