@@ -250,6 +250,7 @@ class TestCLIDEUnitTests:
             store_landmarks=False,
             store_additional_stats=False,
             overwrite=False,
+            dry_run=False,
         )
 
         # Should exit with error
@@ -290,6 +291,7 @@ class TestCLIDEUnitTests:
             store_landmarks=False,
             store_additional_stats=False,
             overwrite=False,
+            dry_run=False,
         )
 
         # Should exit with error or raise FileNotFoundError
@@ -332,6 +334,7 @@ class TestCLIDEUnitTests:
             store_landmarks=False,
             store_additional_stats=False,
             overwrite=False,
+            dry_run=False,
         )
 
         # Should exit with error
@@ -385,6 +388,7 @@ n_landmarks: 15
             store_landmarks=False,
             store_additional_stats=False,
             overwrite=False,
+            dry_run=False,
         )
 
         # Mock compute_differential_expression to avoid actual computation
@@ -437,6 +441,7 @@ n_landmarks: 15
             store_landmarks=False,
             store_additional_stats=False,
             overwrite=False,
+            dry_run=False,
         )
 
         # Mock compute_differential_expression to return mock results
@@ -500,6 +505,7 @@ n_landmarks: 15
             store_landmarks=False,
             store_additional_stats=False,
             overwrite=False,
+            dry_run=False,
         )
 
         # Mock compute_differential_expression
@@ -555,6 +561,7 @@ n_landmarks: 15
             store_landmarks=False,
             store_additional_stats=False,
             overwrite=False,
+            dry_run=False,
         )
 
         # Mock compute_differential_expression
@@ -608,6 +615,7 @@ n_landmarks: 15
             store_landmarks=False,
             store_additional_stats=False,
             overwrite=False,
+            dry_run=False,
         )
 
         # Mock compute_differential_expression
