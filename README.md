@@ -51,12 +51,18 @@ import anndata as ad
 adata = ad.read_h5ad("data.h5ad")
 
 # Differential expression
-kompot.compute_differential_expression(
-    adata,
-    groupby="condition",
-    condition1="control",
-    condition2="treatment",
-    obsm_key="X_pca"
+kompot.de(adata, "condition", "control", "treatment")
+
+# Differential abundance
+kompot.da(adata, "condition", "control", "treatment")
+
+# With advanced options
+from kompot import GPSettings, FDRSettings
+
+kompot.de(
+    adata, "condition", "control", "treatment",
+    gp=GPSettings(sigma=0.5),
+    fdr=FDRSettings(threshold=0.05),
 )
 ```
 
