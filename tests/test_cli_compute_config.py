@@ -5,6 +5,8 @@ These tests directly call CLI functions to ensure coverage is captured
 (subprocess tests don't contribute to coverage).
 """
 
+import sys
+
 import pytest
 import os
 import numpy as np
