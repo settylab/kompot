@@ -36,6 +36,9 @@ class TestSettingsToDict:
             "null_mahalanobis": None,
             "null_expression": None,
             "combine_with_internal": False,
+            "mode": "raw",
+            "null_trend_features": ("log_mean", "log_var"),
+            "null_trend_model": "poly3",
         }
 
     def test_numpy_array_replaced(self):
