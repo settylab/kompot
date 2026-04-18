@@ -146,6 +146,9 @@ def de(
     ext_null_mahalanobis = _fdr.null_mahalanobis
     ext_null_expression = _fdr.null_expression
     combine_with_internal = _fdr.combine_with_internal
+    fdr_mode = _fdr.mode
+    null_trend_features = _fdr.null_trend_features
+    null_trend_model = _fdr.null_trend_model
 
     cell_filter = _filter.cell_filter
     groups = _filter.groups
@@ -488,6 +491,17 @@ def de(
     _has_ext_null = ext_null_mahalanobis is not None
     if use_fdr and (_has_null_genes or _has_ext_null) and compute_mahalanobis:
         logger.debug("Computing FDR statistics from null distribution")
+        residual_mode = fdr_mode == "variance_stratified"
+        # Residual correction requires the internal null (per-draw gene
+        # provenance).  Warn and proceed with raw FDR only if we only
+        # have external nulls.
+        if residual_mode and not _has_null_genes:
+            logger.warning(
+                "FDRSettings.mode='variance_stratified' requires internal "
+                "null genes (null_genes>0).  External-only nulls lack "
+                "per-draw provenance; residual columns will not be written."
+            )
+            residual_mode = False
         fdr_results = _compute_fdr(
             expression_results,
             selected_genes,
@@ -499,6 +513,11 @@ def de(
             return_null_data=return_null_data,
             return_full_results=return_full_results,
             null_seed=null_seed,
+            residual_mode=residual_mode,
+            expr1=expr1 if residual_mode else None,
+            expr2=expr2 if residual_mode else None,
+            null_trend_model=null_trend_model,
+            null_trend_features=null_trend_features,
         )
 
     # ---- 10. Posterior covariance ----
@@ -646,6 +665,9 @@ def de(
                 null_genes=null_genes,
                 null_seed=null_seed,
                 threshold=fdr_threshold,
+                mode=fdr_mode,
+                null_trend_features=null_trend_features,
+                null_trend_model=null_trend_model,
             ),
             filter=FilterSettings(
                 cell_filter=cell_filter,
@@ -757,6 +779,9 @@ def compute_differential_expression(
     null_seed=42,
     fdr_threshold: float = 0.05,
     store_additional_stats: bool = False,
+    fdr_mode: str = "raw",
+    null_trend_features=("log_mean", "log_var"),
+    null_trend_model: str = "poly3",
     **function_kwargs,
 ):
     """Deprecated. Use :func:`kompot.de` instead.
@@ -795,6 +820,9 @@ def compute_differential_expression(
             null_genes=null_genes,
             null_seed=null_seed,
             threshold=fdr_threshold,
+            mode=fdr_mode,
+            null_trend_features=null_trend_features,
+            null_trend_model=null_trend_model,
         ),
         filter=FilterSettings(
             cell_filter=cell_filter,

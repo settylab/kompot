@@ -6,6 +6,8 @@ All notable changes to this project will be documented in this file.
 
 ### New features
 
+ - **Variance-stratified residual-Mahalanobis FDR**: opt-in FDR calibration mode that residualises `log(1 + D^2)` against a smooth function of per-gene `log_mean` and `log_var` fit on the permutation null, then applies the standard 1-D local FDR to the standardised residual. Intended for low-replication (n ≈ 2) designs where the raw Mahalanobis is dominated by per-gene variance rather than by condition. Enable with `FDRSettings(mode="variance_stratified")`. The raw `*_mahalanobis`, `*_mahalanobis_local_fdr`, and `*_is_de` columns are unchanged; additional `*_residual_mahalanobis`, `*_residual_z`, `*_residual_local_fdr`, and `*_residual_is_de` columns are written alongside. Default behaviour is unchanged. See `docs/variance_stratified_fdr.rst` for when to use it and the Tal1 chimera validation.
+ - **`kompot.residualization` module**: public helpers (`compute_gene_features`, `fit_null_trend`, `residualize_mahalanobis`, `residual_local_fdr`) for applying the correction post-hoc to any kompot output.
  - **`--dry-run` flag for `kompot de` CLI**: estimates memory, disk, and output field requirements without running the analysis. Outputs machine-parseable JSON to stdout and a human-readable report to stderr. Exit code reflects feasibility.
  - **`kompot.configure_logging(stream)`**: reconfigure the kompot logger output stream. The CLI now logs to stderr by default, keeping stdout clean for machine-parseable output (dry-run JSON, table output).
 

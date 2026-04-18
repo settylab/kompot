@@ -62,6 +62,26 @@ def _check_overwrites(
                     field_names["mahalanobis_tail_fdr_key"],
                 ]
             )
+        # Residual columns share the same overwrite checks.  They may not
+        # be written on every run (only when mode='variance_stratified')
+        # but include them so an existing residual column is detected.
+        all_patterns["var"].extend(
+            [
+                field_names["residual_mahalanobis_key"],
+                field_names["residual_z_key"],
+                field_names["residual_local_fdr_key"],
+                field_names["residual_is_de_key"],
+            ]
+        )
+        if store_additional_stats:
+            all_patterns["var"].extend(
+                [
+                    field_names["residual_pvalue_key"],
+                    field_names["residual_tail_fdr_key"],
+                    field_names["residual_log_mean_key"],
+                    field_names["residual_log_var_key"],
+                ]
+            )
 
     # Update all_patterns with group information if needed
     if groups is not None:
@@ -659,6 +679,104 @@ def _augment_with_external_null_expression(
 # ---------------------------------------------------------------------------
 
 
+def _compute_residual_fdr(
+    real_mahalanobis: np.ndarray,
+    internal_null_mahalanobis: np.ndarray,
+    internal_null_gene_indices: list,
+    n_real: int,
+    expr1: np.ndarray,
+    expr2: np.ndarray,
+    null_trend_model: str,
+    null_trend_features: tuple,
+    fdr_threshold: float,
+) -> Optional[dict]:
+    """Compute variance-stratified residual Mahalanobis + local FDR.
+
+    Returns ``None`` if the inputs cannot support residualisation
+    (no internal null genes, or fewer null draws than design columns).
+    Otherwise returns a dict with the per-real-gene statistics.
+
+    The residual is ``log1p(D^2) - phi_hat(log_mean, log_var)`` where
+    ``phi_hat`` is a smooth surface fit on the permutation null.
+    """
+    from ..residualization import (
+        compute_gene_features,
+        residualize_mahalanobis,
+        residual_local_fdr,
+    )
+
+    if internal_null_gene_indices is None or len(internal_null_gene_indices) == 0:
+        logger.warning(
+            "variance_stratified FDR requires internal null genes "
+            "(null_genes > 0); falling back to raw FDR only."
+        )
+        return None
+
+    if len(internal_null_mahalanobis) < 8:
+        logger.warning(
+            f"variance_stratified FDR needs >7 null draws "
+            f"(got {len(internal_null_mahalanobis)}); skipping residual correction."
+        )
+        return None
+
+    # The real-gene columns in expr1/expr2 are the first n_real
+    # columns; the remaining columns are the shuffled null genes.
+    real_expr1 = expr1[:, :n_real]
+    real_expr2 = expr2[:, :n_real]
+
+    log_mean, log_var = compute_gene_features([real_expr1, real_expr2])
+
+    if len(log_mean) != n_real:
+        logger.warning(
+            f"Expression feature length {len(log_mean)} disagrees with "
+            f"n_real={n_real}; skipping residual correction."
+        )
+        return None
+
+    # Drop features if only log_mean requested
+    if tuple(null_trend_features) == ("log_mean",):
+        # Pass zero log_var but use mean-only model
+        effective_model = "poly3_mean_only"
+    else:
+        effective_model = null_trend_model
+
+    res = residualize_mahalanobis(
+        real_mahalanobis=real_mahalanobis,
+        null_mahalanobis=internal_null_mahalanobis,
+        real_log_mean=log_mean,
+        real_log_var=log_var,
+        null_gene_indices=np.asarray(internal_null_gene_indices, dtype=int),
+        model=effective_model,
+    )
+    pvalues, local_fdr, tail_fdr, is_de = residual_local_fdr(
+        res, fdr_threshold=fdr_threshold
+    )
+
+    logger.info(
+        f"Residual-Mahalanobis FDR: trend R^2 = {res.trend.fit_r2:.3f}, "
+        f"sigma_null = {res.trend.sigma:.3f}, "
+        f"{int(is_de.sum())}/{n_real} genes DE at residual FDR < {fdr_threshold}"
+    )
+
+    return {
+        "residual": res.residual,
+        "z": res.z,
+        "log_mean": res.log_mean,
+        "log_var": res.log_var,
+        "null_residual": res.null_residual,
+        "pvalues": pvalues,
+        "local_fdr": local_fdr,
+        "tail_fdr": tail_fdr,
+        "is_de": is_de,
+        "trend_r2": res.trend.fit_r2,
+        "trend_sigma": res.trend.sigma,
+        "trend_model": res.trend.model,
+        "trend_coef": res.trend.coef,
+        "trend_features": res.trend.features,
+        "n_null": res.trend.n_null,
+    }
+
+
 def _compute_fdr(
     expression_results: dict,
     selected_genes: list,
@@ -670,6 +788,11 @@ def _compute_fdr(
     return_null_data: bool = False,
     return_full_results: bool = False,
     null_seed: Optional[int] = None,
+    residual_mode: bool = False,
+    expr1: Optional[np.ndarray] = None,
+    expr2: Optional[np.ndarray] = None,
+    null_trend_model: str = "poly3",
+    null_trend_features: tuple = ("log_mean", "log_var"),
 ) -> dict:
     """Compute FDR statistics and strip null genes from expression_results.
 
@@ -731,6 +854,25 @@ def _compute_fdr(
         "de_annotation": de_annotation,
         "summary_stats": summary_stats,
     }
+
+    # Optional: variance-stratified residual-Mahalanobis FDR.
+    # Always computed from the *internal* null (residual correction
+    # requires per-draw provenance).  External nulls without
+    # gene-index metadata are not supported here.
+    if residual_mode and expr1 is not None and expr2 is not None:
+        residual = _compute_residual_fdr(
+            real_mahalanobis=real_mahalanobis,
+            internal_null_mahalanobis=internal_null_mahalanobis,
+            internal_null_gene_indices=null_gene_indices,
+            n_real=n_real,
+            expr1=expr1,
+            expr2=expr2,
+            null_trend_model=null_trend_model,
+            null_trend_features=null_trend_features,
+            fdr_threshold=fdr_threshold,
+        )
+        if residual is not None:
+            fdr_results["residual"] = residual
 
     logger.info(
         f"FDR analysis complete: {summary_stats['n_significant']}/"
@@ -970,6 +1112,67 @@ def _store_de_results(
             selected_genes,
             adata,
         )
+
+        # Residual-Mahalanobis columns (variance-stratified FDR)
+        residual = fdr_results.get("residual")
+        if residual is not None:
+            _add_var_column(
+                new_var_columns,
+                field_names["residual_mahalanobis_key"],
+                residual["residual"],
+                selected_genes,
+                adata,
+            )
+            _add_var_column(
+                new_var_columns,
+                field_names["residual_z_key"],
+                residual["z"],
+                selected_genes,
+                adata,
+            )
+            _add_var_column(
+                new_var_columns,
+                field_names["residual_local_fdr_key"],
+                residual["local_fdr"],
+                selected_genes,
+                adata,
+            )
+            _add_var_column_bool(
+                new_var_columns,
+                field_names["residual_is_de_key"],
+                residual["is_de"],
+                selected_genes,
+                adata,
+            )
+            if store_additional_stats:
+                _add_var_column(
+                    new_var_columns,
+                    field_names["residual_pvalue_key"],
+                    residual["pvalues"],
+                    selected_genes,
+                    adata,
+                )
+                _add_var_column(
+                    new_var_columns,
+                    field_names["residual_tail_fdr_key"],
+                    residual["tail_fdr"],
+                    selected_genes,
+                    adata,
+                )
+                _add_var_column(
+                    new_var_columns,
+                    field_names["residual_log_mean_key"],
+                    residual["log_mean"],
+                    selected_genes,
+                    adata,
+                )
+                _add_var_column(
+                    new_var_columns,
+                    field_names["residual_log_var_key"],
+                    residual["log_var"],
+                    selected_genes,
+                    adata,
+                )
 
     # Flush var columns
     if new_var_columns:
@@ -1676,6 +1879,71 @@ def _build_field_mapping(
                 f"local FDR < {fdr_threshold}"
             ),
         }
+
+        # Residual columns, only added when variance_stratified mode was active
+        if fdr_results.get("residual") is not None:
+            fm[field_names["residual_mahalanobis_key"]] = {
+                "location": "var",
+                "type": "residual_mahalanobis",
+                "description": (
+                    "log(1 + D^2) minus the null-trend surface "
+                    "phi_hat(log_mean, log_var); centred at zero for a "
+                    "variance-matched null gene."
+                ),
+            }
+            fm[field_names["residual_z_key"]] = {
+                "location": "var",
+                "type": "residual_z",
+                "description": (
+                    "Residual Mahalanobis standardised by sigma_null "
+                    "(variance-stratified FDR statistic)."
+                ),
+            }
+            fm[field_names["residual_local_fdr_key"]] = {
+                "location": "var",
+                "type": "residual_local_fdr",
+                "description": (
+                    "Local FDR computed on the variance-stratified "
+                    "residual Z-score."
+                ),
+            }
+            fm[field_names["residual_is_de_key"]] = {
+                "location": "var",
+                "type": "residual_is_de",
+                "description": (
+                    f"Boolean indicator of DE at residual local FDR "
+                    f"< {fdr_threshold}."
+                ),
+            }
+            if store_additional_stats:
+                fm[field_names["residual_pvalue_key"]] = {
+                    "location": "var",
+                    "type": "residual_pvalue",
+                    "description": (
+                        "Empirical p-value from the residual null distribution."
+                    ),
+                }
+                fm[field_names["residual_tail_fdr_key"]] = {
+                    "location": "var",
+                    "type": "residual_tail_fdr",
+                    "description": (
+                        "Tail FDR on the variance-stratified residual Z-score."
+                    ),
+                }
+                fm[field_names["residual_log_mean_key"]] = {
+                    "location": "var",
+                    "type": "residual_log_mean",
+                    "description": (
+                        "log1p(mean) per gene, used to fit the null trend."
+                    ),
+                }
+                fm[field_names["residual_log_var_key"]] = {
+                    "location": "var",
+                    "type": "residual_log_var",
+                    "description": (
+                        "log1p(var) per gene, used to fit the null trend."
+                    ),
+                }
 
     return fm
 

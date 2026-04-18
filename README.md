@@ -64,6 +64,16 @@ kompot.de(
     gp=GPSettings(sigma=0.5),
     fdr=FDRSettings(threshold=0.05),
 )
+
+# Variance-stratified (residual) FDR for low-replication designs (n ≈ 2):
+# residualises log(1 + D²) against a smooth surface in (log_mean, log_var)
+# fit on the permutation null, then runs the 1-D local FDR on the residual Z.
+# Adds *_residual_{mahalanobis,z,local_fdr,is_de} columns alongside the raw
+# outputs — existing behaviour is unchanged. See docs/variance_stratified_fdr.
+kompot.de(
+    adata, "condition", "WT", "Mutant",
+    fdr=FDRSettings(mode="variance_stratified"),
+)
 ```
 
 ### Command-Line Interface

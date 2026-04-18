@@ -137,6 +137,32 @@ class FDRSettings:
         If ``True``, concatenate external null distances with
         internally generated null distances.  If ``False`` (default),
         the external null replaces the internal one entirely.
+    mode : str
+        FDR calibration mode.
+
+        * ``"raw"`` (default) — kompot's original local FDR on the
+          Mahalanobis distance ``D^2``.
+        * ``"variance_stratified"`` — in addition to the raw statistic,
+          residualise ``log(1 + D^2)`` against a smooth function of
+          per-gene ``log_mean`` and ``log_var`` fit on the permutation
+          null, standardise by the null residual scale, and apply the
+          1-D local FDR to the resulting ``Z`` score.  Results are
+          stored under ``*_residual_*`` column names alongside the
+          untouched raw outputs.  Use this mode when the number of
+          biological replicates per condition is small (~2) and raw
+          ``D^2`` is dominated by per-gene variance rather than
+          condition.  See ``docs/variance_stratified_fdr.rst``.
+    null_trend_features : tuple of str
+        Features used to fit the null trend surface.  Only
+        ``('log_mean', 'log_var')`` and ``('log_mean',)`` are supported
+        today; pass the shorter tuple to drop the variance feature as
+        a diagnostic.
+    null_trend_model : str
+        Smooth family used to fit ``phi_hat(m, v)`` on the null.
+        ``'poly3'`` (default) — 7-term tensor polynomial.
+        ``'poly3_mean_only'`` — degree-3 polynomial in mean only;
+        selected automatically when ``null_trend_features`` has a
+        single entry.
     """
 
     null_genes: Union[int, List[int], str, None] = "auto"
@@ -147,6 +173,16 @@ class FDRSettings:
     null_mahalanobis: Optional[np.ndarray] = None
     null_expression: Optional[Tuple[np.ndarray, np.ndarray]] = None
     combine_with_internal: bool = False
+
+    # Variance-stratified residual FDR (opt-in, non-breaking).  When
+    # ``mode='variance_stratified'`` kompot additionally residualises
+    # ``log(1 + D^2)`` against a smooth surface in
+    # ``(log_mean, log_var)`` fit on the permutation null, then applies
+    # the standard 1-D local FDR to the standardised residual.
+    # The raw mahalanobis / local-fdr columns are untouched.
+    mode: str = "raw"
+    null_trend_features: Tuple[str, ...] = ("log_mean", "log_var")
+    null_trend_model: str = "poly3"
 
     def __post_init__(self):
         # null_genes: "auto", int >= 0, list of ints, or None
@@ -182,6 +218,37 @@ class FDRSettings:
             raise ValueError(
                 "'null_mahalanobis' and 'null_expression' are mutually "
                 "exclusive. Provide one or the other, not both."
+            )
+
+        # Validate variance-stratified knobs
+        valid_modes = {"raw", "variance_stratified"}
+        if self.mode not in valid_modes:
+            raise ValueError(
+                f"'mode' must be one of {sorted(valid_modes)} (got '{self.mode}')."
+            )
+
+        if isinstance(self.null_trend_features, list):
+            self.null_trend_features = tuple(self.null_trend_features)
+        if not isinstance(self.null_trend_features, tuple):
+            raise TypeError(
+                f"'null_trend_features' must be a tuple or list of strings "
+                f"(got {type(self.null_trend_features).__name__})."
+            )
+        allowed_features = {
+            ("log_mean", "log_var"),
+            ("log_mean",),
+        }
+        if self.null_trend_features not in allowed_features:
+            raise ValueError(
+                f"'null_trend_features' must be one of {sorted(allowed_features)} "
+                f"(got {self.null_trend_features})."
+            )
+
+        valid_models = {"poly3", "poly3_mean_only"}
+        if self.null_trend_model not in valid_models:
+            raise ValueError(
+                f"'null_trend_model' must be one of {sorted(valid_models)} "
+                f"(got '{self.null_trend_model}')."
             )
 
 

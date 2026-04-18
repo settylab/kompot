@@ -239,6 +239,16 @@ def generate_output_field_names(
                 "mahalanobis_local_fdr_key": f"{result_key}_{cond1_safe}_to_{cond2_safe}_mahalanobis_local_fdr{suffix}",
                 "mahalanobis_tail_fdr_key": f"{result_key}_{cond1_safe}_to_{cond2_safe}_mahalanobis_tail_fdr{suffix}",
                 "is_de_key": f"{result_key}_{cond1_safe}_to_{cond2_safe}_is_de{suffix}",
+                # Variance-stratified residual outputs (only populated when
+                # FDRSettings.mode='variance_stratified')
+                "residual_mahalanobis_key": f"{result_key}_{cond1_safe}_to_{cond2_safe}_residual_mahalanobis{suffix}",
+                "residual_z_key": f"{result_key}_{cond1_safe}_to_{cond2_safe}_residual_z{suffix}",
+                "residual_local_fdr_key": f"{result_key}_{cond1_safe}_to_{cond2_safe}_residual_local_fdr{suffix}",
+                "residual_tail_fdr_key": f"{result_key}_{cond1_safe}_to_{cond2_safe}_residual_tail_fdr{suffix}",
+                "residual_pvalue_key": f"{result_key}_{cond1_safe}_to_{cond2_safe}_residual_pvalue{suffix}",
+                "residual_is_de_key": f"{result_key}_{cond1_safe}_to_{cond2_safe}_residual_is_de{suffix}",
+                "residual_log_mean_key": f"{result_key}_{cond1_safe}_to_{cond2_safe}_residual_log_mean",
+                "residual_log_var_key": f"{result_key}_{cond1_safe}_to_{cond2_safe}_residual_log_var",
                 # Add varm field names for group-specific metrics
                 "mean_lfc_varm_key": f"{result_key}_{cond1_safe}_to_{cond2_safe}_mean_lfc_groups",
                 "mahalanobis_varm_key": f"{result_key}_{cond1_safe}_to_{cond2_safe}_mahalanobis{suffix}_groups",

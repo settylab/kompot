@@ -7,6 +7,7 @@
 
    Installation <installation>
    Command-Line Interface <cli>
+   Variance-stratified FDR <variance_stratified_fdr>
 
 .. toctree::
    :hidden:
