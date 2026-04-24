@@ -10,6 +10,16 @@ Unlike :func:`scanpy.pl.DotPlot`, this function does not build its own
 ``GridSpec`` and composes cleanly into externally-provided axes. Pass
 ``axes=(main, cbar, size_legend)`` to embed the dotplot into a composite
 figure, or leave ``axes=None`` for a standalone figure.
+
+This module reuses three primitives from :mod:`kompot.plot.heatmap.utils`
+so dotplot and heatmap share the same gene-selection and colorbar
+semantics:
+
+* ``_prepare_gene_list`` — explicit list or top-N by inferred Mahalanobis
+  (with a small local addition for the ``filter_key`` path).
+* ``_get_expression_matrix`` — dense layer / ``X`` fetch with sparse and
+  missing-layer handling.
+* ``_setup_colormap_normalization`` — ``TwoSlopeNorm`` + colormap object.
 """
 
 from __future__ import annotations
@@ -18,7 +28,20 @@ import logging
 from typing import Optional, Sequence, Tuple
 
 import numpy as np
+import pandas as pd
 from anndata import AnnData
+
+# Reuse the heatmap primitives — keeps gene-list inference, layer
+# fetching, and colormap normalization in one place. The per-group
+# aggregation below mirrors heatmap's `groupby().mean()` idiom; a
+# TODO notes this could still be lifted into a shared helper once a
+# third consumer shows up (see below).
+from .heatmap.utils import (
+    _get_expression_matrix,
+    _infer_score_key,
+    _prepare_gene_list,
+    _setup_colormap_normalization,
+)
 
 logger = logging.getLogger("kompot")
 
@@ -26,7 +49,6 @@ try:
     import matplotlib.pyplot as plt
     from matplotlib.axes import Axes
     from matplotlib.cm import ScalarMappable
-    from matplotlib.colors import Normalize
     from matplotlib.figure import Figure
     from matplotlib.ticker import MaxNLocator
 except ImportError as e:
@@ -35,54 +57,14 @@ except ImportError as e:
     ) from e
 
 
-def _resolve_layer(adata: AnnData, layer: Optional[str]) -> np.ndarray:
-    """Dense (n_obs, n_vars) matrix from ``adata.layers[layer]`` or ``adata.X``."""
-    if layer is not None:
-        if layer not in adata.layers:
-            raise KeyError(
-                f"layer '{layer}' not found in adata.layers "
-                f"(available: {list(adata.layers)})"
-            )
-        mat = adata.layers[layer]
-    else:
-        mat = adata.X
-    if hasattr(mat, "toarray"):
-        mat = mat.toarray()
-    return np.asarray(mat)
-
-
-def _group_mean_matrix(
-    values: np.ndarray,
-    obs_labels: np.ndarray,
-    categories: Sequence[str],
-) -> np.ndarray:
-    """Per-category mean of an ``(n_obs, n_genes)`` matrix."""
-    out = np.full((len(categories), values.shape[1]), np.nan, dtype=float)
-    for j, c in enumerate(categories):
-        mask = obs_labels == c
-        if mask.any():
-            out[j] = values[mask].mean(axis=0)
-    return out
-
-
-def _group_frac_matrix(
-    values: np.ndarray,
-    obs_labels: np.ndarray,
-    categories: Sequence[str],
-    threshold: float,
-) -> np.ndarray:
-    """Per-category fraction of cells with ``values > threshold``."""
-    pos = (values > threshold).astype(float)
-    out = np.zeros((len(categories), values.shape[1]), dtype=float)
-    for j, c in enumerate(categories):
-        mask = obs_labels == c
-        if mask.any():
-            out[j] = pos[mask].mean(axis=0)
-    return out
-
-
 def _infer_lfc_layer(adata: AnnData, run_id: int) -> Optional[str]:
-    """Fold-change layer name from kompot DE ``run_info``."""
+    """Fold-change layer name from kompot DE ``run_info``.
+
+    No analog exists in ``heatmap.utils`` — heatmap colors by
+    per-condition *expression* means, while the dotplot colors by the
+    per-cell *LFC* layer kompot writes during DE. Kept local because of
+    that specificity.
+    """
     try:
         from ..anndata.utils import get_run_from_history
     except ImportError:
@@ -104,23 +86,31 @@ def _infer_lfc_layer(adata: AnnData, run_id: int) -> Optional[str]:
     return fc
 
 
-def _infer_score_key(adata: AnnData, run_id: int) -> Optional[str]:
-    """Mahalanobis-ranking column from kompot DE ``run_info``."""
-    try:
-        from .field_inference import infer_fields_from_run_info
-    except ImportError:
-        return None
-    try:
-        fields = infer_fields_from_run_info(
-            adata,
-            analysis_type="de",
-            run_id=run_id,
-            required_fields=["mahalanobis_key"],
-            strict=False,
-        )
-    except Exception:
-        return None
-    return fields.get("mahalanobis_key") if fields else None
+def _group_aggregate(
+    values: np.ndarray,
+    obs_labels: np.ndarray,
+    gene_names: Sequence[str],
+    categories: Sequence[str],
+    reducer: str,
+) -> np.ndarray:
+    """Per-category reduction of ``(n_obs, n_genes)`` into ``(n_cats, n_genes)``.
+
+    Mirrors the ``df.groupby(col, observed=True).mean()`` idiom heatmap
+    uses inline. Kept here (rather than in ``heatmap.utils``) until a
+    third consumer appears — the two call-sites differ enough in their
+    surrounding data plumbing that a premature abstraction would be
+    noise. TODO: lift into ``plot/_utils.py`` on third user.
+    """
+    if reducer not in {"mean", "fraction"}:
+        raise ValueError(f"unsupported reducer: {reducer}")
+    frame = pd.DataFrame(
+        np.asarray(values, dtype=float),
+        columns=list(gene_names),
+    )
+    frame["_group_"] = np.asarray(obs_labels)
+    grouped = frame.groupby("_group_", observed=True)[list(gene_names)]
+    reduced = grouped.mean()
+    return reduced.reindex(list(categories)).to_numpy(dtype=float)
 
 
 def dotplot(
@@ -281,9 +271,14 @@ def dotplot(
         )
     """
     # ---- resolve gene list --------------------------------------
+    # Reuses `_infer_score_key` + `_prepare_gene_list` from
+    # heatmap.utils for the common path so score inference, strict/
+    # non-strict fallback, and run-info logging stay identical across
+    # dotplot and heatmap. The `filter_key` branch stays local since
+    # heatmap has no equivalent (and adding one there is out of scope
+    # for this PR).
     if genes is None:
-        if score_key is None:
-            score_key = _infer_score_key(adata, run_id)
+        score_key = _infer_score_key(adata, run_id=run_id, score_key=score_key)
         if score_key is None:
             raise ValueError(
                 "genes=None requires a Mahalanobis ranking column, but no "
@@ -294,25 +289,33 @@ def dotplot(
             raise KeyError(
                 f"score_key '{score_key}' not found in adata.var.columns"
             )
-        candidates = adata.var.index
         if filter_key is not None:
             if filter_key not in adata.var.columns:
                 raise KeyError(
                     f"filter_key '{filter_key}' not found in adata.var.columns"
                 )
             mask = adata.var[filter_key].astype(bool).values
+            if not mask.any():
+                raise ValueError(
+                    f"no genes remain after applying filter_key='{filter_key}'"
+                )
             candidates = adata.var.index[mask]
-        if len(candidates) == 0:
-            raise ValueError(
-                f"no genes remain after applying filter_key='{filter_key}'"
+            ranked = (
+                adata.var.loc[candidates, score_key]
+                .astype(float)
+                .dropna()
+                .sort_values(ascending=False)
             )
-        ranked = (
-            adata.var.loc[candidates, score_key]
-            .astype(float)
-            .dropna()
-            .sort_values(ascending=False)
-        )
-        genes = list(ranked.head(n_top).index)
+            genes = list(ranked.head(n_top).index)
+        else:
+            genes, _, _ = _prepare_gene_list(
+                adata,
+                var_names=None,
+                n_top_genes=n_top,
+                score_key=score_key,
+                sort_genes=True,
+                run_id=run_id,
+            )
     else:
         genes = list(genes)
 
@@ -326,6 +329,10 @@ def dotplot(
         )
 
     # ---- resolve layers -----------------------------------------
+    # `_get_expression_matrix` handles the sparse→dense conversion and
+    # falls back to `adata.X` if the layer is absent (with a warning).
+    # For `lfc_layer` that fallback is wrong — a fold-change plot with
+    # raw expression would silently mislead — so we pre-validate.
     if lfc_layer is None:
         lfc_layer = _infer_lfc_layer(adata, run_id)
     if lfc_layer is None:
@@ -334,9 +341,13 @@ def dotplot(
             "Pass `lfc_layer=` explicitly (e.g. "
             "'kompot_de_<cond1>_to_<cond2>_fold_change')."
         )
-    sub = adata[:, genes]
-    lfc_values = _resolve_layer(sub, lfc_layer)
-    expr_values = _resolve_layer(sub, expr_layer)
+    if lfc_layer not in adata.layers:
+        raise KeyError(
+            f"lfc_layer '{lfc_layer}' not found in adata.layers "
+            f"(available: {list(adata.layers)})"
+        )
+    lfc_values = np.asarray(_get_expression_matrix(adata, genes, layer=lfc_layer))
+    expr_values = np.asarray(_get_expression_matrix(adata, genes, layer=expr_layer))
 
     # ---- resolve groups -----------------------------------------
     if groupby not in adata.obs.columns:
@@ -356,8 +367,15 @@ def dotplot(
             "no categories remain after applying categories_order / min_cells"
         )
 
-    lfc_mat = _group_mean_matrix(lfc_values, obs_labels, cats_str)
-    frac_mat = _group_frac_matrix(expr_values, obs_labels, cats_str, expr_threshold)
+    # Per-category aggregation via the shared groupby idiom.
+    gene_names = [str(g) for g in genes]
+    lfc_mat = _group_aggregate(
+        lfc_values, obs_labels, gene_names, cats_str, reducer="mean",
+    )
+    frac_mat = _group_aggregate(
+        (expr_values > expr_threshold).astype(float),
+        obs_labels, gene_names, cats_str, reducer="mean",
+    )
 
     # rows = genes, cols = categories (fig-3/fig-4 swap_axes style)
     lfc = lfc_mat.T
@@ -379,6 +397,13 @@ def dotplot(
             "dotplot: degenerate color scale (|LFC| ≈ 0 everywhere). "
             "Set vabs_min or vmax to force a meaningful range."
         )
+
+    # Delegate norm + cmap resolution to the heatmap helper. This
+    # returns a `TwoSlopeNorm(vcenter=0, vmin=-vabs, vmax=vabs)` and
+    # resolves the colormap-string-to-object dance in one place.
+    norm, cmap_obj, vmin_eff, vmax_eff = _setup_colormap_normalization(
+        lfc, vcenter=0.0, vmin=-vabs, vmax=vabs, cmap=cmap,
+    )
 
     # ---- dot sizes ----------------------------------------------
     frac_clip = np.clip(frac, 0.0, 1.0)
@@ -407,7 +432,7 @@ def dotplot(
     ax_main.scatter(
         xs.ravel(), ys.ravel(),
         s=sizes.ravel(), c=lfc.ravel(),
-        cmap=cmap, vmin=-vabs, vmax=vabs,
+        cmap=cmap_obj, norm=norm,
         edgecolors=dot_edge_color, linewidths=dot_edge_lw,
     )
     ax_main.set_xticks(np.arange(n_cats))
@@ -434,7 +459,7 @@ def dotplot(
         ax_main.set_ylabel(ylabel)
 
     # ---- colorbar -----------------------------------------------
-    sm = ScalarMappable(norm=Normalize(vmin=-vabs, vmax=vabs), cmap=cmap)
+    sm = ScalarMappable(norm=norm, cmap=cmap_obj)
     cb = fig.colorbar(sm, cax=ax_cbar, orientation="vertical")
     cb.locator = MaxNLocator(nbins=3)
     cb.update_ticks()

@@ -54,6 +54,30 @@ def test_dotplot_import_and_exported():
     assert "dotplot" in kp.__all__
 
 
+def test_dotplot_reuses_heatmap_primitives():
+    """Sanity-check that the heatmap.utils reuse surface is wired up.
+
+    This is load-bearing: if someone renames the helpers without updating
+    dotplot, the import will fail here long before the plot does.
+    """
+    import sys
+    import kompot.plot  # noqa: F401 — force module registration
+
+    dp_mod = sys.modules["kompot.plot.dotplot"]
+
+    from kompot.plot.heatmap.utils import (
+        _get_expression_matrix,
+        _infer_score_key,
+        _prepare_gene_list,
+        _setup_colormap_normalization,
+    )
+
+    assert dp_mod._get_expression_matrix is _get_expression_matrix
+    assert dp_mod._infer_score_key is _infer_score_key
+    assert dp_mod._prepare_gene_list is _prepare_gene_list
+    assert dp_mod._setup_colormap_normalization is _setup_colormap_normalization
+
+
 def test_dotplot_standalone_returns_figure():
     from kompot.plot import dotplot
 
