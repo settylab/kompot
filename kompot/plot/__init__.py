@@ -152,6 +152,20 @@ except (ImportError, TypeError) as e:
         raise ImportError("Smoothing plot unavailable due to missing dependencies.")
 
 
+try:
+    from .dotplot import dotplot
+
+    __all__.append("dotplot")
+except ImportError as e:
+    logger.warning(f"Could not import dotplot function due to: {e}")
+
+    def dotplot(*args, **kwargs):
+        raise ImportError(
+            "Dotplot unavailable due to missing dependencies. "
+            "matplotlib is required."
+        )
+
+
 # Import StringDB report class
 try:
     from .stringdb import StringDBReport

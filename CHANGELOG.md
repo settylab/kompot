@@ -8,6 +8,7 @@ All notable changes to this project will be documented in this file.
 
  - **`--dry-run` flag for `kompot de` CLI**: estimates memory, disk, and output field requirements without running the analysis. Outputs machine-parseable JSON to stdout and a human-readable report to stderr. Exit code reflects feasibility.
  - **`kompot.configure_logging(stream)`**: reconfigure the kompot logger output stream. The CLI now logs to stderr by default, keeping stdout clean for machine-parseable output (dry-run JSON, table output).
+ - **`kompot.plot.dotplot`**: ax-embeddable fold-change-per-group dotplot. Color = mean of a per-cell LFC layer within each `groupby` category; size = fraction of cells expressing. Gene selection is either an explicit list or auto-picked top-N by Mahalanobis from run history (with optional `filter_key`, e.g. restricting to `is_de=True`). Pass `axes=(main, cbar, size_legend)` to compose into a larger figure, or leave `axes=None` for a standalone figure. Unlike `scanpy.pl.DotPlot`, this function does not build its own `GridSpec` and does not fight externally-provided axes, which is the whole reason it exists.
 
 ### Improvements
 
@@ -18,7 +19,6 @@ All notable changes to this project will be documented in this file.
  - Add `smooth_expression()` module to Sphinx API docs.
  - Add `RunInfo.to_settings()` and `call_args()` to documented members.
  - Fix "Gene Expression Imputation" → "Gene Expression Smoothing" in docs toctree.
-
 ## [0.7.0] - 2026-04-13
 
 ### Breaking changes
