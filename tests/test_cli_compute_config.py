@@ -5,6 +5,8 @@ These tests directly call CLI functions to ensure coverage is captured
 (subprocess tests don't contribute to coverage).
 """
 
+import sys
+
 import pytest
 import os
 import numpy as np
@@ -250,6 +252,7 @@ class TestCLIDEUnitTests:
             store_landmarks=False,
             store_additional_stats=False,
             overwrite=False,
+            dry_run=False,
         )
 
         # Should exit with error
@@ -290,6 +293,7 @@ class TestCLIDEUnitTests:
             store_landmarks=False,
             store_additional_stats=False,
             overwrite=False,
+            dry_run=False,
         )
 
         # Should exit with error or raise FileNotFoundError
@@ -332,6 +336,7 @@ class TestCLIDEUnitTests:
             store_landmarks=False,
             store_additional_stats=False,
             overwrite=False,
+            dry_run=False,
         )
 
         # Should exit with error
@@ -385,6 +390,7 @@ n_landmarks: 15
             store_landmarks=False,
             store_additional_stats=False,
             overwrite=False,
+            dry_run=False,
         )
 
         # Mock compute_differential_expression to avoid actual computation
@@ -437,6 +443,7 @@ n_landmarks: 15
             store_landmarks=False,
             store_additional_stats=False,
             overwrite=False,
+            dry_run=False,
         )
 
         # Mock compute_differential_expression to return mock results
@@ -500,6 +507,7 @@ n_landmarks: 15
             store_landmarks=False,
             store_additional_stats=False,
             overwrite=False,
+            dry_run=False,
         )
 
         # Mock compute_differential_expression
@@ -555,6 +563,7 @@ n_landmarks: 15
             store_landmarks=False,
             store_additional_stats=False,
             overwrite=False,
+            dry_run=False,
         )
 
         # Mock compute_differential_expression
@@ -608,6 +617,7 @@ n_landmarks: 15
             store_landmarks=False,
             store_additional_stats=False,
             overwrite=False,
+            dry_run=False,
         )
 
         # Mock compute_differential_expression
@@ -624,6 +634,213 @@ n_landmarks: 15
             run_de(args)
 
         assert exc_info.value.code == 1
+
+
+class TestCLIDryRun:
+    """Tests for the --dry-run flag on the DE CLI."""
+
+    def test_dry_run_outputs_json(self, sample_adata_for_cli, tmp_path, monkeypatch, capsys):
+        """Test that --dry-run outputs JSON to stdout and exits."""
+        from kompot.cli.de import run_de
+        import argparse
+
+        input_file = tmp_path / "input.h5ad"
+        sample_adata_for_cli.write_h5ad(input_file)
+
+        args = argparse.Namespace(
+            input=str(input_file),
+            output=str(tmp_path / "output.h5ad"),
+            table_output=None,
+            config=None,
+            groupby="condition",
+            condition1="A",
+            condition2="B",
+            obsm_key="DM_EigenVectors",
+            sample_col="sample",
+            n_landmarks=10,
+            func=None,
+            verbose=False,
+            command="de",
+            use_gpu=False,
+            threads=None,
+            layer=None,
+            result_key=None,
+            batch_size=None,
+            fdr_threshold=None,
+            null_genes=None,
+            null_seed=None,
+            no_progress=True,
+            store_landmarks=False,
+            store_additional_stats=False,
+            overwrite=False,
+            dry_run=True,
+        )
+
+        # Mock de() to return a plan object with the expected interface
+        class MockPlan:
+            is_feasible = True
+            def to_dict(self):
+                return {"feasible": True, "memory": {"total_bytes": 1024}}
+            def format_report(self):
+                return "Mock report"
+
+        def mock_de(adata, dry_run=False, **kwargs):
+            if dry_run:
+                return MockPlan()
+            return None
+
+        monkeypatch.setattr("kompot.cli.de.de", mock_de)
+
+        with pytest.raises(SystemExit) as exc_info:
+            run_de(args)
+
+        assert exc_info.value.code == 0
+        captured = capsys.readouterr()
+        import json
+        result = json.loads(captured.out)
+        assert result["feasible"] is True
+
+    def test_dry_run_infeasible_exits_1(self, sample_adata_for_cli, tmp_path, monkeypatch):
+        """Test that --dry-run exits with code 1 when plan is infeasible."""
+        from kompot.cli.de import run_de
+        import argparse
+
+        input_file = tmp_path / "input.h5ad"
+        sample_adata_for_cli.write_h5ad(input_file)
+
+        args = argparse.Namespace(
+            input=str(input_file),
+            output=str(tmp_path / "output.h5ad"),
+            table_output=None,
+            config=None,
+            groupby="condition",
+            condition1="A",
+            condition2="B",
+            obsm_key="DM_EigenVectors",
+            sample_col="sample",
+            n_landmarks=10,
+            func=None,
+            verbose=False,
+            command="de",
+            use_gpu=False,
+            threads=None,
+            layer=None,
+            result_key=None,
+            batch_size=None,
+            fdr_threshold=None,
+            null_genes=None,
+            null_seed=None,
+            no_progress=True,
+            store_landmarks=False,
+            store_additional_stats=False,
+            overwrite=False,
+            dry_run=True,
+        )
+
+        class MockPlan:
+            is_feasible = False
+            def to_dict(self):
+                return {"feasible": False}
+            def format_report(self):
+                return "Not feasible"
+
+        def mock_de(adata, dry_run=False, **kwargs):
+            if dry_run:
+                return MockPlan()
+            return None
+
+        monkeypatch.setattr("kompot.cli.de.de", mock_de)
+
+        with pytest.raises(SystemExit) as exc_info:
+            run_de(args)
+
+        assert exc_info.value.code == 1
+
+    def test_dry_run_skips_output_validation(self, sample_adata_for_cli, tmp_path, monkeypatch):
+        """Test that --dry-run does not require --output."""
+        from kompot.cli.de import run_de
+        import argparse
+
+        input_file = tmp_path / "input.h5ad"
+        sample_adata_for_cli.write_h5ad(input_file)
+
+        args = argparse.Namespace(
+            input=str(input_file),
+            output=None,
+            table_output=None,
+            config=None,
+            groupby="condition",
+            condition1="A",
+            condition2="B",
+            obsm_key="DM_EigenVectors",
+            sample_col="sample",
+            n_landmarks=10,
+            func=None,
+            verbose=False,
+            command="de",
+            use_gpu=False,
+            threads=None,
+            layer=None,
+            result_key=None,
+            batch_size=None,
+            fdr_threshold=None,
+            null_genes=None,
+            null_seed=None,
+            no_progress=True,
+            store_landmarks=False,
+            store_additional_stats=False,
+            overwrite=False,
+            dry_run=True,
+        )
+
+        class MockPlan:
+            is_feasible = True
+            def to_dict(self):
+                return {"feasible": True}
+            def format_report(self):
+                return "OK"
+
+        def mock_de(adata, dry_run=False, **kwargs):
+            if dry_run:
+                return MockPlan()
+            return None
+
+        monkeypatch.setattr("kompot.cli.de.de", mock_de)
+
+        # Should NOT exit with "output required" error — dry-run skips that check
+        with pytest.raises(SystemExit) as exc_info:
+            run_de(args)
+
+        assert exc_info.value.code == 0
+
+
+class TestConfigureLogging:
+    """Tests for kompot.configure_logging()."""
+
+    def test_configure_logging_to_stderr(self):
+        """Test that configure_logging redirects the logger."""
+        import io
+        import kompot
+
+        buf = io.StringIO()
+        kompot.configure_logging(buf)
+
+        kompot.logger.info("test message")
+        output = buf.getvalue()
+        assert "test message" in output
+
+        # Restore default
+        kompot.configure_logging(sys.stdout)
+
+    def test_configure_logging_default_stdout(self):
+        """Test that configure_logging defaults to stdout."""
+        import kompot
+
+        kompot.configure_logging()
+        for handler in kompot.logger.handlers:
+            if hasattr(handler, "stream"):
+                assert handler.stream is sys.stdout
+                break
 
 
 class TestCLIDAUnitTests:

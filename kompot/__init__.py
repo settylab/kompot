@@ -99,6 +99,23 @@ LOGGING_CONFIG = {
 logging.config.dictConfig(LOGGING_CONFIG)
 logger = logging.getLogger("kompot")
 
+
+def configure_logging(stream=None):
+    """Reconfigure the kompot logger to write to a different stream.
+
+    Parameters
+    ----------
+    stream : file-like, optional
+        Output stream for log messages. Defaults to ``sys.stdout``.
+        CLI tools typically pass ``sys.stderr`` so stdout stays clean
+        for machine-parseable output.
+    """
+    if stream is None:
+        stream = sys.stdout
+    for handler in logger.handlers:
+        if hasattr(handler, "stream"):
+            handler.stream = stream
+
 __all__ = [
     # Version
     "__version__",
@@ -122,6 +139,8 @@ __all__ = [
     "StorageSettings",
     "OutputSettings",
     "ModelSettings",
+    # Configuration
+    "configure_logging",
     # Utility functions
     "compute_mahalanobis_distance",
     "find_landmarks",

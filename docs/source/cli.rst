@@ -40,9 +40,6 @@ All commands support:
 Quick Start
 -----------
 
-Complete Workflow
-^^^^^^^^^^^^^^^^^
-
 .. code-block:: bash
 
    # 1. Compute diffusion maps (preprocessing)
@@ -54,54 +51,18 @@ Complete Workflow
    kompot de input_with_dm.h5ad -o de_results.h5ad \
      --groupby condition \
      --condition1 control \
-     --condition2 treatment \
-     --obsm-key DM_EigenVectors
+     --condition2 treatment
 
    # 3. Run differential abundance
    kompot da input_with_dm.h5ad -o da_results.h5ad \
      --groupby condition \
      --condition1 control \
-     --condition2 treatment \
-     --obsm-key DM_EigenVectors
+     --condition2 treatment
 
    # 4. Smooth gene expression for a single condition
    kompot smooth input_with_dm.h5ad -o smoothed.h5ad \
      --groupby condition \
-     --condition treatment \
-     --obsm-key DM_EigenVectors
-
-Diffusion Maps (Preprocessing)
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-.. code-block:: bash
-
-   kompot dm input.h5ad -o output.h5ad \
-     --pca-key X_pca \
-     --n-components 10 \
-     --knn 30
-
-Differential Expression (Basic)
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-.. code-block:: bash
-
-   kompot de input.h5ad -o output.h5ad \
-     --groupby condition \
-     --condition1 control \
-     --condition2 treatment \
-     --obsm-key X_pca \
-     --layer logged_counts
-
-Differential Abundance (Basic)
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-.. code-block:: bash
-
-   kompot da input.h5ad -o output.h5ad \
-     --groupby condition \
-     --condition1 control \
-     --condition2 treatment \
-     --obsm-key X_pca
+     --condition treatment
 
 Using Config Files
 ^^^^^^^^^^^^^^^^^^
@@ -247,6 +208,7 @@ Boolean Flags
 
 .. code-block:: text
 
+   --dry-run                  # Estimate resources, print plan, exit (no analysis)
    --no-progress             # Disable progress bars
    --store-landmarks           # Store landmarks for reuse
    --store-additional-stats    # Store extra statistics
@@ -286,6 +248,31 @@ Example: Complete Analysis
      --fdr-threshold 0.05 \
      --null-genes 2000 \
      --store-additional-stats
+
+Example: Dry Run (Resource Estimation)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Use ``--dry-run`` to check memory and disk requirements before committing
+to a long analysis. JSON is written to stdout; the human-readable report
+goes to stderr. Use the same arguments as the real run (``-o`` is ignored).
+
+.. code-block:: bash
+
+   # Check resources (human report on stderr, JSON on stdout)
+   kompot de bone_marrow.h5ad --dry-run \
+     --groupby Age \
+     --condition1 Young \
+     --condition2 Old
+
+   # Save JSON plan and check feasibility in a pipeline
+   kompot de input.h5ad --dry-run --groupby cond --condition1 A --condition2 B \
+     > plan.json && echo "feasible"
+
+   # Parse specific fields with jq
+   kompot de input.h5ad --dry-run --groupby cond --condition1 A --condition2 B \
+     2>/dev/null | jq '.memory.total_human'
+
+The exit code is ``0`` if the plan is feasible, ``1`` if not.
 
 Differential Abundance Command
 -------------------------------
