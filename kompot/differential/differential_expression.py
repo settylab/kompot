@@ -42,7 +42,7 @@ class DifferentialExpression:
         self,
         n_landmarks: Optional[int] = None,
         use_sample_variance: Optional[bool] = None,
-        use_empirical_variance: bool = False,
+        use_empirical_variance: bool = True,
         eps: float = 1e-8,  # Increased default epsilon for better numerical stability
         jit_compile: bool = False,
         function_predictor1: Optional[Any] = None,
@@ -625,10 +625,8 @@ class DifferentialExpression:
             # Points for sample variance computation
             variance_points = X
 
-        # Sum the covariance matrices: Σ_a + Σ_b is the variance of the
-        # difference of independent posterior estimators, matching the
-        # Mahalanobis denominator defined in the manuscript.
-        combined_cov = cov1 + cov2
+        # Average the covariance matrices
+        combined_cov = (cov1 + cov2) / 2
         del cov1, cov2
 
         # For sample variance, use diag=False to get full covariance matrices

@@ -898,10 +898,10 @@ def estimate_differential_expression_resources(
         shape=cov_matrix_shape,
     )
 
-    # Combined covariance matrix (sum: Σ_a + Σ_b)
+    # Combined covariance matrix (averaged)
     plan.add_requirement(
         "Combined covariance matrix",
-        cov_size,  # cov1 + cov2
+        cov_size,  # (cov1 + cov2) / 2
         "memory",
         shape=cov_matrix_shape,
     )
