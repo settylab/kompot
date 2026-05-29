@@ -589,8 +589,15 @@ class TestAnnDataEmpiricalVariance:
         assert model.empirical_variance_predictor1 is not None
         assert model.empirical_variance_predictor2 is not None
 
-    def test_default_is_on(self, tiny_adata, fast_de_params):
-        """Default should be use_empirical_variance=True."""
+    def test_default_is_off(self, tiny_adata, fast_de_params):
+        """Default should be ``use_empirical_variance=False`` everywhere.
+
+        The deprecated ``compute_differential_expression`` wrapper
+        previously defaulted to ``True``, disagreeing with the
+        manuscript ("empirical variance is disabled by default") and
+        with the recommended ``kompot.de()`` path. v0.8.0 harmonizes
+        all public entry points to ``False``.
+        """
         from kompot.anndata.differential_expression import (
             compute_differential_expression,
         )
@@ -606,8 +613,8 @@ class TestAnnDataEmpiricalVariance:
         )
 
         model = result["model"]
-        assert model.use_empirical_variance is True
-        assert model.empirical_variance_predictor1 is not None
+        assert model.use_empirical_variance is False
+        assert model.empirical_variance_predictor1 is None
 
 
 # ===== Leverage correction =====

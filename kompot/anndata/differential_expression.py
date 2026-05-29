@@ -751,7 +751,7 @@ def compute_differential_expression(
     return_full_results: bool = False,
     store_posterior_covariance: bool = False,
     allow_single_condition_variance: bool = False,
-    use_empirical_variance: bool = True,
+    use_empirical_variance: bool = False,
     progress: bool = True,
     null_genes="auto",
     null_seed=42,
