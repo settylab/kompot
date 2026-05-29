@@ -4,16 +4,6 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
-## [0.8.0] - 2026-05-28
-
-### Behavior changes
-
-These three changes correct discrepancies between the implementation and the manuscript that describes Kompot's statistics. Two are numerical scale shifts that preserve relative rankings; the third is a default-value harmonization. Re-tune any absolute thresholds calibrated against 0.7.0.
-
- - **Mahalanobis denominator now sums covariances**: the gene-wise Mahalanobis distance used by `DifferentialExpression.predict(compute_mahalanobis=True)` now computes the posterior combined covariance as `Σ_a + Σ_b` (the variance of the difference of two independent posterior estimators) instead of `(Σ_a + Σ_b) / 2`. Matches the manuscript definition `D(a,b) = sqrt((μ_a − μ_b)^T (Σ_a + Σ_b)^(-1) (μ_a − μ_b))`. **Effect**: absolute Mahalanobis distances in the GP-only regime contract by a factor of `√2` (and `D²` by 2). Relative rankings of genes are unchanged because the same scale factor applies everywhere, and FDR thresholds re-calibrate against the null. The sample-variance branch was already correctly summed.
- - **Differential-abundance posterior tail probability is now one-sided**: `DifferentialAbundance.predict()` returns `PTP = Φ(−|z|)` (one-sided), matching the manuscript definition `PTP(x_i) = Φ(−|Δ(x_i)|/√(σ_a² + σ_b²))`. Previous releases returned `2·Φ(−|z|)` (two-sided). **Effect**: numeric PTP values are halved relative to 0.7.0; equivalently, `neg_log10_fold_change_ptp` increases by `log10(2) ≈ 0.301`. The threshold `PTP < 1e-3` previously corresponded to `|z| ≥ 3.29` and now corresponds to `|z| ≥ 3.09`. Re-tune any hard-coded `ptp_threshold` chosen against 0.7.0 if you want to preserve the old call-rate.
- - **`use_empirical_variance` default is now `False` everywhere**: harmonized across `kompot.de()` (already False), `DifferentialExpression.__init__`, `ExpressionModel.__init__`, `kompot.smooth_expression()`, the deprecated `compute_differential_expression()` and `compute_smoothed_expression()` wrappers, and the CLI `smooth_config_template.yaml`. Previously these four entry points defaulted to `True`, inconsistent with both the recommended `kompot.de()` path and the manuscript's "empirical variance is disabled by default" statement. Code that relies on empirical variance must now pass `use_empirical_variance=True` explicitly.
-
 ### New features
 
  - **`--dry-run` flag for `kompot de` CLI**: estimates memory, disk, and output field requirements without running the analysis. Outputs machine-parseable JSON to stdout and a human-readable report to stderr. Exit code reflects feasibility.
