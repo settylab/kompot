@@ -109,7 +109,7 @@ def smooth_expression(
     ls = gp.ls if gp is not None else None
     ls_factor = gp.ls_factor if gp is not None else 10.0
     n_landmarks = gp.n_landmarks if gp is not None else 5000
-    use_empirical_variance = gp.use_empirical_variance if gp is not None else True
+    use_empirical_variance = gp.use_empirical_variance if gp is not None else False
     eps = gp.eps if gp is not None else 1e-8
     random_state = gp.random_state if gp is not None else None
     batch_size = gp.batch_size if gp is not None else 500
@@ -393,7 +393,7 @@ def compute_smoothed_expression(
     sigma: float = 1.0,
     ls: Optional[float] = None,
     ls_factor: float = 10.0,
-    use_empirical_variance: bool = True,
+    use_empirical_variance: bool = False,
     eps: float = 1e-8,
     random_state: Optional[int] = None,
     batch_size: int = 500,

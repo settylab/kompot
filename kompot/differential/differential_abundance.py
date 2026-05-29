@@ -603,11 +603,12 @@ class DifferentialAbundance:
         sd = np.sqrt(log_fold_change_uncertainty + self.eps)
         log_fold_change_zscore = log_fold_change / sd
 
-        # Compute PTP (Posterior Tail Probability) in natural log (base e)
+        # Compute PTP (Posterior Tail Probability) in natural log (base e).
+        # One-sided per manuscript: PTP = Φ(−|z|) = min(Φ(z), Φ(−z)) for real z.
         ln_ptp = np.minimum(
             normal.logcdf(log_fold_change_zscore),
             normal.logcdf(-log_fold_change_zscore),
-        ) + np.log(2)
+        )
 
         # Convert from natural log to negative log10 (for better volcano plot visualization)
         # ln_ptp is a log of a small value (typically < 1), so it's negative
