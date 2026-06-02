@@ -771,8 +771,10 @@ def _compute_fdr(
             "mahalanobis": internal_null_mahalanobis,
             "mean_lfc": expression_results["mean_log_fold_change"][n_real:],
         }
-        if "ptp" in expression_results:
-            null_table_data["ptp"] = expression_results["ptp"][n_real:]
+        if "neg_log10_ptp" in expression_results:
+            null_table_data["neg_log10_ptp"] = expression_results["neg_log10_ptp"][
+                n_real:
+            ]
         null_data["table"] = pd.DataFrame(
             null_table_data,
             index=null_gene_names,
@@ -823,8 +825,10 @@ def _compute_fdr(
 
     if "mahalanobis_distances" in expression_results:
         expression_results["mahalanobis_distances"] = real_mahalanobis
-    if "ptp" in expression_results:
-        expression_results["ptp"] = expression_results["ptp"][:n_real]
+    if "neg_log10_ptp" in expression_results:
+        expression_results["neg_log10_ptp"] = expression_results["neg_log10_ptp"][
+            :n_real
+        ]
 
     return fdr_results
 
@@ -909,17 +913,21 @@ def _store_de_results(
             adata,
         )
 
-    if compute_mahalanobis and "ptp" in expression_results and store_additional_stats:
-        ptp = _ensure_1d(
-            expression_results["ptp"],
-            "ptp",
+    if (
+        compute_mahalanobis
+        and "neg_log10_ptp" in expression_results
+        and store_additional_stats
+    ):
+        neg_log10_ptp = _ensure_1d(
+            expression_results["neg_log10_ptp"],
+            "neg_log10_ptp",
             n_selected,
             logger,
         )
         _add_var_column(
             new_var_columns,
             field_names["ptp_key"],
-            ptp,
+            neg_log10_ptp,
             selected_genes,
             adata,
         )
@@ -1426,9 +1434,13 @@ def _compute_group_results(
                         f"significantly DE at FDR < {fdr_threshold}"
                     )
 
-        # Group-wise ptp
-        if compute_mahalanobis and store_additional_stats and "ptp" in subset_results:
-            sub_ptp = subset_results["ptp"]
+        # Group-wise neg_log10_ptp
+        if (
+            compute_mahalanobis
+            and store_additional_stats
+            and "neg_log10_ptp" in subset_results
+        ):
+            sub_ptp = subset_results["neg_log10_ptp"]
             if len(sub_ptp) == len(expanded_genes):
                 sub_ptp = sub_ptp[:n_real]
             elif len(sub_ptp) != n_real:
@@ -1641,7 +1653,8 @@ def _build_field_mapping(
                 "location": "var",
                 "type": "ptp",
                 "description": (
-                    "Posterior tail probability from chi-squared distribution"
+                    "Negative log10 posterior tail probability (-log10 PTP) from "
+                    "the chi-squared distribution, computed in log space"
                 ),
             }
 
@@ -1728,7 +1741,10 @@ def _add_group_field_mapping(
             field_mapping[ptp_k] = {
                 "location": "varm",
                 "type": "ptp",
-                "description": "Peak-to-peak values for all subsets",
+                "description": (
+                    "Negative log10 posterior tail probability (-log10 PTP) for "
+                    "all subsets"
+                ),
                 "contains_subsets": subset_names,
             }
 

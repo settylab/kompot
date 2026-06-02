@@ -89,7 +89,7 @@ def cleanup(
 
     - ``'mean_log_fold_change'``: Mean log fold change values
     - ``'mahalanobis'``: Mahalanobis distances
-    - ``'ptp'``: Posterior tail probability
+    - ``'ptp'``: Negative log10 posterior tail probability (-log10 PTP)
     - ``'mahalanobis_pvalue'``: P-values from empirical null
     - ``'mahalanobis_local_fdr'``: Local FDR values
     - ``'mahalanobis_tail_fdr'``: Tail-based FDR values

@@ -73,7 +73,7 @@ def volcano_de(
     legend_ncol: Optional[int] = None,
     group: Optional[str] = None,
     # New significance-related parameters
-    y_axis_type: str = "mahalanobis",  # "mahalanobis", "local_fdr", "tail_fdr", "log10_ptp", or custom column name
+    y_axis_type: str = "mahalanobis",  # "mahalanobis", "local_fdr", "tail_fdr", "ptp", or custom column name
     significance_threshold: Optional[Union[float, Dict[str, float]]] = None,
     update_de_classification: bool = False,
     direction_column: Optional[str] = None,
@@ -188,8 +188,9 @@ def volcano_de(
         adata.var for Mahalanobis distances, and mean fold changes.
     y_axis_type : str, optional
         Type of values to use for the y-axis: "mahalanobis" (default), "local_fdr", "tail_fdr",
-        "ptp", or a custom column name from adata.var. When using FDR or ptp values, they are
-        -log10 transformed for display.
+        "ptp", or a custom column name from adata.var. FDR values are -log10 transformed for
+        display; the "ptp" column is already stored as -log10(PTP) (the neg_log10_ptp field)
+        and is plotted directly. In both cases higher on the axis means more significant.
     significance_threshold : float or dict, optional
         Significance threshold for the y-axis values. A float sets a single
         threshold shown as a horizontal line. A dict maps y-axis types to
@@ -298,14 +299,20 @@ def volcano_de(
             score_key = original_score_key
 
     elif y_axis_type == "ptp":
-        # Posterior tail probability (will be -log10 transformed for display)
+        # Posterior tail probability, stored as -log10(PTP) in the neg_log10_ptp
+        # field. The column is already log-transformed (higher = more
+        # significant), so NO additional -log10 transform is applied for display.
+        # This mirrors the DA path, whose neg_log10_lfc_ptp field is likewise
+        # pre-transformed.
         if run_info and "ptp_key" in run_info and run_info["ptp_key"]:
             significance_key = run_info["ptp_key"]
 
             if significance_key and significance_key in adata.var.columns:
                 score_key = significance_key
-                y_transform = fdr_y_transform  # Same -log10 transform as FDR
-                logger.info(f"Using ptp values for y-axis: {significance_key}")
+                y_transform = None  # already -log10(PTP); plot directly
+                logger.info(
+                    f"Using neg_log10_ptp values for y-axis: {significance_key}"
+                )
             else:
                 logger.warning(
                     f"ptp key '{significance_key}' from run info not found in adata.var"
@@ -317,15 +324,17 @@ def volcano_de(
             logger.warning(
                 "No ptp key in run_info; attempting fallback ptp key inference from score key..."
             )
-            fallback_key = score_key.replace("mahalanobis", "ptp")
+            fallback_key = score_key.replace("mahalanobis", "neg_log10_ptp")
 
             if fallback_key in adata.var.columns:
                 score_key = fallback_key
                 significance_key = fallback_key
-                y_transform = fdr_y_transform  # Same -log10 transform as FDR
-                logger.warning(f"Using fallback ptp key: {fallback_key}")
+                y_transform = None  # already -log10(PTP); plot directly
+                logger.warning(f"Using fallback neg_log10_ptp key: {fallback_key}")
             else:
-                logger.warning(f"Fallback ptp key '{fallback_key}' not found either")
+                logger.warning(
+                    f"Fallback neg_log10_ptp key '{fallback_key}' not found either"
+                )
 
         # Final fallback to original score key if nothing worked
         if significance_key is None:
@@ -351,7 +360,8 @@ def volcano_de(
             ylabel = "-log10(Local FDR)"
         elif y_axis_type == "tail_fdr" and y_transform is not None:
             ylabel = "-log10(Tail FDR)"
-        elif y_axis_type == "ptp" and y_transform is not None:
+        elif y_axis_type == "ptp" and significance_key is not None:
+            # neg_log10_ptp column is already -log10(PTP); no transform applied
             ylabel = "-log10(Posterior Tail Probability)"
         elif y_axis_type == "mahalanobis" or (
             score_key and "mahalanobis" in score_key.lower()
@@ -942,7 +952,8 @@ def volcano_de(
                             comparison = "<"
                         elif axis_type == "ptp":
                             col_key = run_info.get("ptp_key") if run_info else None
-                            comparison = "<"
+                            # neg_log10_ptp column: higher = more significant.
+                            comparison = ">"
                         elif axis_type == "mahalanobis":
                             col_key = (
                                 score_key
@@ -959,6 +970,12 @@ def volcano_de(
 
                         if col_key and col_key in adata.var.columns:
                             col_values = adata.var[col_key]
+                            # ptp threshold is a probability; the neg_log10_ptp
+                            # column is on the -log10 scale, so convert.
+                            if axis_type == "ptp":
+                                threshold_val = fdr_y_transform(
+                                    np.array([threshold_val])
+                                )[0]
                             if comparison == "<":
                                 axis_mask = col_values < threshold_val
                             else:
@@ -1010,7 +1027,9 @@ def volcano_de(
                         significance_values_key = (
                             run_info.get("ptp_key") if run_info else None
                         )
-                        threshold_comparison = "<"
+                        # neg_log10_ptp column: higher = more significant, so compare
+                        # the -log10 of the (probability) threshold with '>'.
+                        threshold_comparison = ">"
                     elif y_axis_type == "mahalanobis":
                         significance_values_key = score_key  # Use the current score key
                         threshold_comparison = ">"
@@ -1035,17 +1054,25 @@ def volcano_de(
                     ):
                         # Select genes based on significance threshold
                         sig_values = adata.var[significance_values_key]
+                        # ptp threshold is a probability (max PTP); the stored
+                        # column is -log10(PTP), so convert the threshold to the
+                        # same scale for comparison.
+                        effective_threshold = (
+                            fdr_y_transform(np.array([significance_threshold]))[0]
+                            if y_axis_type == "ptp"
+                            else significance_threshold
+                        )
                         logger.info(
-                            f"Significance threshold selection: using column '{significance_values_key}' with threshold {threshold_comparison} {significance_threshold}"
+                            f"Significance threshold selection: using column '{significance_values_key}' with threshold {threshold_comparison} {effective_threshold}"
                         )
                         logger.info(
                             f"Values range: {sig_values.min():.6f} - {sig_values.max():.6f}"
                         )
 
                         if threshold_comparison == "<":
-                            significant_mask = sig_values < significance_threshold
+                            significant_mask = sig_values < effective_threshold
                         else:  # '>'
-                            significant_mask = sig_values > significance_threshold
+                            significant_mask = sig_values > effective_threshold
 
                         significant_genes = adata.var_names[significant_mask].tolist()
                         logger.info(
@@ -1469,9 +1496,20 @@ def volcano_de(
         and significance_threshold is not None
         and not isinstance(significance_threshold, dict)
     ):
-        if y_axis_type in ["local_fdr", "tail_fdr", "ptp"] and y_transform is not None:
+        # ptp stores -log10(PTP) directly (y_transform is None), but the user
+        # passes a probability threshold, so it must still be mapped onto the
+        # -log10 axis. FDR axes carry an explicit y_transform that does the same.
+        threshold_axis_transform = None
+        if y_axis_type == "ptp":
+            threshold_axis_transform = fdr_y_transform
+        elif y_axis_type in ["local_fdr", "tail_fdr"] and y_transform is not None:
+            threshold_axis_transform = y_transform
+
+        if threshold_axis_transform is not None:
             # Transform the threshold for display
-            threshold_y = y_transform(np.array([significance_threshold]))[0]
+            threshold_y = threshold_axis_transform(
+                np.array([significance_threshold])
+            )[0]
             ax.axhline(
                 y=threshold_y,
                 color="red",

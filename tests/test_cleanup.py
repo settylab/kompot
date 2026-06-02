@@ -224,7 +224,7 @@ class TestCleanupFunctionality:
         # Additional stats should be removed
         assert "test_keep_var_A_to_B_mahalanobis_pvalue" not in adata.var.columns
         assert "test_keep_var_A_to_B_mahalanobis_tail_fdr" not in adata.var.columns
-        assert "test_keep_var_A_to_B_ptp" not in adata.var.columns
+        assert "test_keep_var_A_to_B_neg_log10_ptp" not in adata.var.columns
 
     def test_cleanup_not_inplace(self):
         """Test that cleanup returns a copy when inplace=False."""

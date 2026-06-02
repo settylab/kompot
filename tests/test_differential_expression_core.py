@@ -333,11 +333,13 @@ class TestDifferentialExpressionPredict:
                 "kompot.differential.differential_expression.compute_mahalanobis_distances"
             ) as mock_mahal:
                 with patch(
-                    "kompot.differential.differential_expression.jax_stats.chi2.sf"
-                ) as mock_chi2:
+                    "kompot.differential.differential_expression.scipy_chi2.logsf"
+                ) as mock_logsf:
                     mock_batch.side_effect = lambda func, X, **kwargs: func(X)
                     mock_mahal.return_value = np.array([0.5, 0.8])  # 2 genes
-                    mock_chi2.return_value = np.array([0.3, 0.1])  # Mock PTP values
+                    # PTP is now computed in log space via scipy chi2.logsf; mock
+                    # the natural-log tail probability for the 2 genes.
+                    mock_logsf.return_value = np.array([-0.3, -0.1])
 
                     results = de.predict(X_test, compute_mahalanobis=True)
 
@@ -349,12 +351,12 @@ class TestDifferentialExpressionPredict:
                     assert "fold_change_zscores" in results
                     assert "mean_log_fold_change" in results
                     assert "mahalanobis_distances" in results
-                    assert "ptp" in results  # New PTP column
+                    assert "neg_log10_ptp" in results  # -log10(PTP) column
 
                     # Check shapes
                     assert results["fold_change"].shape == (3, 2)  # 3 cells, 2 genes
                     assert results["mahalanobis_distances"].shape == (2,)  # 2 genes
-                    assert results["ptp"].shape == (2,)  # 2 genes
+                    assert results["neg_log10_ptp"].shape == (2,)  # 2 genes
 
     def test_differential_expression_predict_with_sample_variance(self):
         """Test DifferentialExpression prediction with sample variance."""
@@ -650,13 +652,13 @@ class TestDifferentialExpressionBatching:
                 "kompot.differential.differential_expression.compute_mahalanobis_distances"
             ) as mock_mahal:
                 with patch(
-                    "kompot.differential.differential_expression.jax_stats.chi2.sf"
-                ) as mock_chi2:
+                    "kompot.differential.differential_expression.scipy_chi2.logsf"
+                ) as mock_logsf:
                     mock_batch.side_effect = lambda func, X, **kwargs: func(X)
                     mock_mahal.return_value = np.array([0.2, 0.4, 0.6])  # 3 genes
-                    mock_chi2.return_value = np.array(
-                        [0.4, 0.2, 0.1]
-                    )  # Mock PTP values
+                    # PTP is now computed in log space via scipy chi2.logsf; mock
+                    # the natural-log tail probability for the 3 genes.
+                    mock_logsf.return_value = np.array([-0.4, -0.2, -0.1])
 
                     results = de.predict(X_test, progress=False)
 
@@ -674,7 +676,7 @@ class TestDifferentialExpressionBatching:
                         "mahalanobis_distances" not in results
                     )  # Should not be present when compute_mahalanobis=False
                     assert (
-                        "ptp" not in results
+                        "neg_log10_ptp" not in results
                     )  # Should not be present when compute_mahalanobis=False
 
                     # Test with mahalanobis computation enabled
@@ -682,8 +684,10 @@ class TestDifferentialExpressionBatching:
                         X_test, compute_mahalanobis=True, progress=False
                     )
                     assert "mahalanobis_distances" in results_with_mahal
-                    assert "ptp" in results_with_mahal  # PTP should be present
+                    assert (
+                        "neg_log10_ptp" in results_with_mahal
+                    )  # -log10(PTP) should be present
                     assert results_with_mahal["mahalanobis_distances"].shape == (
                         3,
                     )  # 3 genes
-                    assert results_with_mahal["ptp"].shape == (3,)  # 3 genes
+                    assert results_with_mahal["neg_log10_ptp"].shape == (3,)  # 3 genes

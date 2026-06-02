@@ -230,7 +230,7 @@ def _fallback_field_inference(
         "direction_key": ["direction"],
         "mean_lfc_key": ["mean_lfc", "lfc", "log_fold_change", "fold_change"],
         "mahalanobis_key": ["mahalanobis", "score"],
-        "ptp_key": ["ptp"],
+        "ptp_key": ["neg_log10_ptp", "ptp"],
         "is_de_key": ["is_de", "significant"],
         "zscore_key": ["zscore", "z_score"],
         "density_key_1": ["log_density"],

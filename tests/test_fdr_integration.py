@@ -92,13 +92,13 @@ class TestFDRIntegration:
             assert col in results["table"].columns, f"Missing column: {col}"
             assert len(results["table"][col]) == adata.n_vars
 
-        # Check AnnData columns (including new ptp column)
+        # Check AnnData columns (including the neg_log10_ptp column)
         fdr_columns = [
             "test_fdr_Ctrl_to_Treat_mahalanobis_pvalue",
             "test_fdr_Ctrl_to_Treat_mahalanobis_local_fdr",
             "test_fdr_Ctrl_to_Treat_mahalanobis_tail_fdr",
             "test_fdr_Ctrl_to_Treat_is_de",
-            "test_fdr_Ctrl_to_Treat_ptp",
+            "test_fdr_Ctrl_to_Treat_neg_log10_ptp",
         ]
         for col in fdr_columns:
             assert col in adata.var.columns, f"Missing column: {col}"
@@ -110,9 +110,9 @@ class TestFDRIntegration:
         assert np.all(adata.var["test_fdr_Ctrl_to_Treat_mahalanobis_local_fdr"] <= 1)
         assert adata.var["test_fdr_Ctrl_to_Treat_is_de"].dtype == bool
 
-        # Check ptp values (should be probabilities between 0 and 1)
-        assert np.all(adata.var["test_fdr_Ctrl_to_Treat_ptp"] >= 0)
-        assert np.all(adata.var["test_fdr_Ctrl_to_Treat_ptp"] <= 1)
+        # Check neg_log10_ptp values: -log10(PTP) is non-negative and unbounded
+        # above (a probability PTP <= 1 maps to -log10(PTP) >= 0).
+        assert np.all(adata.var["test_fdr_Ctrl_to_Treat_neg_log10_ptp"] >= 0)
 
         # FDR pipeline should run without error and produce valid results
         n_significant = np.sum(adata.var["test_fdr_Ctrl_to_Treat_is_de"])
