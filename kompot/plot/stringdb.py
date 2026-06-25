@@ -64,6 +64,14 @@ class StringDBReport:
         Include external resource links for genes (default: True)
     include_enrichment : bool, optional
         Include functional enrichment analysis (default: False)
+    background : List[str], optional
+        Gene symbols defining the statistical background (the tested universe)
+        for over-representation analysis, e.g. ``adata.var_names`` of the
+        analyzed object. When ``None`` (default), StringDB uses its genome-wide
+        background, which inflates significance for any experiment that only
+        measured a subset of genes. Passing the genes that were actually tested
+        is the statistically correct choice. See :meth:`get_functional_enrichment`
+        for details on how the background is applied.
 
     Attributes
     ----------
@@ -101,6 +109,7 @@ class StringDBReport:
         include_stringdb: bool = True,
         include_resources: bool = True,
         include_enrichment: bool = False,
+        background: Optional[List[str]] = None,
     ):
         """Initialize the StringDBReport with genes and options."""
         # Check for required dependencies
@@ -115,6 +124,7 @@ class StringDBReport:
         self.include_stringdb = include_stringdb
         self.include_resources = include_resources
         self.include_enrichment = include_enrichment
+        self.background = background
 
         # Map species IDs to common names
         self.species_map = {
@@ -481,8 +491,78 @@ class StringDBReport:
         """
         display(HTML(self.to_html(additional_genes)))
 
+    def _map_to_string_ids(self, genes: List[str]) -> List[str]:
+        """Resolve gene symbols to canonical StringDB protein identifiers.
+
+        StringDB's enrichment ``background_string_identifiers`` parameter
+        requires canonical STRING identifiers (e.g. ``9606.ENSP00000269305``),
+        not bare gene symbols, so the foreground and the background must be
+        mapped into the *same* identifier space before an over-representation
+        query against a custom background. This wraps StringDB's
+        ``get_string_ids`` endpoint. Symbols that StringDB cannot resolve are
+        dropped (with a warning) rather than silently corrupting the universe.
+
+        Parameters
+        ----------
+        genes : List[str]
+            Gene symbols (or identifiers) to resolve.
+
+        Returns
+        -------
+        List[str]
+            STRING identifiers, de-duplicated and order-preserving. Returns an
+            empty list if the mapping request fails or nothing resolves.
+        """
+        if not genes:
+            return []
+
+        url = f"{STRING_API_BASE_URL}/tsv-no-header/get_string_ids"
+        payload = {
+            "identifiers": "\n".join(genes),
+            "species": self.species_id,
+            "limit": 1,  # best match per input
+            "echo_query": 1,  # prepend the query term so we can track misses
+            "caller_identity": "kompot",
+        }
+
+        try:
+            response = requests.post(url, data=payload, timeout=30)
+            response.raise_for_status()
+        except Exception as e:
+            logger.warning(f"Failed to map gene identifiers to STRING IDs: {e}")
+            return []
+
+        mapped: List[str] = []
+        seen = set()
+        resolved_inputs = set()
+        for line in response.text.strip().splitlines():
+            if not line:
+                continue
+            cols = line.split("\t")
+            # echo_query columns:
+            #   queryItem, queryIndex, stringId, taxon, taxonName, preferredName, annotation
+            if len(cols) < 3:
+                continue
+            query_item, string_id = cols[0], cols[2]
+            resolved_inputs.add(query_item)
+            if string_id and string_id not in seen:
+                seen.add(string_id)
+                mapped.append(string_id)
+
+        unmapped = [g for g in genes if g not in resolved_inputs]
+        if unmapped:
+            logger.warning(
+                f"{len(unmapped)} of {len(genes)} identifiers could not be mapped "
+                f"to STRING IDs (e.g. {', '.join(map(str, unmapped[:5]))}); "
+                "they are excluded from the enrichment universe."
+            )
+        return mapped
+
     def get_functional_enrichment(
-        self, category: str = "Process", fdr_threshold: float = 0.05
+        self,
+        category: str = "Process",
+        fdr_threshold: float = 0.05,
+        background: Optional[List[str]] = None,
     ) -> Optional[pd.DataFrame]:
         """Get functional enrichment analysis for the gene set.
 
@@ -505,6 +585,29 @@ class StringDBReport:
             - WikiPathways: WikiPathways annotations
         fdr_threshold : float, optional
             FDR threshold for significance (default: 0.05)
+        background : List[str], optional
+            Gene symbols defining the statistical background (the tested
+            universe) for the over-representation analysis. Overrides the
+            instance-level ``background`` passed at construction for this call.
+            When both are ``None`` (the default), StringDB uses its genome-wide
+            background.
+
+            **Why this matters.** Over-representation analysis compares the
+            foreground against a universe. If an experiment only measured a
+            subset of genes (as in most single-cell / targeted assays), the
+            correct universe is the set of genes actually tested, not the whole
+            genome. Using the genome-wide default inflates significance by
+            deflating the background — the classic ORA pitfall. Pass the tested
+            gene set (e.g. ``adata.var_names``) here to correct it.
+
+            Both the foreground and the supplied background are mapped to STRING
+            identifiers via :meth:`_map_to_string_ids` so they share one
+            identifier space (StringDB requires STRING IDs, not symbols, for the
+            background), and the universe size used for the ``strength``/``signal``
+            columns is set to the mapped background size rather than the
+            species-wide protein count. If the mapping yields an empty foreground
+            or background, the call falls back to the genome-wide background and
+            logs a warning.
 
         Returns
         -------
@@ -556,6 +659,33 @@ class StringDBReport:
         # StringDB expects newline-separated gene list
         gene_list = "\n".join(self.genes)
 
+        # Resolve the effective background: an explicit argument overrides the
+        # instance-level background set at construction.
+        effective_background = (
+            background if background is not None else self.background
+        )
+
+        # universe_size drives the strength/signal computation. None => fall back
+        # to the species-wide protein count (genome-wide background, legacy
+        # behavior). When a custom background is honored it becomes the mapped
+        # background size.
+        universe_size: Optional[int] = None
+        background_ids: List[str] = []
+        if effective_background is not None:
+            background_ids = self._map_to_string_ids(effective_background)
+            foreground_ids = self._map_to_string_ids(self.genes)
+            if not background_ids or not foreground_ids:
+                logger.warning(
+                    "Custom background requested but identifier mapping yielded an "
+                    "empty foreground or background; falling back to the genome-wide "
+                    "background."
+                )
+                background_ids = []
+            else:
+                # Foreground and background now live in the same identifier space.
+                gene_list = "\n".join(foreground_ids)
+                universe_size = len(background_ids)
+
         # In some API versions, the StringDB API might only return results
         # if the category is explicitly specified
         payload_base = {
@@ -563,6 +693,8 @@ class StringDBReport:
             "species": self.species_id,
             "caller_identity": "kompot",
         }
+        if background_ids:
+            payload_base["background_string_identifiers"] = "\n".join(background_ids)
 
         # First try to get all categories at once (more efficient)
         payload = payload_base.copy()
@@ -650,7 +782,9 @@ class StringDBReport:
 
                 # Compute signal and strength columns
                 if len(df) > 0:
-                    df = self._compute_signal_and_strength(df)
+                    df = self._compute_signal_and_strength(
+                        df, total_proteins=universe_size
+                    )
                     # Sort by signal (descending) as StringDB does by default
                     return df.sort_values("signal", ascending=False)
 
@@ -719,7 +853,9 @@ class StringDBReport:
             )
             return None
 
-    def _compute_signal_and_strength(self, df: pd.DataFrame) -> pd.DataFrame:
+    def _compute_signal_and_strength(
+        self, df: pd.DataFrame, total_proteins: Optional[int] = None
+    ) -> pd.DataFrame:
         """
         Compute signal and strength columns according to StringDB definitions.
 
@@ -731,6 +867,13 @@ class StringDBReport:
         ----------
         df : pd.DataFrame
             DataFrame with enrichment results from StringDB API
+        total_proteins : int, optional
+            Size of the statistical universe used to compute ``expected`` counts.
+            When ``None`` (genome-wide background), falls back to the species-wide
+            protein count. When a custom background is supplied to
+            :meth:`get_functional_enrichment`, this is the mapped background size,
+            so ``expected``/``strength`` stay consistent with the restricted
+            universe the API used for its p-values and FDR.
 
         Returns
         -------
@@ -740,14 +883,16 @@ class StringDBReport:
         df = df.copy()
 
         # Total protein counts used by StringDB for different species
-        # These values were reverse-engineered from hypergeometric p-values
-        if self.species_id == 9606:  # Human
-            total_proteins = 19274  # Confirmed by p-value matching
-        elif self.species_id == 10090:  # Mouse
-            total_proteins = 22000  # Confirmed by p-value matching
-        else:
-            # For other species, use a reasonable default
-            total_proteins = 18000
+        # These values were reverse-engineered from hypergeometric p-values.
+        # A custom background overrides them with its own (mapped) size.
+        if total_proteins is None:
+            if self.species_id == 9606:  # Human
+                total_proteins = 19274  # Confirmed by p-value matching
+            elif self.species_id == 10090:  # Mouse
+                total_proteins = 22000  # Confirmed by p-value matching
+            else:
+                # For other species, use a reasonable default
+                total_proteins = 18000
 
         # Calculate expected counts as per StringDB definition:
         # Expected = (network_size * background_with_term) / total_proteins_in_species
