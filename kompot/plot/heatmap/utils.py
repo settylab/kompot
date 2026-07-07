@@ -457,7 +457,7 @@ def _setup_colormap_normalization(data, vcenter, vmin, vmax, cmap):
             cmap_obj = plt.colormaps[cmap]
         except (AttributeError, KeyError):
             # Fall back to older API for compatibility
-            cmap_obj = plt.cm.get_cmap(cmap)
+            cmap_obj = plt.get_cmap(cmap)
     else:
         cmap_obj = cmap
 

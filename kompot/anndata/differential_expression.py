@@ -530,8 +530,8 @@ def de(
 
     if compute_mahalanobis and "mahalanobis_distances" in expression_results:
         results_data["mahalanobis"] = expression_results["mahalanobis_distances"]
-    if "ptp" in expression_results:
-        results_data["ptp"] = expression_results["ptp"]
+    if "neg_log10_ptp" in expression_results:
+        results_data["neg_log10_ptp"] = expression_results["neg_log10_ptp"]
 
     result_dict["table"] = pd.DataFrame(results_data, index=selected_genes)
     result_dict["underrepresentation"] = underrep
@@ -751,7 +751,7 @@ def compute_differential_expression(
     return_full_results: bool = False,
     store_posterior_covariance: bool = False,
     allow_single_condition_variance: bool = False,
-    use_empirical_variance: bool = True,
+    use_empirical_variance: bool = False,
     progress: bool = True,
     null_genes="auto",
     null_seed=42,

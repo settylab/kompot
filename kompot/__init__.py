@@ -99,9 +99,20 @@ LOGGING_CONFIG = {
 logging.config.dictConfig(LOGGING_CONFIG)
 logger = logging.getLogger("kompot")
 
+# The single console handler kompot installs above. configure_logging()
+# retargets only this handler and never mutates foreign handlers that other
+# code may attach to the non-propagating "kompot" logger (e.g. pytest's
+# log-capture handlers, whose streams must stay StringIO buffers).
+_console_handler = next(
+    (h for h in logger.handlers if isinstance(h, logging.StreamHandler)), None
+)
+
 
 def configure_logging(stream=None):
     """Reconfigure the kompot logger to write to a different stream.
+
+    Only kompot's own console handler is retargeted; any additional handlers
+    attached to the ``kompot`` logger by other code are left untouched.
 
     Parameters
     ----------
@@ -113,8 +124,8 @@ def configure_logging(stream=None):
     if stream is None:
         stream = sys.stdout
     for handler in logger.handlers:
-        if hasattr(handler, "stream"):
-            handler.stream = stream
+        if handler is _console_handler:
+            handler.setStream(stream)
 
 __all__ = [
     # Version

@@ -15,6 +15,16 @@ Expression Plots
 
 .. autofunction:: kompot.plot.plot_gene_expression
 
+Dotplots
+--------
+
+.. autofunction:: kompot.plot.dotplot
+
+Enrichment Lollipop
+-------------------
+
+.. autofunction:: kompot.plot.lollipop
+
 Heatmaps
 --------
 

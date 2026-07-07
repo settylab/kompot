@@ -26,7 +26,7 @@ n_landmarks: 5000              # Number of landmarks for Nystrom approximation
 sample_col: null               # Column in adata.obs with sample IDs
 
 # Empirical variance (heteroscedastic noise):
-use_empirical_variance: true   # Estimate per-gene noise from GP residuals
+use_empirical_variance: false  # Estimate per-gene noise from GP residuals
 
 # GP kernel parameters:
 sigma: 1.0                     # Noise level for function estimator

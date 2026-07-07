@@ -4,21 +4,34 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
-### New features
+## [0.8.0] - 2026-05-28
 
- - **`--dry-run` flag for `kompot de` CLI**: estimates memory, disk, and output field requirements without running the analysis. Outputs machine-parseable JSON to stdout and a human-readable report to stderr. Exit code reflects feasibility.
- - **`kompot.configure_logging(stream)`**: reconfigure the kompot logger output stream. The CLI now logs to stderr by default, keeping stdout clean for machine-parseable output (dry-run JSON, table output).
- - **`kompot.plot.dotplot`**: ax-embeddable fold-change-per-group dotplot. Color = mean of a per-cell LFC layer within each `groupby` category; size = fraction of cells expressing. Gene selection is either an explicit list or auto-picked top-N by Mahalanobis from run history (with optional `filter_key`, e.g. restricting to `is_de=True`). Pass `axes=(main, cbar, size_legend)` to compose into a larger figure, or leave `axes=None` for a standalone figure. Unlike `scanpy.pl.DotPlot`, this function does not build its own `GridSpec` and does not fight externally-provided axes, which is the whole reason it exists. Shares gene-selection, layer-fetch, and colormap-normalization primitives with `kompot.plot.heatmap` via the existing `heatmap.utils` helpers.
+### Changed — statistics now match the manuscript
 
-### Improvements
+These numerical changes align Kompot's output with the published method. Relative gene/cell rankings are preserved and FDR re-calibrates against the null, but **absolute values shift, so re-tune any hard-coded thresholds carried over from 0.7.0.**
 
- - **CLI logs to stderr**: all `kompot` CLI commands now write log messages to stderr instead of stdout, so stdout is reserved for data output.
- - **`kompot smooth` documented in CLI guide**: added full command reference, options, and examples to the Sphinx CLI docs.
- - Fix double-backslash rendering in all CLI doc code blocks.
- - Exclude deprecated `compute_differential_*` functions from Sphinx automodule output.
- - Add `smooth_expression()` module to Sphinx API docs.
- - Add `RunInfo.to_settings()` and `call_args()` to documented members.
- - Fix "Gene Expression Imputation" → "Gene Expression Smoothing" in docs toctree.
+ - **Differential-expression Mahalanobis distances are smaller by a factor of √2** (the combined posterior covariance is now `Σ_a + Σ_b`).
+ - **Differential-abundance PTP is now one-sided**, so reported values are halved (`neg_log10_fold_change_ptp` increases by ~0.30). A `ptp_threshold` of `1e-3`, which used to mean |z| ≥ 3.29, now means |z| ≥ 3.09 — lower it if you need the old call rate.
+ - **`use_empirical_variance` now defaults to `False`** in every entry point (`DifferentialExpression`, `ExpressionModel`, `smooth_expression()`, the deprecated `compute_*` wrappers, and the CLI config templates), matching `kompot.de()`. Pass `use_empirical_variance=True` explicitly to keep the old behavior.
+
+### Changed — renamed field (action required)
+
+ - The differential-expression posterior tail probability is now stored as **`-log10(PTP)` in the `..._neg_log10_ptp` column** (previously the raw probability in `..._ptp`), so larger means more significant. This preserves ranking resolution that the old linear column lost for most genes. `volcano_de(y_axis_type="ptp")` handles the change for you; **update any code that read the old `_ptp` column.**
+
+### Added
+
+ - **`kompot de --dry-run`**: estimate memory, disk, and output-field requirements without running the analysis. Prints JSON to stdout and a human-readable report to stderr.
+ - **`kompot.plot.dotplot`**: fold-change dotplot (color = mean log-fold-change per group, size = fraction of cells expressing) that embeds into your own Matplotlib axes. Genes are given explicitly or auto-picked as top-N by Mahalanobis.
+ - **`kompot.plot.lollipop`**: gene-set-enrichment lollipop plot that embeds into an existing axis. Accepts a `StringDBReport`, its enrichment table, or a generic enrichment table from other tools (gseapy/enrichr, GOATOOLS, clusterProfiler) with case-insensitive column autodetection.
+ - **Custom background for `StringDBReport` enrichment**: pass `background=` (e.g. your analyzed `adata.var_names`) so over-representation is tested against the genes you actually measured instead of the whole genome — the correct choice for single-cell and targeted panels. Default behavior is unchanged.
+ - **`kompot.configure_logging(stream)`**: redirect the kompot logger to a chosen stream.
+
+### Fixed
+
+ - **Compatibility with matplotlib ≥ 3.9**: plotting no longer calls the removed `matplotlib.cm.get_cmap` API, so heatmap and volcano plots work on current matplotlib.
+ - CLI commands now log to stderr, keeping stdout clean for machine-readable output (dry-run JSON, table output).
+ - `kompot smooth` is now documented in the CLI guide; assorted API-documentation fixes.
+
 ## [0.7.0] - 2026-04-13
 
 ### Breaking changes

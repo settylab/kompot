@@ -66,7 +66,7 @@ class TestHeatmapVisualizationFunctions:
         )
 
         # Test with custom colormap
-        custom_cmap = plt.cm.get_cmap("coolwarm")
+        custom_cmap = plt.get_cmap("coolwarm")
         _draw_diagonal_split_cell(
             ax=ax,
             x=0,
@@ -124,7 +124,7 @@ class TestHeatmapVisualizationFunctions:
         )
 
         # Test with custom colormap
-        custom_cmap = plt.cm.get_cmap("coolwarm")
+        custom_cmap = plt.get_cmap("coolwarm")
         _draw_fold_change_cell(
             ax=ax,
             x=1,
@@ -220,7 +220,7 @@ class TestHeatmapVisualizationFunctions:
         )
 
         # Test with custom colormap and no global_max_count
-        custom_cmap = plt.cm.get_cmap("Reds")
+        custom_cmap = plt.get_cmap("Reds")
         _draw_split_dot_cell(
             ax=ax,
             x=2,
@@ -335,7 +335,7 @@ class TestHeatmapWithFoldChangeMode:
             pytest.skip("kompot_run_history not found in adata.uns")
 
         # Test fold change heatmap with custom coolwarm colormap
-        custom_cmap = plt.cm.get_cmap("coolwarm")
+        custom_cmap = plt.get_cmap("coolwarm")
         result = heatmap(
             self.adata,
             n_top_genes=5,

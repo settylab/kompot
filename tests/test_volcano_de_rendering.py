@@ -262,10 +262,12 @@ class TestVolcanoDEYAxisType:
         """y_axis_type='ptp' with ptp_key in run info (lines 293-301)."""
         from kompot.plot.volcano.de import volcano_de
 
-        # Add ptp data
-        de_adata.var["kompot_de_A_to_B_ptp"] = np.random.uniform(0, 1, de_adata.n_vars)
+        # Add ptp data, stored as -log10(PTP) (the neg_log10_ptp convention)
+        de_adata.var["kompot_de_A_to_B_neg_log10_ptp"] = np.random.uniform(
+            0, 5, de_adata.n_vars
+        )
         run_history = json.loads(de_adata.uns["kompot_de"]["run_history"])
-        run_history[0]["ptp_key"] = "kompot_de_A_to_B_ptp"
+        run_history[0]["ptp_key"] = "kompot_de_A_to_B_neg_log10_ptp"
         de_adata.uns["kompot_de"]["run_history"] = json.dumps(run_history)
 
         fig = volcano_de(
@@ -489,9 +491,11 @@ class TestVolcanoDESignificanceThreshold:
         """Dict threshold including ptp axis type."""
         from kompot.plot.volcano.de import volcano_de
 
-        de_adata.var["kompot_de_A_to_B_ptp"] = np.random.uniform(0, 1, de_adata.n_vars)
+        de_adata.var["kompot_de_A_to_B_neg_log10_ptp"] = np.random.uniform(
+            0, 5, de_adata.n_vars
+        )
         run_history = json.loads(de_adata.uns["kompot_de"]["run_history"])
-        run_history[0]["ptp_key"] = "kompot_de_A_to_B_ptp"
+        run_history[0]["ptp_key"] = "kompot_de_A_to_B_neg_log10_ptp"
         de_adata.uns["kompot_de"]["run_history"] = json.dumps(run_history)
 
         fig = volcano_de(

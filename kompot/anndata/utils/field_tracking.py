@@ -226,7 +226,7 @@ def generate_output_field_names(
         field_names.update(
             {
                 "mahalanobis_key": f"{result_key}_{cond1_safe}_to_{cond2_safe}_mahalanobis{suffix}",
-                "ptp_key": f"{result_key}_{cond1_safe}_to_{cond2_safe}_ptp{suffix}",
+                "ptp_key": f"{result_key}_{cond1_safe}_to_{cond2_safe}_neg_log10_ptp{suffix}",
                 "mean_lfc_key": f"{result_key}_{cond1_safe}_to_{cond2_safe}_mean_lfc",
                 "smoothed_key_1": f"{result_key}_{cond1_safe}_smoothed",
                 "smoothed_key_2": f"{result_key}_{cond2_safe}_smoothed",

@@ -2,8 +2,7 @@
 
 import numpy as np
 import jax
-import jax.numpy as jnp
-import jax.scipy.stats as jax_stats
+from scipy.stats import chi2 as scipy_chi2
 from typing import Optional, Dict, Any
 import logging
 from mellon.parameters import compute_landmarks
@@ -42,7 +41,7 @@ class DifferentialExpression:
         self,
         n_landmarks: Optional[int] = None,
         use_sample_variance: Optional[bool] = None,
-        use_empirical_variance: bool = True,
+        use_empirical_variance: bool = False,
         eps: float = 1e-8,  # Increased default epsilon for better numerical stability
         jit_compile: bool = False,
         function_predictor1: Optional[Any] = None,
@@ -625,8 +624,10 @@ class DifferentialExpression:
             # Points for sample variance computation
             variance_points = X
 
-        # Average the covariance matrices
-        combined_cov = (cov1 + cov2) / 2
+        # Sum the covariance matrices: Σ_a + Σ_b is the variance of the
+        # difference of independent posterior estimators, matching the
+        # Mahalanobis denominator defined in the manuscript.
+        combined_cov = cov1 + cov2
         del cov1, cov2
 
         # For sample variance, use diag=False to get full covariance matrices
@@ -976,13 +977,38 @@ class DifferentialExpression:
 
             if hasattr(self, "_last_mahalanobis_dof"):
                 logger.debug(
-                    f"Computing ptp with {self._last_mahalanobis_dof} degrees of freedom..."
+                    f"Computing neg_log10_ptp with {self._last_mahalanobis_dof} "
+                    "degrees of freedom..."
                 )
-                mahalanobis_squared = jnp.array(mahalanobis_distances) ** 2
-                ptp = jax_stats.chi2.sf(
+                # Posterior tail probability (PTP) of the Mahalanobis distance under
+                # the chi-squared null. Computed in LOG space and stored as
+                # -log10(PTP), mirroring the DA path's neg_log10_lfc_ptp convention.
+                #
+                # The PTP is chi2.sf(D^2, df). For an embedding with df on the order
+                # of tens, the vast majority of genes have D^2 well below the chi2
+                # mean, where the linear sf evaluates to values numerically
+                # indistinguishable from 1.0 in float64 (1 - epsilon rounds to 1.0).
+                # Storing the linear sf therefore collapses most genes onto a single
+                # saturated value and destroys gene-ranking resolution at the head of
+                # the distribution. chi2.logsf returns the log of the same quantity
+                # directly (never forming 1 - cdf), so log(1 - epsilon) ~= -epsilon
+                # remains representable and every gene keeps a distinct value.
+                #
+                # scipy in float64 is used deliberately: jax runs in float32 unless
+                # x64 is explicitly enabled, and float32 logsf re-collapses the
+                # dynamic range (the precision is in the mantissa we are trying to
+                # preserve).
+                mahalanobis_squared = np.asarray(
+                    mahalanobis_distances, dtype=np.float64
+                ) ** 2
+                ln_ptp = scipy_chi2.logsf(
                     mahalanobis_squared, df=self._last_mahalanobis_dof
                 )
-                result["ptp"] = np.array(ptp)
+                # Convert natural-log tail probability to -log10(PTP): positive and
+                # larger for more significant genes, matching the DA convention.
+                result["neg_log10_ptp"] = np.asarray(
+                    -(ln_ptp / np.log(10)), dtype=np.float64
+                )
 
         return result
 

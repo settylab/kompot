@@ -166,6 +166,20 @@ except ImportError as e:
         )
 
 
+try:
+    from .lollipop import lollipop
+
+    __all__.append("lollipop")
+except ImportError as e:
+    logger.warning(f"Could not import lollipop function due to: {e}")
+
+    def lollipop(*args, **kwargs):
+        raise ImportError(
+            "Lollipop plot unavailable due to missing dependencies. "
+            "matplotlib is required."
+        )
+
+
 # Import StringDB report class
 try:
     from .stringdb import StringDBReport

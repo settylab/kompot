@@ -77,7 +77,7 @@ class TestStoreAdditionalStats:
         # Check that additional measures are NOT stored
         assert "test_default_A_to_B_mahalanobis_pvalue" not in adata.var.columns
         assert "test_default_A_to_B_mahalanobis_tail_fdr" not in adata.var.columns
-        assert "test_default_A_to_B_ptp" not in adata.var.columns
+        assert "test_default_A_to_B_neg_log10_ptp" not in adata.var.columns
         assert "test_default_A_to_B_fold_change_zscores" not in adata.layers
 
     def test_store_additional_stats_true_stores_all_fields(self):
@@ -112,7 +112,7 @@ class TestStoreAdditionalStats:
         # Additional stats should be stored
         assert "test_all_stats_A_to_B_mahalanobis_pvalue" in adata.var.columns
         assert "test_all_stats_A_to_B_mahalanobis_tail_fdr" in adata.var.columns
-        assert "test_all_stats_A_to_B_ptp" in adata.var.columns
+        assert "test_all_stats_A_to_B_neg_log10_ptp" in adata.var.columns
         assert "test_all_stats_A_to_B_fold_change_zscores" in adata.layers
 
     def test_pvalue_ranges_when_stored(self):
@@ -246,7 +246,7 @@ class TestStoreAdditionalStats:
             n_landmarks=5,
         )
 
-        assert "test_no_ptp_A_to_B_ptp" not in adata1.var.columns
+        assert "test_no_ptp_A_to_B_neg_log10_ptp" not in adata1.var.columns
 
         # With store_additional_stats=True: SHOULD store PTP
         compute_differential_expression(
@@ -262,9 +262,9 @@ class TestStoreAdditionalStats:
             n_landmarks=5,
         )
 
-        assert "test_with_ptp_A_to_B_ptp" in adata2.var.columns
-        # Check PTP values are non-negative
-        assert np.all(adata2.var["test_with_ptp_A_to_B_ptp"] >= 0)
+        assert "test_with_ptp_A_to_B_neg_log10_ptp" in adata2.var.columns
+        # -log10(PTP) is always non-negative since PTP <= 1
+        assert np.all(adata2.var["test_with_ptp_A_to_B_neg_log10_ptp"] >= 0)
 
     def test_storage_consistency_between_adata_and_results(self):
         """Test that what's stored in adata matches what's in results dictionary."""
