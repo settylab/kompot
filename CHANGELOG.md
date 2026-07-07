@@ -28,6 +28,7 @@ These numerical changes align Kompot's output with the published method. Relativ
 
 ### Fixed
 
+ - **Compatibility with matplotlib ≥ 3.9**: plotting no longer calls the removed `matplotlib.cm.get_cmap` API, so heatmap and volcano plots work on current matplotlib.
  - CLI commands now log to stderr, keeping stdout clean for machine-readable output (dry-run JSON, table output).
  - `kompot smooth` is now documented in the CLI guide; assorted API-documentation fixes.
 

@@ -75,7 +75,7 @@ class TestSetupColormapNormalization:
     def test_setup_colormap_object_cmap(self):
         """Test with colormap object instead of string."""
         data = np.array([1, 2, 3])
-        cmap_input = plt.cm.get_cmap("viridis")
+        cmap_input = plt.get_cmap("viridis")
         norm, cmap_obj, vmin, vmax = _setup_colormap_normalization(
             data, center=None, vmin=None, vmax=None, cmap=cmap_input
         )
@@ -268,7 +268,7 @@ class TestDrawDiagonalSplitCell:
 
     def test_draw_diagonal_split_cell_colormap_object(self):
         """Test with colormap object instead of string."""
-        cmap_obj = plt.cm.get_cmap("plasma")
+        cmap_obj = plt.get_cmap("plasma")
         _draw_diagonal_split_cell(
             self.ax,
             x=0,
@@ -570,7 +570,7 @@ class TestDrawSplitDotCell:
 
     def test_draw_split_dot_cell_colormap_object(self):
         """Test with colormap object instead of string."""
-        cmap_obj = plt.cm.get_cmap("plasma")
+        cmap_obj = plt.get_cmap("plasma")
         _draw_split_dot_cell(
             self.ax,
             x=0,
@@ -743,7 +743,7 @@ class TestDrawFoldChangeCell:
 
     def test_draw_fold_change_cell_colormap_object(self):
         """Test with colormap object instead of string."""
-        cmap_obj = plt.cm.get_cmap("RdBu_r")
+        cmap_obj = plt.get_cmap("RdBu_r")
         _draw_fold_change_cell(
             self.ax, x=0, y=0, w=1, h=1, lfc=1.5, cmap=cmap_obj, vmin=-2, vmax=2
         )

@@ -770,7 +770,7 @@ def multi_volcano_da(
                         color_dict = dict(zip(categories, stored_colors))
                     elif isinstance(palette, str):
                         # Use matplotlib colormaps
-                        cmap = plt.cm.get_cmap(palette, len(categories))
+                        cmap = plt.get_cmap(palette, len(categories))
                         colors = [
                             cmap(i / len(categories)) for i in range(len(categories))
                         ]
@@ -779,7 +779,7 @@ def multi_volcano_da(
                         color_dict = palette
                     else:
                         # Use default palette
-                        cmap = plt.cm.get_cmap("tab10", len(categories))
+                        cmap = plt.get_cmap("tab10", len(categories))
                         colors = [
                             cmap(i / len(categories)) for i in range(len(categories))
                         ]

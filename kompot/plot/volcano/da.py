@@ -406,7 +406,7 @@ def volcano_da(
                     # Otherwise, use palette or generate colors
                     elif isinstance(palette, str):
                         # Use matplotlib colormaps instead of seaborn
-                        cmap = plt.cm.get_cmap(palette, len(categories))
+                        cmap = plt.get_cmap(palette, len(categories))
                         colors = [
                             cmap(i / len(categories)) for i in range(len(categories))
                         ]
@@ -420,7 +420,7 @@ def volcano_da(
                         color_dict = palette
                     else:
                         # Use default palette - tab10 equivalent
-                        cmap = plt.cm.get_cmap("tab10", len(categories))
+                        cmap = plt.get_cmap("tab10", len(categories))
                         colors = [
                             cmap(i / len(categories)) for i in range(len(categories))
                         ]

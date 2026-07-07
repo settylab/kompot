@@ -206,7 +206,7 @@ class TestHeatmapUtilityFunctions:
             custom_cmap = plt.colormaps["coolwarm"]
         except (AttributeError, KeyError):
             # Fall back to older API
-            custom_cmap = plt.cm.get_cmap("coolwarm")
+            custom_cmap = plt.get_cmap("coolwarm")
         norm, cmap_obj, vmin, vmax = _test_helper(data, None, None, None, custom_cmap)
         assert cmap_obj is custom_cmap
 
@@ -230,7 +230,7 @@ class TestHeatmapVisualization:
         )
 
         # Test with custom colormap
-        custom_cmap = plt.cm.get_cmap("viridis")
+        custom_cmap = plt.get_cmap("viridis")
         _draw_fold_change_cell(
             ax=ax, x=0, y=1, w=1, h=1, lfc=1.0, cmap=custom_cmap, vmin=-2, vmax=2
         )

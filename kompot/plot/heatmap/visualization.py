@@ -53,7 +53,7 @@ def _setup_colormap_normalization(data, center, vmin, vmax, cmap):
             cmap_obj = plt.colormaps[cmap]
         except (AttributeError, KeyError):
             # Fall back to older API for compatibility
-            cmap_obj = plt.cm.get_cmap(cmap)
+            cmap_obj = plt.get_cmap(cmap)
     else:
         cmap_obj = cmap
 
@@ -136,7 +136,7 @@ def _draw_diagonal_split_cell(
         try:
             cmap_obj = plt.colormaps[cmap]
         except (AttributeError, KeyError):
-            cmap_obj = plt.cm.get_cmap(cmap)
+            cmap_obj = plt.get_cmap(cmap)
     else:
         cmap_obj = cmap
 
@@ -308,7 +308,7 @@ def _draw_split_dot_cell(
         try:
             cmap_obj = plt.colormaps[cmap]
         except (AttributeError, KeyError):
-            cmap_obj = plt.cm.get_cmap(cmap)
+            cmap_obj = plt.get_cmap(cmap)
     else:
         cmap_obj = cmap  # Already a colormap object
 
@@ -473,7 +473,7 @@ def _draw_fold_change_cell(
             try:
                 cmap_obj = plt.colormaps[cmap]
             except (AttributeError, KeyError):
-                cmap_obj = plt.cm.get_cmap(cmap)
+                cmap_obj = plt.get_cmap(cmap)
         else:
             cmap_obj = cmap
         facecolor = cmap_obj(norm(lfc))
