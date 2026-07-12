@@ -22,6 +22,11 @@ from .field_tracking import (
     get_run_from_history,
 )
 
+# Layer utilities
+from .layers import (
+    layer_names,
+)
+
 # Group utilities
 from .group_utils import (
     parse_groups,
@@ -61,6 +66,8 @@ __all__ = [
     "_sanitize_name",
     "validate_field_run_id",
     "get_run_from_history",
+    # Layer utilities
+    "layer_names",
     # Group utilities
     "parse_groups",
     "check_underrepresentation",

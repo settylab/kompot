@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+ - **Compatibility with pandas 3 and anndata 0.13.** Grouping by a string column
+   (`groups="cell_type"`), passing a `pd.Series` of indices as a group, colouring a
+   volcano background by a categorical `var` column, and auto-detecting the condition
+   label in `plot_smoothing` all raised on pandas 3 / anndata 0.13. Kompot now detects
+   dtypes through `pandas.api.types` rather than `numpy.issubdtype` (which cannot
+   interpret pandas extension dtypes such as the new default `StringDtype`), indexes
+   Series positionally, and ignores the `None` key that anndata 0.13 uses to expose
+   `X` through `adata.layers`. Behaviour on pandas 2 / anndata 0.12 is unchanged, with
+   one deliberate exception: a `volcano_de` background column of nullable `boolean`
+   dtype is now coloured categorically rather than through a continuous colormap,
+   aligning it with the numpy `bool` columns that were already treated as categorical.
+
 ## [0.8.0] - 2026-05-28
 
 ### Changed — statistics now match the manuscript

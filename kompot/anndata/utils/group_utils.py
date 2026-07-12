@@ -67,7 +67,7 @@ def parse_groups(adata, groups, formatted_names=False, return_description=False)
                 groups_dict["True"] = mask
                 subset_names.append("True")
                 # Don't add a "False" subset - matches expected behavior in tests
-            elif np.issubdtype(groups_col.dtype, np.number):
+            elif pd.api.types.is_numeric_dtype(groups_col.dtype):
                 # For numeric columns, raise an error as expected by tests
                 raise ValueError(
                     f"Column '{groups}' is numeric. Please use categorical data for grouping."
@@ -221,16 +221,25 @@ def parse_groups(adata, groups, formatted_names=False, return_description=False)
                         )
                 # Convert value to boolean mask if it's an array-like object
                 elif isinstance(group_value, (list, np.ndarray, pd.Series)):
+                    # Series must be indexed positionally: pandas 3 dropped the
+                    # integer-key fallback in Series.__getitem__.
+                    first_value = (
+                        group_value.iloc[0]
+                        if isinstance(group_value, pd.Series) and len(group_value) > 0
+                        else group_value[0]
+                        if len(group_value) > 0
+                        else None
+                    )
                     # If it's indices, convert to boolean mask
                     if len(group_value) > 0 and isinstance(
-                        group_value[0], (int, np.integer)
+                        first_value, (int, np.integer)
                     ):
                         mask = np.zeros(adata.n_obs, dtype=bool)
                         mask[group_value] = True
                         subset_name = name
                     # If it's already a boolean mask, ensure it's a numpy array
                     elif len(group_value) > 0 and isinstance(
-                        group_value[0], (bool, np.bool_)
+                        first_value, (bool, np.bool_)
                     ):
                         mask = np.array(group_value, dtype=bool)
                         subset_name = name
@@ -285,7 +294,7 @@ def parse_groups(adata, groups, formatted_names=False, return_description=False)
                 subset_names.append("True")
 
                 # Don't include False values as a subset - this matches expected behavior
-            elif np.issubdtype(groups.dtype, np.number):
+            elif pd.api.types.is_numeric_dtype(groups.dtype):
                 # For numeric Series, convert to int array and process
                 array = np.array(groups.values)
                 # Get unique values and create masks for each
@@ -979,7 +988,7 @@ def apply_cell_filter(
                 )
 
             mask = cell_filter
-        elif np.issubdtype(cell_filter.dtype, np.integer):
+        elif pd.api.types.is_integer_dtype(cell_filter.dtype):
             # Integer indices
             mask = np.zeros(adata.n_obs, dtype=bool)
             mask[cell_filter] = True
