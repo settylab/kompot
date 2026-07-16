@@ -23,6 +23,8 @@ except (ImportError, AttributeError):
         )
 
 
+import random
+
 import pynndescent
 import igraph as ig
 import logging
@@ -54,7 +56,7 @@ KOMPOT_COLORS = {
 
 
 def build_graph(
-    X: np.ndarray, n_neighbors: int = 15
+    X: np.ndarray, n_neighbors: int = 15, random_state: Optional[int] = 42
 ) -> Tuple[List[Tuple[int, int]], pynndescent.NNDescent]:
     """
     Build a graph from a dataset using approximate nearest neighbors.
@@ -65,6 +67,10 @@ def build_graph(
         Data matrix of shape (n_samples, n_features).
     n_neighbors : int, optional
         Number of neighbors for graph construction, by default 15.
+    random_state : int or None, optional
+        Seed passed to ``pynndescent.NNDescent`` for the approximate
+        nearest-neighbor construction, by default 42. Passing ``None`` lets
+        pynndescent draw its own entropy (non-reproducible).
 
     Returns
     -------
@@ -74,7 +80,9 @@ def build_graph(
         - index: The nearest neighbor index for future queries
     """
     # Build the nearest neighbor index
-    index = pynndescent.NNDescent(X, n_neighbors=n_neighbors, random_state=42)
+    index = pynndescent.NNDescent(
+        X, n_neighbors=n_neighbors, random_state=random_state
+    )
 
     # Query for nearest neighbors
     indices, _ = index.query(X, k=n_neighbors)
@@ -504,6 +512,7 @@ def find_optimal_resolution(
     n_clusters: int,
     tol: float = 0.1,
     max_iter: int = 10,
+    random_state: Optional[int] = None,
 ) -> Tuple[float, any]:
     """
     Find an optimal resolution for Leiden clustering to achieve a target number of clusters.
@@ -520,6 +529,14 @@ def find_optimal_resolution(
         Tolerance for the deviation from the target number of clusters, by default 0.1.
     max_iter : int, optional
         Maximum number of iterations for the search, by default 10.
+    random_state : int or None, optional
+        Seed for igraph's Leiden community detection, by default None. igraph's
+        ``community_leiden`` draws from a global random number generator that is
+        otherwise left unseeded, so results vary run-to-run. Passing an int
+        seeds that generator (via ``igraph.set_random_number_generator``) for
+        the duration of this call and restores the default afterwards, making
+        the clustering reproducible. Passing ``None`` preserves the historical
+        non-deterministic behavior.
 
     Returns
     -------
@@ -539,35 +556,44 @@ def find_optimal_resolution(
 
     best_partition = None
 
-    for iteration in range(max_iter):
-        partition = G_igraph.community_leiden(
-            objective_function="modularity",
-            weights=None,
-            resolution=resolution,
-            beta=0.01,
-            n_iterations=2,
-        )
-        current_clusters = len(set(partition.membership))
-        percent_diff = (current_clusters - n_clusters) / n_clusters
-
-        if abs(percent_diff) <= tol:
-            logger.info(
-                f"Converged at iteration {iteration + 1}: resolution={resolution}, clusters={current_clusters}"
+    # Seed igraph's global RNG so the Leiden steps below are reproducible. We
+    # restore the default generator in the finally block so we never leak a
+    # deterministic RNG into unrelated igraph calls elsewhere in the process.
+    if random_state is not None:
+        ig.set_random_number_generator(random.Random(random_state))
+    try:
+        for iteration in range(max_iter):
+            partition = G_igraph.community_leiden(
+                objective_function="modularity",
+                weights=None,
+                resolution=resolution,
+                beta=0.01,
+                n_iterations=2,
             )
-            return resolution, partition
+            current_clusters = len(set(partition.membership))
+            percent_diff = (current_clusters - n_clusters) / n_clusters
 
-        logger.info(
-            f"Iteration {iteration + 1}: resolution={resolution}, clusters={current_clusters}"
-        )
+            if abs(percent_diff) <= tol:
+                logger.info(
+                    f"Converged at iteration {iteration + 1}: resolution={resolution}, clusters={current_clusters}"
+                )
+                return resolution, partition
 
-        # Adjust resolution logarithmically
-        if current_clusters < n_clusters:
-            lower = resolution
-        else:
-            upper = resolution
+            logger.info(
+                f"Iteration {iteration + 1}: resolution={resolution}, clusters={current_clusters}"
+            )
 
-        resolution = np.sqrt(lower * upper)
-        best_partition = partition
+            # Adjust resolution logarithmically
+            if current_clusters < n_clusters:
+                lower = resolution
+            else:
+                upper = resolution
+
+            resolution = np.sqrt(lower * upper)
+            best_partition = partition
+    finally:
+        if random_state is not None:
+            ig.set_random_number_generator(None)
 
     logger.warning(
         f"Did not fully converge within {max_iter} iterations. Using resolution={resolution}."
@@ -581,6 +607,7 @@ def find_landmarks(
     n_neighbors: int = 15,
     tol: float = 0.1,
     max_iter: int = 10,
+    random_state: Optional[int] = None,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     Identify landmark points representing clusters in the dataset.
@@ -597,6 +624,17 @@ def find_landmarks(
         Tolerance for the deviation from the target number of clusters, by default 0.1.
     max_iter : int, optional
         Maximum number of iterations for resolution search, by default 10.
+    random_state : int or None, optional
+        Seed for reproducible landmark selection, by default None. The Leiden
+        community detection underlying landmark discovery draws from igraph's
+        global random number generator, which is otherwise left unseeded, so
+        the returned landmarks vary run-to-run even for identical input.
+        Passing an int seeds both the nearest-neighbor construction and the
+        Leiden step, making ``find_landmarks`` fully reproducible through the
+        public API (same ``X`` + same ``random_state`` yields identical
+        landmark indices and coordinates). The default (``None``) preserves the
+        historical non-deterministic behavior, so existing callers are
+        unaffected.
 
     Returns
     -------
@@ -605,13 +643,21 @@ def find_landmarks(
         - landmarks: Matrix of shape (n_clusters, n_features) containing landmark coordinates
         - landmark_indices: Indices of landmarks in the original dataset
     """
+    # When no seed is requested, keep the historical nearest-neighbor seed (42)
+    # so unseeded callers observe unchanged NN behavior; the run-to-run variation
+    # comes solely from the unseeded Leiden step below. A supplied seed threads
+    # into both stages for end-to-end reproducibility.
+    nn_random_state = 42 if random_state is None else random_state
+
     # Build graph
-    edges, index = build_graph(X, n_neighbors=n_neighbors)
+    edges, index = build_graph(
+        X, n_neighbors=n_neighbors, random_state=nn_random_state
+    )
     n_obs = X.shape[0]
 
     # Find optimal resolution and clustering
     optimal_resolution, partition = find_optimal_resolution(
-        edges, n_obs, n_clusters, tol=tol, max_iter=max_iter
+        edges, n_obs, n_clusters, tol=tol, max_iter=max_iter, random_state=random_state
     )
     clusters = np.array(partition.membership)
     cluster_ids = np.unique(clusters)

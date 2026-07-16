@@ -359,6 +359,10 @@ def _detect_condition_label(adata, result_key: str) -> str:
     # Support both new (_smoothed) and legacy (_imputed) layer suffixes
     for suffix in ("_smoothed", "_imputed"):
         for key in adata.layers:
+            # anndata >=0.13 exposes a None key (mapping to .X) when iterating
+            # layers; skip non-string keys before pattern matching.
+            if not isinstance(key, str):
+                continue
             if key.startswith(prefix) and key.endswith(suffix):
                 return key[len(prefix) : -len(suffix)]
     raise ValueError(
