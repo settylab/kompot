@@ -25,6 +25,7 @@ These numerical changes align Kompot's output with the published method. Relativ
  - **`kompot.plot.lollipop`**: gene-set-enrichment lollipop plot that embeds into an existing axis. Accepts a `StringDBReport`, its enrichment table, or a generic enrichment table from other tools (gseapy/enrichr, GOATOOLS, clusterProfiler) with case-insensitive column autodetection.
  - **Custom background for `StringDBReport` enrichment**: pass `background=` (e.g. your analyzed `adata.var_names`) so over-representation is tested against the genes you actually measured instead of the whole genome — the correct choice for single-cell and targeted panels. Default behavior is unchanged.
  - **`kompot.configure_logging(stream)`**: redirect the kompot logger to a chosen stream.
+ - **`random_state` on `kompot.find_landmarks`**: pass an int to make landmark selection reproducible. The underlying Leiden community detection draws from igraph's global RNG, which was otherwise left unseeded, so repeated calls on identical input could return a different number of landmarks. A supplied seed threads into both the nearest-neighbor construction and the Leiden step, so the same input and seed yield identical landmark indices and coordinates. The default (`random_state=None`) **preserves the historical non-deterministic behavior**, so existing callers are unaffected unless they opt in.
 
 ### Fixed
 
