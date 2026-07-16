@@ -303,8 +303,8 @@ class TestCleanupMultipleRuns:
                 f"Run {i} should have missing fields"
             )
 
-        # No layers should remain
-        assert len(adata.layers) == 0
+        # No layers should remain (anndata>=0.13 exposes a None key for .X)
+        assert sum(1 for k in adata.layers if k is not None) == 0
 
     def test_cleanup_with_partial_overlap(self):
         """Test cleanup when runs have partial field overlap."""
