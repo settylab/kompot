@@ -4,6 +4,8 @@ import logging
 import numpy as np
 from typing import Optional, List
 
+from ..anndata.utils import layer_names
+
 logger = logging.getLogger("kompot")
 
 try:
@@ -358,10 +360,10 @@ def _detect_condition_label(adata, result_key: str) -> str:
     prefix = f"{result_key}_"
     # Support both new (_smoothed) and legacy (_imputed) layer suffixes
     for suffix in ("_smoothed", "_imputed"):
-        for key in adata.layers:
+        for key in layer_names(adata):
             if key.startswith(prefix) and key.endswith(suffix):
                 return key[len(prefix) : -len(suffix)]
     raise ValueError(
         f"No smoothing layers found with prefix '{prefix}'. "
-        f"Available layers: {list(adata.layers.keys())}"
+        f"Available layers: {layer_names(adata)}"
     )

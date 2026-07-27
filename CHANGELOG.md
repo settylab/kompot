@@ -4,6 +4,27 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+ - **Compatibility with pandas 3 and anndata 0.13.** Grouping by a string column
+   (`groups="cell_type"`), passing a `pd.Series` of indices as a group, colouring a
+   volcano background by a categorical `var` column, and auto-detecting the condition
+   label in `plot_smoothing` all raised on pandas 3 / anndata 0.13. Kompot now detects
+   dtypes through `pandas.api.types` rather than `numpy.issubdtype` (which cannot
+   interpret pandas extension dtypes such as the new default `StringDtype`), indexes
+   Series positionally, and ignores the `None` key that anndata 0.13 uses to expose
+   `X` through `adata.layers`. Behaviour on pandas 2 / anndata 0.12 is unchanged, with
+   one deliberate exception: a `volcano_de` background column of nullable `boolean`
+   dtype is now coloured categorically rather than through a continuous colormap,
+   aligning it with the numpy `bool` columns that were already treated as categorical.
+ - **`cell_filter=` accepts nullable-integer index Series.** `apply_cell_filter()` probed
+   the filter dtype with `numpy.issubdtype`, which cannot interpret the ExtensionArray
+   that `Series.values` returns for a pandas extension dtype. Passing a nullable `Int64`
+   Series of indices raised `TypeError: Cannot interpret 'Int64Dtype()' as a data type`
+   instead of selecting cells, and passing a string Series surfaced the same opaque
+   `TypeError` in place of the documented `ValueError`. Both paths are now covered by
+   regression tests.
+
 ## [0.8.0] - 2026-05-28
 
 ### Changed — statistics now match the manuscript
@@ -25,6 +46,7 @@ These numerical changes align Kompot's output with the published method. Relativ
  - **`kompot.plot.lollipop`**: gene-set-enrichment lollipop plot that embeds into an existing axis. Accepts a `StringDBReport`, its enrichment table, or a generic enrichment table from other tools (gseapy/enrichr, GOATOOLS, clusterProfiler) with case-insensitive column autodetection.
  - **Custom background for `StringDBReport` enrichment**: pass `background=` (e.g. your analyzed `adata.var_names`) so over-representation is tested against the genes you actually measured instead of the whole genome — the correct choice for single-cell and targeted panels. Default behavior is unchanged.
  - **`kompot.configure_logging(stream)`**: redirect the kompot logger to a chosen stream.
+ - **`random_state` on `kompot.find_landmarks`**: pass an int to make landmark selection reproducible. The underlying Leiden community detection draws from igraph's global RNG, which was otherwise left unseeded, so repeated calls on identical input could return a different number of landmarks. A supplied seed threads into both the nearest-neighbor construction and the Leiden step, so the same input and seed yield identical landmark indices and coordinates. The default (`random_state=None`) **preserves the historical non-deterministic behavior**, so existing callers are unaffected unless they opt in.
 
 ### Fixed
 

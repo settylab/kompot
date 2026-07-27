@@ -607,13 +607,14 @@ def volcano_de(
     if color is not None and color in adata.var.columns:
         de_data["bg_color"] = adata.var[color].values
 
-        # Determine if background color is categorical or continuous
+        # Determine if background color is categorical or continuous.
+        # Anything non-numeric is categorical: testing for `object` alone misses
+        # pandas >= 3 string columns, which carry StringDtype rather than object.
         bg_values = adata.var[color]
         if (
             isinstance(bg_values.dtype, pd.CategoricalDtype)
-            or bg_values.dtype == "object"
-            or bg_values.dtype == "category"
-            or bg_values.dtype == "bool"
+            or pd.api.types.is_bool_dtype(bg_values.dtype)
+            or not pd.api.types.is_numeric_dtype(bg_values.dtype)
         ):
             bg_color_is_categorical = True
             categories = adata.var[color].unique()
