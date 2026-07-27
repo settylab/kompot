@@ -6,6 +6,7 @@ import logging
 import copy
 
 from .json_utils import from_json_string, get_json_metadata, set_json_metadata
+from ..._provenance import stamp
 
 logger = logging.getLogger("kompot")
 
@@ -107,6 +108,14 @@ def append_to_run_history(
 
     # Get current run history (will be deserialized if needed)
     current_history = get_run_history(adata, analysis_type)
+
+    # Stamp which Kompot produced this run. Every write path funnels through
+    # here, so this is the one place that has to know about provenance.
+    # Stamped in place deliberately: each caller also persists this same dict as
+    # `last_run_info` immediately afterwards, so copying here would leave that
+    # copy — and the run_info returned to the caller — describing an unversioned
+    # run while the history entry claimed otherwise.
+    stamp(run_info)
 
     # Create a new list with the current history and the new run info
     updated_history = current_history + [run_info]
