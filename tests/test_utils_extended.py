@@ -140,19 +140,57 @@ class TestLandmarkFunctions:
         assert len(landmark_indices) == landmarks.shape[0]
 
     def test_find_landmarks_random_state(self):
-        """Test landmark finding with random state for reproducibility."""
+        """Passing an int random_state makes find_landmarks reproducible.
+
+        The Leiden clustering underlying landmark discovery draws from igraph's
+        otherwise-unseeded global RNG, so unseeded calls vary run-to-run. A
+        supplied seed must yield identical landmark indices and coordinates on
+        repeated calls, and different seeds should generally yield different
+        landmarks.
+        """
         from kompot.utils import find_landmarks
 
-        X = np.random.rand(30, 4)
+        # Fixed input so any variation comes only from the clustering RNG.
+        rng = np.random.RandomState(0)
+        X = rng.rand(80, 6)
 
-        # Test with different max_iter values
-        landmarks1, indices1 = find_landmarks(X, n_clusters=8, max_iter=5)
-        landmarks2, indices2 = find_landmarks(X, n_clusters=8, max_iter=10)
+        # Same seed -> identical indices AND medoid coordinates.
+        landmarks_a, indices_a = find_landmarks(X, n_clusters=10, random_state=0)
+        landmarks_b, indices_b = find_landmarks(X, n_clusters=10, random_state=0)
+        np.testing.assert_array_equal(indices_a, indices_b)
+        np.testing.assert_array_equal(landmarks_a, landmarks_b)
 
-        assert landmarks1.shape[1] == 4
-        assert landmarks2.shape[1] == 4
-        assert len(indices1) == landmarks1.shape[0]
-        assert len(indices2) == landmarks2.shape[0]
+        # A different seed generally yields a different landmark set (indices
+        # and/or count differ). Mirrors the reported evidence: seed 0 == seed 0,
+        # seed 0 != seed 1.
+        landmarks_c, indices_c = find_landmarks(X, n_clusters=10, random_state=1)
+        differs = indices_a.shape != indices_c.shape or not np.array_equal(
+            indices_a, indices_c
+        )
+        assert differs, "different random_state should generally change landmarks"
+
+        # Landmarks are always genuine points drawn from X.
+        for i, idx in enumerate(indices_a):
+            np.testing.assert_array_almost_equal(landmarks_a[i], X[idx])
+
+    def test_find_landmarks_default_unchanged_signature(self):
+        """The default (random_state=None) preserves the historical contract.
+
+        Existing callers that never pass random_state must keep working and get
+        landmarks that are real points of X. We do not assert determinism here:
+        the unseeded path is intentionally non-deterministic.
+        """
+        from kompot.utils import find_landmarks
+
+        rng = np.random.RandomState(1)
+        X = rng.rand(60, 5)
+
+        landmarks, indices = find_landmarks(X, n_clusters=8)
+
+        assert landmarks.shape[1] == 5
+        assert len(indices) == landmarks.shape[0]
+        for i, idx in enumerate(indices):
+            np.testing.assert_array_almost_equal(landmarks[i], X[idx])
 
 
 class TestRunHistoryFunctions:

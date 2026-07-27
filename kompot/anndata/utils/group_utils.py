@@ -223,13 +223,13 @@ def parse_groups(adata, groups, formatted_names=False, return_description=False)
                 elif isinstance(group_value, (list, np.ndarray, pd.Series)):
                     # Series must be indexed positionally: pandas 3 dropped the
                     # integer-key fallback in Series.__getitem__.
-                    first_value = (
-                        group_value.iloc[0]
-                        if isinstance(group_value, pd.Series) and len(group_value) > 0
-                        else group_value[0]
-                        if len(group_value) > 0
-                        else None
-                    )
+                    first_value = None
+                    if len(group_value) > 0:
+                        first_value = (
+                            group_value.iloc[0]
+                            if isinstance(group_value, pd.Series)
+                            else group_value[0]
+                        )
                     # If it's indices, convert to boolean mask
                     if len(group_value) > 0 and isinstance(
                         first_value, (int, np.integer)
