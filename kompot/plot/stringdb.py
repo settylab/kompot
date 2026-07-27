@@ -513,8 +513,22 @@ class StringDBReport:
             STRING identifiers, de-duplicated and order-preserving. Returns an
             empty list if the mapping request fails or nothing resolves.
         """
-        if not genes:
+        if genes is None or len(genes) == 0:
             return []
+        # Accept any sequence of symbols (list, tuple, numpy array, or a
+        # pandas Index such as ``adata.var_names`` passed as ``background=``).
+        genes = [str(g) for g in genes]
+
+        # Memoize by input set: a single custom background (e.g. all
+        # ``adata.var_names``) is otherwise re-mapped on every category query,
+        # turning one enrichment report into many identical multi-thousand-gene
+        # requests to STRING. Same symbols -> same identifiers within a session.
+        cache = getattr(self, "_string_id_cache", None)
+        if cache is None:
+            cache = self._string_id_cache = {}
+        cache_key = tuple(genes)
+        if cache_key in cache:
+            return cache[cache_key]
 
         url = f"{STRING_API_BASE_URL}/tsv-no-header/get_string_ids"
         payload = {
@@ -556,6 +570,7 @@ class StringDBReport:
                 f"to STRING IDs (e.g. {', '.join(map(str, unmapped[:5]))}); "
                 "they are excluded from the enrichment universe."
             )
+        cache[cache_key] = mapped
         return mapped
 
     def get_functional_enrichment(
