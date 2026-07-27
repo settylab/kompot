@@ -67,7 +67,7 @@ def parse_groups(adata, groups, formatted_names=False, return_description=False)
                 groups_dict["True"] = mask
                 subset_names.append("True")
                 # Don't add a "False" subset - matches expected behavior in tests
-            elif pd.api.types.is_numeric_dtype(groups_col):
+            elif pd.api.types.is_numeric_dtype(groups_col.dtype):
                 # For numeric columns, raise an error as expected by tests
                 raise ValueError(
                     f"Column '{groups}' is numeric. Please use categorical data for grouping."
@@ -221,8 +221,8 @@ def parse_groups(adata, groups, formatted_names=False, return_description=False)
                         )
                 # Convert value to boolean mask if it's an array-like object
                 elif isinstance(group_value, (list, np.ndarray, pd.Series)):
-                    # Positional access to the first element. pandas>=3 makes
-                    # Series[0] label-based, so use .iloc for Series.
+                    # Series must be indexed positionally: pandas 3 dropped the
+                    # integer-key fallback in Series.__getitem__.
                     first_value = None
                     if len(group_value) > 0:
                         first_value = (
@@ -294,7 +294,7 @@ def parse_groups(adata, groups, formatted_names=False, return_description=False)
                 subset_names.append("True")
 
                 # Don't include False values as a subset - this matches expected behavior
-            elif pd.api.types.is_numeric_dtype(groups):
+            elif pd.api.types.is_numeric_dtype(groups.dtype):
                 # For numeric Series, convert to int array and process
                 array = np.array(groups.values)
                 # Get unique values and create masks for each
@@ -988,7 +988,7 @@ def apply_cell_filter(
                 )
 
             mask = cell_filter
-        elif np.issubdtype(cell_filter.dtype, np.integer):
+        elif pd.api.types.is_integer_dtype(cell_filter.dtype):
             # Integer indices
             mask = np.zeros(adata.n_obs, dtype=bool)
             mask[cell_filter] = True

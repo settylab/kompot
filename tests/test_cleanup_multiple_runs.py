@@ -4,6 +4,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from kompot.anndata.utils import layer_names
+
 
 def create_test_adata_for_multiple_runs(n_cells=60, n_genes=50):
     """Create test AnnData for cleanup testing with multiple runs."""
@@ -303,8 +305,8 @@ class TestCleanupMultipleRuns:
                 f"Run {i} should have missing fields"
             )
 
-        # No layers should remain (anndata>=0.13 exposes a None key for .X)
-        assert sum(1 for k in adata.layers if k is not None) == 0
+        # No layers should remain
+        assert len(layer_names(adata)) == 0
 
     def test_cleanup_with_partial_overlap(self):
         """Test cleanup when runs have partial field overlap."""

@@ -7,6 +7,7 @@ import anndata
 
 import kompot
 from kompot import GPSettings, StorageSettings, OutputSettings
+from kompot.anndata.utils import layer_names
 from kompot.anndata.utils.runinfo import RunInfo, RunComparison
 from kompot.anndata.cleanup import cleanup, get_field_status
 
@@ -136,21 +137,23 @@ class TestCleanupSmooth:
     def test_cleanup_keeps_smoothed_by_default(self, adata_with_smooth):
         """Default smooth cleanup keeps smoothed layers, removes std/obs_variance."""
         ad = adata_with_smooth
-        assert any(k is not None and "kompot_smooth" in k for k in ad.layers)
+        assert any("kompot_smooth" in k for k in layer_names(ad))
 
         cleanup(ad, analysis_type="smooth")
 
         # Imputed layers should be kept
-        assert any("_smoothed" in k for k in ad.layers if k is not None and "kompot_smooth" in k)
+        assert any("_smoothed" in k for k in layer_names(ad) if "kompot_smooth" in k)
         # Std and obs_variance layers should be removed
-        assert not any("_std" in k for k in ad.layers if k is not None and "kompot_smooth" in k)
-        assert not any("_obs_variance" in k for k in ad.layers if k is not None and "kompot_smooth" in k)
+        assert not any("_std" in k for k in layer_names(ad) if "kompot_smooth" in k)
+        assert not any(
+            "_obs_variance" in k for k in layer_names(ad) if "kompot_smooth" in k
+        )
 
     def test_cleanup_removes_all_with_explicit_false(self, adata_with_smooth):
         """Explicit keep_layers=False removes everything."""
         ad = adata_with_smooth
         cleanup(ad, analysis_type="smooth", keep_layers=False)
-        remaining = [k for k in ad.layers if k is not None and "kompot_smooth" in k]
+        remaining = [k for k in layer_names(ad) if "kompot_smooth" in k]
         assert len(remaining) == 0
 
     def test_cleanup_single_run(self, adata_with_smooth):
@@ -163,14 +166,14 @@ class TestCleanupSmooth:
         assert "kompot_smooth_all_std" not in ad.layers
         assert "kompot_smooth_all_obs_variance" not in ad.layers
         # Run 1 layers (A_smoothed, A_std) should remain untouched
-        remaining_a = [k for k in ad.layers if k is not None and "kompot_smooth_A" in k]
+        remaining_a = [k for k in layer_names(ad) if "kompot_smooth_A" in k]
         assert len(remaining_a) >= 2
 
     def test_cleanup_keep_layers_true(self, adata_with_smooth):
         ad = adata_with_smooth
-        n_before = sum(1 for k in ad.layers if k is not None and "kompot_smooth" in k)
+        n_before = sum(1 for k in layer_names(ad) if "kompot_smooth" in k)
         cleanup(ad, analysis_type="smooth", keep_layers=True)
-        n_after = sum(1 for k in ad.layers if k is not None and "kompot_smooth" in k)
+        n_after = sum(1 for k in layer_names(ad) if "kompot_smooth" in k)
         assert n_after == n_before
 
     def test_cleanup_keep_specific_type(self, adata_with_smooth):

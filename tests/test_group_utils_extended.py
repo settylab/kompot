@@ -334,3 +334,36 @@ def test_check_underrepresentation_edge_cases():
 
     # Should detect underrepresentation and return dict
     assert isinstance(result, dict)
+
+
+def test_apply_cell_filter_nullable_integer_series():
+    """Nullable Int64 indices must select cells, not raise.
+
+    ``Series.values`` on a pandas extension dtype yields an ExtensionArray, so
+    ``np.issubdtype`` cannot interpret its dtype and raised ``TypeError`` before
+    dtype checks were routed through ``pandas.api.types``.
+    """
+    adata = create_test_adata()
+
+    mask, details = apply_cell_filter(
+        adata, pd.Series(pd.array([0, 1, 2], dtype="Int64"))
+    )
+
+    assert isinstance(mask, np.ndarray)
+    assert mask.dtype == bool
+    assert mask.sum() == 3
+    assert list(np.flatnonzero(mask)) == [0, 1, 2]
+    assert isinstance(details, dict)
+
+
+def test_apply_cell_filter_string_series_raises_value_error():
+    """A non-boolean, non-integer array filter must fail with a clear ValueError.
+
+    On pandas 3 a plain string column carries ``StringDtype`` rather than
+    ``object``, which previously escaped as an opaque ``TypeError`` from
+    ``np.issubdtype`` instead of this contract's ``ValueError``.
+    """
+    adata = create_test_adata()
+
+    with pytest.raises(ValueError, match="boolean or integer"):
+        apply_cell_filter(adata, adata.obs["cell_type"].astype(str))
