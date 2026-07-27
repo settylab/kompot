@@ -25,8 +25,8 @@
 
    Getting Started <notebooks/01_getting_started.ipynb>
    Advanced Differential Expression <notebooks/02_differential_expression_detailed.ipynb>
-   Sample Variance Analysis <notebooks/03_sample_variance.ipynb>
-   Gene Expression Smoothing <notebooks/04_expression_model.ipynb>
+   DE with Sample Variance <notebooks/03_sample_variance.ipynb>
+   Differential Abundance <notebooks/04_differential_abundance.ipynb>
 
 .. |doi| image:: https://zenodo.org/badge/944121568.svg
    :target: https://zenodo.org/badge/latestdoi/944121568
@@ -132,13 +132,13 @@ Quick Start
 
 See :doc:`simplified` for the full API and all available settings.
 
-**New to Kompot?** Start with the :doc:`Getting Started <notebooks/01_getting_started>` tutorial for a comprehensive introduction to differential abundance and expression analysis.
+**New to Kompot?** Start with the :doc:`Getting Started <notebooks/01_getting_started>` tutorial: differential expression, end to end, with rich visualizations.
 
 **Ready for more?** Explore advanced topics:
 
-- :doc:`Advanced Differential Expression <notebooks/02_differential_expression_detailed>` - Parameter customization, multiple comparisons, and visualization options
-- :doc:`Sample Variance Analysis <notebooks/03_sample_variance>` - Accounting for biological replicates in multi-sample studies
-- :doc:`Gene Expression Smoothing <notebooks/04_expression_model>` - GP smoothing, uncertainty decomposition, and CITE-seq validation
+- :doc:`Advanced Differential Expression <notebooks/02_differential_expression_detailed>` - Parameter tuning, multiple comparisons, run tracking, and resource planning
+- :doc:`DE with Sample Variance <notebooks/03_sample_variance>` - Replicate-aware significance in multi-sample studies
+- :doc:`Differential Abundance <notebooks/04_differential_abundance>` - Cell-state frequency changes, including its sample-variance treatment
 
 Command-Line Interface
 ^^^^^^^^^^^^^^^^^^^^^^^
