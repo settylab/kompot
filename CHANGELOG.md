@@ -2,7 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [0.8.0] - 2026-07-27
+
+### Changed — statistics now match the manuscript
+
+These numerical changes align Kompot's output with the published method. Relative gene/cell rankings are preserved and FDR re-calibrates against the null, but **absolute values shift, so re-tune any hard-coded thresholds carried over from 0.7.0.**
+
+ - **Differential-expression Mahalanobis distances are smaller by a factor of √2** (the combined posterior covariance is now `Σ_a + Σ_b`).
+ - **Differential-abundance PTP is now one-sided**, so reported values are halved (`neg_log10_fold_change_ptp` increases by ~0.30). A `ptp_threshold` of `1e-3`, which used to mean |z| ≥ 3.29, now means |z| ≥ 3.09 — lower it if you need the old call rate.
+ - **`use_empirical_variance` now defaults to `False`** in every entry point (`DifferentialExpression`, `ExpressionModel`, `smooth_expression()`, the deprecated `compute_*` wrappers, and the CLI config templates), matching `kompot.de()`. Pass `use_empirical_variance=True` explicitly to keep the old behavior.
+
+### Changed — renamed field (action required)
+
+ - The differential-expression posterior tail probability is now stored as **`-log10(PTP)` in the `..._neg_log10_ptp` column** (previously the raw probability in `..._ptp`), so larger means more significant. This preserves ranking resolution that the old linear column lost for most genes. `volcano_de(y_axis_type="ptp")` handles the change for you; **update any code that read the old `_ptp` column.**
 
 ### Added
 
@@ -25,6 +37,13 @@ All notable changes to this project will be documented in this file.
    and continue to load unchanged. Anything consuming `run_history` should treat the
    three fields as optional.
 
+ - **`kompot de --dry-run`**: estimate memory, disk, and output-field requirements without running the analysis. Prints JSON to stdout and a human-readable report to stderr.
+ - **`kompot.plot.dotplot`**: fold-change dotplot (color = mean log-fold-change per group, size = fraction of cells expressing) that embeds into your own Matplotlib axes. Genes are given explicitly or auto-picked as top-N by Mahalanobis.
+ - **`kompot.plot.lollipop`**: gene-set-enrichment lollipop plot that embeds into an existing axis. Accepts a `StringDBReport`, its enrichment table, or a generic enrichment table from other tools (gseapy/enrichr, GOATOOLS, clusterProfiler) with case-insensitive column autodetection.
+ - **Custom background for `StringDBReport` enrichment**: pass `background=` (e.g. your analyzed `adata.var_names`) so over-representation is tested against the genes you actually measured instead of the whole genome — the correct choice for single-cell and targeted panels. Default behavior is unchanged.
+ - **`kompot.configure_logging(stream)`**: redirect the kompot logger to a chosen stream.
+ - **`random_state` on `kompot.find_landmarks`**: pass an int to make landmark selection reproducible. The underlying Leiden community detection draws from igraph's global RNG, which was otherwise left unseeded, so repeated calls on identical input could return a different number of landmarks. A supplied seed threads into both the nearest-neighbor construction and the Leiden step, so the same input and seed yield identical landmark indices and coordinates. The default (`random_state=None`) **preserves the historical non-deterministic behavior**, so existing callers are unaffected unless they opt in.
+
 ### Fixed
 
  - **Compatibility with pandas 3 and anndata 0.13.** Grouping by a string column
@@ -45,31 +64,6 @@ All notable changes to this project will be documented in this file.
    instead of selecting cells, and passing a string Series surfaced the same opaque
    `TypeError` in place of the documented `ValueError`. Both paths are now covered by
    regression tests.
-
-## [0.8.0] - 2026-05-28
-
-### Changed — statistics now match the manuscript
-
-These numerical changes align Kompot's output with the published method. Relative gene/cell rankings are preserved and FDR re-calibrates against the null, but **absolute values shift, so re-tune any hard-coded thresholds carried over from 0.7.0.**
-
- - **Differential-expression Mahalanobis distances are smaller by a factor of √2** (the combined posterior covariance is now `Σ_a + Σ_b`).
- - **Differential-abundance PTP is now one-sided**, so reported values are halved (`neg_log10_fold_change_ptp` increases by ~0.30). A `ptp_threshold` of `1e-3`, which used to mean |z| ≥ 3.29, now means |z| ≥ 3.09 — lower it if you need the old call rate.
- - **`use_empirical_variance` now defaults to `False`** in every entry point (`DifferentialExpression`, `ExpressionModel`, `smooth_expression()`, the deprecated `compute_*` wrappers, and the CLI config templates), matching `kompot.de()`. Pass `use_empirical_variance=True` explicitly to keep the old behavior.
-
-### Changed — renamed field (action required)
-
- - The differential-expression posterior tail probability is now stored as **`-log10(PTP)` in the `..._neg_log10_ptp` column** (previously the raw probability in `..._ptp`), so larger means more significant. This preserves ranking resolution that the old linear column lost for most genes. `volcano_de(y_axis_type="ptp")` handles the change for you; **update any code that read the old `_ptp` column.**
-
-### Added
-
- - **`kompot de --dry-run`**: estimate memory, disk, and output-field requirements without running the analysis. Prints JSON to stdout and a human-readable report to stderr.
- - **`kompot.plot.dotplot`**: fold-change dotplot (color = mean log-fold-change per group, size = fraction of cells expressing) that embeds into your own Matplotlib axes. Genes are given explicitly or auto-picked as top-N by Mahalanobis.
- - **`kompot.plot.lollipop`**: gene-set-enrichment lollipop plot that embeds into an existing axis. Accepts a `StringDBReport`, its enrichment table, or a generic enrichment table from other tools (gseapy/enrichr, GOATOOLS, clusterProfiler) with case-insensitive column autodetection.
- - **Custom background for `StringDBReport` enrichment**: pass `background=` (e.g. your analyzed `adata.var_names`) so over-representation is tested against the genes you actually measured instead of the whole genome — the correct choice for single-cell and targeted panels. Default behavior is unchanged.
- - **`kompot.configure_logging(stream)`**: redirect the kompot logger to a chosen stream.
- - **`random_state` on `kompot.find_landmarks`**: pass an int to make landmark selection reproducible. The underlying Leiden community detection draws from igraph's global RNG, which was otherwise left unseeded, so repeated calls on identical input could return a different number of landmarks. A supplied seed threads into both the nearest-neighbor construction and the Leiden step, so the same input and seed yield identical landmark indices and coordinates. The default (`random_state=None`) **preserves the historical non-deterministic behavior**, so existing callers are unaffected unless they opt in.
-
-### Fixed
 
  - **Compatibility with matplotlib ≥ 3.9**: plotting no longer calls the removed `matplotlib.cm.get_cmap` API, so heatmap and volcano plots work on current matplotlib.
  - CLI commands now log to stderr, keeping stdout clean for machine-readable output (dry-run JSON, table output).
