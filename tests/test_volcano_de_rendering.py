@@ -1,4 +1,7 @@
 """Tests to improve coverage for kompot.plot.volcano.de."""
+import re
+from contextlib import contextmanager
+import logging
 
 import matplotlib
 
@@ -1487,4 +1490,145 @@ class TestVolcanoDEPerGeneColors:
             return_fig=True,
         )
         assert isinstance(fig, plt.Figure)
+        plt.close(fig)
+
+
+
+class TestVolcanoDENoSignificantGenesHighlightsNothing:
+    """A null result must not be rendered as a hit list.
+
+    When a significance criterion is stated and nothing meets it, highlighting
+    the top-scoring genes anyway makes a negative result look positive: on a
+    volcano, coloured points read as "these are the hits" whatever the legend
+    says. These tests pin that such a plot highlights nothing at all.
+    """
+
+    @staticmethod
+    def _highlighted_count(fig):
+        """Genes in highlight groups, read off the legend's per-group counts.
+
+        Highlight groups reach the legend as directional entries carrying their
+        size, e.g. ``Higher in B (2)`` — the group's internal name is not what
+        is rendered, so the counts are the honest thing to assert on.
+        """
+        total = 0
+        for ax in fig.axes:
+            leg = ax.get_legend()
+            if leg is None:
+                continue
+            for text in leg.get_texts():
+                match = re.search(r"\((\d+)\)\s*$", text.get_text())
+                if match:
+                    total += int(match.group(1))
+        return total
+
+    @staticmethod
+    @contextmanager
+    def _kompot_logs():
+        """Capture kompot's records directly.
+
+        ``caplog`` cannot see them: the kompot logger sets ``propagate = False``,
+        so its records never reach the root handler pytest installs.
+        """
+        records = []
+
+        class _Collect(logging.Handler):
+            def emit(self, record):
+                records.append(record)
+
+        handler = _Collect()
+        logger = logging.getLogger("kompot")
+        logger.addHandler(handler)
+        try:
+            yield records
+        finally:
+            logger.removeHandler(handler)
+
+    def test_dict_threshold_matching_nothing_highlights_nothing(self, de_adata):
+        """The reported case: one criterion passes, their conjunction does not."""
+        from kompot.plot.volcano.de import volcano_de
+
+        # local_fdr < 1.0 passes for essentially every gene; mahalanobis > 1e6
+        # passes for none, so the conjunction is empty.
+        with self._kompot_logs() as records:
+            fig = volcano_de(
+                de_adata,
+                lfc_key="kompot_de_A_to_B_mean_lfc",
+                score_key="kompot_de_A_to_B_mahalanobis",
+                significance_threshold={"local_fdr": 1.0, "mahalanobis": 1e6},
+                return_fig=True,
+            )
+
+        assert self._highlighted_count(fig) == 0, (
+            "genes were highlighted despite no gene meeting the criteria"
+        )
+        assert any(
+            r.levelno >= logging.WARNING
+            and "No genes met the significance criteria" in r.getMessage()
+            for r in records
+        ), "an empty result must warn, not render silently"
+        plt.close(fig)
+
+    def test_scalar_threshold_matching_nothing_highlights_nothing(self, de_adata):
+        """Same contract for the single-threshold form."""
+        from kompot.plot.volcano.de import volcano_de
+
+        with self._kompot_logs() as records:
+            fig = volcano_de(
+                de_adata,
+                lfc_key="kompot_de_A_to_B_mean_lfc",
+                score_key="kompot_de_A_to_B_mahalanobis",
+                significance_threshold=1e6,
+                return_fig=True,
+            )
+
+        assert self._highlighted_count(fig) == 0
+        assert any(
+            r.levelno >= logging.WARNING
+            and "No genes met the significance criteria" in r.getMessage()
+            for r in records
+        )
+        plt.close(fig)
+
+    def test_no_de_genes_highlights_nothing(self, de_adata):
+        """A stored is_de column marking nothing is equally a negative result."""
+        from kompot.plot.volcano.de import volcano_de
+
+        de_adata.var["kompot_de_A_to_B_is_de"] = False
+
+        with self._kompot_logs() as records:
+            fig = volcano_de(
+                de_adata,
+                lfc_key="kompot_de_A_to_B_mean_lfc",
+                score_key="kompot_de_A_to_B_mahalanobis",
+                return_fig=True,
+            )
+
+        assert self._highlighted_count(fig) == 0
+        assert any(
+            r.levelno >= logging.WARNING
+            and "No genes are marked as DE" in r.getMessage()
+            for r in records
+        )
+        plt.close(fig)
+
+    def test_top_genes_still_shown_when_no_criterion_is_given(self, de_adata):
+        """The legitimate fallback survives.
+
+        With no threshold given, the caller has expressed no significance
+        criterion, so ranking the top genes by score claims nothing about
+        significance and remains the useful default.
+        """
+        from kompot.plot.volcano.de import volcano_de
+
+        fig = volcano_de(
+            de_adata,
+            lfc_key="kompot_de_A_to_B_mean_lfc",
+            score_key="kompot_de_A_to_B_mahalanobis",
+            n_top_genes=5,
+            return_fig=True,
+        )
+        assert self._highlighted_count(fig) == 5, (
+            "the no-criterion default should still highlight top genes"
+        )
         plt.close(fig)
