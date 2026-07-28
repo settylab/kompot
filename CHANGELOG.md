@@ -6,11 +6,47 @@ All notable changes to this project will be documented in this file.
 
 ### Changed — statistics now match the manuscript
 
-These numerical changes align Kompot's output with the published method. Relative gene/cell rankings are preserved and FDR re-calibrates against the null, but **absolute values shift, so re-tune any hard-coded thresholds carried over from 0.7.0.**
+These numerical changes align Kompot's output with the published method. **Absolute values shift,
+so re-tune any hard-coded thresholds carried over from 0.7.0.** The three changes differ sharply in
+how far their effect reaches — one is presentational, one moves your call rate, and one moves which
+genes are called at all:
 
- - **Differential-expression Mahalanobis distances are smaller by a factor of √2** (the combined posterior covariance is now `Σ_a + Σ_b`).
- - **Differential-abundance PTP is now one-sided**, so reported values are halved (`neg_log10_fold_change_ptp` increases by ~0.30). A `ptp_threshold` of `1e-3`, which used to mean |z| ≥ 3.29, now means |z| ≥ 3.09 — lower it if you need the old call rate.
- - **`use_empirical_variance` now defaults to `False`** in every entry point (`DifferentialExpression`, `ExpressionModel`, `smooth_expression()`, the deprecated `compute_*` wrappers, and the CLI config templates), matching `kompot.de()`. Pass `use_empirical_variance=True` explicitly to keep the old behavior.
+ - **Differential-expression Mahalanobis distances are smaller by a factor of √2** (the combined
+   posterior covariance is now `Σ_a + Σ_b` rather than `(Σ_a + Σ_b)/2`).
+
+   *Impact: cosmetic in the default configuration.* Every distance is divided by the same √2, and
+   the empirical null is built by running shuffled genes through the identical pipeline, so it
+   rescales too. Gene rankings, p-values, local FDR and `is_de` calls are therefore **unchanged**;
+   only the printed magnitudes move. The one exception is when sample variance is in play
+   (`use_sample_variance`, auto-enabled when variance predictors or sample indices are supplied):
+   there the denominator is `(Σ_a + Σ_b) + (V_a + V_b)`, and only the posterior term doubled, so
+   the two components are reweighted rather than uniformly scaled. Genes dominated by posterior
+   uncertainty shrink by the full √2, genes dominated by sample variance shrink less, and rankings
+   can shift modestly as a result.
+
+ - **Differential-abundance PTP is now one-sided** — `PTP = Φ(−|z|)` rather than `2Φ(−|z|)` — so
+   reported values are halved (`neg_log10_fold_change_ptp` increases by ~0.30 = log₁₀2).
+
+   *Impact: more sensitive at an unchanged threshold.* The transform is monotone, so cell rankings
+   are **unchanged**, but every PTP halves and therefore more cells clear any fixed
+   `ptp_threshold`. The threshold's meaning has loosened: `1e-3` used to require |z| ≥ 3.29 and now
+   requires only |z| ≥ 3.09. **Halve your threshold to preserve the old call rate** — the extra
+   calls are real gains in power only if you intended a one-sided test.
+
+ - **`use_empirical_variance` now defaults to `False`** in every entry point
+   (`DifferentialExpression`, `ExpressionModel`, `smooth_expression()`, the deprecated `compute_*`
+   wrappers, and the CLI config templates), matching `kompot.de()`, which already defaulted to
+   `False`. Pass `use_empirical_variance=True` explicitly to keep the old behavior.
+
+   *Impact: this is the one that changes results, not just their scale.* It is not a rescaling.
+   With it enabled, the expression GP is fitted with `obs_variance=True`, which smooths
+   leverage-corrected squared residuals into a per-gene, input-dependent noise surface and adds it
+   to the Mahalanobis denominator; disabling it removes that term. Consistently noisy genes are no
+   longer down-weighted for their noise, so they rank higher relative to quiet ones — **gene
+   rankings and `is_de` calls genuinely differ**, and results are not comparable to a 0.7.0 run
+   that used the old default. It also drops two GP fits, so runs are faster and use less memory.
+   If your data have no biological replicates, this was the only per-gene noise model in play;
+   consider re-enabling it or supplying sample indices so sample variance takes its place.
 
 ### Changed — renamed field (action required)
 
