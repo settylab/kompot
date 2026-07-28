@@ -84,6 +84,7 @@ kompot de input.h5ad -o output.h5ad \
   - [Advanced Differential Expression](https://github.com/settylab/kompot/blob/main/examples/02_differential_expression_detailed.ipynb) — tuning, multiple comparisons, run tracking, resource planning
   - [DE with Sample Variance](https://github.com/settylab/kompot/blob/main/examples/03_sample_variance.ipynb) — replicate-aware significance
   - [Differential Abundance](https://github.com/settylab/kompot/blob/main/examples/04_differential_abundance.ipynb) — cell-state frequency changes, incl. sample variance
+  - [Smoothing Expression](https://github.com/settylab/kompot/blob/main/examples/05_smooth_expression.ipynb) — the expression function underneath DE: its two uncertainties, and fit/predict across cells
 - [CLI Guide](https://kompot.readthedocs.io/en/latest/cli.html)
 
 ## Citation
