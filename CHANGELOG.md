@@ -48,6 +48,25 @@ genes are called at all:
    If your data have no biological replicates, this was the only per-gene noise model in play;
    consider re-enabling it or supplying sample indices so sample variance takes its place.
 
+### Changed — `volcano_de` no longer highlights a fallback when nothing is significant
+
+ - **When no gene meets the significance criteria, nothing is highlighted.** Previously
+   `volcano_de` fell back to highlighting the top 10 genes by score, labelled "Top 10 genes (no
+   genes at threshold)". On a volcano the coloured points read as *"these are the hits"* whatever
+   the legend says, so a negative result was rendered as a hit list — the failure mode is a reader
+   taking ten arbitrary top-scoring genes for significant ones. The same applied when a stored
+   `is_de` column marked nothing. Both now highlight nothing and emit a **warning** naming the
+   criteria that matched zero genes; every gene still appears in the background colour, so the
+   plot reads as the negative result it is.
+
+   The legitimate fallback is unchanged: with **no** significance criterion given, `n_top_genes`
+   still highlights the top N by score, because ranking without a threshold claims nothing about
+   significance.
+
+   If you relied on the old behaviour to always get some highlighted genes, pass `n_top_genes`
+   explicitly instead — that asks for a ranking, which is what the fallback was silently
+   substituting.
+
 ### Changed — renamed field (action required)
 
  - The differential-expression posterior tail probability is now stored as **`-log10(PTP)` in the `..._neg_log10_ptp` column** (previously the raw probability in `..._ptp`), so larger means more significant. This preserves ranking resolution that the old linear column lost for most genes. `volcano_de(y_axis_type="ptp")` handles the change for you; **update any code that read the old `_ptp` column.**
