@@ -1147,31 +1147,23 @@ def volcano_de(
                             f"Highlighting {len(significant_genes):,} genes at {y_axis_type} {threshold_comparison} {significance_threshold} ({len(up_sig_genes)} up, {len(down_sig_genes)} down)"
                         )
                 else:
-                    # No significant genes found - fallback to top genes
+                    # The caller asked a specific significance question and the
+                    # answer is "none". Highlighting the top-scoring genes anyway
+                    # would render a null result as a hit list: on a volcano the
+                    # coloured points read as "these are the significant ones",
+                    # regardless of what the legend says. Highlight nothing.
                     if isinstance(significance_threshold, dict):
-                        logger.info(
-                            "No genes found with multiple thresholds - falling back to top genes highlighting"
-                        )
+                        criteria = threshold_desc
                     else:
-                        logger.info(
-                            f"No genes found at {y_axis_type} {threshold_comparison} {significance_threshold} - falling back to top genes highlighting"
+                        criteria = (
+                            f"{y_axis_type} {threshold_comparison} "
+                            f"{significance_threshold}"
                         )
-
-                    # Fallback to top genes when no significant genes are found (if n_top_genes specified)
-                    fallback_n = (
-                        n_top_genes or 10
-                    )  # Use 10 as fallback if n_top_genes is None
-                    top_genes = de_data.sort_values("sort_val", ascending=False).head(
-                        fallback_n
-                    )
-                    highlight_groups.append(
-                        {
-                            "genes": top_genes["gene"].tolist(),
-                            "name": f"Top {fallback_n} genes (no genes at threshold)",
-                        }
-                    )
-                    logger.info(
-                        f"Highlighting top {fallback_n:,} genes by score as fallback"
+                    logger.warning(
+                        f"No genes met the significance criteria ({criteria}); "
+                        "highlighting nothing. The volcano still shows every gene "
+                        "in the background colour — an empty highlight means the "
+                        "result is negative, not that the plot failed."
                     )
 
             # Regular DE column logic (when no other highlighting mechanism is specified or failed)
@@ -1218,24 +1210,12 @@ def volcano_de(
                         f"Highlighting {len(de_genes):,} genes marked as DE ({len(up_de_genes)} up, {len(down_de_genes)} down)"
                     )
                 else:
-                    logger.info(
-                        "No genes marked as DE found - falling back to top genes highlighting"
-                    )
-                    # Fallback to top genes when no DE genes are found
-                    fallback_n = (
-                        n_top_genes or 10
-                    )  # Use 10 as fallback if n_top_genes is None
-                    top_genes = de_data.sort_values("sort_val", ascending=False).head(
-                        fallback_n
-                    )
-                    highlight_groups.append(
-                        {
-                            "genes": top_genes["gene"].tolist(),
-                            "name": f"Top {fallback_n} genes (no DE genes found)",
-                        }
-                    )
-                    logger.info(
-                        f"Highlighting top {fallback_n:,} genes by {sort_key or score_key} as fallback"
+                    # The stored analysis marked nothing as DE. As above, that is
+                    # a negative result and must not be dressed up as a hit list.
+                    logger.warning(
+                        f"No genes are marked as DE in '{inferred_direction_column}'; "
+                        "highlighting nothing. An empty highlight means the result "
+                        "is negative, not that the plot failed."
                     )
             else:
                 # Fallback to top genes approach if DE column not found
