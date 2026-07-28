@@ -23,9 +23,9 @@ These numerical changes align Kompot's output with the published method. Relativ
    computed it. Each entry now also carries `kompot_version`, `kompot_git_sha` and
    `kompot_editable`. The sha and the editable flag are the load-bearing part: an
    editable install of `v0.7.0-7-g4432d4f` reports `__version__ == "0.7.0"`, so **a
-   released version string alone does not identify the code that ran** — which is how
-   two figures in one manuscript came to be computed under different Kompot versions
-   with nothing in the data saying so. The sha is read directly from the `.git`
+   released version string alone does not identify the code that ran**, and
+   reconstructing it after the fact means crossing run timestamps against release
+   dates. The sha is read directly from the `.git`
    directory (no `git` binary required, no new dependency) and resolution never raises:
    fields are set to `null` when they cannot be determined, since a present-but-null
    field is self-describing whereas a missing key is indistinguishable from an older
