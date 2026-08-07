@@ -2,6 +2,40 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+
+ - **`GPSettings.ls_scheme`** — chooses which cells the automatic shared length scale is
+   estimated from in differential expression. The default, `"condition1"`, is exactly the
+   existing behaviour and nothing changes unless you ask for something else.
+
+   The two conditions have always been smoothed at a **shared** length scale so that their
+   fitted surfaces are comparable, and that part is right: giving each condition its own
+   (`ls_scheme="separate"`) makes the two surfaces differently smooth, and the mismatch alone
+   manufactures apparent fold changes. What was undocumented is that the shared value is
+   estimated from **condition 1's cells only**, so it is a function of `n_condition1` and
+   `de(adata, condition1=X, condition2=Y)` is *not* equivalent to
+   `de(adata, condition1=Y, condition2=X)`. On an exchangeable null with nothing to find, the
+   two orientations of the same partition differ in false-positive rate by 0.06–0.08 at
+   2:1 and beyond.
+
+   `"symmetric"` shares the size-weighted geometric mean of the two conditions' own estimates
+   — the same estimator, with nearest neighbours looked up *within* each condition — and is
+   invariant under swapping the conditions. `"pooled"` estimates from the union, which is also
+   swap-invariant but yields a systematically smaller value, because the union is denser than
+   either condition and nearest-neighbour distances shrink with cell count alone.
+
+### Changed
+
+ - `ls_scheme` participates in run-parameter matching, so re-running under a different scheme
+   is no longer treated as a matching rerun.
+
+### Documentation
+
+ - `GPSettings.ls` and `DifferentialExpression.fit` now state where the shared length scale
+   comes from and that the default makes the contrast depend on argument order.
+
 ## [0.8.0] - 2026-07-28
 
 ### Changed — statistics now match the manuscript
