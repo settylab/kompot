@@ -422,8 +422,10 @@ class DifferentialExpression:
               an exchangeable null this is markedly worse than any shared value.
               Provided for diagnostics, not recommended.
 
-            Ignored when ``ls`` is given explicitly or when ``cov_func`` /
-            ``cov_func_curry`` is supplied in ``function_kwargs``.
+            Ignored when ``ls`` is given explicitly, or when a length scale is
+            passed through ``function_kwargs``. Supplying a ``cov_func`` or
+            ``cov_func_curry`` does *not* disable it: the resolved value is
+            handed to the custom kernel, so both conditions keep a shared scale.
         landmarks : np.ndarray, optional
             Pre-computed landmarks to use. If provided, n_landmarks will be ignored.
             Shape (n_landmarks, n_features).
@@ -505,15 +507,13 @@ class DifferentialExpression:
             )
 
         # -- Resolve the length scale each condition will be fitted with --
-        # Only relevant when the caller left `ls` open and did not hand mellon a
-        # kernel directly; otherwise the explicit value applies to both models
-        # and the scheme has nothing to decide.
-        ls_auto = (
-            ls is None
-            and "ls" not in function_kwargs
-            and "cov_func" not in function_kwargs
-            and "cov_func_curry" not in function_kwargs
-        )
+        # The gate is deliberately the historical one: `ls` left open and no
+        # length scale smuggled in through function_kwargs.  A supplied
+        # `cov_func`/`cov_func_curry` must NOT disable it -- the two conditions
+        # still need a shared scale, and gating on the kernel would drop the
+        # condition-1 inheritance for callers who never touched `ls_scheme`,
+        # silently giving them "separate" behaviour.
+        ls_auto = ls is None and "ls" not in function_kwargs
         if ls_auto:
             ls_model1, ls_model2 = _resolve_ls_scheme(
                 ls_scheme, X_condition1, X_condition2, ls_factor
@@ -522,7 +522,7 @@ class DifferentialExpression:
             if ls_scheme != "condition1":
                 logger.info(
                     f"ls_scheme={ls_scheme!r} ignored: the length scale is "
-                    "already determined by an explicit ls or cov_func."
+                    "already fixed by an explicit ls."
                 )
             ls_model1 = ls_model2 = ls
 

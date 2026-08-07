@@ -143,3 +143,47 @@ def test_explicit_ls_overrides_every_scheme(scheme):
     ls1, ls2 = _fit(scheme, ls=0.5)
     assert ls1 == pytest.approx(0.5)
     assert ls2 == pytest.approx(0.5)
+
+
+# --------------------------------------------------------------------------
+# a custom kernel must not silently change the default's sharing behaviour
+# --------------------------------------------------------------------------
+
+
+def _fit_with_curry(scheme):
+    from mellon.cov import Matern52
+
+    X1, y1, X2, y2 = _data()
+    de = DifferentialExpression(n_landmarks=0)
+    de.fit(X1, y1, X2, y2, ls_scheme=scheme, cov_func_curry=Matern52)
+    return float(de.model1.ls), float(de.model2.ls)
+
+
+def test_default_still_shares_when_a_cov_func_curry_is_supplied():
+    """Regression: `cov_func_curry` must not turn the default into `separate`.
+
+    `function_kwargs` is public and the CLI forwards into it, so a caller who
+    never touched `ls_scheme` can reach this path.  Before the fix, supplying a
+    curry dropped the condition-1 inheritance and let condition 2 estimate its
+    own -- i.e. `separate` behaviour, silently, at the default.
+    """
+    ls1, ls2 = _fit_with_curry("condition1")
+    assert ls1 == pytest.approx(ls2), (
+        "condition 2 stopped inheriting condition 1's length scale when a "
+        "cov_func_curry was supplied"
+    )
+    # and it is condition 1's own estimate that both are using
+    plain1, plain2 = _fit("condition1")
+    assert ls1 == pytest.approx(plain1, rel=1e-6)
+
+
+def test_shared_schemes_still_share_when_a_cov_func_curry_is_supplied():
+    for scheme in ("symmetric", "pooled"):
+        ls1, ls2 = _fit_with_curry(scheme)
+        assert ls1 == pytest.approx(ls2), scheme
+        assert ls1 == pytest.approx(_fit(scheme)[0], rel=1e-6), scheme
+
+
+def test_separate_still_unshares_when_a_cov_func_curry_is_supplied():
+    ls1, ls2 = _fit_with_curry("separate")
+    assert ls1 != pytest.approx(ls2, rel=1e-3)
