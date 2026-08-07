@@ -14,6 +14,61 @@ from .expression_model import ExpressionModel
 
 logger = logging.getLogger("kompot")
 
+#: Recognised values for ``ls_scheme``.  See :meth:`DifferentialExpression.fit`.
+LS_SCHEMES = ("condition1", "symmetric", "pooled", "separate")
+
+
+def _auto_ls(X: np.ndarray, ls_factor: float) -> float:
+    """Automatic length scale for one design matrix.
+
+    Identical to what :meth:`ExpressionModel.fit` derives internally when
+    ``ls`` is None, exposed here so a scheme can combine the two conditions'
+    values *before* either model is fitted.
+    """
+    from mellon.parameters import compute_ls, compute_nn_distances
+
+    return float(compute_ls(compute_nn_distances(np.asarray(X))) * ls_factor)
+
+
+def _resolve_ls_scheme(ls_scheme, X_condition1, X_condition2, ls_factor):
+    """Return the ``(ls_model1, ls_model2)`` a scheme prescribes.
+
+    ``None`` in a slot means "let that model estimate its own".  For
+    ``"condition1"`` both slots are None and the caller reproduces the
+    historical behaviour by copying model1's fitted value into model2.
+    """
+    if ls_scheme == "condition1":
+        return None, None
+    if ls_scheme == "separate":
+        return None, None
+    if ls_scheme == "pooled":
+        shared = _auto_ls(
+            np.vstack([np.asarray(X_condition1), np.asarray(X_condition2)]),
+            ls_factor,
+        )
+        logger.info(f"ls_scheme='pooled': shared length scale {shared:.4f}")
+        return shared, shared
+    if ls_scheme == "symmetric":
+        n1 = np.asarray(X_condition1).shape[0]
+        n2 = np.asarray(X_condition2).shape[0]
+        ls1 = _auto_ls(X_condition1, ls_factor)
+        ls2 = _auto_ls(X_condition2, ls_factor)
+        # Size-weighted GEOMETRIC mean.  kompot's estimator is
+        # exp(mean(log nn_dist)) * const, so this is exactly that estimator
+        # applied to the two conditions' WITHIN-condition nearest-neighbour
+        # distances pooled together -- unlike 'pooled', which looks the
+        # neighbours up across the union and therefore shrinks purely because
+        # the union holds more cells.
+        shared = float(np.exp((n1 * np.log(ls1) + n2 * np.log(ls2)) / (n1 + n2)))
+        logger.info(
+            f"ls_scheme='symmetric': condition length scales {ls1:.4f} / "
+            f"{ls2:.4f} -> shared {shared:.4f}"
+        )
+        return shared, shared
+    raise ValueError(
+        f"Unknown ls_scheme {ls_scheme!r}. Expected one of {LS_SCHEMES}."
+    )
+
 
 class DifferentialExpression:
     """
@@ -310,6 +365,7 @@ class DifferentialExpression:
         sigma: float = 1.0,
         ls: Optional[float] = None,
         ls_factor: float = 10.0,
+        ls_scheme: str = "condition1",
         landmarks: Optional[np.ndarray] = None,
         sample_estimator_ls: Optional[float] = None,
         condition1_sample_indices: Optional[np.ndarray] = None,
@@ -336,10 +392,40 @@ class DifferentialExpression:
         sigma : float, optional
             Noise level for function estimator, by default 1.0.
         ls : float, optional
-            Length scale for the GP kernel. If None, it will be estimated, by default None.
+            Length scale for the GP kernel, shared by both conditions. If None it is
+            estimated from the data according to ``ls_scheme``, by default None.
         ls_factor : float, optional
             Multiplication factor to apply to length scale when it's automatically inferred,
             by default 10.0. Only used when ls is None.
+        ls_scheme : str, optional
+            How the automatic length scale is derived when ``ls`` is None. Both
+            conditions are normally smoothed at the *same* scale so that their
+            fitted surfaces are comparable; the schemes differ in which cells the
+            shared value is estimated from.
+
+            * ``"condition1"`` (default) — estimate from condition 1's cells and
+              reuse the value for condition 2. **Not symmetric**: the length
+              scale is a function of ``n_condition1`` alone, so swapping
+              ``condition1`` and ``condition2`` changes the result even when
+              nothing else does.
+            * ``"symmetric"`` — estimate a length scale from each condition
+              separately and share their size-weighted geometric mean. Invariant
+              under swapping the two conditions, and it does not inherit the
+              cell-count artefact of ``"pooled"``.
+            * ``"pooled"`` — estimate from the two conditions' cells taken
+              together. Also swap-invariant, but the union is denser than either
+              condition, so nearest-neighbour distances — and hence the length
+              scale — shrink purely because there are more cells.
+            * ``"separate"`` — let each condition estimate its own length scale
+              and do not share. The two surfaces are then smoothed differently
+              and the mismatch itself produces apparent fold changes; measured on
+              an exchangeable null this is markedly worse than any shared value.
+              Provided for diagnostics, not recommended.
+
+            Ignored when ``ls`` is given explicitly, or when a length scale is
+            passed through ``function_kwargs``. Supplying a ``cov_func`` or
+            ``cov_func_curry`` does *not* disable it: the resolved value is
+            handed to the custom kernel, so both conditions keep a shared scale.
         landmarks : np.ndarray, optional
             Pre-computed landmarks to use. If provided, n_landmarks will be ignored.
             Shape (n_landmarks, n_features).
@@ -420,13 +506,33 @@ class DifferentialExpression:
                 disk_storage_dir=self.disk_storage_dir,
             )
 
+        # -- Resolve the length scale each condition will be fitted with --
+        # The gate is deliberately the historical one: `ls` left open and no
+        # length scale smuggled in through function_kwargs.  A supplied
+        # `cov_func`/`cov_func_curry` must NOT disable it -- the two conditions
+        # still need a shared scale, and gating on the kernel would drop the
+        # condition-1 inheritance for callers who never touched `ls_scheme`,
+        # silently giving them "separate" behaviour.
+        ls_auto = ls is None and "ls" not in function_kwargs
+        if ls_auto:
+            ls_model1, ls_model2 = _resolve_ls_scheme(
+                ls_scheme, X_condition1, X_condition2, ls_factor
+            )
+        else:
+            if ls_scheme != "condition1":
+                logger.info(
+                    f"ls_scheme={ls_scheme!r} ignored: the length scale is "
+                    "already fixed by an explicit ls."
+                )
+            ls_model1 = ls_model2 = ls
+
         if self.model1.predictor is None:
             logger.info("Fitting expression estimator for condition 1...")
             self.model1.fit(
                 X_condition1,
                 y_condition1,
                 sigma=sigma,
-                ls=ls,
+                ls=ls_model1,
                 ls_factor=ls_factor,
                 landmarks=landmarks,
                 sample_indices=condition1_sample_indices
@@ -437,9 +543,15 @@ class DifferentialExpression:
                 **function_kwargs,
             )
 
-        # Extract ls from model1 for model2 consistency
-        ls_for_model2 = ls
-        if ls is None and "ls" not in function_kwargs and self.model1.ls is not None:
+        # Under the default scheme condition 2 inherits condition 1's fitted
+        # length scale, so the shared value is a function of n_condition1 alone.
+        # Every other scheme has already fixed both values above.
+        ls_for_model2 = ls_model2
+        if (
+            ls_auto
+            and ls_scheme == "condition1"
+            and self.model1.ls is not None
+        ):
             ls_for_model2 = self.model1.ls
 
         # -- Fit model2 --

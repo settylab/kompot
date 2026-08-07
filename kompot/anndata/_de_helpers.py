@@ -41,6 +41,7 @@ def _check_overwrites(
     obsm_key: str,
     layer: Optional[str],
     ls_factor: float,
+    ls_scheme: str = "condition1",
 ):
     """Check for existing results and handle overwrite logic.
 
@@ -134,6 +135,7 @@ def _check_overwrites(
                 "obsm_key",
                 "layer",
                 "ls_factor",
+                "ls_scheme",
             ]:
                 curr_val = locals().get(param_name)
                 prev_val = _pg(prev_params, param_name)
@@ -189,6 +191,7 @@ def _check_overwrites(
                 "obsm_key",
                 "layer",
                 "ls_factor",
+                "ls_scheme",
             ]:
                 curr_val = locals().get(param_name)
                 prev_val = _pg(prev_params, param_name)

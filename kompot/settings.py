@@ -38,10 +38,19 @@ class GPSettings:
     sigma : float
         Noise level for the GP.
     ls : float, optional
-        Length scale.  If *None*, estimated automatically using
-        ``ls_factor``.
+        Length scale, shared by both conditions.  If *None*, estimated
+        automatically using ``ls_factor`` and ``ls_scheme``.
     ls_factor : float
         Multiplier applied to the automatically inferred length scale.
+    ls_scheme : str
+        Which cells the automatic shared length scale is estimated from.
+        ``"condition1"`` (default) uses condition 1's cells only, which makes
+        the result depend on which condition is passed first; ``"symmetric"``
+        shares the size-weighted geometric mean of the two per-condition
+        estimates; ``"pooled"`` estimates from both conditions' cells taken
+        together; ``"separate"`` gives each condition its own.  See
+        :meth:`kompot.differential.DifferentialExpression.fit`.  Ignored when
+        ``ls`` is given explicitly.
     n_landmarks : int, optional
         Number of landmarks for the Nystrom approximation.
     landmarks : np.ndarray, optional
@@ -61,6 +70,7 @@ class GPSettings:
     sigma: float = 1.0
     ls: Optional[float] = None
     ls_factor: float = 10.0
+    ls_scheme: str = "condition1"
     n_landmarks: Optional[int] = 5000
     landmarks: Optional[np.ndarray] = None
     use_empirical_variance: bool = False
@@ -73,6 +83,13 @@ class GPSettings:
         validate_positive_float(self.sigma, "sigma")
         validate_positive_float(self.ls, "ls", optional=True)
         validate_positive_float(self.ls_factor, "ls_factor")
+        from .differential.differential_expression import LS_SCHEMES
+
+        if self.ls_scheme not in LS_SCHEMES:
+            raise ValueError(
+                f"'ls_scheme' must be one of {LS_SCHEMES} (got "
+                f"{self.ls_scheme!r})."
+            )
         validate_positive_int(self.n_landmarks, "n_landmarks", optional=True)
         validate_bool(self.use_empirical_variance, "use_empirical_variance")
         validate_positive_int(self.batch_size, "batch_size", optional=True)
