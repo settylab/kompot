@@ -2,37 +2,112 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [0.9.0] - 2026-09-15
+
+### Fixed — sample variance no longer costs more memory than it needs to
+
+Supplying `sample_col` gives every gene its own `(n_landmarks, n_landmarks)`
+covariance matrix per condition. Kompot summed those two tensors into a **third**
+dense tensor before use, and then added the shared posterior covariance into it
+gene by gene with `__setitem__`. Three consequences, all silent:
+
+ - `StorageSettings(store_arrays_on_disk=True)` did not keep the tensors out of
+   memory. With `np.memmap` inputs the sum materialised a full
+   `(n_landmarks, n_landmarks, n_genes)` array in RAM — precisely the array the
+   flag exists to avoid.
+ - `compute_mahalanobis_distances` then ran `cov = jnp.array(covariance)` inside
+   its gene-specific branch and never read `cov`: a second full-size copy of the
+   tensor, for nothing.
+ - Under Dask the per-gene `__setitem__` rebuilt the task graph once per gene,
+   and the delayed per-gene tasks nested with the lazy slices they materialised,
+   so peak memory scaled with concurrency rather than with one gene.
+
+The sum is now assembled one gene at a time by `kompot.utils.LazyGeneCovariance`,
+which holds references to the terms and materialises a single
+`(n_landmarks, n_landmarks)` matrix when the Mahalanobis step asks for a gene.
+Measured on 1 500 cells / 150 genes / 600 landmarks (412 MiB per tensor), peak
+**anonymous** memory from `/proc/self/smaps_rollup`, same machine and same
+synthetic input on both trees:
+
+| run | 0.8.0 | 0.9.0 | bytes written, 0.8.0 → 0.9.0 | wall, 0.8.0 → 0.9.0 |
+|---|---|---|---|---|
+| no sample variance | 949 MiB | 972 MiB | 0 → 0 | 33.0 s → 32.6 s |
+| sample variance, in memory | 2 401 MiB | 1 973 MiB | 0 → 0 | 45.7 s → 46.0 s |
+| `store_arrays_on_disk`, with `dask` | 2 782 MiB | 1 153 MiB | 0 → 0 | 231.8 s → 47.8 s |
+| `store_arrays_on_disk`, no `dask` | 2 284 MiB | 1 148 MiB | 824 → 824 MiB | 48.2 s → 47.7 s |
+
+Disk-backed storage is now cheaper than in-memory storage, which it was not
+before: 1 153 MiB against 1 973 MiB, where 0.8.0 made it *more* expensive
+(2 782 against 2 401). The Dask path is also 4.9x faster.
+
+**Results are unchanged.** Distances differ only by floating-point summation
+order: measured maximum relative difference 1.7e-12 across the in-memory,
+Dask and memmap paths, which is the same order as the pre-existing difference
+*between* those paths on 0.8.0 alone.
+
+In-memory cost per gene therefore drops from `3 x n_landmarks^2 x 8` to
+`2 x n_landmarks^2 x 8` bytes — about 0.37 GiB rather than 0.56 GiB per gene at
+the default `n_landmarks=5000`.
+
+Fixes settylab/kompot#26.
+
+### Fixed — the dry run now prices the run it is pricing
+
+`kompot.de(..., dry_run=True)` built its plan *before* `null_genes="auto"` was
+resolved, so the estimator received the literal string. That matched neither its
+integer nor its list branch and fell through to zero, omitting the 2 000 null
+genes the run would add. Measured on a 4 000 x 500 input: the default dry run
+reported 0.485 GiB for a run the explicit `null_genes=2000` plan priced at
+2.156 GiB — **4.44x optimistic**, and the gap grows with `n_cells`.
+
+Resolution now happens above the dry-run branch, and
+`estimate_differential_expression_resources` raises on a `null_genes` it cannot
+interpret rather than counting zero.
+
+Fixes settylab/kompot#25.
+
+### Changed — the resource plan describes the code that runs
+
+Following the fix above, `estimate_differential_expression_resources`:
+
+ - no longer charges a third `(n_landmarks, n_landmarks, n_genes)` tensor that
+   is never built;
+ - charges the covariance tensors to **disk** only on the path that writes
+   them. With `dask` installed nothing reaches `disk_storage_dir`, and the plan
+   now reports that instead of demanding scratch the run does not use;
+ - charges the per-gene working set that replaced the dense sum
+   (`3 x n_landmarks^2 x 8` bytes, one gene at a time);
+ - reworded the in-memory warning to name the levers that shrink the tensors
+   (`genes`, linear; `n_landmarks`, quadratic) rather than only pointing at disk
+   storage.
+
+`store_arrays_on_disk` semantics are unchanged; only the accounting moved.
 
 ### Documentation
 
  - **New guide: [Planning Memory and Disk](https://kompot.readthedocs.io/en/latest/resource_planning.html)**,
-   the canonical explanation of what `sample_col` costs and how to run it. Supplying
-   `sample_col` enables sample variance, which replaces the single shared posterior
-   covariance with one `(n_landmarks, n_landmarks)` matrix **per gene**, so the dominant
-   allocation is `3 x n_landmarks^2 x n_genes x 8` bytes: about 0.56 GiB per gene at the
-   default `n_landmarks=5000`, ~560 GiB for 1 000 genes, and terabytes for a whole
-   transcriptome. Compute scales too, since the Mahalanobis step then factorises once per
-   gene instead of once in total. The guide prescribes the two-pass workflow (a cheap
-   first pass over all genes, then sample variance restricted to the top ~1 000), ranks
-   the levers (`genes` linear, `n_landmarks` quadratic, `null_genes=0`, disk offload),
-   and shows how to price a run with `dry_run=True`. It carries measured dry-run plans
-   at realistic sizes.
- - The same warning now appears where the decision is made: `kompot.de`'s docstring (so
-   `help()` carries it), `GPSettings.n_landmarks`, `StorageSettings`,
-   `SampleVarianceEstimator`, `kompot de --sample-col`, the DE config template, the
-   README, and the tutorial notebooks.
+   the canonical explanation of what `sample_col` costs and how to run it, with
+   plans produced by `dry_run=True` at realistic sizes. It prescribes the
+   two-pass workflow — a cheap first pass over all genes, then sample variance
+   restricted to the top genes — ranks the levers, and shows how to price a run
+   before committing to it.
+ - The same warning now appears where the decision is made: `kompot.de`'s
+   docstring (so `help()` carries it), `GPSettings.n_landmarks`,
+   `GPSettings.batch_size`, `StorageSettings`, `SampleVarianceEstimator`,
+   `kompot de --sample-col`, the DE config template, the README and the tutorial
+   notebooks.
  - The CLI "Complete Analysis" example no longer pairs `--sample-col` with
-   `--n-landmarks 5000` over every gene, which was the most expensive configuration the
-   package can express; it now shows the restricted second pass via a config file.
- - Corrected `StorageSettings.max_memory_ratio`, which was documented as "Fraction of RAM
-   before triggering disk storage". It triggers nothing: `store_arrays_on_disk=None`
-   resolves to `disk_storage_dir is not None`, and the ratio only sets the threshold at
-   which the estimator escalates warnings. The DE config template's
-   `store_arrays_on_disk: null # (null = auto)` was misleading for the same reason.
- - Documented two measured divergences between the dry run and the runs it prices:
-   the estimate does not resolve `null_genes="auto"` (#25), and `store_arrays_on_disk=True`
-   does not reduce peak memory, with nothing written to disk when `dask` is installed (#26).
+   `--n-landmarks 5000` over every gene, which was the most expensive
+   configuration the package can express; it now shows the restricted second
+   pass through a config file.
+ - Corrected `StorageSettings.max_memory_ratio`, documented as "Fraction of RAM
+   before triggering disk storage". It triggers nothing: `store_arrays_on_disk`
+   defaults to `None`, which resolves to `disk_storage_dir is not None`, and the
+   ratio only sets the threshold at which the estimator escalates warnings. The
+   DE config template's `store_arrays_on_disk: null # (null = auto)` was
+   misleading for the same reason.
+
+Fixes settylab/kompot#27.
 
 ## [0.8.0] - 2026-07-28
 

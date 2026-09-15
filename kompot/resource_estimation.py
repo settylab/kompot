@@ -603,12 +603,31 @@ def estimate_differential_expression_resources(
     null_genes_param = kwargs.get("null_genes", 2000)  # Default is 2000
     compute_mahalanobis = kwargs.get("compute_mahalanobis", True)
 
+    # Refuse a null_genes we cannot interpret rather than silently counting
+    # zero. A string reaching here means the caller passed the unresolved
+    # "auto" sentinel, which used to fall through both branches below and
+    # under-report the plan by 2000 genes (settylab/kompot#25).
+    if isinstance(null_genes_param, str):
+        raise ValueError(
+            f"null_genes={null_genes_param!r} must be resolved to an int, a "
+            f"list of ints, or None before estimating resources. "
+            f"kompot.de() resolves 'auto' before the dry run; pass an "
+            f"explicit value when calling the estimator directly."
+        )
+
     n_null_genes = 0
     if null_genes_param is not None and null_genes_param != 0 and compute_mahalanobis:
-        if isinstance(null_genes_param, int):
-            n_null_genes = null_genes_param
-        elif isinstance(null_genes_param, list):
+        if isinstance(null_genes_param, (int, np.integer)) and not isinstance(
+            null_genes_param, bool
+        ):
+            n_null_genes = int(null_genes_param)
+        elif isinstance(null_genes_param, (list, tuple)):
             n_null_genes = len(null_genes_param)
+        else:
+            raise TypeError(
+                f"null_genes must be an int, a list of ints, or None "
+                f"(got {type(null_genes_param).__name__})."
+            )
 
         # Total genes processed includes null genes
         n_total_genes = n_genes + n_null_genes
@@ -957,30 +976,60 @@ def estimate_differential_expression_resources(
             sv_cov_shape = (n_landmarks, n_landmarks, n_total_genes)
             sv_cov_size = estimate_array_size(sv_cov_shape)
 
-            resource_type = "disk" if store_arrays_on_disk else "memory"
-            plan.add_requirement(
-                f"Sample covariances (per condition, {n_samples} samples)",
-                sv_cov_size * 2,  # variance1 and variance2 - both stored
-                resource_type,
-                shape=sv_cov_shape,
-            )
-
-            # Note: combined_variance (variance1 + variance2) behavior differs by storage type:
-            # - Disk storage: Creates a lazy Dask computation graph (no additional disk space)
-            # - Memory storage: Creates a third in-memory tensor (3x total memory)
+            # Where the two per-condition tensors live, and whether they are
+            # materialised at all, depends on the storage mode:
+            #
+            #   store_arrays_on_disk=False  two dense in-memory tensors
+            #   True, dask installed        lazy Dask graphs; NOTHING is
+            #                               written, each gene is evaluated on
+            #                               demand
+            #   True, no dask               two memory-mapped .npy files
+            #
+            # Their SUM is never materialised: compute_mahalanobis_distances
+            # assembles one (n_landmarks, n_landmarks) matrix per gene through
+            # kompot.utils.LazyGeneCovariance (settylab/kompot#26). Before that
+            # fix the plan charged a third tensor here, and charged disk for
+            # the dask path that writes nothing.
             if not store_arrays_on_disk:
-                # In memory: variance1, variance2, and combined_variance all exist as separate arrays
                 plan.add_requirement(
-                    "Combined sample covariances (temporary)",
-                    sv_cov_size,
+                    f"Sample covariances (per condition, {n_samples} samples)",
+                    sv_cov_size * 2,  # variance1 and variance2
                     "memory",
                     shape=sv_cov_shape,
                 )
-                total_sv = sv_cov_size * 3  # variance1 + variance2 + combined
                 plan.warnings.append(
-                    f"Sample variance covariance tensors ({human_readable_size(total_sv)}) "
-                    f"will be stored in memory. Consider storage=StorageSettings(store_arrays_on_disk=True) for large datasets."
+                    f"Sample variance covariance tensors "
+                    f"({human_readable_size(sv_cov_size * 2)}) will be held in "
+                    f"memory. Restricting `genes` (linear) or lowering "
+                    f"gp=GPSettings(n_landmarks=...) (quadratic) shrinks them; "
+                    f"storage=StorageSettings(store_arrays_on_disk=True) keeps "
+                    f"them out of memory entirely."
                 )
+            elif DASK_AVAILABLE:
+                plan.info.append(
+                    f"Sample covariances are Dask-backed: each gene's "
+                    f"{n_landmarks}x{n_landmarks} matrix is evaluated on demand and "
+                    f"the {human_readable_size(sv_cov_size * 2)} tensor is never "
+                    f"materialised, in memory or on disk."
+                )
+            else:
+                plan.add_requirement(
+                    f"Sample covariances (per condition, {n_samples} samples)",
+                    sv_cov_size * 2,  # variance1 and variance2, memory-mapped
+                    "disk",
+                    shape=sv_cov_shape,
+                )
+
+            # Per-gene working set: whichever storage mode is in force, the
+            # Mahalanobis step materialises one (n_landmarks, n_landmarks)
+            # matrix per sample-variance term plus the shared covariance.
+            per_gene_working = estimate_array_size((n_landmarks, n_landmarks)) * 3
+            plan.add_requirement(
+                "Per-gene covariance working set (one gene at a time)",
+                per_gene_working,
+                "memory",
+                shape=(n_landmarks, n_landmarks),
+            )
 
             if store_arrays_on_disk:
                 # Add note about disk location
@@ -995,8 +1044,11 @@ def estimate_differential_expression_resources(
 
                 if not DASK_AVAILABLE:
                     plan.warnings.append(
-                        "Disk storage requested but dask is not installed. "
-                        "Install dask for 50x faster computation: pip install 'dask[array]'"
+                        "Disk storage requested but dask is not installed, so the "
+                        "covariance tensors are written as memory-mapped .npy files "
+                        "and computed sequentially. Install dask to evaluate them "
+                        "lazily instead, which writes nothing and parallelises the "
+                        "per-gene work: pip install 'dask[array]'"
                     )
 
     # Add batch_size information

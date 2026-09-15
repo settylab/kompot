@@ -252,6 +252,20 @@ def de(
                 stacklevel=2,
             )
 
+    # ---- 0. Resolve defaults ----
+    # Resolved BEFORE the dry-run branch: the estimate must price the run that
+    # would actually happen. Resolving it afterwards left the estimator reading
+    # the literal string "auto", which matches neither its int nor its list
+    # branch, so it silently counted zero null genes (settylab/kompot#25).
+    if null_genes == "auto":
+        if sample_col is not None:
+            null_genes = 0
+            logger.info(
+                "Defaulting null_genes=0 (FDR disabled) because sample_col is provided."
+            )
+        else:
+            null_genes = 2000
+
     # ---- dry run ----
     if dry_run:
         from ..resource_estimation import estimate_differential_expression_resources
@@ -294,16 +308,6 @@ def de(
         )
         print(plan.format_report())
         return plan
-
-    # ---- 0. Resolve defaults ----
-    if null_genes == "auto":
-        if sample_col is not None:
-            null_genes = 0
-            logger.info(
-                "Defaulting null_genes=0 (FDR disabled) because sample_col is provided."
-            )
-        else:
-            null_genes = 2000
 
     has_external_null = (
         ext_null_mahalanobis is not None or ext_null_expression is not None

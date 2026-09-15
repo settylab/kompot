@@ -8,7 +8,7 @@ import logging
 from mellon.parameters import compute_landmarks
 from tqdm.auto import tqdm
 
-from ..utils import compute_mahalanobis_distances
+from ..utils import compute_mahalanobis_distances, LazyGeneCovariance
 from ..batch_utils import apply_batched, is_jax_memory_error  # noqa: F401
 from .expression_model import ExpressionModel
 
@@ -635,120 +635,70 @@ class DifferentialExpression:
         gene_specific_covariance = None
 
         if self.use_sample_variance:
-            # Add empirical adjustments from sample variance
-
-            # Create functions for computing sample variance
+            # Add the sample-variance covariance to the posterior covariance.
+            #
+            # When the predictors return 3-D tensors there is one
+            # (n_points, n_points) covariance PER GENE per condition. Summing
+            # them eagerly, and then adding combined_cov gene by gene with
+            # __setitem__, materialised a third dense tensor of that shape --
+            # even when the inputs were disk-backed, which is precisely what
+            # store_arrays_on_disk exists to avoid, and which rebuilt the Dask
+            # graph once per gene (settylab/kompot#26).
+            #
+            # LazyGeneCovariance keeps references to the terms instead and
+            # assembles one gene's matrix at a time inside
+            # compute_mahalanobis_distances, so peak memory is bounded by a
+            # single (n_points, n_points) matrix rather than by the tensor.
+            variance_terms = []
             if self.variance_predictor1 is not None:
                 try:
                     # Important: use diag=False to get full covariance matrix
-                    variance1 = self.variance_predictor1(
-                        variance_points, diag=False, progress=progress
-                    )
-                    if self.variance_predictor2 is not None:
-                        variance2 = self.variance_predictor2(
+                    variance_terms.append(
+                        self.variance_predictor1(
                             variance_points, diag=False, progress=progress
                         )
-                        # Add the covariance matrices for complete variance representation
-                        combined_variance = variance1 + variance2
-                        del variance1, variance2
-
-                        # Check if we have gene-specific covariance matrices (shape has 3 dimensions)
-                        if len(combined_variance.shape) == 3:
-                            # We have per-gene covariance matrices with shape (points, points, genes)
-                            # Need to add combined_cov to each gene's covariance slice
-                            gene_specific_covariance = combined_variance
-                            # Check if combined_variance is a JAX array, if not, ensure combined_cov is numpy array
-                            if not isinstance(combined_variance, jax.Array):
-                                combined_cov_to_add = np.asarray(combined_cov)
-                            else:
-                                combined_cov_to_add = combined_cov
-                            for g in tqdm(
-                                range(combined_variance.shape[2]),
-                                desc="Processing gene-specific covariance matrices",
-                                disable=not progress,
-                            ):
-                                gene_specific_covariance[:, :, g] = (
-                                    combined_variance[:, :, g] + combined_cov_to_add
-                                )
-                            logger.debug(
-                                f"Using gene-specific covariance matrices with shape {gene_specific_covariance.shape}"
-                            )
-                        else:
-                            # Add the sample variance to the combined covariance from function predictors
-                            combined_cov += combined_variance
-                            logger.debug(
-                                "Added sample variance covariance matrix to function predictor covariance"
-                            )
-                    else:
-                        # Only add variance1 if variance2 is not available
-                        if len(variance1.shape) == 3:
-                            # We have per-gene covariance matrices
-                            # Need to add combined_cov to each gene's covariance slice
-                            gene_specific_covariance = variance1
-                            # Check if variance1 is a JAX array, if not, ensure combined_cov is numpy array
-                            if not isinstance(variance1, jax.Array):
-                                combined_cov_to_add = np.asarray(combined_cov)
-                            else:
-                                combined_cov_to_add = combined_cov
-                            for g in tqdm(
-                                range(variance1.shape[2]),
-                                desc="Processing gene-specific covariance matrices (variance1)",
-                                disable=not progress,
-                            ):
-                                gene_specific_covariance[:, :, g] = (
-                                    variance1[:, :, g] + combined_cov_to_add
-                                )
-                            logger.debug(
-                                f"Using gene-specific covariance matrices from variance1 with shape {gene_specific_covariance.shape}"
-                            )
-                        else:
-                            combined_cov += variance1
-                            logger.debug(
-                                "Added variance1 covariance matrix to function predictor covariance"
-                            )
-                        del variance1
+                    )
                 except Exception as e:
                     error_msg = f"Error computing sample variance from variance_predictor1: {e}."
                     logger.error(error_msg)
                     raise RuntimeError(error_msg) from e
-            elif self.variance_predictor2 is not None:
+
+            if self.variance_predictor2 is not None:
                 try:
-                    # Important: use diag=False to get full covariance matrix
-                    variance2 = self.variance_predictor2(
-                        variance_points, diag=False, progress=progress
+                    variance_terms.append(
+                        self.variance_predictor2(
+                            variance_points, diag=False, progress=progress
+                        )
                     )
-                    # Check if we have gene-specific covariance matrices
-                    if len(variance2.shape) == 3:
-                        # We have per-gene covariance matrices
-                        # Need to add combined_cov to each gene's covariance slice
-                        gene_specific_covariance = variance2
-                        # Check if variance2 is a JAX array, if not, ensure combined_cov is numpy array
-                        if not isinstance(variance2, jax.Array):
-                            combined_cov_to_add = np.asarray(combined_cov)
-                        else:
-                            combined_cov_to_add = combined_cov
-                        for g in tqdm(
-                            range(variance2.shape[2]),
-                            desc="Processing gene-specific covariance matrices (variance2)",
-                            disable=not progress,
-                        ):
-                            gene_specific_covariance[:, :, g] = (
-                                variance2[:, :, g] + combined_cov_to_add
-                            )
-                        logger.debug(
-                            f"Using gene-specific covariance matrices from variance2 with shape {gene_specific_covariance.shape}"
-                        )
-                    else:
-                        # Add variance2 to the combined covariance
-                        combined_cov += variance2
-                        logger.debug(
-                            "Added variance2 covariance matrix to function predictor covariance"
-                        )
-                    del variance2
                 except Exception as e:
                     error_msg = f"Error computing sample variance from variance_predictor2: {e}."
                     logger.error(error_msg)
                     raise RuntimeError(error_msg) from e
+
+            if variance_terms:
+                gene_specific_terms = [v for v in variance_terms if len(v.shape) == 3]
+                shared_terms = [v for v in variance_terms if len(v.shape) != 3]
+
+                for shared in shared_terms:
+                    # Not gene-specific: fold straight into the shared matrix.
+                    combined_cov = combined_cov + shared
+                    logger.debug(
+                        "Added a shared sample-variance covariance matrix to the "
+                        "function predictor covariance"
+                    )
+
+                if gene_specific_terms:
+                    gene_specific_covariance = LazyGeneCovariance(
+                        gene_specific_terms, base=np.asarray(combined_cov)
+                    )
+                    logger.debug(
+                        f"Using lazily assembled gene-specific covariance matrices "
+                        f"with shape {gene_specific_covariance.shape} "
+                        f"({len(gene_specific_terms)} sample-variance term(s) + "
+                        f"the shared posterior covariance, one gene materialized "
+                        f"at a time)"
+                    )
+                del variance_terms, gene_specific_terms, shared_terms
 
         # Compute empirical variance at variance_points if enabled
         empirical_diag_var = None
