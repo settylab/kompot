@@ -516,13 +516,20 @@ is quadratic in it. Same 1 000 genes, from the dry run:
      - 380.2 GiB
      - 7.7 GiB
 
-Halving the landmark count quarters the covariance footprint. It also cuts the
-per-gene factorisation, which is roughly cubic in ``n_landmarks``: measured
-above, one gene costs 0.52 s at 500 landmarks and 8.5 s at 2 000. Landmarks
-control the resolution of the cell-state approximation, so this is a genuine
-accuracy trade-off rather than a free saving, but 5 000 landmarks is rarely
-required to resolve a covariance structure that is being summarised gene by
-gene.
+Halving the landmark count quarters the covariance footprint, which is exact
+arithmetic rather than a measurement. It also cuts the per-gene factorisation,
+though **by how much is not something these four points establish**: the timing
+table above rises from 0.52 s to 8.5 s per gene between 500 and 2 000
+landmarks, but the per-interval ratios are 11.7x, 1.3x and 1.1x, which is not a
+power law. A Cholesky is O(n^3) in flops and the measurement plainly is not
+following that at these sizes, so take the table as four measured points in
+the range it covers and do not extrapolate a scaling from it. Measure at your
+own landmark count if the time matters.
+
+Landmarks control the resolution of the cell-state approximation, so reducing
+them is a genuine accuracy trade-off rather than a free saving. But 5 000 is
+rarely required to resolve a covariance structure that is being summarised gene
+by gene.
 
 ``batch_size`` (in :class:`~kompot.GPSettings`) bounds the temporary arrays
 during prediction and the gene batches of the *shared*-covariance Mahalanobis
@@ -552,9 +559,10 @@ thousand genes covers the interesting tail of a Mahalanobis ranking at a cost
 you can absorb overnight; the whole transcriptome costs two days for a result
 whose last nine-tenths you were never going to read.
 
-If you need more coverage than that, cut ``n_landmarks`` in the same breath:
-it reduces the per-gene cost as well as the memory, so it buys back the time
-the extra genes spend.
+If you need more coverage than that, cut ``n_landmarks`` in the same breath.
+It reduces the per-gene cost as well as the memory, so it buys back some of the
+time the extra genes spend — how much, at your dimensions, is worth a single
+timed gene rather than an extrapolation.
 
 Price it rather than guessing. A :ref:`dry run <dry-run>` gives the memory and
 disk figures for your dimensions in a second; for the time, multiply your gene

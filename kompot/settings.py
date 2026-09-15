@@ -47,8 +47,8 @@ class GPSettings:
         variance (``sample_col`` set on :func:`kompot.de`) the dominant
         allocation is ``2 * n_landmarks**2 * n_genes * 8`` bytes, so memory is
         **quadratic** in this value: halving it quarters the covariance
-        footprint.  It also cuts the per-gene Cholesky factorisation, which is
-        roughly cubic in it.  See
+        footprint.  It also cuts the per-gene Cholesky factorisation, though by
+        an amount worth measuring rather than extrapolating.  See
         https://kompot.readthedocs.io/en/latest/resource_planning.html
     landmarks : np.ndarray, optional
         Pre-computed landmark coordinates.
