@@ -126,9 +126,11 @@ def add_de_parser(subparsers) -> argparse.ArgumentParser:
         help=(
             "Column in adata.obs with sample labels for sample variance "
             "estimation. EXPENSIVE: gives every gene its own "
-            "(n_landmarks, n_landmarks) covariance matrix, ~0.56 GiB per gene "
-            "at --n-landmarks 5000. Run it as a second pass over a top-gene "
-            "list (config key 'genes') and check with --dry-run first."
+            "(n_landmarks, n_landmarks) covariance matrix and its own Cholesky "
+            "factorisation -- ~0.37 GiB and several seconds per gene at "
+            "--n-landmarks 5000. Run it as a second pass over a top-gene list "
+            "(config key 'genes'), set store_arrays_on_disk to keep the "
+            "tensors out of memory, and check with --dry-run first."
         ),
     )
 

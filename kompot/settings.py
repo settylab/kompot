@@ -45,9 +45,10 @@ class GPSettings:
     n_landmarks : int, optional
         Number of landmarks for the Nystrom approximation.  Under sample
         variance (``sample_col`` set on :func:`kompot.de`) the dominant
-        allocation is ``3 * n_landmarks**2 * n_genes * 8`` bytes, so cost is
+        allocation is ``2 * n_landmarks**2 * n_genes * 8`` bytes, so memory is
         **quadratic** in this value: halving it quarters the covariance
-        footprint.  See
+        footprint.  It also cuts the per-gene Cholesky factorisation, which is
+        roughly cubic in it.  See
         https://kompot.readthedocs.io/en/latest/resource_planning.html
     landmarks : np.ndarray, optional
         Pre-computed landmark coordinates.
@@ -280,16 +281,14 @@ class StorageSettings:
     store_additional_stats : bool
         Store extra columns (p-values, tail FDR, PTP, z-scores).
     store_arrays_on_disk : bool, optional
-        Represent the per-gene sample-variance covariance tensors so they are
-        consumed one gene at a time instead of as dense in-memory arrays.
-        With ``dask`` installed this is a lazy Dask graph and nothing is
-        written to disk; without ``dask`` each condition's tensor is written
-        as a memory-mapped ``.npy`` under ``disk_storage_dir``.  Defaults to
-        ``None``, meaning *on if and only if* ``disk_storage_dir`` is set;
-        nothing enables it automatically in response to memory pressure.
-        Note that the dry run currently reports a memory saving from this flag
-        that the measured run does not deliver
-        (https://github.com/settylab/kompot/issues/26); see
+        Keep the per-gene sample-variance covariance tensors out of memory by
+        consuming them one gene at a time.  With ``dask`` installed each
+        tensor is a lazy Dask graph and nothing is written to disk; without
+        ``dask`` each condition's tensor is written as a memory-mapped
+        ``.npy`` under ``disk_storage_dir``, which is slower because a gene
+        slice of that layout is strided.  Defaults to ``None``, meaning *on if
+        and only if* ``disk_storage_dir`` is set; nothing enables it
+        automatically in response to memory pressure.  See
         https://kompot.readthedocs.io/en/latest/resource_planning.html
     disk_storage_dir : str, optional
         Directory for disk-backed arrays.  A real run creates it if missing,

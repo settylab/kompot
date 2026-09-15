@@ -4,11 +4,10 @@ Planning Memory and Disk
 Most Kompot runs are unremarkable in their resource use. One option is not:
 supplying ``sample_col`` to :func:`kompot.de` turns on **sample variance**,
 which replaces a single shared covariance matrix with **one covariance matrix
-per gene**. The cost of that step is multiplied by the number of genes
-analysed, and at Kompot's default landmark count it reaches hundreds of
-gigabytes for a routine gene set.
+per gene**. Both the memory and the compute of that step are multiplied by the
+number of genes analysed.
 
-This page explains where the cost comes from, prescribes the two-pass workflow
+This page explains where that cost comes from, prescribes the two-pass workflow
 that keeps it bounded, and shows how to price a run with ``dry_run=True``
 before committing to it.
 
@@ -22,9 +21,10 @@ instead:
 
 1. **Pass 1, all genes, no sample variance.** Cheap, and it gives you the
    Mahalanobis ranking.
-2. **Pass 2, top genes only, with sample variance.** Restrict to the genes
-   that survived pass 1 (on the order of 1 000; see :ref:`how-many-genes`)
-   and cut ``n_landmarks`` if the plan is still too large.
+2. **Pass 2, top genes only, with sample variance.** Restrict to the genes that
+   survived pass 1 (on the order of 1 000; see :ref:`how-many-genes`), offload
+   the covariance tensors to disk, and cut ``n_landmarks`` if the run is still
+   too slow.
 
 .. code-block:: python
 
@@ -37,23 +37,28 @@ instead:
    mahal = "kompot_de_Young_to_Old_mahalanobis"
    top_genes = adata.var.sort_values(mahal, ascending=False).head(1000).index
 
-   # ---- Pass 2: sample variance, restricted ---------------------------
+   # ---- Pass 2: sample variance, restricted and offloaded -------------
    kompot.de(
        adata, "condition", "Young", "Old",
        sample_col="donor_id",
-       genes=top_genes,                          # the lever that matters most
-       gp=kompot.GPSettings(n_landmarks=2000),   # quadratic; see "Other levers"
+       genes=top_genes,                          # linear in both memory and time
+       gp=kompot.GPSettings(n_landmarks=2000),   # memory is QUADRATIC in this
        storage=kompot.StorageSettings(
-           store_arrays_on_disk=True,            # read "Disk offload" below first
+           store_arrays_on_disk=True,            # keeps the tensors out of RAM
            disk_storage_dir="/scratch/kompot",   # large, fast, node-local
        ),
    )
 
-Price it before you run it. A dry run of exactly that call takes a second and
-tells you whether it fits (see :ref:`dry-run`). The two levers in that call
-that genuinely shrink the allocation are ``genes`` and ``n_landmarks``;
-``store_arrays_on_disk`` is discussed, with measurements, under
-:ref:`disk-offload`.
+Price it before you run it: a dry run of exactly that call takes a second and
+tells you whether it fits (see :ref:`dry-run`).
+
+The reason the split is not optional is that the two costs respond to different
+levers. ``store_arrays_on_disk`` removes the memory term almost entirely
+(:ref:`disk-offload`), and ``n_landmarks`` shrinks it quadratically — but
+neither touches the **per-gene Cholesky factorisation**, which is linear in the
+gene count and nothing makes it cheaper except analysing fewer genes. Restrict
+the gene list and both costs fall together; offload without restricting and you
+have merely moved from running out of memory to running out of time.
 
 The two passes compose rather than collide, which is what makes the split
 practical. Measured on a two-pass run where pass 2 analysed 10 of 60 genes:
@@ -90,22 +95,20 @@ against **one** posterior covariance matrix of shape ``(n_landmarks,
 n_landmarks)``, factorised once.
 
 With sample variance, Kompot fits a per-sample expression predictor, evaluates
-it at the landmarks, and forms the **sample-to-sample covariance between
-landmark pairs, separately for every gene**. That array has shape
+it at the landmarks, and forms the sample-to-sample covariance between landmark
+pairs **separately for every gene**. That array has shape
 
 .. code-block:: text
 
    (n_landmarks, n_landmarks, n_genes)
 
-and Kompot holds one per condition, plus their sum. So the dominant term is
+and there is one per condition. Their sum is never materialised: the
+Mahalanobis step assembles a single ``(n_landmarks, n_landmarks)`` matrix per
+gene as it goes. So the dominant term, when the tensors are held in memory, is
 
 .. code-block:: text
 
-   bytes  =  k x n_landmarks^2 x n_genes x 8          (float64)
-
-   k = 3   variance1 + variance2 + their sum, all dense in memory
-   k = 2   what the planner charges to disk when store_arrays_on_disk=True,
-           on the assumption that the sum stays lazy
+   bytes  =  2 x n_landmarks^2 x n_genes x 8          (float64)
 
 Read the exponents carefully. The cost is **linear in genes** and **quadratic
 in landmarks**. At Kompot's default ``n_landmarks=5000``, a single landmark
@@ -114,72 +117,152 @@ covariance matrix is ``5000^2 x 8 B = 190 MiB``, so:
 .. admonition:: The number to remember
    :class: warning
 
-   At the default 5 000 landmarks, **every gene added to a sample-variance
-   run costs about 0.56 GiB**. One thousand genes is roughly 560 GiB; ten
-   thousand is over five terabytes. Nothing else in a Kompot run behaves this
-   way, which is why the gene list on pass 2 is the number to decide
-   deliberately.
+   At the default 5 000 landmarks, **every gene added to an in-memory
+   sample-variance run costs about 0.37 GiB**. One thousand genes is roughly
+   370 GiB; the whole transcriptome is over seven terabytes. Nothing else in a
+   Kompot run behaves this way.
 
-Compute scales with genes as well, and worse than the shared path does. With
-one shared covariance, Kompot performs a single Cholesky factorisation and
-solves against it for all genes in vectorised batches. With per-gene
-covariances it factorises **once per gene**, in a Python loop over genes
+   :ref:`disk-offload` removes that term from memory entirely, which is what
+   makes large gene sets possible at all. It does not remove the **compute**
+   below, which is why the two-pass workflow remains the prescription either
+   way.
+
+.. note::
+
+   Before Kompot 0.9.0 the two tensors were summed into a third dense array
+   before use, so the figure above was ``3 x n_landmarks^2 x n_genes x 8``
+   bytes, or about 0.56 GiB per gene, and ``store_arrays_on_disk`` did not
+   reduce peak memory at all. If you are reading a plan produced by 0.8.0 or
+   earlier, those are the numbers it will show
+   (`settylab/kompot#26 <https://github.com/settylab/kompot/issues/26>`_).
+
+Compute scales with genes as well, and it scales worse than the shared path
+does. With one shared covariance Kompot performs a single Cholesky
+factorisation and solves against it for all genes in vectorised batches; the
+total is essentially flat in the gene count. With per-gene covariances it
+factorises **once per gene**, in a Python loop over genes
 (``kompot/utils.py``), and ``GPSettings.batch_size`` does not apply to that
-loop.
+loop. Timed on one core-count of this machine, per gene:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 22 26 26 26
+
+   * - ``n_landmarks``
+     - shared, 20 genes
+     - per-gene, 20 genes
+     - per-gene, per gene
+   * - 500
+     - 0.61 s
+     - 10.5 s
+     - 0.52 s
+   * - 1 000
+     - 8.7 s
+     - 121.6 s
+     - 6.1 s
+   * - 1 500
+     - 11.8 s
+     - 156.7 s
+     - 7.8 s
+   * - 2 000
+     - 10.8 s
+     - 170.9 s
+     - 8.5 s
+
+Those are wall-clock seconds on one shared machine and will not transfer
+exactly, but the **shape** does: the shared column is flat in the gene count
+while the per-gene column is linear in it. Multiply it out, because a per-gene
+figure is not something you can act on. At 2 000 landmarks and 8.5 s per gene:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 35 35
+
+   * - genes in pass 2
+     - factorisation time
+     - in practice
+   * - 1 000
+     - ~2.4 hours
+     - an overnight job
+   * - 2 000
+     - ~4.7 hours
+     - still an overnight job
+   * - 20 000 (all)
+     - ~47 hours
+     - two days of compute
+
+That, rather than memory, is what bounds a sample-variance run once the
+tensors are offloaded, and it is the reason
+:ref:`the two-pass workflow <two-pass-workflow>` remains the prescription. A
+whole-transcriptome sample-variance run is no longer impossible; it is merely
+interminable, which is a worse failure because it looks like progress.
 
 Two smaller terms also grow with the gene count under sample variance, and
 neither is affected by ``store_arrays_on_disk``:
 
 * **Per-sample imputations**, ``2 x n_samples x n_landmarks x n_genes x 8`` B.
-  At 5 000 landmarks, 1 000 genes and 6 donors this is 0.45 GiB, negligible
-  beside the covariance tensors but not beside everything else.
+  At 5 000 landmarks, 1 000 genes and 6 donors this is 0.45 GiB.
 * **Two extra layers**, ``<result_key>_<condition>_std``, each
   ``n_cells x n_genes x 8`` B, written into ``adata.layers``.
-
 
 Measured plans
 --------------
 
-The figures below are Kompot's own ``dry_run=True`` output for a synthetic
-AnnData of 20 000 cells and 20 000 genes, two conditions, 6 donors, at the
-default ``n_landmarks=5000``. They are totals for the whole plan, not just the
-covariance term. (Kompot's report labels these binary magnitudes ``GB``; they
-are the same numbers.)
+Kompot's own ``dry_run=True`` output for a synthetic AnnData of 20 000 cells
+and 20 000 genes, two conditions, 6 donors, at the default
+``n_landmarks=5000`` and ``null_genes=0``. These are totals for the whole plan,
+not just the covariance term. (Kompot's report labels these binary magnitudes
+``GB``; they are the same numbers.)
 
 .. list-table::
    :header-rows: 1
-   :widths: 14 20 20 32
+   :widths: 12 18 20 22 18
 
    * - genes
      - no sample variance
-     - sample variance, RAM
-     - sample variance, disk-backed
+     - sample variance, in memory
+     - sample variance, ``store_arrays_on_disk``
+     - disk used
    * - 200
      - 3.1 GiB
-     - 115.0 GiB
-     - 3.2 GiB RAM + 74.5 GiB disk
+     - 78.3 GiB
+     - 3.8 GiB
+     - 0
    * - 1 000
      - 6.4 GiB
-     - 566.0 GiB
-     - 7.2 GiB RAM + 372.5 GiB disk
+     - 380.2 GiB
+     - 7.7 GiB
+     - 0
    * - 2 000
      - 10.6 GiB
-     - 1 130 GiB
-     - 12.1 GiB RAM + 745.1 GiB disk
+     - 757.7 GiB
+     - 12.6 GiB
+     - 0
    * - 20 000 (all)
      - 85.7 GiB
-     - 11 276 GiB
-     - 100.6 GiB RAM + 7 451 GiB disk
+     - 7 552 GiB
+     - 101.2 GiB
+     - 0
 
-The last row is the configuration to avoid: sample variance over a full
-transcriptome at default settings asks for eleven terabytes. The
-no-sample-variance column grows only with ``n_cells x n_genes``, which is why
-pass 1 over all 20 000 genes is comfortable at 86 GiB.
+Three things to read off this.
 
-The fourth column is what the *planner* charges when
-``store_arrays_on_disk=True``. Read it as the scratch footprint the run is
-allowed to reach, not as a memory saving you can count on; see the warning
-under :ref:`disk-offload`.
+**The in-memory column is the one that explodes.** 1 000 genes asks for
+380 GiB, and the whole transcriptome for seven and a half terabytes, because
+that column carries ``2 x n_landmarks^2 x n_genes x 8`` bytes of covariance.
+
+**Disk offload collapses it.** The same 1 000 genes plans at 7.7 GiB, barely
+above the 6.4 GiB of a run with no sample variance at all, because the tensors
+are never held whole. The disk column reads zero because ``dask`` is installed
+in the environment that produced the table, and on that path the tensors are
+evaluated lazily rather than written; see :ref:`disk-offload` for the
+``dask``-less path, where the same figure is written to
+``disk_storage_dir`` instead.
+
+**Memory stops being the binding constraint, and compute takes over.** The
+20 000-gene disk-backed plan at 101 GiB would fit on a large node; the 20 000
+per-gene Cholesky factorisations behind it would not fit in your week. That is
+why :ref:`the two-pass workflow <two-pass-workflow>` is the prescription even
+now that the memory problem is solved.
 
 Reproduce any row on your own data by substituting your ``adata``:
 
@@ -191,6 +274,7 @@ Reproduce any row on your own data by substituting your ``adata``:
            sample_col="donor_id",
            genes=top_genes,
            storage=kompot.StorageSettings(store_arrays_on_disk=on_disk),
+           fdr=kompot.FDRSettings(null_genes=0),
            dry_run=True,
        )
        print(on_disk, plan.total_memory_required, plan.total_disk_required)
@@ -234,8 +318,12 @@ costs:
 
 .. code-block:: python
 
+   # null_genes is pinned on BOTH arms. Left at "auto" it resolves to 2 000
+   # without sample_col and to 0 with it, so the comparison would silently be
+   # between two different gene counts.
    base = dict(groupby="condition", condition1="Young", condition2="Old",
-               genes=top_genes, dry_run=True)
+               genes=top_genes, fdr=kompot.FDRSettings(null_genes=0),
+               dry_run=True)
 
    without = kompot.de(adata, **base)
    with_sv = kompot.de(adata, sample_col="donor_id", **base)
@@ -284,12 +372,10 @@ stderr, and exits non-zero when the plan is infeasible. See :doc:`cli`.
 Disk offload
 ------------
 
-``StorageSettings(store_arrays_on_disk=True)`` is intended to change how the
-per-gene covariance tensors are represented, so they are consumed one gene at
-a time instead of built as three dense in-memory arrays. It is the flag the
-dry run's warnings point you at, and the one the estimator prices into its
-disk column. **Read the warning at the end of this section before you rely on
-it**: measured runs do not show the memory saving.
+``StorageSettings(store_arrays_on_disk=True)`` keeps the per-gene covariance
+tensors out of memory. It is the single most effective lever once you have
+decided which genes to refine, and since Kompot 0.9.0 it is also **cheaper
+than the in-memory path rather than dearer**.
 
 .. code-block:: python
 
@@ -305,157 +391,138 @@ it**: measured runs do not show the memory saving.
 
 What it does mechanically depends on whether ``dask`` is installed:
 
-* **With** ``dask`` (``pip install 'kompot[dask]'``) the tensor is a lazy
-  Dask graph, evaluated one gene at a time as the Mahalanobis step reaches it.
-  Measured: **no file is written at all**, so the dry run's disk figure is an
-  upper bound on scratch rather than a prediction of it.
-* **Without** ``dask`` Kompot writes the full tensor for each condition as a
-  memory-mapped ``covariance_matrix.npy`` under ``disk_storage_dir``, and the
-  dry run's disk figure is then what actually lands there. This path is
-  sequential rather than parallel, and the dry run warns that ``dask`` is
-  missing.
+* **With** ``dask`` (``pip install 'kompot[dask]'``) each condition's tensor is
+  a lazy Dask graph, evaluated one gene at a time as the Mahalanobis step
+  reaches it. **Nothing is written to disk**, so ``disk_storage_dir`` is used
+  only for its free-space check. This is the faster path and the recommended
+  one.
+* **Without** ``dask`` each condition's tensor is written as a memory-mapped
+  ``covariance_matrix.npy`` under ``disk_storage_dir``, so the dry run's disk
+  figure is what actually lands there. The per-gene work is then sequential,
+  and the dry run warns that ``dask`` is missing.
 
-Either way, **set** ``disk_storage_dir``, and create it before you plan
-against it. A real run creates a missing directory, but the **dry run raises**
+  **This path is also slower than holding the tensors in memory**, by about
+  12% on a measured 900-landmark pair (74 s against 66 s). A gene slice of a
+  C-contiguous ``(n_points, n_points, n_genes)`` memory map is **strided** —
+  its elements sit ``n_genes * 8`` bytes apart — so reading one gene at a time
+  touches the whole file, where holding the tensor reads it once sequentially.
+  That is the price of not holding it, you pay it only without ``dask``, and
+  installing ``dask`` removes it.
+
+Measured on 1 500 cells, 150 genes, 600 landmarks and 4 donors (412 MiB per
+tensor), peak **anonymous** memory sampled from ``/proc/self/smaps_rollup`` so
+that page cache for a memory-mapped file cannot flatter the reading:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 16 16 18 20
+
+   * - run
+     - peak memory
+     - bytes written
+     - wall clock
+     - vs. no sample variance
+   * - no sample variance
+     - 972 MiB
+     - 0
+     - 33 s
+     - —
+   * - sample variance, in memory
+     - 1 973 MiB
+     - 0
+     - 46 s
+     - +1 001 MiB
+   * - ``store_arrays_on_disk``, with ``dask``
+     - 1 153 MiB
+     - **0**
+     - 48 s
+     - +181 MiB
+   * - ``store_arrays_on_disk``, no ``dask``
+     - 1 148 MiB
+     - 824 MiB
+     - 48 s
+     - +176 MiB
+
+The offloaded runs cost about a sixth of the extra memory that the in-memory
+run does, and the gap widens with the gene count, because the in-memory column
+carries a term linear in genes and the offloaded ones do not. Repeated at 900
+landmarks and 120 genes (742 MiB per tensor), peak memory was 2 809 MiB
+in memory, 1 325 MiB with ``dask`` and 1 341 MiB without, against 1 051 MiB
+for a run with no sample variance at all.
+
+The wall-clock column is from a shared machine under load and should be read
+as an order of magnitude, not a benchmark. One caveat it does show reliably:
+the ``dask``-less path is **modestly slower than it was before 0.9.0** — 74 s
+against 66 s on a clean 900-landmark pair — because a gene slice of a
+C-contiguous ``(n_points, n_points, n_genes)`` memory map is strided, so
+reading one gene at a time touches the whole file where the old code did one
+sequential read into RAM. That is the price of not holding the tensor, it is
+paid only when ``dask`` is absent, and installing ``dask`` avoids it in both
+directions.
+
+Either way, **set** ``disk_storage_dir``, and create it before you plan against
+it. A real run creates a missing directory, but the **dry run raises**
 ``FileNotFoundError`` on one, so the estimate fails on exactly the
-configuration you were trying to price. Left unset, Kompot writes into the
-system temporary directory
-(honouring ``TMPDIR``), which on a shared cluster is frequently small,
-RAM-backed, or both. Kompot creates a unique per-run subdirectory inside it
-and removes that subdirectory when the estimator is collected, so space is
-reclaimed at the end of the run rather than during it.
+configuration you were trying to price. Left unset, Kompot uses the system
+temporary directory (honouring ``TMPDIR``), which on a shared cluster is
+frequently small, RAM-backed, or both. Kompot creates a unique per-run
+subdirectory inside it and removes that subdirectory when the estimator is
+collected, so space is reclaimed at the end of the run rather than during it.
 
 ``store_arrays_on_disk`` defaults to ``None``, which means *on if and only if*
 ``disk_storage_dir`` is set. Nothing turns it on automatically in response to
-memory pressure. ``max_memory_ratio`` only sets the threshold at which
-warnings escalate; it does not switch storage modes.
+memory pressure. ``max_memory_ratio`` only sets the threshold at which the
+plan's warnings escalate; it does not switch storage modes.
 
-.. warning::
+.. note::
 
-   **Measured runs do not show the memory saving this flag promises.**
-   ``store_arrays_on_disk=True`` moves the tensor from the memory column of
-   the plan to the disk column, but peak memory of the actual ``kompot.de()``
-   run is unchanged. Two synthetic configurations, 1 500 cells and 4 donors,
-   with peak *anonymous* memory sampled from ``/proc/self/smaps_rollup`` so
-   that page cache for a memory-mapped file is excluded:
-
-   .. list-table:: 150 genes, 600 landmarks (tensor 412 MiB per condition)
-      :header-rows: 1
-      :widths: 34 14 14 16 14 12
-
-      * - run
-        - plan RAM
-        - plan disk
-        - peak anon
-        - on disk
-        - wall
-      * - no sample variance
-        - 69 MiB
-        - 0
-        - 962 MiB
-        - 0
-        - 49 s
-      * - sample variance, in memory
-        - 1 313 MiB
-        - 0
-        - 2 357 MiB
-        - 0
-        - 87 s
-      * - on disk, with ``dask``
-        - 77 MiB
-        - 824 MiB
-        - 2 781 MiB
-        - **0**
-        - 283 s
-      * - on disk, no ``dask``
-        - 77 MiB
-        - 824 MiB
-        - 2 346 MiB
-        - 824 MiB
-        - 50 s
-
-   .. list-table:: 120 genes, 900 landmarks (tensor 742 MiB per condition)
-      :header-rows: 1
-      :widths: 34 14 14 16 14 12
-
-      * - run
-        - plan RAM
-        - plan disk
-        - peak anon
-        - on disk
-        - wall
-      * - no sample variance
-        - 73 MiB
-        - 0
-        - 1 052 MiB
-        - 0
-        - 55 s
-      * - sample variance, in memory
-        - 2 307 MiB
-        - 0
-        - 3 505 MiB
-        - 0
-        - 67 s
-      * - on disk, with ``dask``
-        - 82 MiB
-        - 1 483 MiB
-        - 4 347 MiB
-        - **0**
-        - 259 s
-      * - on disk, no ``dask``
-        - 82 MiB
-        - 1 483 MiB
-        - 3 562 MiB
-        - 1 483 MiB
-        - 113 s
-
-   Two things to read off these. The peak-memory column is flat across the
-   three sample-variance rows at both scales, against a plan predicting a 17x
-   to 28x drop. And with ``dask`` installed **nothing reaches disk at all**:
-   the tensor is a lazy graph rather than a file, so the plan's disk figure
-   bounds scratch consumption rather than predicting it, and that path was
-   also the slowest of the four. Tracked in `settylab/kompot#26
-   <https://github.com/settylab/kompot/issues/26>`_.
-
-   Until that is resolved, treat **restricting genes** and **reducing
-   landmarks** as the levers that actually bound memory. They shrink the
-   allocation itself, and the dry run prices them correctly.
+   Before Kompot 0.9.0 this flag did not reduce peak memory, because the two
+   tensors were summed into a dense array before use whatever the storage
+   mode. On the same configuration as the table above, 0.8.0 measured
+   2 782 MiB with ``dask`` and 2 284 MiB without, against 2 401 MiB for the
+   in-memory run — that is, offloading made the run **more** expensive, and
+   the ``dask`` path was 4.9x slower as well
+   (`settylab/kompot#26 <https://github.com/settylab/kompot/issues/26>`_).
 
 Other levers
 ------------
 
-``n_landmarks`` **is the strongest lever**, because the tensor is quadratic in
-it. Same 1 000 genes, sample variance on disk, from the dry run:
+``n_landmarks`` **is the strongest memory lever**, because the covariance term
+is quadratic in it. Same 1 000 genes, from the dry run:
 
 .. list-table::
    :header-rows: 1
-   :widths: 20 20 20
+   :widths: 24 26 26
 
    * - ``n_landmarks``
-     - RAM
-     - disk
+     - sample variance, in memory
+     - with ``store_arrays_on_disk``
    * - 1 000
+     - 21.0 GiB
      - 6.1 GiB
-     - 14.9 GiB
    * - 2 000
-     - 6.3 GiB
-     - 59.6 GiB
+     - 66.0 GiB
+     - 6.4 GiB
    * - 3 000
-     - 6.5 GiB
-     - 134.1 GiB
+     - 140.8 GiB
+     - 6.7 GiB
    * - 5 000 (default)
-     - 7.2 GiB
-     - 372.5 GiB
+     - 380.2 GiB
+     - 7.7 GiB
 
-Halving the landmark count quarters the covariance cost. Landmarks control
-the resolution of the cell-state approximation, so this is a genuine accuracy
-trade-off rather than a free saving, but 5 000 landmarks is rarely required to
-resolve a covariance structure that is being summarised gene by gene.
+Halving the landmark count quarters the covariance footprint. It also cuts the
+per-gene factorisation, which is roughly cubic in ``n_landmarks``: measured
+above, one gene costs 0.52 s at 500 landmarks and 8.5 s at 2 000. Landmarks
+control the resolution of the cell-state approximation, so this is a genuine
+accuracy trade-off rather than a free saving, but 5 000 landmarks is rarely
+required to resolve a covariance structure that is being summarised gene by
+gene.
 
 ``batch_size`` (in :class:`~kompot.GPSettings`) bounds the temporary arrays
-during prediction and during the *shared*-covariance Mahalanobis computation.
-It does **not** bound the per-gene covariance loop, so it is a lever for pass 1
-and for peak prediction memory, not for the sample-variance tensor.
+during prediction and the gene batches of the *shared*-covariance Mahalanobis
+computation. It does **not** bound the per-gene covariance loop, which
+processes one gene at a time regardless, so it is a lever for pass 1 and for
+peak prediction memory, not for sample variance.
 
 ``genes`` is the lever that matters for pass 2, and it is the subject of the
 next section.
@@ -465,23 +532,27 @@ next section.
 How many genes in pass 2?
 -------------------------
 
-Cost is linear in the gene count, so this is a budget decision rather than a
-statistical one, and Kompot supplies no default: ``genes=None`` means *all of
-them*, which is the one setting to avoid here.
+Both costs are linear in the gene count, so this is a budget decision rather
+than a statistical one, and Kompot supplies no default: ``genes=None`` means
+*all of them*, which is the one setting to avoid here.
 
-**Roughly 1 000 genes is a recommendation chosen from the cost curve, not a
-tuned or validated parameter.** It is the point at which the covariance term
-is around 560 GiB at default landmarks, or 370 GiB of scratch, while still
-covering the interesting tail of a Mahalanobis ranking. Past roughly 2 000
-genes the in-memory figure passes a terabyte, and the per-gene Cholesky loop
-becomes the dominant runtime term because it is the only stage that grows with
-the gene count while the rest of the run is essentially fixed. If you need
-more coverage than that, reduce ``n_landmarks`` in the same breath rather than
-raising the gene count alone.
+**Roughly 1 000 genes is a recommendation chosen from the cost curves, not a
+tuned or validated parameter.** With ``store_arrays_on_disk=True`` memory is no
+longer what decides it — 1 000 genes plans at 7.7 GiB, and even the whole
+transcriptome plans at 101 GiB, which would fit on a large node. What decides
+it is the per-gene Cholesky: at 2 000 landmarks and roughly 8.5 s per gene,
+1 000 genes is about **2.4 hours** and 20 000 genes about **47 hours**. One
+thousand genes covers the interesting tail of a Mahalanobis ranking at a cost
+you can absorb overnight; the whole transcriptome costs two days for a result
+whose last nine-tenths you were never going to read.
 
-Price it rather than guessing. A :ref:`dry run <dry-run>` gives the exact
-figure for your dimensions in a second.
+If you need more coverage than that, cut ``n_landmarks`` in the same breath:
+it reduces the per-gene cost as well as the memory, so it buys back the time
+the extra genes spend.
 
+Price it rather than guessing. A :ref:`dry run <dry-run>` gives the memory and
+disk figures for your dimensions in a second; for the time, multiply your gene
+count by a single-gene timing at your landmark count.
 
 See also
 --------

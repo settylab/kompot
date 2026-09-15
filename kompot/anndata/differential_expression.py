@@ -83,13 +83,16 @@ def de(
 
        Supplying ``sample_col`` **multiplies the cost by the gene count.**
        Sample variance replaces the single shared posterior covariance with
-       one ``(n_landmarks, n_landmarks)`` covariance matrix *per gene*, so the
-       dominant allocation becomes ``3 * n_landmarks**2 * n_genes * 8`` bytes:
-       roughly 0.56 GiB per gene at the default ``n_landmarks=5000``, about
-       560 GiB for 1 000 genes, and terabytes for a whole transcriptome.
-       Compute grows too, because the Mahalanobis step then performs one
-       Cholesky factorisation per gene instead of one in total, and
-       ``GPSettings.batch_size`` does not bound that loop.
+       one ``(n_landmarks, n_landmarks)`` covariance matrix *per gene, per
+       condition*. Two costs follow, and they respond to different levers:
+
+       * **memory**, ``2 * n_landmarks**2 * n_genes * 8`` bytes, roughly
+         0.37 GiB per gene at the default ``n_landmarks=5000``.
+         ``StorageSettings(store_arrays_on_disk=True)`` keeps these out of
+         memory entirely, and ``n_landmarks`` shrinks them quadratically;
+       * **compute**, one Cholesky factorisation *per gene* instead of one in
+         total. ``GPSettings.batch_size`` does not bound that loop, and
+         nothing makes it cheaper except analysing fewer genes.
 
        Run it as a **second pass** over a restricted gene list::
 
@@ -102,8 +105,9 @@ def de(
                      sample_col="donor_id", genes=top,
                      gp=kompot.GPSettings(n_landmarks=2000))
 
-       Cost is linear in ``genes`` and **quadratic** in ``n_landmarks``.
-       Price any configuration first with ``dry_run=True``.  Full treatment:
+       Both costs are linear in ``genes``; memory is additionally
+       **quadratic** in ``n_landmarks``.  Price any configuration first with
+       ``dry_run=True``.  Full treatment:
        https://kompot.readthedocs.io/en/latest/resource_planning.html
 
     Parameters

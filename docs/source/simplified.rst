@@ -47,12 +47,15 @@ Differential Expression
 .. warning::
 
    ``sample_col`` is the one expensive option. It gives every gene **its own**
-   ``(n_landmarks, n_landmarks)`` covariance matrix, so the dominant
-   allocation becomes ``3 x n_landmarks^2 x n_genes x 8`` bytes: about
-   0.56 GiB per gene at the default 5 000 landmarks, and roughly 560 GiB for
-   1 000 genes. Always run it as a second pass over a restricted gene list,
-   after a cheap first pass with no ``sample_col``. The full treatment, with
-   measured plans and the other levers, is in
+   ``(n_landmarks, n_landmarks)`` covariance matrix per condition, so the
+   dominant allocation becomes ``2 x n_landmarks^2 x n_genes x 8`` bytes —
+   about 0.37 GiB per gene at the default 5 000 landmarks — and the
+   Mahalanobis step factorises once per gene instead of once in total.
+   ``StorageSettings(store_arrays_on_disk=True)`` removes the memory term;
+   nothing removes the per-gene factorisation except analysing fewer genes.
+   Always run it as a second pass over a restricted gene list, after a cheap
+   first pass with no ``sample_col``. The full treatment, with measured plans
+   and the other levers, is in
    :doc:`Planning Memory and Disk <resource_planning>`.
 
 .. autofunction:: kompot.de

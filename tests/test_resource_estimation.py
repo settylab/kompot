@@ -196,7 +196,16 @@ def test_dry_run_with_sample_variance():
 
 
 def test_dry_run_with_disk_storage():
-    """Test dry run with disk storage enabled."""
+    """Disk is charged on the path that writes, and only on that path.
+
+    Re-derived for 0.9.0 (settylab/kompot#26). This used to assert a bare
+    ``len(disk_reqs) > 0``, which passed for the wrong reason: the estimator
+    charged disk unconditionally, including for the Dask path, which writes
+    nothing to ``disk_storage_dir`` at all. The expected byte count below comes
+    from the allocation -- two ``(n_landmarks, n_landmarks, n_genes)`` float64
+    tensors, one per condition -- not from observing a run.
+    """
+    from kompot import resource_estimation
     from kompot.resource_estimation import dry_run_differential_expression
     import tempfile
 
@@ -210,23 +219,51 @@ def test_dry_run_with_disk_storage():
     }
 
     adata = ad.AnnData(X=X, obs=obs_data)
+    n_landmarks = 20
+    expected_disk = 2 * n_landmarks * n_landmarks * n_genes * 8
+
+    def plan_with(dask_available, tmpdir):
+        original = resource_estimation.DASK_AVAILABLE
+        resource_estimation.DASK_AVAILABLE = dask_available
+        try:
+            return dry_run_differential_expression(
+                adata,
+                condition1="A",
+                condition2="B",
+                groupby="condition",
+                use_sample_variance=True,
+                sample_column="sample",
+                store_arrays_on_disk=True,
+                disk_storage_dir=tmpdir,
+                n_landmarks=n_landmarks,
+                null_genes=0,
+                verbose=False,
+            )
+        finally:
+            resource_estimation.DASK_AVAILABLE = original
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        plan = dry_run_differential_expression(
-            adata,
-            condition1="A",
-            condition2="B",
-            groupby="condition",
-            use_sample_variance=True,
-            sample_column="sample",
-            store_arrays_on_disk=True,
-            disk_storage_dir=tmpdir,
-            verbose=False,
-        )
+        # No dask: the tensors are written as memory-mapped .npy files.
+        without_dask = plan_with(False, tmpdir)
+        disk_reqs = [r for r in without_dask.requirements if r.resource_type == "disk"]
+        assert len(disk_reqs) == 1
+        assert disk_reqs[0].size_bytes == expected_disk
+        assert without_dask.total_disk_required == expected_disk
 
-        # Should have disk requirements
-        disk_reqs = [r for r in plan.requirements if r.resource_type == "disk"]
-        assert len(disk_reqs) > 0
+        # With dask: lazily evaluated one gene at a time, nothing written.
+        with_dask = plan_with(True, tmpdir)
+        assert with_dask.total_disk_required == 0
+        assert [r for r in with_dask.requirements if r.resource_type == "disk"] == []
+
+        # Either way the tensors are not charged to memory.
+        for plan in (without_dask, with_dask):
+            in_memory = [
+                r
+                for r in plan.requirements
+                if r.name.startswith("Sample covariances")
+                and r.resource_type == "memory"
+            ]
+            assert in_memory == []
 
 
 def test_format_report():

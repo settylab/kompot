@@ -39,9 +39,12 @@ class SampleVarianceEstimator:
        gene**, of shape ``(n_points, n_points, n_genes)`` and dtype float64.
        In :func:`kompot.de` the evaluation points are the landmarks, so the
        array is ``n_landmarks**2 * n_genes * 8`` bytes per condition: about
-       190 MiB per gene at the default 5 000 landmarks.  This is the dominant
-       cost of any sample-variance run, and it is why sample variance is
-       prescribed as a second pass over a restricted gene list.  See
+       190 MiB per gene at the default 5 000 landmarks.  These are never
+       summed into a dense array -- :class:`kompot.utils.LazyGeneCovariance`
+       assembles one gene at a time -- and ``store_arrays_on_disk`` keeps them
+       out of memory altogether.  What no storage mode removes is the Cholesky
+       factorisation per gene, which is why sample variance is prescribed as a
+       second pass over a restricted gene list.  See
        https://kompot.readthedocs.io/en/latest/resource_planning.html
 
     Attributes

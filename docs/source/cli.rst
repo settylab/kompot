@@ -252,9 +252,9 @@ Example: Complete Analysis
 
    ``--sample-col`` is deliberately absent above. It turns on sample variance,
    which gives every gene its own ``(n_landmarks, n_landmarks)`` covariance
-   matrix: about 0.56 GiB per gene at ``--n-landmarks 5000``, so a whole
-   transcriptome asks for terabytes. Run it as a **second pass** over a
-   restricted gene list, which the CLI takes through the ``genes:`` key of a
+   matrix and its own Cholesky factorisation: about 0.37 GiB and several
+   seconds per gene at ``--n-landmarks 5000``. Run it as a **second pass** over
+   a restricted gene list, which the CLI takes through the ``genes:`` key of a
    config file:
 
    .. code-block:: yaml
@@ -733,9 +733,11 @@ For large datasets:
    #   disk_storage_dir: "/scratch/kompot"   # real scratch, not tmpfs
 
 With ``--sample-col`` the dominant allocation is
-``3 x n_landmarks^2 x n_genes x 8`` bytes, so the levers that matter are the
-**gene list** (linear) and ``--n-landmarks`` (quadratic). ``--batch-size``
-does not bound that term. Full treatment:
+``2 x n_landmarks^2 x n_genes x 8`` bytes, so the memory levers are the
+**gene list** (linear) and ``--n-landmarks`` (quadratic); setting
+``store_arrays_on_disk: true`` in a config file keeps it out of memory
+altogether. ``--batch-size`` does not bound that term, and nothing bounds the
+per-gene factorisation except a shorter gene list. Full treatment:
 :doc:`Planning Memory and Disk <resource_planning>`.
 
 Speed Optimization

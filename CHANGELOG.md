@@ -38,7 +38,19 @@ synthetic input on both trees:
 
 Disk-backed storage is now cheaper than in-memory storage, which it was not
 before: 1 153 MiB against 1 973 MiB, where 0.8.0 made it *more* expensive
-(2 782 against 2 401). The Dask path is also 4.9x faster.
+(2 782 against 2 401). Repeated at 900 landmarks / 120 genes: 2 809 MiB in
+memory, 1 325 MiB with Dask and 1 341 MiB without, against 3 502 / 4 341 /
+3 079 MiB on 0.8.0.
+
+One cost moved the other way, on the path that is not recommended. Without
+`dask` the tensors are memory-mapped, and a gene slice of a C-contiguous
+`(n_points, n_points, n_genes)` map is strided, so reading one gene at a time
+touches the whole file where the old code did one sequential read into RAM.
+Measured on a clean 900-landmark pair, 74 s against 66 s — about 12% slower in
+exchange for 57% less memory. Installing `dask` avoids it in both directions:
+that path is 4.9x *faster* than 0.8.0 as well as lighter. Wall-clock figures
+here come from a shared machine under load and should be read as orders of
+magnitude.
 
 **Results are unchanged.** Distances differ only by floating-point summation
 order: measured maximum relative difference 1.7e-12 across the in-memory,

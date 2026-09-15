@@ -24,10 +24,12 @@ store_landmarks: false         # Whether to store landmarks in output
 
 # Sample variance (for biological replicates):
 # COST: setting sample_col gives EVERY gene its own (n_landmarks, n_landmarks)
-# covariance matrix -- 3 * n_landmarks^2 * n_genes * 8 bytes, about 0.56 GiB
-# per gene at n_landmarks=5000. Run it as a SECOND PASS over a restricted
-# `genes` list (below), lower n_landmarks (cost is quadratic in it), and check
-# with --dry-run first.
+# covariance matrix per condition -- 2 * n_landmarks^2 * n_genes * 8 bytes,
+# about 0.37 GiB per gene at n_landmarks=5000 -- plus one Cholesky
+# factorisation per gene. Run it as a SECOND PASS over a restricted `genes`
+# list (below), set store_arrays_on_disk to keep the tensors out of memory,
+# lower n_landmarks (memory is quadratic in it), and check with --dry-run
+# first.
 # https://kompot.readthedocs.io/en/latest/resource_planning.html
 sample_col: null               # Column in adata.obs with sample IDs
 allow_single_condition_variance: false  # Allow variance with samples in only one condition

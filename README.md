@@ -71,13 +71,16 @@ kompot.de(
 
 Passing `sample_col` turns on **sample variance**, which replaces the single
 shared posterior covariance with **one `(n_landmarks, n_landmarks)` covariance
-matrix per gene**. The dominant allocation becomes
-`3 x n_landmarks^2 x n_genes x 8` bytes: at the default 5 000 landmarks that is
-roughly **0.56 GiB per gene**, so a whole transcriptome asks for terabytes.
-Compute scales too, since the Mahalanobis step then factorises once per gene
-instead of once in total.
+matrix per gene, per condition**. Two costs follow, and they respond to
+different levers:
 
-Run it in two passes, and price the second one first:
+- **Memory**, `2 x n_landmarks^2 x n_genes x 8` bytes — about **0.37 GiB per
+  gene** at the default 5 000 landmarks. `StorageSettings(store_arrays_on_disk=True)`
+  removes this almost entirely, and `n_landmarks` shrinks it quadratically.
+- **Compute**, one Cholesky factorisation **per gene** instead of one in total.
+  Nothing makes this cheaper except analysing fewer genes.
+
+So run it in two passes, and price the second one first:
 
 ```python
 # Pass 1 — all genes, no sample variance
