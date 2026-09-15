@@ -142,7 +142,7 @@ factorisation and solves against it for all genes in vectorised batches; the
 total is essentially flat in the gene count. With per-gene covariances it
 factorises **once per gene**, in a Python loop over genes
 (``kompot/utils.py``), and ``GPSettings.batch_size`` does not apply to that
-loop. Timed on one core-count of this machine, per gene:
+loop. Timed on one machine, 20 genes per measurement:
 
 .. list-table::
    :header-rows: 1
@@ -170,9 +170,15 @@ loop. Timed on one core-count of this machine, per gene:
      - 8.5 s
 
 Those are wall-clock seconds on one shared machine and will not transfer
-exactly, but the **shape** does: the shared column is flat in the gene count
-while the per-gene column is linear in it. Multiply it out, because a per-gene
-figure is not something you can act on. At 2 000 landmarks and 8.5 s per gene:
+exactly. The shared column is not monotone in ``n_landmarks`` because at these
+sizes it is dominated by JAX compilation rather than by the factorisation, so
+read it as *"a fixed cost, independent of the gene count"* rather than as a
+measurement of the solve. The per-gene column is the one to take seriously, and
+what it shows is that it is **linear in the gene count** where the shared
+column is flat.
+
+Multiply it out, because a per-gene figure is not something anyone can act on.
+At 2 000 landmarks and 8.5 s per gene:
 
 .. list-table::
    :header-rows: 1
