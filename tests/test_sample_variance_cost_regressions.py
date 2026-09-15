@@ -277,3 +277,59 @@ def test_plan_charges_the_per_gene_working_set():
         assert working[0].resource_type == "memory"
         # two sample-variance terms + the shared posterior covariance
         assert working[0].size_bytes == 3 * 40 * 40 * 8
+
+
+# --------------------------------------------------------------------------
+# The restructured branches in DifferentialExpression.compute_mahalanobis
+# --------------------------------------------------------------------------
+
+
+def _spd(rng, n):
+    m = rng.normal(size=(n, n))
+    return m @ m.T / n + np.eye(n)
+
+
+@pytest.mark.parametrize("n_terms", [1, 2])
+def test_lazy_view_matches_dense_for_one_or_two_predictors(n_terms):
+    """Both predictors, or only one, must give the dense arithmetic's answer.
+
+    The fix replaced a nested if/else over (variance_predictor1,
+    variance_predictor2) x (gene-specific, shared) with a flat list of terms.
+    The single-predictor arms are reachable through ``ModelSettings`` and are
+    easy to leave untested.
+    """
+    from kompot.utils import compute_mahalanobis_distances
+
+    rng = np.random.default_rng(11)
+    n_points, n_genes = 7, 4
+    base = _spd(rng, n_points)
+    terms = [
+        np.stack([_spd(rng, n_points) for _ in range(n_genes)], axis=2)
+        for _ in range(n_terms)
+    ]
+    diffs = rng.normal(size=(n_genes, n_points))
+
+    dense = sum(terms) + base[:, :, None]
+    view = LazyGeneCovariance(terms, base=base)
+
+    from_view = compute_mahalanobis_distances(
+        diffs, view, jit_compile=False, progress=False
+    )
+    from_dense = compute_mahalanobis_distances(
+        diffs, dense, jit_compile=False, progress=False
+    )
+    np.testing.assert_allclose(from_view, from_dense, rtol=1e-12, atol=0)
+
+
+def test_lazy_view_refuses_a_shared_term():
+    """A 2-D sample variance is folded into ``base`` by the caller.
+
+    It must never be handed to the view as a term; if it is, that is a bug in
+    the caller and the view should say so rather than broadcast silently.
+    """
+    rng = np.random.default_rng(12)
+    gene_specific = np.stack([_spd(rng, 5) for _ in range(3)], axis=2)
+    shared = _spd(rng, 5)
+
+    with pytest.raises(ValueError, match="share a shape"):
+        LazyGeneCovariance([gene_specific, shared])
