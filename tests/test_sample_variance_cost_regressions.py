@@ -333,3 +333,150 @@ def test_lazy_view_refuses_a_shared_term():
 
     with pytest.raises(ValueError, match="share a shape"):
         LazyGeneCovariance([gene_specific, shared])
+
+
+# --------------------------------------------------------------------------
+# Potency: guards for the ALLOCATION property, not just the numbers
+#
+# The first version of this file asserted numerical equivalence and input
+# validation, and an eagerly-materialising implementation satisfies both. All
+# 14 cases passed against a mutant that rebuilt the dense
+# (n_points, n_points, n_genes) sum in __init__ -- settylab/kompot#26's exact
+# defect. Base absence could not stand in either: the pre-existing suite passed
+# on 19ee1a1, which HAD that behaviour.
+#
+# A guard for an allocation property has to be able to fail on an allocation
+# mutation, so these two assert HOW the terms are read rather than what comes
+# out.
+# --------------------------------------------------------------------------
+
+
+class _RecordingTerm:
+    """A 3-D array that records how it is read.
+
+    Distinguishes per-gene slicing (``[:, :, g]``) from any read that touches
+    the array as a whole -- ``np.asarray``, ``+``, or a slice spanning genes.
+    An eager implementation cannot avoid the second kind; a lazy one must never
+    perform it.
+    """
+
+    def __init__(self, arr):
+        self._a = arr
+        self.shape = arr.shape
+        self.dtype = arr.dtype
+        self.ndim = arr.ndim
+        self.gene_reads = []
+        self.bulk_reads = 0
+
+    def _is_gene_key(self, key):
+        return (
+            isinstance(key, tuple)
+            and len(key) == 3
+            and key[0] == slice(None)
+            and key[1] == slice(None)
+            and isinstance(key[2], (int, np.integer))
+        )
+
+    def __getitem__(self, key):
+        if self._is_gene_key(key):
+            self.gene_reads.append(int(key[2]))
+        else:
+            self.bulk_reads += 1
+        return self._a[key]
+
+    def __array__(self, dtype=None):
+        self.bulk_reads += 1
+        arr = self._a
+        return arr if dtype is None else arr.astype(dtype)
+
+    def __add__(self, other):
+        self.bulk_reads += 1
+        return self._a + (other._a if isinstance(other, _RecordingTerm) else other)
+
+    __radd__ = __add__
+
+
+def test_mahalanobis_reads_the_terms_one_gene_at_a_time():
+    """POTENCY GUARD for #26: no whole-tensor read may occur.
+
+    Fails on the eager-dense mutant, which reaches the terms through ``+``
+    rather than through ``[:, :, g]``. Verified red against that mutation --
+    see the module docstring.
+    """
+    from kompot.utils import compute_mahalanobis_distances
+
+    rng = np.random.default_rng(31)
+    n_points, n_genes = 6, 5
+
+    def spd():
+        m = rng.normal(size=(n_points, n_points))
+        return m @ m.T / n_points + np.eye(n_points)
+
+    raw = [
+        np.stack([spd() for _ in range(n_genes)], axis=2),
+        np.stack([spd() for _ in range(n_genes)], axis=2),
+    ]
+    terms = [_RecordingTerm(t) for t in raw]
+    view = LazyGeneCovariance(terms, base=np.eye(n_points))
+    diffs = rng.normal(size=(n_genes, n_points))
+
+    compute_mahalanobis_distances(diffs, view, jit_compile=False, progress=False)
+
+    for i, term in enumerate(terms):
+        assert term.bulk_reads == 0, (
+            f"term {i} was read as a whole {term.bulk_reads} time(s); the "
+            f"covariance must only ever be reached one gene at a time"
+        )
+        assert sorted(term.gene_reads) == list(range(n_genes)), (
+            f"term {i} gene reads were {sorted(term.gene_reads)}, "
+            f"expected each of {list(range(n_genes))} exactly once"
+        )
+
+
+def test_peak_memory_stays_bounded_by_one_gene():
+    """POTENCY GUARD for #26, measured rather than structural.
+
+    Builds a tensor far larger than one gene and asserts that walking it
+    through the Mahalanobis step grows anonymous memory by roughly one gene's
+    matrix rather than by the tensor. The eager mutant allocates the whole
+    thing and blows the bound.
+    """
+    from kompot.utils import compute_mahalanobis_distances
+
+    def anon_bytes():
+        try:
+            with open("/proc/self/smaps_rollup") as fh:
+                for line in fh:
+                    key, _, value = line.partition(":")
+                    if key == "Anonymous":
+                        return int(value.split()[0]) * 1024
+        except OSError:
+            return None
+        return None
+
+    if anon_bytes() is None:
+        pytest.skip("/proc/self/smaps_rollup unavailable")
+
+    rng = np.random.default_rng(32)
+    n_points, n_genes = 260, 120          # one gene 0.52 MiB, tensor 62 MiB
+    one_gene = n_points * n_points * 8
+    base = np.eye(n_points)
+    spd = rng.normal(size=(n_points, n_points))
+    spd = spd @ spd.T / n_points + np.eye(n_points)
+    terms = [np.repeat(spd[:, :, None], n_genes, axis=2) for _ in range(2)]
+    diffs = rng.normal(size=(n_genes, n_points))
+
+    view = LazyGeneCovariance(terms, base=base)
+    before = anon_bytes()
+    compute_mahalanobis_distances(diffs, view, jit_compile=False, progress=False)
+    grew = anon_bytes() - before
+
+    tensor = one_gene * n_genes
+    # Generous: 12 gene-matrices of headroom for interpreter churn, while still
+    # an order of magnitude below the 120-gene tensor the mutant materialises.
+    assert grew < 12 * one_gene, (
+        f"anonymous memory grew {grew / 2**20:.1f} MiB walking a "
+        f"{tensor / 2**20:.1f} MiB tensor; one gene is "
+        f"{one_gene / 2**20:.2f} MiB, so the covariance is not being "
+        f"assembled a gene at a time"
+    )

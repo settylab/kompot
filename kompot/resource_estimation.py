@@ -1045,10 +1045,12 @@ def estimate_differential_expression_resources(
                 if not DASK_AVAILABLE:
                     plan.warnings.append(
                         "Disk storage requested but dask is not installed, so the "
-                        "covariance tensors are written as memory-mapped .npy files "
-                        "and computed sequentially. Install dask to evaluate them "
-                        "lazily instead, which writes nothing and parallelises the "
-                        "per-gene work: pip install 'dask[array]'"
+                        "covariance tensors are written as memory-mapped .npy "
+                        "files. Those pages stay resident as page cache, which a "
+                        "cgroup (Slurm --mem, a container) charges against your "
+                        "limit just like anonymous memory. Install dask to "
+                        "evaluate the tensors lazily instead, which writes "
+                        "nothing at all: pip install 'dask[array]'"
                     )
 
     # Add batch_size information

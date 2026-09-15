@@ -239,6 +239,15 @@ def compute_mahalanobis_distances(
 
     # Check if covariance is a Dask array.
     #
+    # REACHABILITY: since 0.9.0 nothing inside Kompot reaches this branch. The
+    # only gene-specific covariance the package constructs is a
+    # LazyGeneCovariance (see below), and the shared path passes a 2-D array.
+    # It is retained rather than deleted because `compute_mahalanobis_distance`
+    # is exported in `kompot.__all__` and forwards a caller-supplied covariance
+    # straight through, so an external caller can still hand this function a
+    # `dask.array.Array` directly. Deleting it would remove a documented,
+    # tested path that Kompot itself simply no longer uses.
+    #
     # A LazyGeneCovariance deliberately does NOT take this branch even when its
     # terms are Dask-backed. The Dask branch below submits every gene as a
     # delayed task at once, and a lazy view materialises its own slices inside

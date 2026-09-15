@@ -138,8 +138,8 @@ See :doc:`simplified` for the full API and all available settings.
 
    Adding ``sample_col`` turns on sample variance, which gives every gene its
    own landmark covariance matrix and its own Cholesky factorisation. At
-   default settings that is roughly **0.37 GiB and several seconds per gene**,
-   so it belongs in a second pass over a restricted gene list, never in a
+   default settings that is roughly **0.37 GiB and ~2 s per gene**, so it
+   belongs in a second pass over a restricted gene list rather than a
    whole-transcriptome run. Read
    :doc:`Planning Memory and Disk <resource_planning>` before your first
    sample-variance run.

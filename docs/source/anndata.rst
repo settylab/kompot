@@ -52,7 +52,7 @@ overwrites, and verify parameters.
 **Key features:**
 
 - **Memory and disk estimation**: Calculates expected resource usage for all intermediate arrays and final results
-- **Null genes accounting**: Estimates resource inflation from null distribution genes when ``null_genes`` is given as an explicit number
+- **Null genes accounting**: Estimates resource inflation from null distribution genes, resolving ``null_genes`` exactly as the run would, including the ``"auto"`` default
 - **Field overwrite detection**: Shows which fields will be overwritten, including their run_id and previous run details
 - **Sample variance impact**: Estimates the per-gene covariance tensors, which are the dominant allocation whenever ``sample_col`` is set
 - **Disk storage planning**: Estimates disk space needed when using ``store_arrays_on_disk=True``

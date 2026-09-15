@@ -147,12 +147,9 @@ def de(
         instead of running the analysis.  Returns a
         :class:`~kompot.resource_estimation.ResourcePlan` carrying
         ``total_memory_required``, ``total_disk_required``, ``is_feasible``
-        and a per-array ``requirements`` list.  Note that the estimate reads
-        ``FDRSettings.null_genes`` as given and does not resolve the
-        ``"auto"`` default, so a dry run without ``sample_col`` and with
-        ``null_genes="auto"`` omits the 2 000 null genes the real run would
-        add; pass ``null_genes=2000`` explicitly to see them
-        (https://github.com/settylab/kompot/issues/25).
+        and a per-array ``requirements`` list.  The estimate resolves
+        ``FDRSettings.null_genes`` exactly as the run would, including the
+        ``"auto"`` default, so the plan prices the run it describes.
     **function_kwargs
         Forwarded to :class:`~mellon.FunctionEstimator`.
 

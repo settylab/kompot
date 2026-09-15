@@ -200,7 +200,7 @@ report.
    plan.total_disk_required     # bytes
    plan.is_feasible
 
-How to read the report, what to compare, and the caveat about ``null_genes``:
+How to read the report and what to compare:
 :doc:`Planning Memory and Disk <resource_planning>`.
 
 

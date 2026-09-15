@@ -52,13 +52,17 @@ instead:
 Price it before you run it: a dry run of exactly that call takes a second and
 tells you whether it fits (see :ref:`dry-run`).
 
-The reason the split is not optional is that the two costs respond to different
-levers. ``store_arrays_on_disk`` removes the memory term almost entirely
-(:ref:`disk-offload`), and ``n_landmarks`` shrinks it quadratically — but
-neither touches the **per-gene Cholesky factorisation**, which is linear in the
-gene count and nothing makes it cheaper except analysing fewer genes. Restrict
-the gene list and both costs fall together; offload without restricting and you
-have merely moved from running out of memory to running out of time.
+The two costs respond to different levers, which is why the split is worth
+making deliberately rather than by habit. ``store_arrays_on_disk`` removes the
+memory term almost entirely (:ref:`disk-offload`) and ``n_landmarks`` shrinks
+it quadratically, but neither touches the **per-gene Cholesky factorisation**,
+which is linear in the gene count and which only a shorter gene list reduces.
+Restricting ``genes`` is the one lever that moves both.
+
+Held in memory, the gene list is a hard constraint: a whole transcriptome at
+default landmarks asks for 7 552 GiB. Offloaded, it is a budget rather than a
+wall — 101 GiB and about 11.6 hours of single-threaded factorisation. See
+:ref:`how-many-genes` for which of those you are in.
 
 The two passes compose rather than collide, which is what makes the split
 practical. Measured on a two-pass run where pass 2 analysed 10 of 60 genes:
@@ -142,66 +146,63 @@ factorisation and solves against it for all genes in vectorised batches; the
 total is essentially flat in the gene count. With per-gene covariances it
 factorises **once per gene**, in a Python loop over genes
 (``kompot/utils.py``), and ``GPSettings.batch_size`` does not apply to that
-loop. Timed on one machine, 20 genes per measurement:
+loop.
+
+Measured inside a real ``kompot.de`` sample-variance run, 20 genes, with
+``OMP_NUM_THREADS=1``:
 
 .. list-table::
    :header-rows: 1
-   :widths: 22 26 26 26
+   :widths: 24 26 24 26
 
    * - ``n_landmarks``
-     - shared, 20 genes
-     - per-gene, 20 genes
-     - per-gene, per gene
+     - per gene
+     - 1 000 genes
+     - 20 000 genes
    * - 500
-     - 0.61 s
-     - 10.5 s
-     - 0.52 s
+     - 0.016 s
+     - 16 s
+     - 5 min
    * - 1 000
-     - 8.7 s
-     - 121.6 s
-     - 6.1 s
-   * - 1 500
-     - 11.8 s
-     - 156.7 s
-     - 7.8 s
+     - 0.062 s
+     - 1 min
+     - 21 min
    * - 2 000
-     - 10.8 s
-     - 170.9 s
-     - 8.5 s
+     - 0.246 s
+     - 4 min
+     - 1.4 h
+   * - 5 000 (default)
+     - 2.08 s
+     - 35 min
+     - 11.6 h
 
-Those are wall-clock seconds on one shared machine and will not transfer
-exactly. The shared column is not monotone in ``n_landmarks`` because at these
-sizes it is dominated by JAX compilation rather than by the factorisation, so
-read it as *"a fixed cost, independent of the gene count"* rather than as a
-measurement of the solve. The per-gene column is the one to take seriously, and
-what it shows is that it is **linear in the gene count** where the shared
-column is flat.
+.. warning::
 
-Multiply it out, because a per-gene figure is not something anyone can act on.
-At 2 000 landmarks and 8.5 s per gene:
+   **Pin your BLAS thread count for sample-variance runs on a shared node.**
+   The per-gene factorisation is a single multi-threaded LAPACK call on a
+   matrix that is small relative to the core count, so on a busy machine it
+   spends its time in thread contention rather than in arithmetic. Measured on
+   the same host, same commit, same run, ``n_landmarks=2000``:
 
-.. list-table::
-   :header-rows: 1
-   :widths: 30 35 35
+   .. code-block:: text
 
-   * - genes in pass 2
-     - factorisation time
-     - in practice
-   * - 1 000
-     - ~2.4 hours
-     - an overnight job
-   * - 2 000
-     - ~4.7 hours
-     - still an overnight job
-   * - 20 000 (all)
-     - ~47 hours
-     - two days of compute
+      OMP_NUM_THREADS=1   0.246 s/gene   (whole run  52.7 s)
+      unrestricted        6.135 s/gene   (whole run 280.8 s)
 
-That, rather than memory, is what bounds a sample-variance run once the
-tensors are offloaded, and it is the reason
-:ref:`the two-pass workflow <two-pass-workflow>` remains the prescription. A
-whole-transcriptome sample-variance run is no longer impossible; it is merely
-interminable, which is a worse failure because it looks like progress.
+   A bare ``numpy.linalg.cholesky`` at n=2000 shows the same thing from the
+   other side: 0.125 s at 21.3 GFLOPS pinned, against 5.20 s at **0.5 GFLOPS**
+   unrestricted. A throughput figure that *collapses* as threads are added is
+   contention, not work.
+
+   So export ``OMP_NUM_THREADS=1`` (and ``OPENBLAS_NUM_THREADS`` /
+   ``MKL_NUM_THREADS`` to match) before a sample-variance run you are sharing
+   a node for. On an idle machine the unrestricted path would win; the point is
+   that most people run this on a machine that is not idle.
+
+The table above is therefore a **reproducible floor**, not a forecast: it is
+what the step costs when it is not competing for cores. Your own figure depends
+on your BLAS build, your core count and your node's load, so time a handful of
+genes at your own ``n_landmarks`` before committing to a long run.
 
 Two smaller terms also grow with the gene count under sample variance, and
 neither is affected by ``store_arrays_on_disk``:
@@ -264,11 +265,13 @@ evaluated lazily rather than written; see :ref:`disk-offload` for the
 ``dask``-less path, where the same figure is written to
 ``disk_storage_dir`` instead.
 
-**Memory stops being the binding constraint, and compute takes over.** The
-20 000-gene disk-backed plan at 101 GiB would fit on a large node; the 20 000
-per-gene Cholesky factorisations behind it would not fit in your week. That is
-why :ref:`the two-pass workflow <two-pass-workflow>` is the prescription even
-now that the memory problem is solved.
+**Which constraint binds depends entirely on the storage mode, and the gap is
+three orders of magnitude.** Held in memory, the whole transcriptome asks for
+7 552 GiB and is simply out of reach. Offloaded, it asks for 101 GiB and a
+large node has that. So :ref:`the two-pass workflow <two-pass-workflow>` is a
+hard requirement in the first case and a matter of value for money in the
+second — see :ref:`how-many-genes`, which says which is which rather than
+implying a wall that is no longer there.
 
 Reproduce any row on your own data by substituting your ``adata``:
 
@@ -349,6 +352,23 @@ The same estimate is available from the command line as ``kompot de
 --dry-run``, which writes JSON to stdout and the human-readable report to
 stderr, and exits non-zero when the plan is infeasible. See :doc:`cli`.
 
+.. warning::
+
+   **The plan is a floor, not a total.** It sums the arrays Kompot itself
+   allocates; it does not model the Python interpreter, NumPy/BLAS scratch,
+   JAX's device pools or Dask's scheduler. Measured on the 600-landmark /
+   150-gene configuration used elsewhere on this page: a run with no sample
+   variance plans at 69 MiB and peaks at 958 MiB of anonymous memory, and the
+   *difference* sample variance makes plans at 16.7 MiB against a measured
+   222 MiB — about 13x optimistic.
+
+   That gap is roughly constant for a given dataset shape rather than growing
+   with the covariance term, which is what makes the plan useful anyway: the
+   figures it gets *exactly* right are the ones that explode, the
+   ``2 x n_landmarks^2 x n_genes x 8`` tensors and the disk footprint. Use it
+   to compare configurations and to catch the terabyte-scale plans, and leave
+   real headroom above whatever it reports.
+
 .. note::
 
    ``kompot.resource_estimation.dry_run_differential_expression()`` is
@@ -356,21 +376,19 @@ stderr, and exits non-zero when the plan is infeasible. See :doc:`cli`.
 
 .. _null-genes-cost:
 
-.. warning::
+.. note::
 
-   The dry run reads ``null_genes`` as you pass it and does not resolve the
-   ``"auto"`` default. With ``FDRSettings`` left at its default and no
-   ``sample_col``, the real run adds 2 000 null genes but the dry run counts
-   none, so the plan is optimistic by that margin. Pass
-   ``fdr=kompot.FDRSettings(null_genes=2000)`` to the dry run to see the true
-   figure. Runs *with* ``sample_col`` are unaffected, because ``"auto"``
-   resolves to ``0`` there and the dry run also counts 0. Tracked in
-   `settylab/kompot#25 <https://github.com/settylab/kompot/issues/25>`_.
+   Null genes are charged at the same per-gene rate as real ones, and the dry
+   run accounts for them: it resolves ``null_genes`` exactly as the run would,
+   including the ``"auto"`` default, so the plan prices the run it describes.
+   If you override the default and request FDR alongside sample variance, each
+   null gene gets its own landmark covariance matrix too — 1 000 real genes
+   plus 2 000 null genes is a 3 000-gene tensor.
 
-   Null genes are charged at the same per-gene rate as real ones. If you
-   override the default and request FDR alongside sample variance, each null
-   gene gets its own landmark covariance matrix too: 1 000 real genes plus
-   2 000 null genes is a 3 000-gene tensor.
+   Before Kompot 0.9.0 the estimate was built before ``"auto"`` was resolved
+   and silently counted zero null genes, so a default-settings plan without
+   ``sample_col`` under-reported by 2 000 genes
+   (`settylab/kompot#25 <https://github.com/settylab/kompot/issues/25>`_).
 
 
 .. _disk-offload:
@@ -416,55 +434,93 @@ What it does mechanically depends on whether ``dask`` is installed:
   installing ``dask`` removes it.
 
 Measured on 1 500 cells, 150 genes, 600 landmarks and 4 donors (412 MiB per
-tensor), peak **anonymous** memory sampled from ``/proc/self/smaps_rollup`` so
-that page cache for a memory-mapped file cannot flatter the reading:
+tensor), four BLAS threads. **Two memory instruments, because one is not
+enough**: ``Anonymous`` counts private heap pages, ``Rss`` counts those *plus*
+resident file-backed pages, and the difference is exactly where a memory map
+puts its data.
 
 .. list-table::
    :header-rows: 1
-   :widths: 30 16 16 18 20
+   :widths: 28 13 13 15 12 12
 
    * - run
-     - peak memory
-     - bytes written
-     - wall clock
-     - vs. no sample variance
+     - anon
+     - Rss
+     - file-backed
+     - written
+     - wall
    * - no sample variance
-     - 972 MiB
+     - 958 MiB
+     - 1 218 MiB
+     - 260 MiB
      - 0
-     - 33 s
-     - —
+     - 36 s
    * - sample variance, in memory
-     - 1 973 MiB
+     - 1 975 MiB
+     - 2 238 MiB
+     - 263 MiB
      - 0
-     - 46 s
-     - +1 001 MiB
+     - 49 s
    * - ``store_arrays_on_disk``, with ``dask``
-     - 1 153 MiB
+     - 1 180 MiB
+     - 1 442 MiB
+     - 262 MiB
      - **0**
-     - 48 s
-     - +181 MiB
+     - 50 s
    * - ``store_arrays_on_disk``, no ``dask``
-     - 1 148 MiB
+     - 1 139 MiB
+     - **2 224 MiB**
+     - **1 085 MiB**
      - 824 MiB
-     - 48 s
-     - +176 MiB
+     - 51 s
 
-The offloaded runs cost about a sixth of the extra memory that the in-memory
-run does, and the gap widens with the gene count, because the in-memory column
-carries a term linear in genes and the offloaded ones do not. Repeated at 900
-landmarks and 120 genes (742 MiB per tensor), peak memory was 2 809 MiB
-in memory, 1 325 MiB with ``dask`` and 1 341 MiB without, against 1 051 MiB
-for a run with no sample variance at all.
+As a share of the extra memory the in-memory run costs over a run with no
+sample variance at all:
 
-The wall-clock column is from a shared machine under load and should be read
-as an order of magnitude, not a benchmark. One caveat it does show reliably:
-the ``dask``-less path is **modestly slower than it was before 0.9.0** — 74 s
-against 66 s on a clean 900-landmark pair — because a gene slice of a
-C-contiguous ``(n_points, n_points, n_genes)`` memory map is strided, so
-reading one gene at a time touches the whole file where the old code did one
-sequential read into RAM. That is the price of not holding the tensor, it is
-paid only when ``dask`` is absent, and installing ``dask`` avoids it in both
-directions.
+.. list-table::
+   :header-rows: 1
+   :widths: 34 22 22
+
+   * - path
+     - on ``Anonymous``
+     - on ``Rss``
+   * - with ``dask``
+     - 22%
+     - **22%**
+   * - no ``dask``
+     - 18%
+     - **99%**
+
+The ``dask`` path **wins on every instrument**, and that is the claim to rely
+on: about a fifth of the extra memory, nothing written to disk, nothing
+file-backed, and 4.8x faster than 0.8.0 at matched thread counts. It is the
+recommended path for exactly this reason.
+
+The ``dask``-less path is a different bargain, and **should not be described as
+a smaller footprint**. It is 99% of the in-memory extra on ``Rss``: what it
+changes is the *kind* of page, converting private anonymous memory into
+resident page cache backed by a file on disk. Those pages are reclaimable — the
+kernel can evict them under pressure and read them back — so it is a genuine
+win for surviving a memory squeeze, and not a reduction in resident footprint.
+
+.. warning::
+
+   **Under a cgroup, page cache is charged to you.** Slurm's ``--mem``, a
+   container limit and any other cgroup-based cap count resident file-backed
+   pages against the same budget as anonymous ones. So the ``dask``-less path's
+   advantage may not exist in exactly the environment most people run this in.
+   The figures above were taken on an unconstrained host, so they show what is
+   resident, not what an OOM killer would decide; treat the reclaimability
+   argument as a mechanism, not as a verdict. If you are under a hard cap,
+   install ``dask``.
+
+.. note::
+
+   Earlier revisions of this page reported only ``Anonymous`` and justified it
+   as keeping page cache from "flattering the reading". That justification was
+   backwards: choosing ``Anonymous`` is precisely what *excludes* the 823 MiB
+   the ``dask``-less path moves into file-backed residency, which is why it
+   appeared to cost a sixth of the in-memory run rather than nearly all of it.
 
 Either way, **set** ``disk_storage_dir``, and create it before you plan against
 it. A real run creates a missing directory, but the **dry run raises**
@@ -517,14 +573,12 @@ is quadratic in it. Same 1 000 genes, from the dry run:
      - 7.7 GiB
 
 Halving the landmark count quarters the covariance footprint, which is exact
-arithmetic rather than a measurement. It also cuts the per-gene factorisation,
-though **by how much is not something these four points establish**: the timing
-table above rises from 0.52 s to 8.5 s per gene between 500 and 2 000
-landmarks, but the per-interval ratios are 11.7x, 1.3x and 1.1x, which is not a
-power law. A Cholesky is O(n^3) in flops and the measurement plainly is not
-following that at these sizes, so take the table as four measured points in
-the range it covers and do not extrapolate a scaling from it. Measure at your
-own landmark count if the time matters.
+arithmetic rather than a measurement. It cuts the per-gene factorisation
+steeply too: pinned to one thread, 0.016 s per gene at 500 landmarks against
+2.08 s at 5 000. Those four points are close to the cubic flop count a Cholesky
+implies — 500 to 5 000 is 10x the landmarks for 130x the time — but they are
+four timings on one machine, not a scaling law, and they move with your BLAS
+build and your node's load. Take them as a floor and time your own.
 
 Landmarks control the resolution of the cell-state approximation, so reducing
 them is a genuine accuracy trade-off rather than a free saving. But 5 000 is
@@ -550,23 +604,34 @@ than a statistical one, and Kompot supplies no default: ``genes=None`` means
 *all of them*, which is the one setting to avoid here.
 
 **Roughly 1 000 genes is a recommendation chosen from the cost curves, not a
-tuned or validated parameter.** With ``store_arrays_on_disk=True`` memory is no
-longer what decides it — 1 000 genes plans at 7.7 GiB, and even the whole
-transcriptome plans at 101 GiB, which would fit on a large node. What decides
-it is the per-gene Cholesky: at 2 000 landmarks and roughly 8.5 s per gene,
-1 000 genes is about **2.4 hours** and 20 000 genes about **47 hours**. One
-thousand genes covers the interesting tail of a Mahalanobis ranking at a cost
-you can absorb overnight; the whole transcriptome costs two days for a result
-whose last nine-tenths you were never going to read.
+tuned or validated parameter — and it is a budget, not a wall.** Be clear about
+which constraint you are actually under, because they differ by orders of
+magnitude:
 
-If you need more coverage than that, cut ``n_landmarks`` in the same breath.
-It reduces the per-gene cost as well as the memory, so it buys back some of the
-time the extra genes spend — how much, at your dimensions, is worth a single
-timed gene rather than an extrapolation.
+* **In memory**, the whole transcriptome is out of reach: 7 552 GiB at default
+  landmarks. This is exact arithmetic and it is the hard limit.
+* **With** ``store_arrays_on_disk=True``, it is not: 101 GiB, which a large
+  node has. The memory wall is the one the offload removes.
+* **In time**, the whole transcriptome is a long job rather than an impossible
+  one: ~11.6 h at 5 000 landmarks, ~1.4 h at 2 000, single-threaded.
+
+So a whole-transcriptome sample-variance run is *feasible* once the tensors are
+offloaded. Restricting to ~1 000 genes is still the right default, for reasons
+that are about value rather than capacity:
+
+* pass 1 has to run over all genes anyway, and it is what ranks them;
+* 1 000 genes costs about a twentieth of the whole transcriptome on both axes,
+  for the genes you were going to read;
+* FDR is not calibrated for sample variance (``null_genes`` resolves to ``0``
+  when ``sample_col`` is set), so the extra 19 000 genes buy no additional
+  testable calls.
+
+If you do want wider coverage, cut ``n_landmarks`` in the same breath: it
+reduces the per-gene time and the memory together.
 
 Price it rather than guessing. A :ref:`dry run <dry-run>` gives the memory and
 disk figures for your dimensions in a second; for the time, multiply your gene
-count by a single-gene timing at your landmark count.
+count by a single-gene timing at your landmark count, pinned.
 
 See also
 --------
