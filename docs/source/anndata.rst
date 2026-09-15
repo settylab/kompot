@@ -45,14 +45,16 @@ Smooth Expression
 Resource Estimation
 -------------------
 
-Before running resource-intensive differential expression analyses, you can use the dry run utility to estimate memory and disk requirements, check for field overwrites, and verify parameters.
+Before running resource-intensive differential expression analyses, use
+``dry_run=True`` to estimate memory and disk requirements, check for field
+overwrites, and verify parameters.
 
 **Key features:**
 
 - **Memory and disk estimation**: Calculates expected resource usage for all intermediate arrays and final results
-- **Null genes accounting**: Correctly estimates resource inflation from null distribution genes (default 2000 additional genes)
+- **Null genes accounting**: Estimates resource inflation from null distribution genes when ``null_genes`` is given as an explicit number
 - **Field overwrite detection**: Shows which fields will be overwritten, including their run_id and previous run details
-- **Sample variance impact**: Estimates additional memory for sample-specific covariance tensors
+- **Sample variance impact**: Estimates the per-gene covariance tensors, which are the dominant allocation whenever ``sample_col`` is set
 - **Disk storage planning**: Estimates disk space needed when using ``store_arrays_on_disk=True``
 
 .. code-block:: python
@@ -66,6 +68,7 @@ Before running resource-intensive differential expression analyses, you can use 
        condition1='Young',
        condition2='Old',
        sample_col='donor_id',
+       genes=top_genes,
        dry_run=True,
    )
 
@@ -77,6 +80,12 @@ The dry run output shows:
 - **Output Fields**: All fields that will be created, with ``[OVERWRITES run_id=X]`` markers for existing fields
 - **Warnings**: Field overwrite information showing previous run timestamp, conditions, and parameters
 - **Status**: Whether the analysis is feasible given available resources
+
+.. seealso::
+
+   :doc:`Planning Memory and Disk <resource_planning>` explains what drives
+   the numbers, why ``sample_col`` must be a second pass over a restricted
+   gene list, and where the estimate is known to be optimistic.
 
 Utilities
 ---------

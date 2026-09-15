@@ -79,6 +79,33 @@ def de(
     equivalent to omitting it entirely.  Extra ``**function_kwargs`` are
     forwarded to mellon's :class:`~mellon.FunctionEstimator`.
 
+    .. warning::
+
+       Supplying ``sample_col`` **multiplies the cost by the gene count.**
+       Sample variance replaces the single shared posterior covariance with
+       one ``(n_landmarks, n_landmarks)`` covariance matrix *per gene*, so the
+       dominant allocation becomes ``3 * n_landmarks**2 * n_genes * 8`` bytes:
+       roughly 0.56 GiB per gene at the default ``n_landmarks=5000``, about
+       560 GiB for 1 000 genes, and terabytes for a whole transcriptome.
+       Compute grows too, because the Mahalanobis step then performs one
+       Cholesky factorisation per gene instead of one in total, and
+       ``GPSettings.batch_size`` does not bound that loop.
+
+       Run it as a **second pass** over a restricted gene list::
+
+           kompot.de(adata, "condition", "Young", "Old")     # pass 1, all genes
+
+           mahal = "kompot_de_Young_to_Old_mahalanobis"
+           top = adata.var.sort_values(mahal, ascending=False).head(1000).index
+
+           kompot.de(adata, "condition", "Young", "Old",     # pass 2
+                     sample_col="donor_id", genes=top,
+                     gp=kompot.GPSettings(n_landmarks=2000))
+
+       Cost is linear in ``genes`` and **quadratic** in ``n_landmarks``.
+       Price any configuration first with ``dry_run=True``.  Full treatment:
+       https://kompot.readthedocs.io/en/latest/resource_planning.html
+
     Parameters
     ----------
     adata : AnnData
@@ -94,7 +121,9 @@ def de(
     genes : list of str, optional
         Subset of genes to analyse.
     sample_col : str, optional
-        Column with biological-replicate labels.
+        Column with biological-replicate labels.  Supplying it enables
+        **sample variance**, which is by far the most expensive option in
+        this function: read the warning above before using it.
     gp : GPSettings, optional
         GP model parameters (sigma, ls, n_landmarks, etc.).
     fdr : FDRSettings, optional
@@ -112,7 +141,14 @@ def de(
     dry_run : bool, optional
         If True, estimate resource requirements and print a report
         instead of running the analysis.  Returns a
-        :class:`~kompot.resource_estimation.ResourcePlan`.
+        :class:`~kompot.resource_estimation.ResourcePlan` carrying
+        ``total_memory_required``, ``total_disk_required``, ``is_feasible``
+        and a per-array ``requirements`` list.  Note that the estimate reads
+        ``FDRSettings.null_genes`` as given and does not resolve the
+        ``"auto"`` default, so a dry run without ``sample_col`` and with
+        ``null_genes="auto"`` omits the 2 000 null genes the real run would
+        add; pass ``null_genes=2000`` explicitly to see them
+        (https://github.com/settylab/kompot/issues/25).
     **function_kwargs
         Forwarded to :class:`~mellon.FunctionEstimator`.
 

@@ -32,6 +32,18 @@ class SampleVarianceEstimator:
     predictions. Bessel's correction is applied to the variance calculation to ensure
     unbiased estimation, especially important when the number of samples is small.
 
+    .. warning::
+
+       For gene expression (``estimator_type='function'``) with more than one
+       gene, ``predict(..., diag=False)`` returns a **covariance matrix per
+       gene**, of shape ``(n_points, n_points, n_genes)`` and dtype float64.
+       In :func:`kompot.de` the evaluation points are the landmarks, so the
+       array is ``n_landmarks**2 * n_genes * 8`` bytes per condition: about
+       190 MiB per gene at the default 5 000 landmarks.  This is the dominant
+       cost of any sample-variance run, and it is why sample variance is
+       prescribed as a second pass over a restricted gene list.  See
+       https://kompot.readthedocs.io/en/latest/resource_planning.html
+
     Attributes
     ----------
     group_predictors : Dict

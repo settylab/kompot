@@ -2,6 +2,38 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Documentation
+
+ - **New guide: [Planning Memory and Disk](https://kompot.readthedocs.io/en/latest/resource_planning.html)**,
+   the canonical explanation of what `sample_col` costs and how to run it. Supplying
+   `sample_col` enables sample variance, which replaces the single shared posterior
+   covariance with one `(n_landmarks, n_landmarks)` matrix **per gene**, so the dominant
+   allocation is `3 x n_landmarks^2 x n_genes x 8` bytes: about 0.56 GiB per gene at the
+   default `n_landmarks=5000`, ~560 GiB for 1 000 genes, and terabytes for a whole
+   transcriptome. Compute scales too, since the Mahalanobis step then factorises once per
+   gene instead of once in total. The guide prescribes the two-pass workflow (a cheap
+   first pass over all genes, then sample variance restricted to the top ~1 000), ranks
+   the levers (`genes` linear, `n_landmarks` quadratic, `null_genes=0`, disk offload),
+   and shows how to price a run with `dry_run=True`. It carries measured dry-run plans
+   at realistic sizes.
+ - The same warning now appears where the decision is made: `kompot.de`'s docstring (so
+   `help()` carries it), `GPSettings.n_landmarks`, `StorageSettings`,
+   `SampleVarianceEstimator`, `kompot de --sample-col`, the DE config template, the
+   README, and the tutorial notebooks.
+ - The CLI "Complete Analysis" example no longer pairs `--sample-col` with
+   `--n-landmarks 5000` over every gene, which was the most expensive configuration the
+   package can express; it now shows the restricted second pass via a config file.
+ - Corrected `StorageSettings.max_memory_ratio`, which was documented as "Fraction of RAM
+   before triggering disk storage". It triggers nothing: `store_arrays_on_disk=None`
+   resolves to `disk_storage_dir is not None`, and the ratio only sets the threshold at
+   which the estimator escalates warnings. The DE config template's
+   `store_arrays_on_disk: null # (null = auto)` was misleading for the same reason.
+ - Documented two measured divergences between the dry run and the runs it prices:
+   the estimate does not resolve `null_genes="auto"` (#25), and `store_arrays_on_disk=True`
+   does not reduce peak memory, with nothing written to disk when `dask` is installed (#26).
+
 ## [0.8.0] - 2026-07-28
 
 ### Changed — statistics now match the manuscript

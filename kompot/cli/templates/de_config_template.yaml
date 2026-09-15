@@ -23,6 +23,12 @@ landmarks: null                # Pre-computed landmarks array (overrides n_landm
 store_landmarks: false         # Whether to store landmarks in output
 
 # Sample variance (for biological replicates):
+# COST: setting sample_col gives EVERY gene its own (n_landmarks, n_landmarks)
+# covariance matrix -- 3 * n_landmarks^2 * n_genes * 8 bytes, about 0.56 GiB
+# per gene at n_landmarks=5000. Run it as a SECOND PASS over a restricted
+# `genes` list (below), lower n_landmarks (cost is quadratic in it), and check
+# with --dry-run first.
+# https://kompot.readthedocs.io/en/latest/resource_planning.html
 sample_col: null               # Column in adata.obs with sample IDs
 allow_single_condition_variance: false  # Allow variance with samples in only one condition
 
@@ -46,9 +52,12 @@ ls_factor: 10.0                # Length scale multiplication factor
 eps: 1.0e-8                    # Numerical stability constant
 
 # Memory management:
-store_arrays_on_disk: null     # Store large arrays on disk (null = auto)
-disk_storage_dir: null         # Directory for disk storage
-max_memory_ratio: 0.8          # Max memory usage ratio
+store_arrays_on_disk: null     # Consume per-gene covariances one gene at a
+                               # time (null = true iff disk_storage_dir is set)
+disk_storage_dir: null         # Directory for disk storage; create it first --
+                               # --dry-run errors on a missing path
+                               # (null = system temp, honours TMPDIR)
+max_memory_ratio: 0.8          # Warning threshold only; does not switch modes
 
 # Output options:
 store_additional_stats: false  # Store extra statistics
@@ -57,7 +66,9 @@ progress: true                 # Show progress bars
 overwrite: null                # Overwrite existing results (null = warn)
 
 # Advanced filtering:
-genes: null                    # List of gene names to analyze (null = all)
+genes: null                    # List of gene names to analyze (null = all).
+                               # The lever for a sample_col run: restrict to
+                               # the top ~1000 genes of a first pass.
 min_cells: 2                   # Minimum cells per gene
 min_percentage: null           # Minimum percentage of cells expressing
 

@@ -21,6 +21,7 @@ Key features:
 - Mahalanobis distance calculation for differential expression significance
 - JAX-accelerated computations with optional GPU support
 - Disk-backed covariance storage for sample variance estimation
+- **Resource estimation and dry run** for planning large analyses
 - **Full scverse compatibility** with direct AnnData integration
 - **Visualization tools** for volcano plots, heatmaps, and embeddings
 - **Command-line interface** for pipeline integration
@@ -66,6 +67,40 @@ kompot.de(
 )
 ```
 
+### Sample variance: run it as a second pass
+
+Passing `sample_col` turns on **sample variance**, which replaces the single
+shared posterior covariance with **one `(n_landmarks, n_landmarks)` covariance
+matrix per gene**. The dominant allocation becomes
+`3 x n_landmarks^2 x n_genes x 8` bytes: at the default 5 000 landmarks that is
+roughly **0.56 GiB per gene**, so a whole transcriptome asks for terabytes.
+Compute scales too, since the Mahalanobis step then factorises once per gene
+instead of once in total.
+
+Run it in two passes, and price the second one first:
+
+```python
+# Pass 1 — all genes, no sample variance
+kompot.de(adata, "condition", "Young", "Old")
+
+mahal = "kompot_de_Young_to_Old_mahalanobis"
+top_genes = adata.var.sort_values(mahal, ascending=False).head(1000).index
+
+# Pass 2 — sample variance, restricted to the top genes
+plan = kompot.de(
+    adata, "condition", "Young", "Old",
+    sample_col="donor_id",
+    genes=top_genes,
+    gp=kompot.GPSettings(n_landmarks=2000),   # cost is quadratic in this
+    dry_run=True,                             # drop once the plan fits
+)
+```
+
+`dry_run=True` returns a full resource plan (per-array memory, disk, output
+fields, feasibility) without running anything; `kompot de --dry-run` does the
+same from the CLI. Details, measured plans, and the remaining levers:
+[Planning Memory and Disk](https://kompot.readthedocs.io/en/latest/resource_planning.html).
+
 ### Command-Line Interface
 
 ```bash
@@ -79,6 +114,7 @@ kompot de input.h5ad -o output.h5ad \
 ## Documentation
 
 - [Full Documentation](https://kompot.readthedocs.io)
+- [Planning Memory and Disk](https://kompot.readthedocs.io/en/latest/resource_planning.html) — what sample variance costs and the two-pass workflow
 - [Tutorial Notebooks](https://github.com/settylab/kompot/tree/main/examples)
   - [Getting Started](https://github.com/settylab/kompot/blob/main/examples/01_getting_started.ipynb) — differential expression, end to end
   - [Advanced Differential Expression](https://github.com/settylab/kompot/blob/main/examples/02_differential_expression_detailed.ipynb) — tuning, multiple comparisons, run tracking, resource planning

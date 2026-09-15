@@ -40,9 +40,20 @@ Differential Expression
    kompot.de(
        adata, "condition", "Young", "Old",
        sample_col="donor_id",
-       genes=top_genes,  # e.g. top 200 from a previous run
+       genes=top_genes,  # e.g. top 1 000 from a previous run
        fdr=kompot.FDRSettings(null_genes=0),
    )
+
+.. warning::
+
+   ``sample_col`` is the one expensive option. It gives every gene **its own**
+   ``(n_landmarks, n_landmarks)`` covariance matrix, so the dominant
+   allocation becomes ``3 x n_landmarks^2 x n_genes x 8`` bytes: about
+   0.56 GiB per gene at the default 5 000 landmarks, and roughly 560 GiB for
+   1 000 genes. Always run it as a second pass over a restricted gene list,
+   after a cheap first pass with no ``sample_col``. The full treatment, with
+   measured plans and the other levers, is in
+   :doc:`Planning Memory and Disk <resource_planning>`.
 
 .. autofunction:: kompot.de
 
@@ -166,7 +177,9 @@ Resource Estimation
 
 Before running resource-intensive differential expression analyses, pass
 ``dry_run=True`` to estimate memory and disk requirements without running
-the actual computation.
+the actual computation.  It returns a
+:class:`~kompot.resource_estimation.ResourcePlan` and prints a per-array
+report.
 
 .. code-block:: python
 
@@ -176,8 +189,16 @@ the actual computation.
        condition1="Young",
        condition2="Old",
        sample_col="donor_id",
+       genes=top_genes,
        dry_run=True,
    )
+
+   plan.total_memory_required   # bytes
+   plan.total_disk_required     # bytes
+   plan.is_feasible
+
+How to read the report, what to compare, and the caveat about ``null_genes``:
+:doc:`Planning Memory and Disk <resource_planning>`.
 
 
 Run Tracking

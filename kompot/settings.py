@@ -43,13 +43,21 @@ class GPSettings:
     ls_factor : float
         Multiplier applied to the automatically inferred length scale.
     n_landmarks : int, optional
-        Number of landmarks for the Nystrom approximation.
+        Number of landmarks for the Nystrom approximation.  Under sample
+        variance (``sample_col`` set on :func:`kompot.de`) the dominant
+        allocation is ``3 * n_landmarks**2 * n_genes * 8`` bytes, so cost is
+        **quadratic** in this value: halving it quarters the covariance
+        footprint.  See
+        https://kompot.readthedocs.io/en/latest/resource_planning.html
     landmarks : np.ndarray, optional
         Pre-computed landmark coordinates.
     use_empirical_variance : bool
         Estimate per-gene heteroscedastic noise from GP residuals.
     batch_size : int, optional
-        Number of cells processed at once during prediction.
+        Number of cells processed at once during prediction.  Also bounds the
+        gene batches of the *shared*-covariance Mahalanobis computation.  It
+        does **not** bound the per-gene covariance loop used under sample
+        variance, which processes one gene at a time regardless.
     eps : float
         Small constant for numerical stability.
     jit_compile : bool
@@ -272,11 +280,27 @@ class StorageSettings:
     store_additional_stats : bool
         Store extra columns (p-values, tail FDR, PTP, z-scores).
     store_arrays_on_disk : bool, optional
-        Use disk-backed arrays for large intermediate matrices.
+        Represent the per-gene sample-variance covariance tensors so they are
+        consumed one gene at a time instead of as dense in-memory arrays.
+        With ``dask`` installed this is a lazy Dask graph and nothing is
+        written to disk; without ``dask`` each condition's tensor is written
+        as a memory-mapped ``.npy`` under ``disk_storage_dir``.  Defaults to
+        ``None``, meaning *on if and only if* ``disk_storage_dir`` is set;
+        nothing enables it automatically in response to memory pressure.
+        Note that the dry run currently reports a memory saving from this flag
+        that the measured run does not deliver
+        (https://github.com/settylab/kompot/issues/26); see
+        https://kompot.readthedocs.io/en/latest/resource_planning.html
     disk_storage_dir : str, optional
-        Directory for disk-backed arrays.
+        Directory for disk-backed arrays.  A real run creates it if missing,
+        but ``dry_run=True`` raises ``FileNotFoundError`` on a path that does
+        not exist, so create it before you plan against it.  When unset, the
+        system temporary directory is used (honouring ``TMPDIR``), which on a
+        shared cluster is often small or RAM-backed.
     max_memory_ratio : float
-        Fraction of RAM before triggering disk storage.
+        Fraction of available RAM above which the resource estimator escalates
+        its warnings.  It does **not** switch storage modes and does not cap
+        allocation.
     """
 
     result_key: Optional[str] = None
