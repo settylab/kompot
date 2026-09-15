@@ -199,6 +199,13 @@ Measured inside a real ``kompot.de`` sample-variance run, 20 genes, with
    a node for. On an idle machine the unrestricted path would win; the point is
    that most people run this on a machine that is not idle.
 
+   Pinning also makes the figure *reproducible*, which is the other reason to
+   do it. Two independent measurements of the same configuration at 5 000
+   landmarks, single-threaded, taken at 1-minute loads of 45.9 and 62.8 — a
+   37% difference — came out at 2.084 and 2.113 s per gene, **1.4% apart**.
+   Unpinned, the same step moved by a factor of 25. Pin the threads and the
+   measurement stops being a property of the machine's mood.
+
 The table above is therefore a **reproducible floor**, not a forecast: it is
 what the step costs when it is not competing for cores. Your own figure depends
 on your BLAS build, your core count and your node's load, so time a handful of
@@ -485,11 +492,17 @@ sample variance at all:
      - on ``Anonymous``
      - on ``Rss``
    * - with ``dask``
-     - 22%
-     - **22%**
+     - 17-22%
+     - **17-22%**
    * - no ``dask``
      - 18%
-     - **99%**
+     - **96-99%**
+
+The ``dask`` row is given as a range because that path's peak is set by a
+concurrency neither figure pins: Dask's threaded scheduler sizes its pool from
+the CPU count, independently of ``OMP_NUM_THREADS``. Two independent rigs on
+this host, one pinned to four BLAS threads and one unpinned, bracket it at 17%
+and 22%. The ``dask``-less row reproduced to within a point across both.
 
 The ``dask`` path **wins on every instrument**, and that is the claim to rely
 on: about a fifth of the extra memory, nothing written to disk, nothing
