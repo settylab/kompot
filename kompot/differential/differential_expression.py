@@ -1,12 +1,10 @@
 """Differential expression analysis."""
 
 import numpy as np
-import jax
 from scipy.stats import chi2 as scipy_chi2
 from typing import Optional, Dict, Any
 import logging
 from mellon.parameters import compute_landmarks
-from tqdm.auto import tqdm
 
 from ..utils import compute_mahalanobis_distances, LazyGeneCovariance
 from ..batch_utils import apply_batched, is_jax_memory_error  # noqa: F401
