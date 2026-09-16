@@ -54,10 +54,12 @@ tells you whether it fits (see :ref:`dry-run`).
 
 The two costs respond to different levers, which is why the split is worth
 making deliberately rather than by habit. ``store_arrays_on_disk`` removes the
-memory term almost entirely (:ref:`disk-offload`) and ``n_landmarks`` shrinks
-it quadratically, but neither touches the **per-gene Cholesky factorisation**,
-which is linear in the gene count and which only a shorter gene list reduces.
-Restricting ``genes`` is the one lever that moves both.
+memory term almost entirely (:ref:`disk-offload`) and leaves compute alone;
+``n_landmarks`` reduces **both**, memory quadratically and the per-gene
+factorisation by roughly the same power (see :ref:`other-levers`); and
+``genes`` is the only lever that is linear in both at once. Restricting
+``genes`` is therefore the one that always moves the total, but it is not the
+only one that touches compute.
 
 Held in memory, the gene list is a hard constraint: a whole transcriptome at
 default landmarks asks for 7 552 GiB. Offloaded, it is a budget rather than a
@@ -202,9 +204,16 @@ Measured inside a real ``kompot.de`` sample-variance run, 20 genes, with
    Pinning also makes the figure *reproducible*, which is the other reason to
    do it. Two independent measurements of the same configuration at 5 000
    landmarks, single-threaded, taken at 1-minute loads of 45.9 and 62.8 — a
-   37% difference — came out at 2.084 and 2.113 s per gene, **1.4% apart**.
-   Unpinned, the same step moved by a factor of 25. Pin the threads and the
-   measurement stops being a property of the machine's mood.
+   37% difference in load — came out at 2.084 and 2.113 s per gene, **1.4%
+   apart**. Pin the threads and the figure stops depending on what else the
+   machine is doing.
+
+   The 25x above is a different quantity and worth not confusing with this
+   one: it is pinned *against* unrestricted at one moment, so it says how much
+   the level moves, not how much an unpinned measurement varies between runs.
+   The two unrestricted measurements taken here agreed to within 6-10% of each
+   other; what makes them unusable is not that they scatter but that they are
+   all wrong by more than an order of magnitude.
 
 The table above is therefore a **reproducible floor**, not a forecast: it is
 what the step costs when it is not competing for cores. Your own figure depends
@@ -571,6 +580,8 @@ plan's warnings escalate; it does not switch storage modes.
    the ``dask`` path was 4.9x slower as well
    (`settylab/kompot#26 <https://github.com/settylab/kompot/issues/26>`_).
 
+.. _other-levers:
+
 Other levers
 ------------
 
@@ -598,12 +609,26 @@ is quadratic in it. Same 1 000 genes, from the dry run:
      - 7.7 GiB
 
 Halving the landmark count quarters the covariance footprint, which is exact
-arithmetic rather than a measurement. It cuts the per-gene factorisation
-steeply too: pinned to one thread, 0.016 s per gene at 500 landmarks against
-2.08 s at 5 000. Those four points are close to the cubic flop count a Cholesky
-implies — 500 to 5 000 is 10x the landmarks for 130x the time — but they are
-four timings on one machine, not a scaling law, and they move with your BLAS
-build and your node's load. Take them as a floor and time your own.
+arithmetic rather than a measurement. It cuts the per-gene factorisation too:
+pinned to one thread, 0.016 s per gene at 500 landmarks against 2.08 s at
+5 000.
+
+**That is roughly quadratic, not cubic**, which is worth stating because a
+Cholesky's O(n³) flop count invites the opposite guess. Over those four points
+the fitted exponent is **2.11**, and it is consistent interval to interval
+(1.94, 2.00, 2.33). Cubic would predict 16 s per gene at 5 000 landmarks
+against the 2.08 s measured — a 7.7x overshoot.
+
+Two things eat the third power at these sizes. The step is not only the
+factorisation: materialising each gene's matrix and the triangular solve
+against it are both O(n²), and at n=500 they are a large share of the work.
+And the factorisation itself gets *more efficient* as n grows — measured
+single-threaded throughput climbs from 8.2 GFLOPS at n=500 to 37.7 at
+n=5 000, a 4.6x improvement that cancels much of the extra work. Expect the
+exponent to drift up toward 3 at larger n as that headroom runs out.
+
+Four timings on one machine are still not a scaling law: they move with your
+BLAS build and your node's load. Take them as a floor and time your own.
 
 Landmarks control the resolution of the cell-state approximation, so reducing
 them is a genuine accuracy trade-off rather than a free saving. But 5 000 is

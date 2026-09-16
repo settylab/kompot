@@ -466,8 +466,15 @@ def test_peak_memory_stays_bounded_by_one_gene():
     terms = [np.repeat(spd[:, :, None], n_genes, axis=2) for _ in range(2)]
     diffs = rng.normal(size=(n_genes, n_points))
 
-    view = LazyGeneCovariance(terms, base=base)
+    # The window MUST open before the constructor. An eager implementation
+    # materialises in __init__ -- that is #26's actual shape -- so a window
+    # opened after it measures only incidental churn, whose size depends on
+    # allocator state left by sibling tests. Measured: with the window opened
+    # after construction this guard passed against the eager mutant in every
+    # whole-file run and failed only when run alone, i.e. it was green in the
+    # configuration CI uses.
     before = anon_bytes()
+    view = LazyGeneCovariance(terms, base=base)
     compute_mahalanobis_distances(diffs, view, jit_compile=False, progress=False)
     grew = anon_bytes() - before
 

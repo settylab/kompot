@@ -92,7 +92,9 @@ def de(
          memory entirely, and ``n_landmarks`` shrinks them quadratically;
        * **compute**, one Cholesky factorisation *per gene* instead of one in
          total. ``GPSettings.batch_size`` does not bound that loop, and
-         nothing makes it cheaper except analysing fewer genes.
+         ``store_arrays_on_disk`` does not touch it; lowering ``n_landmarks``
+         does reduce it (measured ~0.016 s/gene at 500 against ~2.1 s at
+         5 000, single-threaded), as does analysing fewer genes.
 
        Run it as a **second pass** over a restricted gene list::
 

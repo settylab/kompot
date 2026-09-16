@@ -25,32 +25,42 @@ gene by gene with `__setitem__`. Three consequences, all silent:
 The sum is now assembled one gene at a time by `kompot.utils.LazyGeneCovariance`,
 which holds references to the terms and materialises a single
 `(n_landmarks, n_landmarks)` matrix when the Mahalanobis step asks for a gene.
-Measured on 1 500 cells / 150 genes / 600 landmarks (412 MiB per tensor), peak
-**anonymous** memory from `/proc/self/smaps_rollup`, same machine and same
-synthetic input on both trees:
 
-| run | 0.8.0 | 0.9.0 | bytes written, 0.8.0 → 0.9.0 | wall, 0.8.0 → 0.9.0 |
-|---|---|---|---|---|
-| no sample variance | 949 MiB | 972 MiB | 0 → 0 | 33.0 s → 32.6 s |
-| sample variance, in memory | 2 401 MiB | 1 973 MiB | 0 → 0 | 45.7 s → 46.0 s |
-| `store_arrays_on_disk`, with `dask` | 2 782 MiB | 1 153 MiB | 0 → 0 | 231.8 s → 47.8 s |
-| `store_arrays_on_disk`, no `dask` | 2 284 MiB | 1 148 MiB | 824 → 824 MiB | 48.2 s → 47.7 s |
+Measured on 1 500 cells / 150 genes / 600 landmarks (412 MiB per tensor), same
+machine and same synthetic input on both trees. **Two memory instruments,
+because one is not enough**: `Anonymous` counts private heap pages, `Rss`
+counts those *plus* resident file-backed pages, and the difference is exactly
+where a memory map puts its data.
 
-Disk-backed storage is now cheaper than in-memory storage, which it was not
-before: 1 153 MiB against 1 973 MiB, where 0.8.0 made it *more* expensive
-(2 782 against 2 401). Repeated at 900 landmarks / 120 genes: 2 809 MiB in
-memory, 1 325 MiB with Dask and 1 341 MiB without, against 3 502 / 4 341 /
-3 079 MiB on 0.8.0.
+| run | 0.8.0 anon | 0.9.0 anon | 0.9.0 Rss | written | wall, 0.8.0 → 0.9.0 |
+|---|---|---|---|---|---|
+| no sample variance | 949 MiB | 972 MiB | 1 218 MiB | 0 → 0 | 33.0 s → 32.6 s |
+| sample variance, in memory | 2 401 MiB | 1 973 MiB | 2 238 MiB | 0 → 0 | 45.7 s → 46.0 s |
+| `store_arrays_on_disk`, with `dask` | 2 782 MiB | **1 153 MiB** | **1 442 MiB** | 0 → 0 | 231.8 s → 47.8 s |
+| `store_arrays_on_disk`, no `dask` | 2 284 MiB | 1 139 MiB | **2 224 MiB** | 824 → 824 MiB | 48.2 s → 47.7 s |
 
-One cost moved the other way, on the path that is not recommended. Without
-`dask` the tensors are memory-mapped, and a gene slice of a C-contiguous
-`(n_points, n_points, n_genes)` map is strided, so reading one gene at a time
-touches the whole file where the old code did one sequential read into RAM.
-Measured on a clean 900-landmark pair, 74 s against 66 s — about 12% slower in
-exchange for 57% less memory. Installing `dask` avoids it in both directions:
-that path is 4.9x *faster* than 0.8.0 as well as lighter. Wall-clock figures
-here come from a shared machine under load and should be read as orders of
-magnitude.
+**With `dask` — the recommended path — offloading is now cheaper than holding
+the tensors in memory, on every instrument**, where on 0.8.0 it was dearer. The
+extra over a run with no sample variance is about a fifth of the in-memory
+extra on both `Anonymous` and `Rss`, and that path is also 4.8x faster than
+0.8.0 at matched thread counts.
+
+**Without `dask` the picture is different and should not be read as a smaller
+footprint.** That path memory-maps the tensors, so the pages become resident
+page cache rather than private heap: about a fifth of the in-memory extra on
+`Anonymous`, but roughly **all of it on `Rss`**. What changes is the *kind* of
+page — reclaimable rather than anonymous, which helps you survive a memory
+squeeze — not the resident total. Under a cgroup (Slurm `--mem`, a container)
+page cache is charged against the same budget, so that advantage may not exist
+in the environment you are actually in. If you are under a hard cap, install
+`dask`.
+
+One cost moved the other way, on that same non-recommended path. A gene slice
+of a C-contiguous `(n_points, n_points, n_genes)` memory map is strided, so
+reading one gene at a time touches the whole file where the old code did one
+sequential read into RAM: measured 74 s against 66 s on a clean 900-landmark
+pair, about 12% slower. Wall-clock figures here come from a shared machine
+under load and should be read as orders of magnitude.
 
 **Results are unchanged.** Distances differ only by floating-point summation
 order: measured maximum relative difference 1.7e-12 across the in-memory,

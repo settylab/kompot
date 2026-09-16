@@ -78,7 +78,9 @@ different levers:
   gene** at the default 5 000 landmarks. `StorageSettings(store_arrays_on_disk=True)`
   removes this almost entirely, and `n_landmarks` shrinks it quadratically.
 - **Compute**, one Cholesky factorisation **per gene** instead of one in total.
-  Nothing makes this cheaper except analysing fewer genes.
+  `store_arrays_on_disk` does not help here, but lowering `n_landmarks` does
+  (~0.016 s/gene at 500 against ~2.1 s at 5 000, single-threaded), as does
+  analysing fewer genes.
 
 So run it in two passes, and price the second one first:
 

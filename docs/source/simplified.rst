@@ -51,8 +51,9 @@ Differential Expression
    dominant allocation becomes ``2 x n_landmarks^2 x n_genes x 8`` bytes —
    about 0.37 GiB per gene at the default 5 000 landmarks — and the
    Mahalanobis step factorises once per gene instead of once in total.
-   ``StorageSettings(store_arrays_on_disk=True)`` removes the memory term;
-   nothing removes the per-gene factorisation except analysing fewer genes.
+   ``StorageSettings(store_arrays_on_disk=True)`` removes the memory term and
+   leaves compute alone; lowering ``GPSettings(n_landmarks=...)`` reduces both;
+   only a shorter gene list is linear in both at once.
    Always run it as a second pass over a restricted gene list, after a cheap
    first pass with no ``sample_col``. The full treatment, with measured plans
    and the other levers, is in
