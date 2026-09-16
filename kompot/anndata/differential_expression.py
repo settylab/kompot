@@ -79,6 +79,39 @@ def de(
     equivalent to omitting it entirely.  Extra ``**function_kwargs`` are
     forwarded to mellon's :class:`~mellon.FunctionEstimator`.
 
+    .. warning::
+
+       Supplying ``sample_col`` **multiplies the cost by the gene count.**
+       Sample variance replaces the single shared posterior covariance with
+       one ``(n_landmarks, n_landmarks)`` covariance matrix *per gene, per
+       condition*. Two costs follow, and they respond to different levers:
+
+       * **memory**, ``2 * n_landmarks**2 * n_genes * 8`` bytes, roughly
+         0.37 GiB per gene at the default ``n_landmarks=5000``.
+         ``StorageSettings(store_arrays_on_disk=True)`` keeps these out of
+         memory entirely, and ``n_landmarks`` shrinks them quadratically;
+       * **compute**, one Cholesky factorisation *per gene* instead of one in
+         total. ``GPSettings.batch_size`` does not bound that loop, and
+         ``store_arrays_on_disk`` does not touch it; lowering ``n_landmarks``
+         does reduce it (measured ~0.016 s/gene at 500 against ~2.1 s at
+         5 000, single-threaded), as does analysing fewer genes.
+
+       Run it as a **second pass** over a restricted gene list::
+
+           kompot.de(adata, "condition", "Young", "Old")     # pass 1, all genes
+
+           mahal = "kompot_de_Young_to_Old_mahalanobis"
+           top = adata.var.sort_values(mahal, ascending=False).head(1000).index
+
+           kompot.de(adata, "condition", "Young", "Old",     # pass 2
+                     sample_col="donor_id", genes=top,
+                     gp=kompot.GPSettings(n_landmarks=2000))
+
+       Both costs are linear in ``genes``; memory is additionally
+       **quadratic** in ``n_landmarks``.  Price any configuration first with
+       ``dry_run=True``.  Full treatment:
+       https://kompot.readthedocs.io/en/latest/resource_planning.html
+
     Parameters
     ----------
     adata : AnnData
@@ -94,7 +127,9 @@ def de(
     genes : list of str, optional
         Subset of genes to analyse.
     sample_col : str, optional
-        Column with biological-replicate labels.
+        Column with biological-replicate labels.  Supplying it enables
+        **sample variance**, which is by far the most expensive option in
+        this function: read the warning above before using it.
     gp : GPSettings, optional
         GP model parameters (sigma, ls, n_landmarks, etc.).
     fdr : FDRSettings, optional
@@ -112,7 +147,11 @@ def de(
     dry_run : bool, optional
         If True, estimate resource requirements and print a report
         instead of running the analysis.  Returns a
-        :class:`~kompot.resource_estimation.ResourcePlan`.
+        :class:`~kompot.resource_estimation.ResourcePlan` carrying
+        ``total_memory_required``, ``total_disk_required``, ``is_feasible``
+        and a per-array ``requirements`` list.  The estimate resolves
+        ``FDRSettings.null_genes`` exactly as the run would, including the
+        ``"auto"`` default, so the plan prices the run it describes.
     **function_kwargs
         Forwarded to :class:`~mellon.FunctionEstimator`.
 
@@ -216,6 +255,20 @@ def de(
                 stacklevel=2,
             )
 
+    # ---- 0. Resolve defaults ----
+    # Resolved BEFORE the dry-run branch: the estimate must price the run that
+    # would actually happen. Resolving it afterwards left the estimator reading
+    # the literal string "auto", which matches neither its int nor its list
+    # branch, so it silently counted zero null genes (settylab/kompot#25).
+    if null_genes == "auto":
+        if sample_col is not None:
+            null_genes = 0
+            logger.info(
+                "Defaulting null_genes=0 (FDR disabled) because sample_col is provided."
+            )
+        else:
+            null_genes = 2000
+
     # ---- dry run ----
     if dry_run:
         from ..resource_estimation import estimate_differential_expression_resources
@@ -258,16 +311,6 @@ def de(
         )
         print(plan.format_report())
         return plan
-
-    # ---- 0. Resolve defaults ----
-    if null_genes == "auto":
-        if sample_col is not None:
-            null_genes = 0
-            logger.info(
-                "Defaulting null_genes=0 (FDR disabled) because sample_col is provided."
-            )
-        else:
-            null_genes = 2000
 
     has_external_null = (
         ext_null_mahalanobis is not None or ext_null_expression is not None
