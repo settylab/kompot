@@ -492,17 +492,29 @@ sample variance at all:
      - on ``Anonymous``
      - on ``Rss``
    * - with ``dask``
-     - 17-22%
-     - **17-22%**
+     - ~1/5
+     - **~1/5**
    * - no ``dask``
-     - 18%
-     - **96-99%**
+     - ~1/5
+     - **~97%**
 
-The ``dask`` row is given as a range because that path's peak is set by a
-concurrency neither figure pins: Dask's threaded scheduler sizes its pool from
-the CPU count, independently of ``OMP_NUM_THREADS``. Two independent rigs on
-this host, one pinned to four BLAS threads and one unpinned, bracket it at 17%
-and 22%. The ``dask``-less row reproduced to within a point across both.
+**These are deliberately given to one figure.** The share is a ratio of two
+differences — an extra of roughly 200 MiB between peaks of 950 and 1 150 MiB —
+so run-to-run noise in either peak swings it hard. Measured across twelve runs
+on this host, the ``no sample variance`` baseline spans 938-981 MiB and the
+``dask`` peak spans 1 134-1 209 MiB, which brackets that share anywhere from
+**14% to 27%** without anything changing but the run. Two independent rigs
+landing on 17% and 22% is the same noise, not a methodology difference.
+
+Pinning does not tighten it. Fixing Dask's threaded-scheduler pool at 1, at 4
+and leaving it at the default (36) gave 1 173/1 209, 1 152/1 163 and
+1 134/1 138 MiB — all inside the spread, and the single-worker runs were if
+anything the highest.
+
+What the measurement *does* support is the separation, and it is not close:
+the ``dask``-less path costs **about a fifth on Anonymous and essentially all
+of it on Rss**, a factor of five apart on the same run. That is the finding;
+the second significant figure never was.
 
 The ``dask`` path **wins on every instrument**, and that is the claim to rely
 on: about a fifth of the extra memory, nothing written to disk, nothing
