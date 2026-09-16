@@ -27,33 +27,36 @@ which holds references to the terms and materialises a single
 `(n_landmarks, n_landmarks)` matrix when the Mahalanobis step asks for a gene.
 
 Measured on 1 500 cells / 150 genes / 600 landmarks (412 MiB per tensor), same
-machine and same synthetic input on both trees. **Two memory instruments,
-because one is not enough**: `Anonymous` counts private heap pages, `Rss`
-counts those *plus* resident file-backed pages, and the difference is exactly
-where a memory map puts its data.
+machine and same synthetic input on both trees, peak **anonymous** memory from
+`/proc/self/smaps_rollup`. Every figure in this table comes from one paired
+before/after run, so the columns are comparable to each other:
 
-| run | 0.8.0 anon | 0.9.0 anon | 0.9.0 Rss | written | wall, 0.8.0 → 0.9.0 |
-|---|---|---|---|---|---|
-| no sample variance | 949 MiB | 972 MiB | 1 218 MiB | 0 → 0 | 33.0 s → 32.6 s |
-| sample variance, in memory | 2 401 MiB | 1 973 MiB | 2 238 MiB | 0 → 0 | 45.7 s → 46.0 s |
-| `store_arrays_on_disk`, with `dask` | 2 782 MiB | **1 153 MiB** | **1 442 MiB** | 0 → 0 | 231.8 s → 47.8 s |
-| `store_arrays_on_disk`, no `dask` | 2 284 MiB | 1 139 MiB | **2 224 MiB** | 824 → 824 MiB | 48.2 s → 47.7 s |
+| run | 0.8.0 | 0.9.0 | written | wall, 0.8.0 → 0.9.0 |
+|---|---|---|---|---|
+| no sample variance | 949 MiB | 972 MiB | 0 → 0 | 33.0 s → 32.6 s |
+| sample variance, in memory | 2 401 MiB | 1 973 MiB | 0 → 0 | 45.7 s → 46.0 s |
+| `store_arrays_on_disk`, with `dask` | 2 782 MiB | **1 153 MiB** | 0 → 0 | 231.8 s → 47.8 s |
+| `store_arrays_on_disk`, no `dask` | 2 284 MiB | 1 170 MiB | 824 → 824 MiB | 48.2 s → 49.2 s |
 
 **With `dask` — the recommended path — offloading is now cheaper than holding
-the tensors in memory, on every instrument**, where on 0.8.0 it was dearer. The
-extra over a run with no sample variance is about a fifth of the in-memory
-extra on both `Anonymous` and `Rss`, and that path is also 4.8x faster than
-0.8.0 at matched thread counts.
+the tensors in memory**, where on 0.8.0 it was dearer, and that path is also
+~4.8x faster than 0.8.0 at matched thread counts.
 
-**Without `dask` the picture is different and should not be read as a smaller
-footprint.** That path memory-maps the tensors, so the pages become resident
-page cache rather than private heap: about a fifth of the in-memory extra on
-`Anonymous`, but roughly **all of it on `Rss`**. What changes is the *kind* of
-page — reclaimable rather than anonymous, which helps you survive a memory
-squeeze — not the resident total. Under a cgroup (Slurm `--mem`, a container)
-page cache is charged against the same budget, so that advantage may not exist
-in the environment you are actually in. If you are under a hard cap, install
-`dask`.
+**Anonymous memory alone does not describe the `dask`-less path, and this table
+should not be read as if it did.** That path memory-maps the tensors, so their
+pages become resident *file-backed* memory rather than private heap: the
+improvement above is real on `Anonymous` and largely absent on `Rss`, where the
+run costs about as much as holding the tensors in memory. What changes is the
+*kind* of page — reclaimable rather than anonymous, which helps you survive a
+memory squeeze — not the resident total. Under a cgroup (Slurm `--mem`, a
+container) page cache is charged against the same budget anyway, so if you are
+under a hard cap, install `dask`.
+
+The two-instrument treatment, with `Rss` and file-backed residency measured
+side by side, is in
+[Planning Memory and Disk](https://kompot.readthedocs.io/en/latest/resource_planning.html#disk-offload).
+It is deliberately not duplicated here: mixing instruments from separate runs
+in one table is how the numbers stop being comparable.
 
 One cost moved the other way, on that same non-recommended path. A gene slice
 of a C-contiguous `(n_points, n_points, n_genes)` memory map is strided, so

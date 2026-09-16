@@ -624,8 +624,13 @@ factorisation: materialising each gene's matrix and the triangular solve
 against it are both O(n²), and at n=500 they are a large share of the work.
 And the factorisation itself gets *more efficient* as n grows — measured
 single-threaded throughput climbs from 8.2 GFLOPS at n=500 to 37.7 at
-n=5 000, a 4.6x improvement that cancels much of the extra work. Expect the
-exponent to drift up toward 3 at larger n as that headroom runs out.
+n=5 000, a 4.6x improvement that cancels much of the extra work.
+
+Whether the exponent eventually climbs toward 3 once that efficiency headroom
+is exhausted is **not something to assume**: measured out to n=11 000 it has
+not started to, and throughput was still rising (37.8 → 42.3 → 53.1 GFLOPS at
+n=5 000, 8 000, 11 000). Treat 2.11 as a description of the range measured, not
+as a curve to extrapolate along.
 
 Four timings on one machine are still not a scaling law: they move with your
 BLAS build and your node's load. Take them as a floor and time your own.

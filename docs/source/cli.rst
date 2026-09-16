@@ -252,8 +252,8 @@ Example: Complete Analysis
 
    ``--sample-col`` is deliberately absent above. It turns on sample variance,
    which gives every gene its own ``(n_landmarks, n_landmarks)`` covariance
-   matrix and its own Cholesky factorisation: about 0.37 GiB and several
-   seconds per gene at ``--n-landmarks 5000``. Run it as a **second pass** over
+   matrix and its own Cholesky factorisation: about 0.37 GiB and ~2 s per gene
+   at ``--n-landmarks 5000``. Run it as a **second pass** over
    a restricted gene list, which the CLI takes through the ``genes:`` key of a
    config file:
 
@@ -736,8 +736,10 @@ With ``--sample-col`` the dominant allocation is
 ``2 x n_landmarks^2 x n_genes x 8`` bytes, so the memory levers are the
 **gene list** (linear) and ``--n-landmarks`` (quadratic); setting
 ``store_arrays_on_disk: true`` in a config file keeps it out of memory
-altogether. ``--batch-size`` does not bound that term, and nothing bounds the
-per-gene factorisation except a shorter gene list. Full treatment:
+altogether. ``--batch-size`` does not bound that term, and
+``store_arrays_on_disk`` does not touch the per-gene factorisation at all --
+but lowering ``--n-landmarks`` reduces it as well as the memory, and a shorter
+gene list reduces both linearly. Full treatment:
 :doc:`Planning Memory and Disk <resource_planning>`.
 
 Speed Optimization
