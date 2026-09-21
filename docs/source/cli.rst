@@ -443,7 +443,7 @@ The table below shows how config keys correspond to Python Settings:
    * - Config key
      - Python equivalent
      - Description
-   * - ``sigma``, ``ls``, ``ls_factor``, ``n_landmarks``, ``batch_size``, ``eps``, ``jit_compile``, ``random_state``, ``use_empirical_variance``
+   * - ``sigma``, ``ls``, ``ls_factor``, ``ls_scheme`` (DE only), ``n_landmarks``, ``batch_size``, ``eps``, ``jit_compile``, ``random_state``, ``use_empirical_variance``
      - ``gp=GPSettings(...)``
      - GP model parameters
    * - ``null_genes``, ``null_seed``, ``fdr_threshold``

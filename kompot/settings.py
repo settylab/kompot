@@ -45,10 +45,14 @@ class GPSettings:
     ls_scheme : str
         Which cells the automatic shared length scale is estimated from.
         ``"condition1"`` (default) uses condition 1's cells only, which makes
-        the result depend on which condition is passed first; ``"symmetric"``
-        shares the size-weighted geometric mean of the two per-condition
-        estimates; ``"pooled"`` estimates from both conditions' cells taken
-        together; ``"separate"`` gives each condition its own.  See
+        the result depend on which condition is passed first; ``"condition2"``
+        is its mirror and exists to make that dependence visible in a single
+        run, since ``de(X, Y, ls_scheme="condition1")`` and
+        ``de(Y, X, ls_scheme="condition2")`` are the same computation with the
+        labels exchanged; ``"symmetric"`` shares the size-weighted geometric
+        mean of the two per-condition estimates; ``"pooled"`` estimates from
+        both conditions' cells taken together; ``"separate"`` gives each
+        condition its own.  See
         :meth:`kompot.differential.DifferentialExpression.fit`.  Ignored when
         ``ls`` is given explicitly.
     n_landmarks : int, optional

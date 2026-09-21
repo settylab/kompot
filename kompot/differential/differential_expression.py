@@ -15,7 +15,7 @@ from .expression_model import ExpressionModel
 logger = logging.getLogger("kompot")
 
 #: Recognised values for ``ls_scheme``.  See :meth:`DifferentialExpression.fit`.
-LS_SCHEMES = ("condition1", "symmetric", "pooled", "separate")
+LS_SCHEMES = ("condition1", "condition2", "symmetric", "pooled", "separate")
 
 
 def _auto_ls(X: np.ndarray, ls_factor: float) -> float:
@@ -39,6 +39,17 @@ def _resolve_ls_scheme(ls_scheme, X_condition1, X_condition2, ls_factor):
     """
     if ls_scheme == "condition1":
         return None, None
+    if ls_scheme == "condition2":
+        # The mirror of "condition1": estimate from condition 2's cells and give
+        # the value to condition 1.  Resolved eagerly rather than by inheritance
+        # because model1 is fitted first; `_auto_ls` reproduces what a model
+        # derives internally bit for bit, which is what makes
+        # de(X, Y, "condition1") and de(Y, X, "condition2") the same computation
+        # with the labels exchanged.  Pinned by
+        # test_auto_ls_is_bit_identical_to_the_models_internal_estimate.
+        shared = _auto_ls(X_condition2, ls_factor)
+        logger.info(f"ls_scheme='condition2': shared length scale {shared:.4f}")
+        return shared, shared
     if ls_scheme == "separate":
         return None, None
     if ls_scheme == "pooled":
@@ -408,6 +419,15 @@ class DifferentialExpression:
               scale is a function of ``n_condition1`` alone, so swapping
               ``condition1`` and ``condition2`` changes the result even when
               nothing else does.
+            * ``"condition2"`` — the mirror of the default: estimate from
+              condition 2's cells and reuse the value for condition 1. Equally
+              asymmetric, and deliberately so. Its use is **diagnostic**:
+              ``de(X, Y, ls_scheme="condition1")`` and
+              ``de(Y, X, ls_scheme="condition2")`` are the same computation with
+              the labels exchanged, so running both orientations of a contrast
+              under the two schemes exposes the default's swap-dependence from a
+              single call site, without having to swap ``condition1`` and
+              ``condition2`` at the call site and re-derive which sign is which.
             * ``"symmetric"`` — estimate a length scale from each condition
               separately and share their size-weighted geometric mean. Invariant
               under swapping the two conditions, and it does not inherit the

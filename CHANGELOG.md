@@ -20,6 +20,15 @@ All notable changes to this project will be documented in this file.
    two orientations of the same partition differ in false-positive rate by 0.06–0.08 at
    2:1 and beyond.
 
+   `"condition2"` is the default's mirror — it estimates from condition 2's cells and hands the
+   value to condition 1. It is not an alternative to the default but a **diagnostic**:
+   `de(X, Y, ls_scheme="condition1")` and `de(Y, X, ls_scheme="condition2")` are the same
+   computation with the labels exchanged (measured bit-identical for the smoothed surfaces, the
+   posterior standard deviations, the Mahalanobis distances and `neg_log10_ptp`; the fold change
+   and its z-scores flip sign, as the definition `condition2 - condition1` requires). So the
+   default's swap-dependence can be exhibited from a single call site, without swapping
+   `condition1` and `condition2` and re-deriving which sign is which.
+
    `"symmetric"` shares the size-weighted geometric mean of the two conditions' own estimates
    — the same estimator, with nearest neighbours looked up *within* each condition — and is
    invariant under swapping the conditions. `"pooled"` estimates from the union, which is also
@@ -30,6 +39,16 @@ All notable changes to this project will be documented in this file.
 
  - `ls_scheme` participates in run-parameter matching, so re-running under a different scheme
    is no longer treated as a matching rerun.
+
+### Fixed
+
+ - `ls_scheme` is now readable back out of a stored `run_info` params dict. It is written nested
+   under `params["gp"]`, but `params_get` resolves nested keys through `_LEGACY_MAP` and the
+   field was missing from it — so it read back as `None` and *every* rerun, including an
+   identical one, compared unequal and was reported as a parameter change.
+ - The DE CLI now routes a flat `ls_scheme` config key into `GPSettings`. An unrecognised key
+   is not rejected: it falls through to `**function_kwargs` and is handed to mellon, so the
+   documented knob was unreachable from a config file and the omission was silent.
 
 ### Documentation
 
