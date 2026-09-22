@@ -443,9 +443,14 @@ class DifferentialExpression:
                  the numbers are silently close rather than equal. Measured at
                  a small scale, **6 of 9 mirrored comparisons miss**
                  ``assert_allclose(rtol=1e-6, atol=1e-8)`` — the tolerance this
-                 package's own tests use — and the gap **grows as the landmark
-                 fraction falls**, so a default 5,000-landmark run on a large
-                 dataset sits at the worse end, not the better one.
+                 package's own tests use. That count is taken at
+                 ``random_state=0``; at the :class:`~kompot.settings.GPSettings`
+                 default ``random_state=None`` the landmark draw is not
+                 reproducible from one run to the next, so the count is **worse
+                 and unstable** — 7, 8 and 7 over three consecutive runs. The
+                 gap also **grows as the landmark fraction falls**, so a default
+                 5,000-landmark run on a large dataset sits at the worse end,
+                 not the better one.
 
                  To rely on the equivalence, make the landmarks common to both
                  runs: pass one ``landmarks`` array to both, or set
