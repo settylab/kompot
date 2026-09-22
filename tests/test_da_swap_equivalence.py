@@ -32,7 +32,14 @@ as well once the combined data exceeds 500 cells**, because
 ``parameters.py``) and so becomes row-order dependent itself. Measured:
 ``mu``+``ls`` alone is exact at 200+200 and NOT exact at 400+400 (6.085e-04,
 with ``d`` reading 1.4972 vs 1.4983); all three explicit is exact at 400+400.
-Passing all three is always correct.
+With ``sync_parameters=True``, passing all three is always correct.
+
+**THE TWO REMEDIES COMPOSE AND NEITHER SUBSTITUTES FOR THE OTHER.** Passing
+``d``, ``mu`` and ``ls`` fixes the PARAMETER half and leaves the LANDMARK half
+untouched: measured at 400+400, sync with automatic landmarks and all three
+parameters explicit still differs between orientations on the uncertainty
+(8.4e-01), while the same run with one shared landmark array agrees exactly.
+So if landmarks are automatic, pass one ``landmarks`` array as well.
 
 Note the trap in that boundary. An earlier version of this file said ``d`` is
 identical across orientations. That was measured at 160 combined cells and is
@@ -226,7 +233,10 @@ def test_shared_landmarks_restore_the_exact_swap():
 
     Scope: this covers the LANDMARK half only -- ``sync_parameters`` is left at
     its default ``False`` here. The same remedy does not reach the
-    ``sync_parameters`` half, and no test asserts that it does.
+    ``sync_parameters`` half, and no test asserts that it does. Nor does the
+    parameter remedy reach THIS half: the two compose, and a run with
+    ``sync_parameters=True`` needs both a shared landmark array and explicit
+    ``d``/``mu``/``ls`` before the two orientations agree.
     """
     from mellon.parameters import compute_landmarks
 

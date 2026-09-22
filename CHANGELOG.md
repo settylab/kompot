@@ -44,28 +44,13 @@ All notable changes to this project will be documented in this file.
    `"condition2"` equivalence requires of landmarks.
  - **Differential abundance is swap-equivalent when it uses no landmarks** — the
    `DifferentialAbundance` class default (`n_landmarks=None`, `sync_parameters=False`) — and now
-   has tests saying so: `da(X, Y)` and `da(Y, X)` give the same densities with the roles
-   exchanged, negated log fold changes and z-scores, identical uncertainty, PTP and
-   significant-cell set, and exchanged `'up'`/`'down'` labels. It needs no `ls_scheme` analogue —
-   abundance builds both density estimators from one shared configuration and never had the
-   condition-1 inheritance `ls_scheme` exists to expose.
-
-   Note which entry point that is: `da()` takes `n_landmarks=None` only when `gp is None`, and any
-   `GPSettings` carries `n_landmarks=5000`, so `da(adata, gp=GPSettings(...))` lands in the
-   automatic-landmark branch instead. Since `GPSettings` is the documented way to configure
-   `da()`, the exact configuration is arguably the one you are least likely to be in — and at that
-   configuration the uncertainty-derived quantities are not merely approximate, see
-   settylab/kompot#32, which is filed separately and is not caused by this change.
-
-   The equivalence is approximate rather than exact under `sync_parameters=True` or automatic
-   landmarks — both because the stacked union is row-order dependent, but at different points, so
-   they need different remedies. For automatic landmarks, pass one `landmarks` array to both runs;
-   that restores exactness. It does **not** fix `sync_parameters=True`: `mu` and `ls` come from
-   the union's nearest-neighbour distances, which landmarks do not enter — measured, sharing
-   landmarks leaves that half at 4.784e-03 against a 4.720e-03 reference with no landmarks at all.
-   Pass `mu` and `ls` explicitly — **and `d` as well when the combined data exceeds 500 cells**,
-   because `compute_d_factal` subsamples 500 indices above that and becomes row-order dependent.
-   Below 500, `mu` and `ls` suffice. **Passing all three is always correct.**
+   has tests saying so. It needs no `ls_scheme` analogue: abundance shares one configuration
+   between both density estimators and never had the condition-1 inheritance `ls_scheme` exists
+   to expose. `sync_parameters=True` and automatic landmarks each break the equivalence, by
+   different mechanisms needing different remedies that do not substitute for one another — see
+   `DifferentialAbundance.fit` for both, and note that `da(adata, gp=GPSettings(...))` carries
+   `n_landmarks=5000` and so is not at the class default. A pre-existing instability at
+   `n_landmarks >= n_combined` is tracked at settylab/kompot#32.
 
 ## [0.8.0] - 2026-07-28
 

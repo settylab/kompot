@@ -176,6 +176,15 @@ class DifferentialAbundance:
         landmarks : np.ndarray, optional
             Pre-computed landmarks to use. If provided, n_landmarks will be ignored.
             Shape (n_landmarks, n_features).
+
+            Automatic landmarks are computed from ``np.vstack([X_condition1,
+            X_condition2])``, whose **row order differs between the two
+            orientations** of a contrast, so ``da(X, Y)`` and ``da(Y, X)`` select
+            different landmark sets and their results stop being exact mirrors of
+            one another. Passing one array here to both runs removes that; so
+            does ``n_landmarks=None``, which builds no landmarks at all. With
+            ``random_state=None`` the selection is not even reproducible between
+            two runs of the same orientation.
         ls_factor : float, optional
             Multiplication factor to apply to length scale when it's automatically inferred,
             by default 10.0. Only used when ls is not explicitly provided in density_kwargs.
@@ -193,6 +202,28 @@ class DifferentialAbundance:
             the combined dataset. When True, parameters are computed once from the combined data
             to ensure models for both conditions use identical parameter values. This is especially
             important for consistent density estimation across conditions. Default is False.
+
+            **Order dependence.** The combined dataset is
+            ``np.vstack([X_condition1, X_condition2])``, so the parameters it
+            derives depend on the order the conditions were passed in, and
+            ``da(X, Y)`` and ``da(Y, X)`` stop agreeing. ``mu`` and ``ls`` come
+            from the union's nearest-neighbour distances; ``d`` additionally
+            subsamples 500 indices once the **combined** cell count is **above**
+            500, and so becomes order-dependent there too.
+
+            To make the two orientations agree, pass ``d``, ``mu`` and ``ls``
+            explicitly through ``density_kwargs`` rather than relying on
+            synchronisation. **Two remedies are needed and neither substitutes
+            for the other**: passing all three fixes the parameter half, and it
+            leaves an uncertainty discrepancy behind whenever landmarks are still
+            chosen automatically — so pass one ``landmarks`` array to both runs
+            as well (or use ``n_landmarks=None``). Measured on 400 + 400 cells:
+            all three parameters with automatic landmarks still differs between
+            orientations, while all three with a shared landmark array agrees
+            exactly.
+
+            Below 500 combined cells ``mu`` and ``ls`` alone suffice for the
+            parameter half, but passing ``d`` as well is always safe.
         **density_kwargs : dict
             Additional arguments to pass to the DensityEstimator.
 
