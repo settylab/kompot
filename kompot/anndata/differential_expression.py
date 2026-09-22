@@ -99,6 +99,10 @@ def de(
         Column with biological-replicate labels.
     gp : GPSettings, optional
         GP model parameters (sigma, ls, n_landmarks, etc.).
+        ``param_scheme`` sets which cells the shared length scale is
+        estimated from; ``None`` means ``"condition1"``, which makes the
+        result depend on which condition is passed first.  See
+        :meth:`~kompot.differential.DifferentialExpression.fit`.
     fdr : FDRSettings, optional
         FDR / null-distribution parameters.
     filter : FilterSettings, optional
