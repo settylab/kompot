@@ -1,9 +1,8 @@
-"""Swap equivalence for differential ABUNDANCE.
+"""Swap equivalence for differential ABUNDANCE at its default ``param_scheme``.
 
-`ls_scheme` and `tests/test_ls_scheme.py` are about differential EXPRESSION, where
-the shared length scale was estimated from condition 1's cells alone and
-`"condition2"` exists to expose that. Abundance is a separate code path and
-inherits none of it, so the property is established here rather than assumed.
+``tests/test_param_scheme.py`` covers what each ``param_scheme`` shares,
+including the ``"condition1"`` / ``"condition2"`` mirror. This file establishes
+the property for the DEFAULT, ``"separate"``, rather than assuming it.
 
 It holds for a structural reason worth stating: `DifferentialAbundance.fit` builds
 BOTH density estimators from the same ``estimator_defaults`` dict --
@@ -11,19 +10,19 @@ BOTH density estimators from the same ``estimator_defaults`` dict --
     density_estimator_condition1 = mellon.DensityEstimator(**estimator_defaults)
     density_estimator_condition2 = mellon.DensityEstimator(**estimator_defaults)
 
--- with no ``ls_for_model2 = self.model1.ls`` analogue anywhere. There is no
-condition-1 inheritance to be asymmetric about, so DA never had the defect
-`ls_scheme` was added for, and no DA counterpart of `"condition2"` is warranted.
+-- and under ``"separate"`` that dict carries no ``d``, ``mu`` or ``ls``, so each
+estimator derives its own from its own cells. There is no condition-1
+inheritance to be asymmetric about.
 
 Two configurations DO break the exactness, and both are covered below: automatic
-landmarks, and ``sync_parameters=True``. Both trace to the same ROOT as the DE
+landmarks, and ``param_scheme="pooled"`` (formerly ``sync_parameters=True``). Both trace to the same ROOT as the DE
 case -- ``np.vstack([X_condition1, X_condition2])`` is row-order dependent -- but
 they act through DIFFERENT proximate mechanisms, and **a remedy applies at the
 proximate level, not the root**: ``compute_landmarks`` (k-means init) for the
 first, ``compute_nn_distances`` (which sets ``mu`` and ``ls``) for the second.
 So sharing a landmark array fixes the first and cannot reach the second --
 landmarks are not an input to ``compute_nn_distances``, and sharing them leaves
-the ``sync_parameters`` half at 4.784e-03 against a 4.720e-03 no-landmark
+the ``pooled`` half at 4.784e-03 against a 4.720e-03 no-landmark
 reference.
 
 The remedy for that half is to pass ``mu`` and ``ls`` explicitly -- **and ``d``
@@ -32,11 +31,11 @@ as well once the combined data exceeds 500 cells**, because
 ``parameters.py``) and so becomes row-order dependent itself. Measured:
 ``mu``+``ls`` alone is exact at 200+200 and NOT exact at 400+400 (6.085e-04,
 with ``d`` reading 1.4972 vs 1.4983); all three explicit is exact at 400+400.
-With ``sync_parameters=True``, passing all three is always correct.
+Under ``"pooled"``, passing all three is always correct.
 
 **THE TWO REMEDIES COMPOSE AND NEITHER SUBSTITUTES FOR THE OTHER.** Passing
 ``d``, ``mu`` and ``ls`` fixes the PARAMETER half and leaves the LANDMARK half
-untouched: measured at 400+400, sync with automatic landmarks and all three
+untouched: measured at 400+400, "pooled" with automatic landmarks and all three
 parameters explicit still differs between orientations on the uncertainty
 (8.4e-01), while the same run with one shared landmark array agrees exactly.
 So if landmarks are automatic, pass one ``landmarks`` array as well.
@@ -67,16 +66,16 @@ def _data(n=400, seed=0):
     return X1, X2
 
 
-def _swap_pair(n_landmarks=None, sync_parameters=False, landmarks=None):
+def _swap_pair(n_landmarks=None, param_scheme=None, landmarks=None):
     """Fit both orientations and predict both on the same points."""
     X1, X2 = _data()
     X_new = np.vstack([X1, X2])
 
     fwd = DifferentialAbundance(n_landmarks=n_landmarks, random_state=0)
-    fwd.fit(X1, X2, sync_parameters=sync_parameters, landmarks=landmarks)
+    fwd.fit(X1, X2, param_scheme=param_scheme, landmarks=landmarks)
 
     rev = DifferentialAbundance(n_landmarks=n_landmarks, random_state=0)
-    rev.fit(X2, X1, sync_parameters=sync_parameters, landmarks=landmarks)
+    rev.fit(X2, X1, param_scheme=param_scheme, landmarks=landmarks)
 
     return (
         fwd.predict(X_new, progress=False),
@@ -194,9 +193,9 @@ def test_the_significant_set_is_the_same_cells_either_way(default_pair):
             id="automatic-landmarks",
         ),
         pytest.param(
-            dict(sync_parameters=True),
+            dict(param_scheme="pooled"),
             "d / mu / ls synchronised from the stacked union",
-            id="sync-parameters",
+            id="pooled",
         ),
     ],
 )
@@ -204,7 +203,7 @@ def test_the_swap_is_only_approximate_when_the_union_order_matters(kwargs, why):
     """Characterisation: two configurations break the exactness, for one reason.
 
     ``np.vstack([X_condition1, X_condition2])`` is row-order dependent. It feeds
-    ``compute_landmarks`` always, and under ``sync_parameters=True`` it also feeds
+    ``compute_landmarks`` always, and under ``param_scheme="pooled"`` it also feeds
     ``compute_d_factal`` / ``compute_mu`` / ``compute_ls``. Either way the two
     orientations are then computed from differently-ordered unions and agreement
     degrades -- silently, which is why it is pinned here.
@@ -231,11 +230,11 @@ def test_the_swap_is_only_approximate_when_the_union_order_matters(kwargs, why):
 def test_shared_landmarks_restore_the_exact_swap():
     """Share the landmarks, and the automatic-landmark half is exact again.
 
-    Scope: this covers the LANDMARK half only -- ``sync_parameters`` is left at
-    its default ``False`` here. The same remedy does not reach the
-    ``sync_parameters`` half, and no test asserts that it does. Nor does the
+    Scope: this covers the LANDMARK half only -- ``param_scheme`` is left at
+    its default ``"separate"`` here. The same remedy does not reach the
+    ``pooled`` half, and no test asserts that it does. Nor does the
     parameter remedy reach THIS half: the two compose, and a run with
-    ``sync_parameters=True`` needs both a shared landmark array and explicit
+    ``param_scheme="pooled"`` needs both a shared landmark array and explicit
     ``d``/``mu``/``ls`` before the two orientations agree.
     """
     from mellon.parameters import compute_landmarks

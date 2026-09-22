@@ -9,6 +9,8 @@ import pandas as pd
 from typing import Union, Dict, Any
 
 from ..differential import DifferentialExpression
+from ..differential.differential_expression import DEFAULT_PARAM_SCHEME
+from ..settings import resolve_param_scheme
 from ..settings import (
     GPSettings,
     FDRSettings,
@@ -132,7 +134,7 @@ def de(
     sigma = _gp.sigma
     ls = _gp.ls
     ls_factor = _gp.ls_factor
-    ls_scheme = _gp.ls_scheme
+    param_scheme = resolve_param_scheme(_gp.param_scheme, DEFAULT_PARAM_SCHEME)
     n_landmarks = _gp.n_landmarks
     landmarks = _gp.landmarks
     use_empirical_variance = _gp.use_empirical_variance
@@ -306,7 +308,7 @@ def de(
         obsm_key=obsm_key,
         layer=layer,
         ls_factor=ls_factor,
-        ls_scheme=ls_scheme,
+        param_scheme=param_scheme,
     )
 
     # ---- 2. Copy if requested ----
@@ -457,7 +459,7 @@ def de(
         sigma=sigma,
         ls=ls,
         ls_factor=ls_factor,
-        ls_scheme=ls_scheme,
+        param_scheme=param_scheme,
         landmarks=landmarks,
         condition1_sample_indices=condition1_sample_indices,
         condition2_sample_indices=condition2_sample_indices,
@@ -638,7 +640,7 @@ def de(
                 sigma=sigma,
                 ls=ls,
                 ls_factor=ls_factor,
-                ls_scheme=ls_scheme,
+                param_scheme=param_scheme,
                 n_landmarks=n_landmarks,
                 use_empirical_variance=use_empirical_variance,
                 batch_size=batch_size,
@@ -734,7 +736,6 @@ def compute_differential_expression(
     sigma: float = 1.0,
     ls=None,
     ls_factor: float = 10.0,
-    ls_scheme: str = "condition1",
     compute_mahalanobis: bool = True,
     jit_compile: bool = False,
     eps: float = 1e-8,
@@ -788,7 +789,6 @@ def compute_differential_expression(
             sigma=sigma,
             ls=ls,
             ls_factor=ls_factor,
-            ls_scheme=ls_scheme,
             n_landmarks=n_landmarks,
             landmarks=landmarks,
             use_empirical_variance=use_empirical_variance,

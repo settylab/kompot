@@ -197,7 +197,7 @@ _LEGACY_MAP = {
     "sigma": ("gp", "sigma"),
     "ls": ("gp", "ls"),
     "ls_factor": ("gp", "ls_factor"),
-    "ls_scheme": ("gp", "ls_scheme"),
+    "param_scheme": ("gp", "param_scheme"),
     "n_landmarks": ("gp", "n_landmarks"),
     "use_empirical_variance": ("gp", "use_empirical_variance"),
     "batch_size": ("gp", "batch_size"),

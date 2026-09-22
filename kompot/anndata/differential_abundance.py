@@ -9,7 +9,9 @@ import pandas as pd
 from typing import Union, Dict, Any
 
 from ..differential import DifferentialAbundance
+from ..differential.differential_abundance import DEFAULT_PARAM_SCHEME
 from ..settings import (
+    resolve_param_scheme,
     GPSettings,
     DAThresholdSettings,
     StorageSettings,
@@ -48,6 +50,7 @@ def da(
     storage: "StorageSettings | None" = None,
     output: "OutputSettings | None" = None,
     model: "ModelSettings | None" = None,
+    sync_parameters: "bool | None" = None,
     **density_kwargs,
 ) -> "Union[Dict[str, np.ndarray], Any]":
     """Run differential abundance analysis on an AnnData object.
@@ -76,9 +79,16 @@ def da(
     sample_col : str, optional
         Column with biological-replicate labels.
     gp : GPSettings, optional
-        GP model parameters (``ls_factor``, ``n_landmarks``,
-        ``landmarks``, ``batch_size``, ``jit_compile``,
-        ``random_state``).
+        GP model parameters.  Used here: ``ls``, ``ls_factor``,
+        ``param_scheme``, ``n_landmarks``, ``landmarks``, ``batch_size``,
+        ``jit_compile`` and ``random_state``.  ``param_scheme`` decides
+        whether the two density estimators share ``d``, ``mu`` and ``ls``
+        and where the shared values come from; ``None`` means
+        ``"separate"``.  See
+        :meth:`~kompot.differential.DifferentialAbundance.fit`.
+        ``sigma``, ``eps`` and ``use_empirical_variance`` are
+        expression-only and are ignored with a warning when set to
+        anything but their defaults.
     threshold : DAThresholdSettings, optional
         Significance thresholds for abundance changes.
     storage : StorageSettings, optional
@@ -89,8 +99,14 @@ def da(
         Pre-fitted models or predictors to inject.  For DA, only
         ``density_predictor1/2`` and ``variance_predictor1/2`` are used.
         See :class:`~kompot.ModelSettings`.
+    sync_parameters : bool, optional
+        .. deprecated::
+            Use ``gp=GPSettings(param_scheme=...)``.  ``True`` is
+            ``"pooled"`` and ``False`` is ``"separate"``; passing both
+            raises.
     **density_kwargs
-        Forwarded to :class:`~mellon.DensityEstimator`.
+        Forwarded to :class:`~mellon.DensityEstimator`.  ``d``, ``mu`` and
+        ``ls`` given here pin that parameter under any ``param_scheme``.
 
     Returns
     -------
@@ -107,6 +123,42 @@ def da(
     batch_size = gp.batch_size if gp is not None else None
     jit_compile = gp.jit_compile if gp is not None else False
     random_state = gp.random_state if gp is not None else None
+    param_scheme = gp.param_scheme if gp is not None else None
+
+    if gp is not None:
+        _unused = [
+            name
+            for name in ("sigma", "eps", "use_empirical_variance")
+            if getattr(gp, name) != getattr(GPSettings, name)
+        ]
+        if _unused:
+            logger.warning(
+                f"GPSettings field(s) {_unused} have no effect in da(): they "
+                "configure the expression model only."
+            )
+        if gp.ls is not None:
+            if "ls" in density_kwargs:
+                raise ValueError(
+                    "`ls` given both as GPSettings.ls and as a density keyword "
+                    "argument; pass it once."
+                )
+            density_kwargs["ls"] = gp.ls
+
+    if sync_parameters is not None:
+        if param_scheme is not None:
+            raise ValueError(
+                "Pass either GPSettings.param_scheme or the deprecated "
+                "`sync_parameters`, not both."
+            )
+        warnings.warn(
+            "`sync_parameters` is deprecated; use "
+            "gp=GPSettings(param_scheme='pooled') for True or "
+            "param_scheme='separate' for False.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        param_scheme = "pooled" if sync_parameters else "separate"
+    param_scheme = resolve_param_scheme(param_scheme, DEFAULT_PARAM_SCHEME)
 
     _threshold = threshold if threshold is not None else DAThresholdSettings()
     log_fold_change_threshold = _threshold.lfc_threshold
@@ -157,6 +209,7 @@ def da(
         condition2=condition2,
         obsm_key=obsm_key,
         ls_factor=ls_factor,
+        param_scheme=param_scheme,
     )
 
     # ---- 1. Copy if requested ----
@@ -199,6 +252,7 @@ def da(
         condition1_sample_indices=data["condition1_sample_indices"],
         condition2_sample_indices=data["condition2_sample_indices"],
         allow_single_condition_variance=allow_single_condition_variance,
+        param_scheme=param_scheme,
         **density_kwargs,
     )
 
@@ -235,7 +289,9 @@ def da(
             sample_col=sample_col,
         ),
         gp=GPSettings(
+            ls=gp.ls if gp is not None else None,
             ls_factor=ls_factor,
+            param_scheme=param_scheme,
             n_landmarks=n_landmarks,
             batch_size=batch_size,
             jit_compile=jit_compile,
@@ -256,7 +312,11 @@ def da(
             allow_single_condition_variance=allow_single_condition_variance,
             progress=progress,
         ),
-        extra_kwargs=density_kwargs,
+        extra_kwargs={
+            k: v
+            for k, v in density_kwargs.items()
+            if not (k == "ls" and gp is not None and gp.ls is not None)
+        },
         landmarks_provided=landmarks is not None,
     )
 

@@ -10,12 +10,13 @@ from tqdm.auto import tqdm
 
 from ..utils import compute_mahalanobis_distances
 from ..batch_utils import apply_batched, is_jax_memory_error  # noqa: F401
+from ..settings import PARAM_SCHEMES, resolve_param_scheme
 from .expression_model import ExpressionModel
 
 logger = logging.getLogger("kompot")
 
-#: Recognised values for ``ls_scheme``.  See :meth:`DifferentialExpression.fit`.
-LS_SCHEMES = ("condition1", "condition2", "symmetric", "pooled", "separate")
+#: The ``param_scheme`` an expression fit uses when none is given.
+DEFAULT_PARAM_SCHEME = "condition1"
 
 
 def _auto_ls(X: np.ndarray, ls_factor: float) -> float:
@@ -30,16 +31,20 @@ def _auto_ls(X: np.ndarray, ls_factor: float) -> float:
     return float(compute_ls(compute_nn_distances(np.asarray(X))) * ls_factor)
 
 
-def _resolve_ls_scheme(ls_scheme, X_condition1, X_condition2, ls_factor):
-    """Return the ``(ls_model1, ls_model2)`` a scheme prescribes.
+def _resolve_scheme_ls(param_scheme, X_condition1, X_condition2, ls_factor):
+    """Return the ``(ls_model1, ls_model2)`` a ``param_scheme`` prescribes.
+
+    ``ls`` is the only hyperparameter a :class:`mellon.FunctionEstimator`
+    estimates from cells (it has no ``d``, and its ``mu`` is a constant prior
+    mean), so in differential expression the scheme covers ``ls`` alone.
 
     ``None`` in a slot means "let that model estimate its own".  For
     ``"condition1"`` both slots are None and the caller reproduces the
     historical behaviour by copying model1's fitted value into model2.
     """
-    if ls_scheme == "condition1":
+    if param_scheme == "condition1":
         return None, None
-    if ls_scheme == "condition2":
+    if param_scheme == "condition2":
         # The mirror of "condition1": estimate from condition 2's cells and give
         # the value to condition 1.  Resolved eagerly rather than by inheritance
         # because model1 is fitted first; `_auto_ls` reproduces what a model
@@ -48,18 +53,18 @@ def _resolve_ls_scheme(ls_scheme, X_condition1, X_condition2, ls_factor):
         # with the labels exchanged.  Pinned by
         # test_auto_ls_is_bit_identical_to_the_models_internal_estimate.
         shared = _auto_ls(X_condition2, ls_factor)
-        logger.info(f"ls_scheme='condition2': shared length scale {shared:.4f}")
+        logger.info(f"param_scheme='condition2': shared length scale {shared:.4f}")
         return shared, shared
-    if ls_scheme == "separate":
+    if param_scheme == "separate":
         return None, None
-    if ls_scheme == "pooled":
+    if param_scheme == "pooled":
         shared = _auto_ls(
             np.vstack([np.asarray(X_condition1), np.asarray(X_condition2)]),
             ls_factor,
         )
-        logger.info(f"ls_scheme='pooled': shared length scale {shared:.4f}")
+        logger.info(f"param_scheme='pooled': shared length scale {shared:.4f}")
         return shared, shared
-    if ls_scheme == "symmetric":
+    if param_scheme == "symmetric":
         n1 = np.asarray(X_condition1).shape[0]
         n2 = np.asarray(X_condition2).shape[0]
         ls1 = _auto_ls(X_condition1, ls_factor)
@@ -72,12 +77,12 @@ def _resolve_ls_scheme(ls_scheme, X_condition1, X_condition2, ls_factor):
         # the union holds more cells.
         shared = float(np.exp((n1 * np.log(ls1) + n2 * np.log(ls2)) / (n1 + n2)))
         logger.info(
-            f"ls_scheme='symmetric': condition length scales {ls1:.4f} / "
+            f"param_scheme='symmetric': condition length scales {ls1:.4f} / "
             f"{ls2:.4f} -> shared {shared:.4f}"
         )
         return shared, shared
     raise ValueError(
-        f"Unknown ls_scheme {ls_scheme!r}. Expected one of {LS_SCHEMES}."
+        f"Unknown param_scheme {param_scheme!r}. Expected one of {PARAM_SCHEMES}."
     )
 
 
@@ -376,7 +381,7 @@ class DifferentialExpression:
         sigma: float = 1.0,
         ls: Optional[float] = None,
         ls_factor: float = 10.0,
-        ls_scheme: str = "condition1",
+        param_scheme: Optional[str] = None,
         landmarks: Optional[np.ndarray] = None,
         sample_estimator_ls: Optional[float] = None,
         condition1_sample_indices: Optional[np.ndarray] = None,
@@ -404,15 +409,19 @@ class DifferentialExpression:
             Noise level for function estimator, by default 1.0.
         ls : float, optional
             Length scale for the GP kernel, shared by both conditions. If None it is
-            estimated from the data according to ``ls_scheme``, by default None.
+            estimated from the data according to ``param_scheme``, by default None.
         ls_factor : float, optional
             Multiplication factor to apply to length scale when it's automatically inferred,
             by default 10.0. Only used when ls is None.
-        ls_scheme : str, optional
-            How the automatic length scale is derived when ``ls`` is None. Both
+        param_scheme : str, optional
+            Where the hyperparameters estimated from cells come from. The same
+            field drives :meth:`DifferentialAbundance.fit`; here the only such
+            hyperparameter is the length scale, so the scheme decides which cells
+            the shared ``ls`` is estimated from when ``ls`` is None. Both
             conditions are normally smoothed at the *same* scale so that their
             fitted surfaces are comparable; the schemes differ in which cells the
-            shared value is estimated from.
+            shared value is estimated from. ``None`` (default) means
+            ``"condition1"``.
 
             * ``"condition1"`` (default) — estimate from condition 1's cells and
               reuse the value for condition 2. **Not symmetric**: the length
@@ -422,12 +431,13 @@ class DifferentialExpression:
             * ``"condition2"`` — the mirror of the default: estimate from
               condition 2's cells and reuse the value for condition 1. Equally
               asymmetric, and deliberately so. Its use is **diagnostic**:
-              ``de(X, Y, ls_scheme="condition1")`` and
-              ``de(Y, X, ls_scheme="condition2")`` are the same computation with
-              the labels exchanged, so running both orientations of a contrast
-              under the two schemes exposes the default's swap-dependence from a
-              single call site, without having to swap ``condition1`` and
-              ``condition2`` at the call site and re-derive which sign is which.
+              ``de(X, Y, param_scheme="condition1")`` and
+              ``de(Y, X, param_scheme="condition2")`` are the same computation
+              with the labels exchanged, so running both orientations of a
+              contrast under the two schemes exposes the default's
+              swap-dependence from a single call site, without having to swap
+              ``condition1`` and ``condition2`` at the call site and re-derive
+              which sign is which.
 
               .. warning::
 
@@ -468,7 +478,7 @@ class DifferentialExpression:
                  when ``"condition2"`` is used with automatic landmarks.
 
                  The order dependence is **pre-existing and independent of**
-                 ``ls_scheme`` — no scheme removes it, and it affects any
+                 ``param_scheme`` — no scheme removes it, and it affects any
                  comparison of two orientations, not only this one.
             * ``"symmetric"`` — estimate a length scale from each condition
               separately and share their size-weighted geometric mean. Invariant
@@ -508,6 +518,8 @@ class DifferentialExpression:
         self
             The fitted instance.
         """
+
+        param_scheme = resolve_param_scheme(param_scheme, DEFAULT_PARAM_SCHEME)
 
         # Check if sample indices are provided
         have_sample_indices = (
@@ -567,13 +579,13 @@ class DifferentialExpression:
         # scheme's whole purpose is the comparison, so anyone who reaches here is
         # relying on it; say so rather than leaving the boundary in the docs.
         if (
-            ls_scheme == "condition2"
+            param_scheme == "condition2"
             and not landmarks_were_provided
             and self.n_landmarks is not None
             and self.n_landmarks > 0
         ):
             logger.warning(
-                "ls_scheme='condition2' with automatic landmarks: the "
+                "param_scheme='condition2' with automatic landmarks: the "
                 "condition1/condition2 equivalence is EXACT only when both "
                 "orientations use the same landmarks, and automatic landmarks "
                 "are order-dependent (they are computed from the two "
@@ -600,17 +612,17 @@ class DifferentialExpression:
         # length scale smuggled in through function_kwargs.  A supplied
         # `cov_func`/`cov_func_curry` must NOT disable it -- the two conditions
         # still need a shared scale, and gating on the kernel would drop the
-        # condition-1 inheritance for callers who never touched `ls_scheme`,
+        # condition-1 inheritance for callers who never touched `param_scheme`,
         # silently giving them "separate" behaviour.
         ls_auto = ls is None and "ls" not in function_kwargs
         if ls_auto:
-            ls_model1, ls_model2 = _resolve_ls_scheme(
-                ls_scheme, X_condition1, X_condition2, ls_factor
+            ls_model1, ls_model2 = _resolve_scheme_ls(
+                param_scheme, X_condition1, X_condition2, ls_factor
             )
         else:
-            if ls_scheme != "condition1":
+            if param_scheme != "condition1":
                 logger.info(
-                    f"ls_scheme={ls_scheme!r} ignored: the length scale is "
+                    f"param_scheme={param_scheme!r} ignored: the length scale is "
                     "already fixed by an explicit ls."
                 )
             ls_model1 = ls_model2 = ls
@@ -638,7 +650,7 @@ class DifferentialExpression:
         ls_for_model2 = ls_model2
         if (
             ls_auto
-            and ls_scheme == "condition1"
+            and param_scheme == "condition1"
             and self.model1.ls is not None
         ):
             ls_for_model2 = self.model1.ls

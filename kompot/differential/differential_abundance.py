@@ -3,15 +3,89 @@
 import numpy as np
 from typing import Optional, Dict, Any
 import logging
+import warnings
 from scipy.stats import norm as normal
 
 import mellon
 from mellon.parameters import compute_landmarks
 
 from ..batch_utils import apply_batched
+from ..settings import PARAM_SCHEMES, resolve_param_scheme
 from .sample_variance_estimator import SampleVarianceEstimator
 
 logger = logging.getLogger("kompot")
+
+#: The ``param_scheme`` an abundance fit uses when none is given.
+DEFAULT_PARAM_SCHEME = "separate"
+
+#: The density hyperparameters a ``param_scheme`` covers.
+_DENSITY_PARAMS = ("d", "mu", "ls")
+
+# ``compute_d_factal`` averages local dimensionality over at most this many
+# query cells (mellon ``parameters.py``); the ``"symmetric"`` scheme weights
+# each condition's ``d`` by the number of cells it actually averaged over.
+_D_FACTAL_QUERY_CELLS = 500
+
+
+def _condition_density_params(X, ls_factor, seed):
+    """``d``, ``mu`` and ``ls`` exactly as a ``mellon.DensityEstimator`` derives them.
+
+    Mirrors ``DensityEstimator._compute_d`` (``d_method="fractal"``),
+    ``_compute_nn_distances``, ``_compute_mu`` and ``_compute_ls``, so that a
+    value estimated here *before* either estimator is fitted is the value the
+    estimator would have reached on its own.  Returns the validated
+    nearest-neighbour distances as well, for ``"symmetric"``.
+    """
+    from mellon.validation import validate_nn_distances
+
+    X = np.asarray(X)
+    nn = validate_nn_distances(mellon.parameters.compute_nn_distances(X, seed=seed))
+    d = mellon.parameters.compute_d_factal(X)
+    mu = mellon.parameters.compute_mu(nn, d)
+    ls = mellon.parameters.compute_ls(nn) * ls_factor
+    return {"d": d, "mu": mu, "ls": ls}, nn
+
+
+def _resolve_scheme_density_params(
+    param_scheme, X_condition1, X_condition2, ls_factor, seed
+):
+    """Return the shared ``{d, mu, ls}`` a one-sided or symmetric scheme prescribes.
+
+    ``"separate"`` and ``"pooled"`` are handled by the caller; this covers the
+    three schemes that estimate from each condition on its own.
+    """
+    if param_scheme == "condition1":
+        return _condition_density_params(X_condition1, ls_factor, seed)[0]
+    if param_scheme == "condition2":
+        return _condition_density_params(X_condition2, ls_factor, seed)[0]
+    if param_scheme == "symmetric":
+        # Each shared value is the model's own estimator applied to the two
+        # conditions' WITHIN-condition statistics pooled together -- never to
+        # the stacked union, whose row order depends on the orientation.  Every
+        # combination below is written so that exchanging the conditions
+        # exchanges two commutative terms, which makes the result bit-identical
+        # under a swap by construction, not merely close.
+        p1, nn1 = _condition_density_params(X_condition1, ls_factor, seed)
+        p2, nn2 = _condition_density_params(X_condition2, ls_factor, seed)
+        n1, n2 = np.asarray(X_condition1).shape[0], np.asarray(X_condition2).shape[0]
+        # ls: geometric mean of nn distances pooled == size-weighted geometric
+        # mean of the per-condition values (the differential-expression rule).
+        ls = float(
+            np.exp((n1 * np.log(p1["ls"]) + n2 * np.log(p2["ls"])) / (n1 + n2))
+        )
+        # d: mean local dimensionality pooled over the query cells each
+        # condition's estimate averaged.
+        q1 = min(n1, _D_FACTAL_QUERY_CELLS)
+        q2 = min(n2, _D_FACTAL_QUERY_CELLS)
+        d = float((q1 * p1["d"] + q2 * p2["d"]) / (q1 + q2))
+        # mu: the 1st-percentile rule over the pooled within-condition nn
+        # distances, at the shared d.  A quantile sorts, so the order the two
+        # conditions are concatenated in does not reach the result.
+        mu = mellon.parameters.compute_mu(np.concatenate([nn1, nn2]), d)
+        return {"d": d, "mu": mu, "ls": ls}
+    raise ValueError(
+        f"Unknown param_scheme {param_scheme!r}. Expected one of {PARAM_SCHEMES}."
+    )
 
 
 class DifferentialAbundance:
@@ -21,9 +95,9 @@ class DifferentialAbundance:
     This class analyzes the differences in cell density between two conditions
     (e.g., control to treatment) using density estimation and fold change analysis.
 
-    The analysis can be performed with synchronized parameters between conditions
-    by setting sync_parameters=True in the fit method, which ensures consistent
-    density estimation across both conditions.
+    Whether the two conditions' density estimators share their ``d``, ``mu``
+    and ``ls``, and which cells the shared values come from, is set by
+    ``param_scheme`` in :meth:`fit`.
 
     Attributes
     ----------
@@ -44,8 +118,8 @@ class DifferentialAbundance:
 
     Methods
     -------
-    fit(X_condition1, X_condition2, sync_parameters=False, **density_kwargs)
-        Fit density estimators for both conditions, optionally with synchronized parameters.
+    fit(X_condition1, X_condition2, param_scheme=None, **density_kwargs)
+        Fit density estimators for both conditions, optionally sharing parameters.
     predict(X_new)
         Predict log density and log fold change for new points.
     """
@@ -157,8 +231,9 @@ class DifferentialAbundance:
         condition1_sample_indices: Optional[np.ndarray] = None,
         condition2_sample_indices: Optional[np.ndarray] = None,
         sample_estimator_ls: Optional[float] = None,
-        sync_parameters: bool = False,
+        sync_parameters: Optional[bool] = None,
         allow_single_condition_variance: bool = False,
+        param_scheme: Optional[str] = None,
         **density_kwargs,
     ):
         """
@@ -183,8 +258,9 @@ class DifferentialAbundance:
             different landmark sets and their results stop being exact mirrors of
             one another. Passing one array here to both runs removes that; so
             does ``n_landmarks=None``, which builds no landmarks at all. With
-            ``random_state=None`` the selection is not even reproducible between
-            two runs of the same orientation.
+            ``random_state=None`` (the default) the selection is not even
+            reproducible between two runs of the same orientation. This is
+            independent of ``param_scheme``: see there for the other half.
         ls_factor : float, optional
             Multiplication factor to apply to length scale when it's automatically inferred,
             by default 10.0. Only used when ls is not explicitly provided in density_kwargs.
@@ -198,12 +274,38 @@ class DifferentialAbundance:
             Length scale for the sample-specific variance estimators. If None, will use
             the same value as ls or it will be estimated, by default None.
         sync_parameters : bool, optional
-            Whether to synchronize model parameters (d, mu, ls) between both conditions using
-            the combined dataset. When True, parameters are computed once from the combined data
-            to ensure models for both conditions use identical parameter values. This is especially
-            important for consistent density estimation across conditions. Default is False.
+            .. deprecated::
+                Use ``param_scheme``. ``True`` is ``param_scheme="pooled"`` and
+                ``False`` is ``param_scheme="separate"``; passing both raises.
+        allow_single_condition_variance : bool, optional
+            Allow sample-variance estimation when only one condition has
+            multiple samples, by default False.
+        param_scheme : str, optional
+            Where the density hyperparameters ``d``, ``mu`` and ``ls`` come from.
+            The same field drives :meth:`DifferentialExpression.fit`, where it
+            covers ``ls`` only. A value passed explicitly through
+            ``density_kwargs`` (``d=``, ``mu=``, ``ls=``) pins that parameter
+            and takes precedence. ``None`` (default) means ``"separate"``.
 
-            **Order dependence.** The combined dataset is
+            * ``"separate"`` (default) — each density estimator derives its own
+              ``d``, ``mu`` and ``ls`` from its own condition; nothing is shared.
+            * ``"pooled"`` — estimate all three once from both conditions' cells
+              taken together and share them (formerly ``sync_parameters=True``).
+            * ``"condition1"`` / ``"condition2"`` — estimate all three from one
+              condition's cells, exactly as that condition's own estimator
+              would, and share them. As asymmetric as the names say.
+            * ``"symmetric"`` — estimate from each condition separately and share
+              the pooled estimate: ``ls`` is the size-weighted geometric mean of
+              the two (as in differential expression), ``d`` the mean local
+              dimensionality over both conditions' query cells, and ``mu`` the
+              1st-percentile rule over both conditions' within-condition
+              nearest-neighbour distances at that ``d``. Bit-identical under
+              swapping the conditions.
+
+            A shared ``d`` is always the fractal estimate; pass ``d`` to use
+            another.
+
+            **Order dependence.** ``"pooled"`` works on
             ``np.vstack([X_condition1, X_condition2])``, so the parameters it
             derives depend on the order the conditions were passed in, and
             ``da(X, Y)`` and ``da(Y, X)`` stop agreeing. ``mu`` and ``ls`` come
@@ -211,19 +313,23 @@ class DifferentialAbundance:
             subsamples 500 indices once the **combined** cell count is **above**
             500, and so becomes order-dependent there too.
 
-            To make the two orientations agree, pass ``d``, ``mu`` and ``ls``
-            explicitly through ``density_kwargs`` rather than relying on
-            synchronisation. **Two remedies are needed and neither substitutes
-            for the other**: passing all three fixes the parameter half, and it
-            leaves an uncertainty discrepancy behind whenever landmarks are still
-            chosen automatically — so pass one ``landmarks`` array to both runs
-            as well (or use ``n_landmarks=None``). Measured on 400 + 400 cells:
-            all three parameters with automatic landmarks still differs between
+            To make the two orientations agree under ``"pooled"``, pass ``d``,
+            ``mu`` and ``ls`` explicitly through ``density_kwargs``. **Two
+            remedies are needed and neither substitutes for the other**: passing
+            all three fixes the parameter half, and it leaves an uncertainty
+            discrepancy behind whenever landmarks are still chosen
+            automatically — so pass one ``landmarks`` array to both runs as well
+            (or use ``n_landmarks=None``). Measured on 400 + 400 cells: all
+            three parameters with automatic landmarks still differs between
             orientations, while all three with a shared landmark array agrees
-            exactly.
+            exactly. Below 500 combined cells ``mu`` and ``ls`` alone suffice
+            for the parameter half, but passing ``d`` as well is always safe.
 
-            Below 500 combined cells ``mu`` and ``ls`` alone suffice for the
-            parameter half, but passing ``d`` as well is always safe.
+            ``"separate"``, ``"symmetric"`` and the ``"condition1"`` /
+            ``"condition2"`` mirror never touch the union, so only the landmark
+            half applies to them: ``da(X, Y, "condition1")`` and
+            ``da(Y, X, "condition2")`` are the same computation with the labels
+            exchanged when both runs use the same landmarks.
         **density_kwargs : dict
             Additional arguments to pass to the DensityEstimator.
 
@@ -232,6 +338,22 @@ class DifferentialAbundance:
         self
             The fitted instance.
         """
+
+        if sync_parameters is not None:
+            if param_scheme is not None:
+                raise ValueError(
+                    "Pass either `param_scheme` or the deprecated "
+                    "`sync_parameters`, not both."
+                )
+            warnings.warn(
+                "`sync_parameters` is deprecated; use "
+                "`param_scheme='pooled'` (for True) or "
+                "`param_scheme='separate'` (for False).",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            param_scheme = "pooled" if sync_parameters else "separate"
+        param_scheme = resolve_param_scheme(param_scheme, DEFAULT_PARAM_SCHEME)
 
         # Create or use density predictors
         if self.density_predictor1 is None or self.density_predictor2 is None:
@@ -277,8 +399,9 @@ class DifferentialAbundance:
                 # Store computed landmarks for future use
                 self.computed_landmarks = computed_landmarks
 
-            # Handle synchronization of parameters when sync_parameters is True
-            if sync_parameters:
+            # "pooled": estimate d / mu / ls from the stacked union and share.
+            # This block is the former `sync_parameters=True` path, unchanged.
+            if param_scheme == "pooled":
                 # Combine data from both conditions for parameter estimation
                 X_combined = np.vstack([X_condition1, X_condition2])
                 logger.info(
@@ -308,6 +431,29 @@ class DifferentialAbundance:
                     ls = base_ls * ls_factor
                     estimator_defaults["ls"] = ls
                     logger.info(f"Synchronizing parameter ls to {ls:.4f}")
+
+            # "condition1" / "condition2" / "symmetric": estimate from each
+            # condition on its own, before either estimator is fitted, and share.
+            elif param_scheme != "separate":
+                unpinned = [p for p in _DENSITY_PARAMS if p not in density_kwargs]
+                if unpinned:
+                    # the seed a DensityEstimator uses for its own nn search
+                    from mellon.parameters import DEFAULT_RANDOM_SEED
+
+                    seed = density_kwargs.get("random_state")
+                    if seed is None:
+                        seed = DEFAULT_RANDOM_SEED
+                    shared = _resolve_scheme_density_params(
+                        param_scheme, X_condition1, X_condition2, ls_factor, seed
+                    )
+                    for name in unpinned:
+                        estimator_defaults[name] = shared[name]
+                    logger.info(
+                        f"param_scheme={param_scheme!r}: sharing "
+                        + ", ".join(
+                            f"{name}={float(shared[name]):.4f}" for name in unpinned
+                        )
+                    )
 
             # Fit density estimators for both conditions
             logger.info("Fitting density estimator for condition 1...")

@@ -28,6 +28,28 @@ from .validation import (
     validate_bool,
 )
 
+#: Recognised values for ``GPSettings.param_scheme``.  ``None`` is also
+#: accepted and means "this entry point's default".
+PARAM_SCHEMES = ("condition1", "condition2", "symmetric", "pooled", "separate")
+
+
+def validate_param_scheme(value, optional: bool = False):
+    """Return ``value`` if it is a recognised ``param_scheme``, else raise."""
+    if value is None:
+        if optional:
+            return None
+        raise ValueError(f"'param_scheme' must be one of {PARAM_SCHEMES} (got None).")
+    if value not in PARAM_SCHEMES:
+        raise ValueError(
+            f"'param_scheme' must be one of {PARAM_SCHEMES} (got {value!r})."
+        )
+    return value
+
+
+def resolve_param_scheme(value, default: str) -> str:
+    """Map ``None`` onto an entry point's default and validate the result."""
+    return validate_param_scheme(default if value is None else value)
+
 
 @dataclass
 class GPSettings:
@@ -38,27 +60,44 @@ class GPSettings:
     sigma : float
         Noise level for the GP.
     ls : float, optional
-        Length scale, shared by both conditions.  If *None*, estimated
-        automatically using ``ls_factor`` and ``ls_scheme``.
+        Length scale of the GP kernel, shared by both conditions.  If *None*
+        it is estimated from the cells, from where ``param_scheme`` says.
     ls_factor : float
         Multiplier applied to the automatically inferred length scale.
-    ls_scheme : str
-        Which cells the automatic shared length scale is estimated from.
-        ``"condition1"`` (default) uses condition 1's cells only, which makes
-        the result depend on which condition is passed first; ``"condition2"``
-        is its mirror and exists to make that dependence visible in a single
-        run, since ``de(X, Y, ls_scheme="condition1")`` and
-        ``de(Y, X, ls_scheme="condition2")`` are the same computation with the
-        labels exchanged **provided both runs use the same landmarks** — see
-        the warning under :meth:`kompot.differential.DifferentialExpression.fit`,
-        because the defaults here (``n_landmarks=5000``, ``landmarks=None``) do
-        *not* satisfy that and the equivalence then holds only approximately;
-        ``"symmetric"`` shares the size-weighted geometric
-        mean of the two per-condition estimates; ``"pooled"`` estimates from
-        both conditions' cells taken together; ``"separate"`` gives each
-        condition its own.  See
-        :meth:`kompot.differential.DifferentialExpression.fit`.  Ignored when
-        ``ls`` is given explicitly.
+    param_scheme : str, optional
+        Where the hyperparameters a model estimates from cells come from.
+        Read by both :func:`kompot.de` and :func:`kompot.da`; the model
+        decides which parameters it covers — ``ls`` in differential
+        expression, ``d``, ``mu`` and ``ls`` in differential abundance.  A
+        value given explicitly (``ls`` here, or ``d`` / ``mu`` passed to
+        ``da()``) pins that parameter and takes precedence.
+
+        ``None`` (default) keeps each entry point's own default:
+        ``"condition1"`` for ``de()`` and ``"separate"`` for ``da()``.
+
+        * ``"condition1"`` — estimate from condition 1's cells and reuse for
+          condition 2.  Makes the result depend on which condition is passed
+          first.
+        * ``"condition2"`` — the mirror: estimate from condition 2's cells and
+          reuse for condition 1.  Equally asymmetric, by design; it exists so
+          that ``de(X, Y, "condition1")`` and ``de(Y, X, "condition2")`` (and
+          likewise ``da``) are the same computation with the labels exchanged
+          **provided both runs use the same landmarks**.  The defaults here
+          (``n_landmarks=5000``, ``landmarks=None``) do *not* satisfy that and
+          the equivalence then holds only approximately — see
+          :meth:`kompot.differential.DifferentialExpression.fit`.
+        * ``"symmetric"`` — estimate from each condition separately and share
+          the size-weighted combination (geometric mean for ``ls``).
+          Invariant under swapping the conditions.
+        * ``"pooled"`` — estimate from both conditions' cells taken together.
+          Swap-invariant up to the row order of the stacked union, and the
+          union is denser than either condition, so the length scale shrinks
+          with cell count alone.
+        * ``"separate"`` — each condition estimates its own; nothing shared.
+
+        Which to pick, and the measurements behind each:
+        :meth:`kompot.differential.DifferentialExpression.fit` and
+        :meth:`kompot.differential.DifferentialAbundance.fit`.
     n_landmarks : int, optional
         Number of landmarks for the Nystrom approximation.
     landmarks : np.ndarray, optional
@@ -78,7 +117,7 @@ class GPSettings:
     sigma: float = 1.0
     ls: Optional[float] = None
     ls_factor: float = 10.0
-    ls_scheme: str = "condition1"
+    param_scheme: Optional[str] = None
     n_landmarks: Optional[int] = 5000
     landmarks: Optional[np.ndarray] = None
     use_empirical_variance: bool = False
@@ -91,13 +130,7 @@ class GPSettings:
         validate_positive_float(self.sigma, "sigma")
         validate_positive_float(self.ls, "ls", optional=True)
         validate_positive_float(self.ls_factor, "ls_factor")
-        from .differential.differential_expression import LS_SCHEMES
-
-        if self.ls_scheme not in LS_SCHEMES:
-            raise ValueError(
-                f"'ls_scheme' must be one of {LS_SCHEMES} (got "
-                f"{self.ls_scheme!r})."
-            )
+        validate_param_scheme(self.param_scheme, optional=True)
         validate_positive_int(self.n_landmarks, "n_landmarks", optional=True)
         validate_bool(self.use_empirical_variance, "use_empirical_variance")
         validate_positive_int(self.batch_size, "batch_size", optional=True)

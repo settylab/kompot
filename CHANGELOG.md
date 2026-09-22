@@ -6,51 +6,44 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
- - **`GPSettings.ls_scheme`**: chooses which cells the automatic shared length scale is estimated
-   from in differential expression — `"condition1"` (the default, exactly the existing behaviour),
-   `"condition2"`, `"symmetric"`, `"pooled"`, `"separate"`. The shared value has always been
-   estimated from **condition 1's cells only**, making it a function of `n_condition1`, so
-   `de(condition1=X, condition2=Y)` is *not* equivalent to `de(condition1=Y, condition2=X)`; on an
-   exchangeable null the two orientations differ in false-positive rate by 0.06–0.08 beyond 2:1.
-   `"symmetric"` and `"pooled"` are swap-invariant, `"separate"` is diagnostics-only. See
-   `DifferentialExpression.fit` for which to pick and why.
- - **`ls_scheme="condition2"`**: the default's mirror — estimated from condition 2's cells — for
-   diagnosis rather than analysis. `de(X, Y, ls_scheme="condition1")` and
-   `de(Y, X, ls_scheme="condition2")` are the same computation with the labels exchanged, so the
-   default's swap-dependence is visible from a single call site. The equivalence is exact only
-   when both runs use the same landmarks; automatic landmarks are order-dependent, and `fit()`
-   warns when the scheme is used with them. Measurements and the precondition:
-   `DifferentialExpression.fit`.
+ - **`GPSettings.param_scheme`**: one field, read by both `kompot.de()` and `kompot.da()`, that
+   says where the hyperparameters estimated from cells come from — `"condition1"`,
+   `"condition2"`, `"symmetric"`, `"pooled"` or `"separate"`. It covers `ls` in differential
+   expression and `d`, `mu` and `ls` in differential abundance; an explicit value pins that
+   parameter. The default, `None`, keeps each entry point's existing behaviour: `"condition1"` for
+   `de()` and `"separate"` for `da()`.
+ - **Expression results depend on argument order at the default.** The shared length scale is
+   estimated from condition 1's cells only, so `de(condition1=X, condition2=Y)` is not equivalent
+   to `de(condition1=Y, condition2=X)`; on an exchangeable null the two orientations differ in
+   false-positive rate by 0.06–0.08 beyond 2:1. `"symmetric"` and `"pooled"` are swap-invariant,
+   `"separate"` is for diagnostics, and `"condition2"` mirrors the default so its order dependence
+   is visible from one call site. See `DifferentialExpression.fit`.
+ - **Abundance gains `"condition1"`, `"condition2"` and `"symmetric"`.** `"symmetric"` is
+   swap-invariant by construction. See `DifferentialAbundance.fit`.
 
 ### Changed
 
- - `ls_scheme` participates in run-parameter matching, so re-running under a different scheme is
-   no longer treated as a matching rerun.
+ - `param_scheme` participates in run-parameter matching for both `de()` and `da()`.
+
+### Deprecated
+
+ - **`sync_parameters`** on `DifferentialAbundance.fit` and `da()`: `True` is
+   `param_scheme="pooled"` and `False` is `"separate"`, with identical results. It previously
+   reached `da()` only through `**density_kwargs`.
 
 ### Fixed
 
- - **`ls_scheme` is now readable back out of a stored `run_info`.** It is written nested under
-   `params["gp"]` but was missing from `params_get`'s key map, so it read back as `None` and
-   *every* rerun — including a byte-identical one — compared unequal and was reported as a
-   parameter change.
- - **The DE CLI now routes a flat `ls_scheme` config key into `GPSettings`.** An unrecognised key
-   is not rejected: it falls through to `**function_kwargs` and is handed to mellon, so the
-   documented knob was unreachable from a config file and the omission was silent.
+ - **`da()` now honours `GPSettings.ls`.** It read six `GPSettings` fields and silently ignored the
+   rest. The expression-only fields `sigma`, `eps` and `use_empirical_variance` now log a warning
+   when set, and the DA CLI routes `ls` and `param_scheme` config keys into `GPSettings`.
 
 ### Documentation
 
- - `GPSettings.ls_scheme` and `DifferentialExpression.fit` now state where the shared length scale
-   comes from, that the default makes the contrast depend on argument order, and what the
-   `"condition2"` equivalence requires of landmarks.
- - **Differential abundance is swap-equivalent when it uses no landmarks** — the
-   `DifferentialAbundance` class default (`n_landmarks=None`, `sync_parameters=False`) — and now
-   has tests saying so. It needs no `ls_scheme` analogue: abundance shares one configuration
-   between both density estimators and never had the condition-1 inheritance `ls_scheme` exists
-   to expose. `sync_parameters=True` and automatic landmarks each break the equivalence, by
-   different mechanisms needing different remedies that do not substitute for one another — see
-   `DifferentialAbundance.fit` for both, and note that `da(adata, gp=GPSettings(...))` carries
-   `n_landmarks=5000` and so is not at the class default. A pre-existing instability at
-   `n_landmarks >= n_combined` is tracked at settylab/kompot#32.
+ - Abundance is swap-equivalent at `"separate"` without landmarks, and tested. `"pooled"` and
+   automatic landmarks each break that, and need different remedies that do not substitute for
+   one another: see `DifferentialAbundance.fit`. `da(adata, gp=GPSettings(...))` carries
+   `n_landmarks=5000`. A pre-existing instability at `n_landmarks >= n_combined` is tracked at
+   settylab/kompot#32.
 
 ## [0.8.0] - 2026-07-28
 

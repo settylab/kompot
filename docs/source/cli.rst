@@ -443,9 +443,9 @@ The table below shows how config keys correspond to Python Settings:
    * - Config key
      - Python equivalent
      - Description
-   * - ``sigma``, ``ls``, ``ls_factor``, ``ls_scheme`` (DE only), ``n_landmarks``, ``batch_size``, ``eps``, ``jit_compile``, ``random_state``, ``use_empirical_variance``
+   * - ``ls``, ``ls_factor``, ``param_scheme``, ``n_landmarks``, ``batch_size``, ``jit_compile``, ``random_state``; DE also ``sigma``, ``eps``, ``use_empirical_variance``
      - ``gp=GPSettings(...)``
-     - GP model parameters
+     - GP model parameters. ``param_scheme`` defaults to ``condition1`` in DE and ``separate`` in DA
    * - ``null_genes``, ``null_seed``, ``fdr_threshold``
      - ``fdr=FDRSettings(...)``
      - FDR / null distribution (DE)

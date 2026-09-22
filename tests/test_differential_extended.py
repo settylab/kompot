@@ -120,8 +120,8 @@ class TestDifferentialAbundanceCore:
             assert hasattr(da, "computed_landmarks")
             np.testing.assert_array_equal(da.computed_landmarks, landmarks)
 
-    def test_differential_abundance_fit_sync_parameters(self):
-        """Test DifferentialAbundance fit with parameter synchronization."""
+    def test_differential_abundance_fit_pooled_parameters(self):
+        """Test DifferentialAbundance fit with pooled shared parameters."""
         try:
             from kompot.differential import DifferentialAbundance
         except ImportError as e:
@@ -148,7 +148,7 @@ class TestDifferentialAbundanceCore:
             mock_estimator.predict = mock_predictor
             mock_mellon.DensityEstimator.return_value = mock_estimator
 
-            da.fit(X1, X2, sync_parameters=True, n_landmarks=10)
+            da.fit(X1, X2, param_scheme="pooled", n_landmarks=10)
 
             # Should call parameter computation functions
             mock_mellon.parameters.compute_d_factal.assert_called_once()

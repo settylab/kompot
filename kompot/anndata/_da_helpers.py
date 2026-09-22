@@ -25,6 +25,7 @@ def _check_da_overwrites(
     condition2: str,
     obsm_key: str,
     ls_factor: float,
+    param_scheme: str = "separate",
 ):
     """Check for existing DA results and handle overwrite logic."""
     from .utils import detect_output_field_overwrite
@@ -101,9 +102,19 @@ def _check_da_overwrites(
                     "condition2",
                     "obsm_key",
                     "ls_factor",
+                    "param_scheme",
                 ]:
                     curr_val = locals().get(param_name)
                     prev_val = _pg(prev_params, param_name)
+                    if param_name == "param_scheme" and prev_val is None:
+                        # Recorded before `param_scheme` existed: sharing was
+                        # then only reachable as a `sync_parameters` kwarg.
+                        prev_extra = prev_params.get("extra_kwargs") or {}
+                        prev_val = (
+                            "pooled"
+                            if prev_extra.get("sync_parameters")
+                            else "separate"
+                        )
                     if curr_val != prev_val:
                         params_match = False
                         logger.debug(

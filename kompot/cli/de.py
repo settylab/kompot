@@ -213,7 +213,7 @@ GP_CONFIG_KEYS = {
     "sigma",
     "ls",
     "ls_factor",
-    "ls_scheme",
+    "param_scheme",
     "n_landmarks",
     "use_empirical_variance",
     "batch_size",
