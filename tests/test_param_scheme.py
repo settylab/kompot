@@ -559,6 +559,7 @@ import anndata  # noqa: E402
 import kompot  # noqa: E402
 from kompot.differential.differential_abundance import (  # noqa: E402
     DifferentialAbundance,
+    _condition_density_params,
     _resolve_scheme_density_params,
 )
 from kompot.settings import OutputSettings  # noqa: E402
@@ -725,8 +726,10 @@ def test_da_symmetric_is_bit_identical_under_a_swap(n1, n2):
     fwd = _resolve_scheme_density_params("symmetric", X1, X2, 10.0, 42)
     rev = _resolve_scheme_density_params("symmetric", X2, X1, 10.0, 42)
     assert fwd == rev
-    one = _resolve_scheme_density_params("condition1", X1, X2, 10.0, 42)
-    two = _resolve_scheme_density_params("condition2", X1, X2, 10.0, 42)
+    # per-condition references straight from the estimator recipe, so this test
+    # reads nothing of the one-sided schemes it is not about
+    one = _condition_density_params(X1, 10.0, 42)[0]
+    two = _condition_density_params(X2, 10.0, 42)[0]
     for name in ("d", "mu", "ls"):
         assert fwd[name] != one[name] and fwd[name] != two[name], name
         assert min(one[name], two[name]) <= fwd[name] <= max(one[name], two[name]), name
