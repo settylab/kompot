@@ -4,11 +4,12 @@ One ``GPSettings`` field drives both entry points.  In differential EXPRESSION
 it covers the length scale; in differential ABUNDANCE it covers ``d``, ``mu``
 and ``ls`` (the second half of this file).
 
-The expression default (``param_scheme=None`` -> ``"condition1"``) estimates the shared length scale from
-condition 1's cells only, which makes the contrast depend on which condition is
-passed first.  These tests pin the default's behaviour and check that each
-alternative does what it says -- including ``"condition2"``, the default's
-mirror, for which the statement is an exact equivalence:
+The expression default (``param_scheme=None``, i.e. ``"condition1"``) estimates
+the shared length scale from condition 1's cells only, which makes the contrast
+depend on which condition is passed first.  These tests pin the default's
+behaviour and check that each alternative does what it says -- including
+``"condition2"``, the default's mirror, for which the statement is an exact
+equivalence:
 ``de(X, Y, param_scheme="condition1")`` and ``de(Y, X, param_scheme="condition2")``
 are the same computation with the labels exchanged.
 """

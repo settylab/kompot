@@ -15,9 +15,10 @@ estimator derives its own from its own cells. There is no condition-1
 inheritance to be asymmetric about.
 
 Two configurations DO break the exactness, and both are covered below: automatic
-landmarks, and ``param_scheme="pooled"`` (formerly ``sync_parameters=True``). Both trace to the same ROOT as the DE
-case -- ``np.vstack([X_condition1, X_condition2])`` is row-order dependent -- but
-they act through DIFFERENT proximate mechanisms, and **a remedy applies at the
+landmarks, and ``param_scheme="pooled"`` (formerly ``sync_parameters=True``).
+Both trace to the same ROOT as the DE case --
+``np.vstack([X_condition1, X_condition2])`` is row-order dependent -- but they
+act through DIFFERENT proximate mechanisms, and **a remedy applies at the
 proximate level, not the root**: ``compute_landmarks`` (k-means init) for the
 first, ``compute_nn_distances`` (which sets ``mu`` and ``ls``) for the second.
 So sharing a landmark array fixes the first and cannot reach the second --
