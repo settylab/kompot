@@ -27,27 +27,31 @@ _DENSITY_PARAMS = ("d", "mu", "ls")
 _D_FACTAL_QUERY_CELLS = 500
 
 
-def _condition_density_params(X, ls_factor, seed):
+def _condition_density_params(X, ls_factor, seed, d=None):
     """``d``, ``mu`` and ``ls`` exactly as a ``mellon.DensityEstimator`` derives them.
 
     Mirrors ``DensityEstimator._compute_d`` (``d_method="fractal"``),
     ``_compute_nn_distances``, ``_compute_mu`` and ``_compute_ls``, so that a
     value estimated here *before* either estimator is fitted is the value the
     estimator would have reached on its own.  Returns the validated
-    nearest-neighbour distances as well, for ``"symmetric"``.
+    nearest-neighbour distances as well, for ``"symmetric"``.  ``d``, when
+    given, is a pinned value and replaces the fractal estimate everywhere.
     """
     from mellon.validation import validate_nn_distances
 
     X = np.asarray(X)
     nn = validate_nn_distances(mellon.parameters.compute_nn_distances(X, seed=seed))
-    d = mellon.parameters.compute_d_factal(X)
+    # A pinned ``d`` is what the estimator will use, so ``mu`` is derived at it
+    # -- never at the fractal estimate the pin replaces.
+    if d is None:
+        d = mellon.parameters.compute_d_factal(X)
     mu = mellon.parameters.compute_mu(nn, d)
     ls = mellon.parameters.compute_ls(nn) * ls_factor
     return {"d": d, "mu": mu, "ls": ls}, nn
 
 
 def _resolve_scheme_density_params(
-    param_scheme, X_condition1, X_condition2, ls_factor, seed
+    param_scheme, X_condition1, X_condition2, ls_factor, seed, d=None
 ):
     """Return the shared ``{d, mu, ls}`` a one-sided or symmetric scheme prescribes.
 
@@ -55,9 +59,9 @@ def _resolve_scheme_density_params(
     three schemes that estimate from each condition on its own.
     """
     if param_scheme == "condition1":
-        return _condition_density_params(X_condition1, ls_factor, seed)[0]
+        return _condition_density_params(X_condition1, ls_factor, seed, d)[0]
     if param_scheme == "condition2":
-        return _condition_density_params(X_condition2, ls_factor, seed)[0]
+        return _condition_density_params(X_condition2, ls_factor, seed, d)[0]
     if param_scheme == "symmetric":
         # Each shared value is the model's own estimator applied to the two
         # conditions' WITHIN-condition statistics pooled together -- never to
@@ -65,8 +69,8 @@ def _resolve_scheme_density_params(
         # combination below is written so that exchanging the conditions
         # exchanges two commutative terms, which makes the result bit-identical
         # under a swap by construction, not merely close.
-        p1, nn1 = _condition_density_params(X_condition1, ls_factor, seed)
-        p2, nn2 = _condition_density_params(X_condition2, ls_factor, seed)
+        p1, nn1 = _condition_density_params(X_condition1, ls_factor, seed, d)
+        p2, nn2 = _condition_density_params(X_condition2, ls_factor, seed, d)
         n1, n2 = np.asarray(X_condition1).shape[0], np.asarray(X_condition2).shape[0]
         # ls: geometric mean of nn distances pooled == size-weighted geometric
         # mean of the per-condition values (the differential-expression rule).
@@ -75,9 +79,10 @@ def _resolve_scheme_density_params(
         )
         # d: mean local dimensionality pooled over the query cells each
         # condition's estimate averaged.
-        q1 = min(n1, _D_FACTAL_QUERY_CELLS)
-        q2 = min(n2, _D_FACTAL_QUERY_CELLS)
-        d = float((q1 * p1["d"] + q2 * p2["d"]) / (q1 + q2))
+        if d is None:
+            q1 = min(n1, _D_FACTAL_QUERY_CELLS)
+            q2 = min(n2, _D_FACTAL_QUERY_CELLS)
+            d = float((q1 * p1["d"] + q2 * p2["d"]) / (q1 + q2))
         # mu: the 1st-percentile rule over the pooled within-condition nn
         # distances, at the shared d.  A quantile sorts, so the order the two
         # conditions are concatenated in does not reach the result.
@@ -444,7 +449,12 @@ class DifferentialAbundance:
                     if seed is None:
                         seed = DEFAULT_RANDOM_SEED
                     shared = _resolve_scheme_density_params(
-                        param_scheme, X_condition1, X_condition2, ls_factor, seed
+                        param_scheme,
+                        X_condition1,
+                        X_condition2,
+                        ls_factor,
+                        seed,
+                        d=density_kwargs.get("d"),
                     )
                     for name in unpinned:
                         estimator_defaults[name] = shared[name]

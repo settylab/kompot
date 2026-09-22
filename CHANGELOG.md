@@ -12,12 +12,6 @@ All notable changes to this project will be documented in this file.
    expression and `d`, `mu` and `ls` in differential abundance; an explicit value pins that
    parameter. The default, `None`, keeps each entry point's existing behaviour: `"condition1"` for
    `de()` and `"separate"` for `da()`.
- - **Expression results depend on argument order at the default.** The shared length scale is
-   estimated from condition 1's cells only, so `de(condition1=X, condition2=Y)` is not equivalent
-   to `de(condition1=Y, condition2=X)`; on an exchangeable null the two orientations differ in
-   false-positive rate by 0.06–0.08 beyond 2:1. `"symmetric"` and `"pooled"` are swap-invariant,
-   `"separate"` is for diagnostics, and `"condition2"` mirrors the default so its order dependence
-   is visible from one call site. See `DifferentialExpression.fit`.
  - **Abundance gains `"condition1"`, `"condition2"` and `"symmetric"`.** `"symmetric"` is
    swap-invariant by construction. See `DifferentialAbundance.fit`.
 
@@ -39,6 +33,12 @@ All notable changes to this project will be documented in this file.
 
 ### Documentation
 
+ - **Expression results depend on argument order at the default.** The shared length scale is
+   estimated from condition 1's cells only, so `de(condition1=X, condition2=Y)` is not equivalent
+   to `de(condition1=Y, condition2=X)`; on an exchangeable null the two orientations differ in
+   false-positive rate by 0.06–0.08 beyond 2:1. `"symmetric"` and `"pooled"` are swap-invariant,
+   `"separate"` is for diagnostics, and `"condition2"` mirrors the default so its order dependence
+   is visible from one call site. See `DifferentialExpression.fit`.
  - Abundance is swap-equivalent at `"separate"` without landmarks, and tested. `"pooled"` and
    automatic landmarks each break that, and need different remedies that do not substitute for
    one another: see `DifferentialAbundance.fit`. `da(adata, gp=GPSettings(...))` carries

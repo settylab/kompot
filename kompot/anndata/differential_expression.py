@@ -138,6 +138,11 @@ def de(
     sigma = _gp.sigma
     ls = _gp.ls
     ls_factor = _gp.ls_factor
+    if "param_scheme" in function_kwargs:
+        raise ValueError(
+            "`param_scheme` is a GPSettings field: pass "
+            "gp=GPSettings(param_scheme=...), not a keyword argument of de()."
+        )
     param_scheme = resolve_param_scheme(_gp.param_scheme, DEFAULT_PARAM_SCHEME)
     n_landmarks = _gp.n_landmarks
     landmarks = _gp.landmarks

@@ -689,6 +689,60 @@ def test_da_explicit_values_pin_every_scheme(scheme):
     assert s1 == s2 == (2.0, -5.0, 3.0)
 
 
+_ONE_SIDED = [("condition1", 0), ("condition2", 1)]
+
+
+@pytest.mark.parametrize("scheme, side", _ONE_SIDED)
+def test_da_one_sided_scheme_derives_mu_at_a_pinned_d(scheme, side):
+    """Pinning ``d`` ALONE must reach ``mu``, which the estimator derives from ``d``.
+
+    Reference: the unshared fit with the same pin, i.e. what that condition's
+    estimator does on its own.  Pinning d, mu and ls together (the test above)
+    cannot see this, because the pinned mu hides the derived one.
+    """
+    X1, X2 = _da_data()
+    sep = _shared(_da_fit(X1, X2, param_scheme="separate", d=2.0))[side]
+    got = _shared(_da_fit(X1, X2, param_scheme=scheme, d=2.0))
+    assert got[0] == got[1]
+    assert got[side] == sep
+    assert got[side][0] == 2.0
+    # control: the pin moves mu, so equality above is not the unpinned value
+    assert got[side][1] != _shared(_da_fit(X1, X2, param_scheme=scheme))[side][1]
+
+
+def test_da_symmetric_derives_mu_at_a_pinned_d():
+    from mellon.parameters import compute_mu
+
+    X1, X2 = _da_data()
+    s1, s2 = _shared(_da_fit(X1, X2, param_scheme="symmetric", d=2.0))
+    assert s1 == s2
+    nn1 = _condition_density_params(X1, 10.0, 42)[1]
+    nn2 = _condition_density_params(X2, 10.0, 42)[1]
+    assert s1[0] == 2.0
+    assert s1[1] == float(compute_mu(np.concatenate([nn1, nn2]), 2.0))
+    unpinned = _resolve_scheme_density_params("symmetric", X1, X2, 10.0, 42)
+    assert s1[2] == float(unpinned["ls"])  # ls does not depend on d
+    assert s1[1] != float(unpinned["mu"])  # control: the pin moves mu
+
+
+@pytest.mark.parametrize("scheme, side", _ONE_SIDED)
+def test_da_one_sided_scheme_with_ls_pinned_alone(scheme, side):
+    """Control for the d-pin tests: ``ls`` does not enter d or mu."""
+    X1, X2 = _da_data()
+    sep = _shared(_da_fit(X1, X2, param_scheme="separate", ls=3.0))[side]
+    got = _shared(_da_fit(X1, X2, param_scheme=scheme, ls=3.0))
+    assert got[0] == got[1]
+    assert got[side] == sep
+    assert got[side][2] == 3.0
+
+
+def test_da_symmetric_with_ls_pinned_alone():
+    X1, X2 = _da_data()
+    s1, s2 = _shared(_da_fit(X1, X2, param_scheme="symmetric", ls=3.0))
+    unpinned = _resolve_scheme_density_params("symmetric", X1, X2, 10.0, 42)
+    assert s1 == s2 == (float(unpinned["d"]), float(unpinned["mu"]), 3.0)
+
+
 # -- swap behaviour ---------------------------------------------------------
 
 
@@ -810,6 +864,14 @@ def test_da_rejects_ls_given_twice_and_scheme_given_twice():
         _da_lfc(GPSettings(ls=0.05, **_NO_LM), ls=0.05)
     with pytest.raises(ValueError, match="not both"):
         _da_lfc(GPSettings(param_scheme="pooled", **_NO_LM), sync_parameters=True)
+
+
+def test_param_scheme_as_a_flat_keyword_is_refused_clearly():
+    """It is a GPSettings field; as a keyword it used to die in a TypeError."""
+    with pytest.raises(ValueError, match=r"gp=GPSettings\(param_scheme"):
+        _da_lfc(GPSettings(**_NO_LM), param_scheme="pooled")
+    with pytest.raises(ValueError, match=r"gp=GPSettings\(param_scheme"):
+        kompot.de(_adata(), "cond", "A", "B", obsm_key="X", param_scheme="pooled")
 
 
 def test_da_warns_about_expression_only_gp_fields():

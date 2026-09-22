@@ -124,6 +124,11 @@ def da(
     jit_compile = gp.jit_compile if gp is not None else False
     random_state = gp.random_state if gp is not None else None
     param_scheme = gp.param_scheme if gp is not None else None
+    if "param_scheme" in density_kwargs:
+        raise ValueError(
+            "`param_scheme` is a GPSettings field: pass "
+            "gp=GPSettings(param_scheme=...), not a keyword argument of da()."
+        )
 
     if gp is not None:
         _unused = [
