@@ -440,17 +440,27 @@ class DifferentialExpression:
                  With ``n_landmarks=5000`` and ``landmarks=None`` — the
                  :class:`~kompot.settings.GPSettings` defaults — the mirror is
                  therefore only approximate, and nothing downstream signals it:
-                 the numbers are silently close rather than equal. Measured at
-                 a small scale, **6 of 9 mirrored comparisons miss**
+                 the numbers are silently close rather than equal.
+
+                 Measured at a small scale against
                  ``assert_allclose(rtol=1e-6, atol=1e-8)`` — the tolerance this
-                 package's own tests use. That count is taken at
-                 ``random_state=0``; at the :class:`~kompot.settings.GPSettings`
-                 default ``random_state=None`` the landmark draw is not
-                 reproducible from one run to the next, so the count is **worse
-                 and unstable** — 7, 8 and 7 over three consecutive runs. The
-                 gap also **grows as the landmark fraction falls**, so a default
-                 5,000-landmark run on a large dataset sits at the worse end,
-                 not the better one.
+                 package's own tests use — **six of the nine mirrored
+                 comparisons miss in every draw**: both smoothed surfaces,
+                 ``fold_change``, ``fold_change_zscores``,
+                 ``mahalanobis_distances`` and ``neg_log10_ptp`` (12/12 draws
+                 each). The other three are intermittent — the two posterior
+                 standard-deviation comparisons missed 8/12 and 2/12 draws at
+                 the default ``random_state=None``, and ``mean_log_fold_change``
+                 1/12, since averaging over cells cancels most of the landmark
+                 noise. Totals ran 6 to 9 of 9. **Six is a floor, not a typical
+                 value**, and it is also what ``random_state=0`` gives, so a
+                 single run at the default can coincide with the seeded number
+                 while nothing about the seed is thereby established. At
+                 ``n_landmarks=0``, 0 of 9 miss.
+
+                 The gap also **grows as the landmark fraction falls**, so a
+                 default 5,000-landmark run on a large dataset sits at the worse
+                 end, not the better one.
 
                  To rely on the equivalence, make the landmarks common to both
                  runs: pass one ``landmarks`` array to both, or set

@@ -485,11 +485,12 @@ def test_condition2_warns_when_the_landmarks_are_not_shared():
     swapped orientation, and that comparison is exact only when both runs
     evaluate at the same landmarks.  Automatic landmarks are order-dependent, so
     the default configuration (`n_landmarks=5000`, `landmarks=None`) degrades the
-    equivalence to approximate with nothing downstream to signal it -- measured,
-    6 of 9 mirrored comparisons then miss the tolerance asserted above at
-    `random_state=0`, and 7-8 of 9 at the `random_state=None` default, where the
-    landmark draw is not even reproducible between runs.  A boundary that lives
-    only in prose is invisible to the people it protects.
+    equivalence to approximate with nothing downstream to signal it.  Measured
+    against the tolerance asserted above, six of the nine mirrored comparisons
+    miss in EVERY draw and the totals ran 6 to 9 of 9 at the
+    `random_state=None` default, where the landmark draw is not even
+    reproducible between runs.  A boundary that lives only in prose is
+    invisible to the people it protects.
     """
     X1, y1, X2, y2 = _data()
 
