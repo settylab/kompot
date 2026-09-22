@@ -9,6 +9,9 @@ mirror, for which the statement is an exact equivalence:
 are the same computation with the labels exchanged.
 """
 
+import contextlib
+import logging
+
 import numpy as np
 import pytest
 
@@ -433,3 +436,102 @@ def test_the_de_cli_routes_ls_scheme_into_gp_settings():
     fields = {f.name for f in dataclasses.fields(GPSettings)}
     assert GP_CONFIG_KEYS <= fields, GP_CONFIG_KEYS - fields
     assert fields - GP_CONFIG_KEYS == {"landmarks"}
+
+
+class _CaptureWarnings(logging.Handler):
+    """Collect WARNING records straight off the `kompot` logger.
+
+    `caplog` cannot see them: `kompot/__init__.py` configures the logger with
+    `"propagate": False`, so records never reach the root handler pytest
+    installs.  Using `caplog` here does not fail loudly -- it yields an EMPTY
+    record list, which makes a "did not warn" assertion pass for a reason that
+    has nothing to do with the code under test.  The three negative tests below
+    were vacuous until the positive one flushed this out.
+    """
+
+    def __init__(self):
+        super().__init__(level=logging.WARNING)
+        self.messages = []
+
+    def emit(self, record):
+        self.messages.append(record.getMessage())
+
+
+@contextlib.contextmanager
+def _captured_kompot_warnings():
+    logger = logging.getLogger("kompot")
+    handler = _CaptureWarnings()
+    previous = logger.level
+    logger.addHandler(handler)
+    logger.setLevel(min(previous or logging.WARNING, logging.WARNING))
+    try:
+        yield handler.messages
+    finally:
+        logger.removeHandler(handler)
+        logger.setLevel(previous)
+
+
+def test_the_warning_capture_helper_actually_captures():
+    """Positive control for the helper itself, so the negatives below mean something."""
+    with _captured_kompot_warnings() as messages:
+        logging.getLogger("kompot").warning("canary: same landmarks")
+    assert any("same landmarks" in m for m in messages)
+
+
+def test_condition2_warns_when_the_landmarks_are_not_shared():
+    """The equivalence's precondition must be audible at runtime, not just in docs.
+
+    `"condition2"` exists only to be compared against `"condition1"` on the
+    swapped orientation, and that comparison is exact only when both runs
+    evaluate at the same landmarks.  Automatic landmarks are order-dependent, so
+    the default configuration (`n_landmarks=5000`, `landmarks=None`) degrades the
+    equivalence to approximate with nothing downstream to signal it -- measured,
+    6 of 9 mirrored comparisons then miss the tolerance asserted above.  A
+    boundary that lives only in prose is invisible to the people it protects.
+    """
+    X1, y1, X2, y2 = _data()
+
+    with _captured_kompot_warnings() as messages:
+        DifferentialExpression(n_landmarks=20, random_state=0).fit(
+            X1, y1, X2, y2, ls_scheme="condition2"
+        )
+    assert any("same landmarks" in m for m in messages), messages
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        pytest.param(dict(n_landmarks=0), id="no-landmarks"),
+        pytest.param(dict(n_landmarks=20, shared=True), id="landmarks-shared"),
+    ],
+)
+def test_condition2_does_not_warn_when_the_equivalence_is_exact(kwargs):
+    """The other half: a warning that always fires teaches nothing."""
+    from mellon.parameters import compute_landmarks
+
+    X1, y1, X2, y2 = _data()
+    kwargs = dict(kwargs)
+    landmarks = None
+    if kwargs.pop("shared", False):
+        landmarks = np.asarray(
+            compute_landmarks(
+                np.vstack([X1, X2]), gp_type="fixed", n_landmarks=20, random_state=7
+            )
+        )
+
+    with _captured_kompot_warnings() as messages:
+        DifferentialExpression(random_state=0, **kwargs).fit(
+            X1, y1, X2, y2, ls_scheme="condition2", landmarks=landmarks
+        )
+    assert not [m for m in messages if "same landmarks" in m]
+
+
+def test_the_other_schemes_do_not_warn_about_landmarks():
+    """Only `condition2` makes the cross-orientation comparison its purpose."""
+    X1, y1, X2, y2 = _data()
+    for scheme in ("condition1", "symmetric", "pooled", "separate"):
+        with _captured_kompot_warnings() as messages:
+            DifferentialExpression(n_landmarks=20, random_state=0).fit(
+                X1, y1, X2, y2, ls_scheme=scheme
+            )
+        assert not [m for m in messages if "same landmarks" in m], scheme

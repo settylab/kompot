@@ -23,11 +23,23 @@ All notable changes to this project will be documented in this file.
    `"condition2"` is the default's mirror — it estimates from condition 2's cells and hands the
    value to condition 1. It is not an alternative to the default but a **diagnostic**:
    `de(X, Y, ls_scheme="condition1")` and `de(Y, X, ls_scheme="condition2")` are the same
-   computation with the labels exchanged (measured bit-identical for the smoothed surfaces, the
-   posterior standard deviations, the Mahalanobis distances and `neg_log10_ptp`; the fold change
-   and its z-scores flip sign, as the definition `condition2 - condition1` requires). So the
-   default's swap-dependence can be exhibited from a single call site, without swapping
-   `condition1` and `condition2` and re-deriving which sign is which.
+   computation with the labels exchanged, so the default's swap-dependence can be exhibited from
+   a single call site without swapping `condition1` and `condition2` and re-deriving which sign
+   is which. **Given the same landmarks in both runs** the equivalence is exact — measured
+   bit-identical for the smoothed surfaces, the posterior standard deviations, the Mahalanobis
+   distances and `neg_log10_ptp`, with the fold change and its z-scores flipping sign as the
+   definition `condition2 - condition1` requires.
+
+   **That precondition is not satisfied by the defaults.** Automatic landmarks are computed from
+   the two conditions' cells stacked in the order given, so the two orientations select
+   *different* landmark sets; with `n_landmarks=5000, landmarks=None` the equivalence is only
+   approximate and nothing downstream signals it. Measured at a small scale, 6 of 9 mirrored
+   comparisons then miss `rtol=1e-6, atol=1e-8`, and the gap **grows as the landmark fraction
+   falls** — roughly 45x on the smoothed surfaces and 25x on the Mahalanobis distances as the
+   fraction goes from 0.25 to 0.025 — so a default run on a large dataset sits at the worse end.
+   Pass one `landmarks` array to both runs, or use `n_landmarks=0`; both are exact. `fit()` now
+   logs a warning when `"condition2"` is used with automatic landmarks. The order dependence is
+   pre-existing and independent of `ls_scheme`: no scheme removes it.
 
    `"symmetric"` shares the size-weighted geometric mean of the two conditions' own estimates
    — the same estimator, with nearest neighbours looked up *within* each condition — and is

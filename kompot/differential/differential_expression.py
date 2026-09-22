@@ -428,6 +428,33 @@ class DifferentialExpression:
               under the two schemes exposes the default's swap-dependence from a
               single call site, without having to swap ``condition1`` and
               ``condition2`` at the call site and re-derive which sign is which.
+
+              .. warning::
+
+                 **That equivalence holds only if both runs use the same
+                 landmarks, and the library defaults do not.** Automatic
+                 landmarks are computed from
+                 ``np.vstack([X_condition1, X_condition2])``, whose row order
+                 differs between the two orientations, so the two runs select
+                 *different* landmark sets and evaluate at different points.
+                 With ``n_landmarks=5000`` and ``landmarks=None`` — the
+                 :class:`~kompot.settings.GPSettings` defaults — the mirror is
+                 therefore only approximate, and nothing downstream signals it:
+                 the numbers are silently close rather than equal. Measured at
+                 a small scale, **6 of 9 mirrored comparisons miss**
+                 ``assert_allclose(rtol=1e-6, atol=1e-8)`` — the tolerance this
+                 package's own tests use — and the gap **grows as the landmark
+                 fraction falls**, so a default 5,000-landmark run on a large
+                 dataset sits at the worse end, not the better one.
+
+                 To rely on the equivalence, make the landmarks common to both
+                 runs: pass one ``landmarks`` array to both, or set
+                 ``n_landmarks=0``. Both are exact. ``fit()`` logs a warning
+                 when ``"condition2"`` is used with automatic landmarks.
+
+                 The order dependence is **pre-existing and independent of**
+                 ``ls_scheme`` — no scheme removes it, and it affects any
+                 comparison of two orientations, not only this one.
             * ``"symmetric"`` — estimate a length scale from each condition
               separately and share their size-weighted geometric mean. Invariant
               under swapping the two conditions, and it does not inherit the
@@ -500,6 +527,7 @@ class DifferentialExpression:
             )
 
         # Compute shared landmarks (needs both conditions)
+        landmarks_were_provided = landmarks is not None
         if self.function_predictor1 is None or self.function_predictor2 is None:
             if landmarks is not None:
                 logger.info(f"Using provided landmarks with shape {landmarks.shape}")
@@ -513,6 +541,32 @@ class DifferentialExpression:
                     random_state=self.random_state,
                 )
                 self.computed_landmarks = landmarks
+
+        # `"condition2"` exists ONLY to be compared against `"condition1"` on the
+        # swapped orientation, and that comparison is exact only when both runs
+        # evaluate at the same landmarks.  Automatic landmarks are derived from
+        # `np.vstack([X_condition1, X_condition2])`, whose ROW ORDER differs
+        # between the two orientations, so the two runs pick different sets and
+        # the equivalence silently degrades to approximate -- no error, no
+        # downstream signal, just numbers that are close instead of equal.  The
+        # scheme's whole purpose is the comparison, so anyone who reaches here is
+        # relying on it; say so rather than leaving the boundary in the docs.
+        if (
+            ls_scheme == "condition2"
+            and not landmarks_were_provided
+            and self.n_landmarks is not None
+            and self.n_landmarks > 0
+        ):
+            logger.warning(
+                "ls_scheme='condition2' with automatic landmarks: the "
+                "condition1/condition2 equivalence is EXACT only when both "
+                "orientations use the same landmarks, and automatic landmarks "
+                "are order-dependent (they are computed from the two "
+                "conditions' cells stacked in the order given). Pass one "
+                "`landmarks` array to both runs, or use n_landmarks=0, if you "
+                "intend to compare the two orientations. The gap grows as the "
+                "landmark fraction falls."
+            )
 
         # -- Fit model1 --
         if self.model1 is None:

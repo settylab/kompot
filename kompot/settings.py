@@ -49,7 +49,11 @@ class GPSettings:
         is its mirror and exists to make that dependence visible in a single
         run, since ``de(X, Y, ls_scheme="condition1")`` and
         ``de(Y, X, ls_scheme="condition2")`` are the same computation with the
-        labels exchanged; ``"symmetric"`` shares the size-weighted geometric
+        labels exchanged **provided both runs use the same landmarks** — see
+        the warning under :meth:`kompot.differential.DifferentialExpression.fit`,
+        because the defaults here (``n_landmarks=5000``, ``landmarks=None``) do
+        *not* satisfy that and the equivalence then holds only approximately;
+        ``"symmetric"`` shares the size-weighted geometric
         mean of the two per-condition estimates; ``"pooled"`` estimates from
         both conditions' cells taken together; ``"separate"`` gives each
         condition its own.  See
