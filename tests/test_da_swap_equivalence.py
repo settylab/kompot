@@ -16,10 +16,28 @@ condition-1 inheritance to be asymmetric about, so DA never had the defect
 `ls_scheme` was added for, and no DA counterpart of `"condition2"` is warranted.
 
 Two configurations DO break the exactness, and both are covered below: automatic
-landmarks, and ``sync_parameters=True``. Both trace to the same construction as
-the DE case -- ``np.vstack([X_condition1, X_condition2])`` is row-order dependent
--- but under ``sync_parameters`` it feeds ``d``, ``mu`` and ``ls`` as well as the
-landmarks, so DA has that hazard in two places rather than one.
+landmarks, and ``sync_parameters=True``. Both trace to the same ROOT as the DE
+case -- ``np.vstack([X_condition1, X_condition2])`` is row-order dependent -- but
+they act through DIFFERENT proximate mechanisms, and **a remedy applies at the
+proximate level, not the root**: ``compute_landmarks`` (k-means init) for the
+first, ``compute_nn_distances`` (which sets ``mu`` and ``ls``) for the second.
+So sharing a landmark array fixes the first and cannot reach the second --
+landmarks are not an input to ``compute_nn_distances``, and sharing them leaves
+the ``sync_parameters`` half at 4.784e-03 against a 4.720e-03 no-landmark
+reference.
+
+The remedy for that half is to pass ``mu`` and ``ls`` explicitly -- **and ``d``
+as well once the combined data exceeds 500 cells**, because
+``compute_d_factal`` subsamples 500 INDICES above that (mellon
+``parameters.py``) and so becomes row-order dependent itself. Measured:
+``mu``+``ls`` alone is exact at 200+200 and NOT exact at 400+400 (6.085e-04,
+with ``d`` reading 1.4972 vs 1.4983); all three explicit is exact at 400+400.
+Passing all three is always correct.
+
+Note the trap in that boundary. An earlier version of this file said ``d`` is
+identical across orientations. That was measured at 160 combined cells and is
+TRUE THERE -- and false above 500, which is most real datasets. A correct local
+measurement generalised past the condition that made it true.
 """
 
 import numpy as np
@@ -204,7 +222,12 @@ def test_the_swap_is_only_approximate_when_the_union_order_matters(kwargs, why):
 
 
 def test_shared_landmarks_restore_the_exact_swap():
-    """The remedy is the same as for differential expression: share the landmarks."""
+    """Share the landmarks, and the automatic-landmark half is exact again.
+
+    Scope: this covers the LANDMARK half only -- ``sync_parameters`` is left at
+    its default ``False`` here. The same remedy does not reach the
+    ``sync_parameters`` half, and no test asserts that it does.
+    """
     from mellon.parameters import compute_landmarks
 
     X1, X2 = _data()
