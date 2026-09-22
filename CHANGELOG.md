@@ -6,72 +6,50 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
- - **`GPSettings.ls_scheme`** — chooses which cells the automatic shared length scale is
-   estimated from in differential expression. The default, `"condition1"`, is exactly the
-   existing behaviour and nothing changes unless you ask for something else.
-
-   The two conditions have always been smoothed at a **shared** length scale so that their
-   fitted surfaces are comparable, and that part is right: giving each condition its own
-   (`ls_scheme="separate"`) makes the two surfaces differently smooth, and the mismatch alone
-   manufactures apparent fold changes. What was undocumented is that the shared value is
-   estimated from **condition 1's cells only**, so it is a function of `n_condition1` and
-   `de(adata, condition1=X, condition2=Y)` is *not* equivalent to
-   `de(adata, condition1=Y, condition2=X)`. On an exchangeable null with nothing to find, the
-   two orientations of the same partition differ in false-positive rate by 0.06–0.08 at
-   2:1 and beyond.
-
-   `"condition2"` is the default's mirror — it estimates from condition 2's cells and hands the
-   value to condition 1. It is not an alternative to the default but a **diagnostic**:
-   `de(X, Y, ls_scheme="condition1")` and `de(Y, X, ls_scheme="condition2")` are the same
-   computation with the labels exchanged, so the default's swap-dependence can be exhibited from
-   a single call site without swapping `condition1` and `condition2` and re-deriving which sign
-   is which. **Given the same landmarks in both runs** the equivalence is exact — measured
-   bit-identical for the smoothed surfaces, the posterior standard deviations, the Mahalanobis
-   distances and `neg_log10_ptp`, with the fold change and its z-scores flipping sign as the
-   definition `condition2 - condition1` requires.
-
-   **That precondition is not satisfied by the defaults.** Automatic landmarks are computed from
-   the two conditions' cells stacked in the order given, so the two orientations select
-   *different* landmark sets; with `n_landmarks=5000, landmarks=None` the equivalence is only
-   approximate and nothing downstream signals it. Measured at a small scale against
-   `rtol=1e-6, atol=1e-8`, **six of the nine mirrored comparisons miss in every draw** — both
-   smoothed surfaces, `fold_change`, `fold_change_zscores`, `mahalanobis_distances` and
-   `neg_log10_ptp`. The rest are intermittent: the two posterior standard-deviation comparisons
-   missed 8/12 and 2/12 draws at the default `random_state=None`, and `mean_log_fold_change` 1/12
-   (averaging over cells cancels most of the landmark noise). Totals ran 6 to 9 of 9; 0 of 9 miss
-   at `n_landmarks=0`. Six is a floor rather than a typical value, and it is also the
-   `random_state=0` figure. The gap additionally **grows as the landmark fraction falls** —
-   roughly 45x on the smoothed surfaces and 25x on the Mahalanobis distances as the fraction goes
-   from 0.25 to 0.025 — so a default run on a large dataset sits at the worse end.
-   Pass one `landmarks` array to both runs, or use `n_landmarks=0`; both are exact. `fit()` now
-   logs a warning when `"condition2"` is used with automatic landmarks. The order dependence is
-   pre-existing and independent of `ls_scheme`: no scheme removes it.
-
-   `"symmetric"` shares the size-weighted geometric mean of the two conditions' own estimates
-   — the same estimator, with nearest neighbours looked up *within* each condition — and is
-   invariant under swapping the conditions. `"pooled"` estimates from the union, which is also
-   swap-invariant but yields a systematically smaller value, because the union is denser than
-   either condition and nearest-neighbour distances shrink with cell count alone.
+ - **`GPSettings.ls_scheme`**: chooses which cells the automatic shared length scale is estimated
+   from in differential expression — `"condition1"` (the default, exactly the existing behaviour),
+   `"condition2"`, `"symmetric"`, `"pooled"`, `"separate"`. The shared value has always been
+   estimated from **condition 1's cells only**, making it a function of `n_condition1`, so
+   `de(condition1=X, condition2=Y)` is *not* equivalent to `de(condition1=Y, condition2=X)`; on an
+   exchangeable null the two orientations differ in false-positive rate by 0.06–0.08 beyond 2:1.
+   `"symmetric"` and `"pooled"` are swap-invariant, `"separate"` is diagnostics-only. See
+   `DifferentialExpression.fit` for which to pick and why.
+ - **`ls_scheme="condition2"`**: the default's mirror — estimated from condition 2's cells — for
+   diagnosis rather than analysis. `de(X, Y, ls_scheme="condition1")` and
+   `de(Y, X, ls_scheme="condition2")` are the same computation with the labels exchanged, so the
+   default's swap-dependence is visible from a single call site. The equivalence is exact only
+   when both runs use the same landmarks; automatic landmarks are order-dependent, and `fit()`
+   warns when the scheme is used with them. Measurements and the precondition:
+   `DifferentialExpression.fit`.
 
 ### Changed
 
- - `ls_scheme` participates in run-parameter matching, so re-running under a different scheme
-   is no longer treated as a matching rerun.
+ - `ls_scheme` participates in run-parameter matching, so re-running under a different scheme is
+   no longer treated as a matching rerun.
 
 ### Fixed
 
- - `ls_scheme` is now readable back out of a stored `run_info` params dict. It is written nested
-   under `params["gp"]`, but `params_get` resolves nested keys through `_LEGACY_MAP` and the
-   field was missing from it — so it read back as `None` and *every* rerun, including an
-   identical one, compared unequal and was reported as a parameter change.
- - The DE CLI now routes a flat `ls_scheme` config key into `GPSettings`. An unrecognised key
+ - **`ls_scheme` is now readable back out of a stored `run_info`.** It is written nested under
+   `params["gp"]` but was missing from `params_get`'s key map, so it read back as `None` and
+   *every* rerun — including a byte-identical one — compared unequal and was reported as a
+   parameter change.
+ - **The DE CLI now routes a flat `ls_scheme` config key into `GPSettings`.** An unrecognised key
    is not rejected: it falls through to `**function_kwargs` and is handed to mellon, so the
    documented knob was unreachable from a config file and the omission was silent.
 
 ### Documentation
 
- - `GPSettings.ls` and `DifferentialExpression.fit` now state where the shared length scale
-   comes from and that the default makes the contrast depend on argument order.
+ - `GPSettings.ls_scheme` and `DifferentialExpression.fit` now state where the shared length scale
+   comes from, that the default makes the contrast depend on argument order, and what the
+   `"condition2"` equivalence requires of landmarks.
+ - **Differential abundance is swap-equivalent at its defaults**, and now has tests saying so:
+   `da(X, Y)` and `da(Y, X)` give the same densities with the roles exchanged, negated log fold
+   changes and z-scores, identical uncertainty, PTP and significant-cell set, and exchanged
+   `'up'`/`'down'` labels. It needs no `ls_scheme` analogue — abundance builds both density
+   estimators from one shared configuration and never had the condition-1 inheritance
+   `ls_scheme` exists to expose. The equivalence is approximate rather than exact under
+   `sync_parameters=True` or automatic landmarks, both because the stacked union is row-order
+   dependent; pass one `landmarks` array to both runs to restore it.
 
 ## [0.8.0] - 2026-07-28
 
