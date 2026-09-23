@@ -22,7 +22,8 @@ All notable changes to this project will be documented in this file.
  - **Abundance uncertainty no longer depends on argument order when `n_landmarks` is at least the
    number of cells** (settylab/kompot#32). That is `da(gp=GPSettings(...))` on data under 5000
    cells, and the CLI whenever a GP key is set without `n_landmarks`. Each condition now gets its
-   full GP, as with `n_landmarks=None`. **This changes results there**: z-scores and PTPs move to the
+   full GP (the same as `n_landmarks=None` up to 5000 cells per condition, where mellon's own
+   landmark default starts). **This changes results there**: z-scores and PTPs move to the
    full-GP values (on 400 + 400 cells, z by a median of 34%; the two orientations now agree exactly,
    where they differed by a median of 82%), and fold changes and densities by at most 6e-4.
    `da()` without `gp`, `DifferentialAbundance()`, and every run with fewer landmarks than cells are
