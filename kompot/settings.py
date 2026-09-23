@@ -64,6 +64,20 @@ class GPSettings:
         it is estimated from the cells, from where ``param_scheme`` says.
     ls_factor : float
         Multiplier applied to the automatically inferred length scale.
+    n_landmarks : int, optional
+        Number of landmarks for the Nystrom approximation.
+    landmarks : np.ndarray, optional
+        Pre-computed landmark coordinates.
+    use_empirical_variance : bool
+        Estimate per-gene heteroscedastic noise from GP residuals.
+    batch_size : int, optional
+        Number of cells processed at once during prediction.
+    eps : float
+        Small constant for numerical stability.
+    jit_compile : bool
+        Use JAX JIT compilation.
+    random_state : int, optional
+        Random seed for landmark selection.
     param_scheme : str, optional
         Which cells the length scale is estimated from; in :func:`kompot.da`
         it covers ``d`` and ``mu`` as well.  A value given explicitly (``ls``
@@ -96,26 +110,11 @@ class GPSettings:
         Which to pick, and the measurements behind each:
         :meth:`kompot.differential.DifferentialExpression.fit` and
         :meth:`kompot.differential.DifferentialAbundance.fit`.
-    n_landmarks : int, optional
-        Number of landmarks for the Nystrom approximation.
-    landmarks : np.ndarray, optional
-        Pre-computed landmark coordinates.
-    use_empirical_variance : bool
-        Estimate per-gene heteroscedastic noise from GP residuals.
-    batch_size : int, optional
-        Number of cells processed at once during prediction.
-    eps : float
-        Small constant for numerical stability.
-    jit_compile : bool
-        Use JAX JIT compilation.
-    random_state : int, optional
-        Random seed for landmark selection.
     """
 
     sigma: float = 1.0
     ls: Optional[float] = None
     ls_factor: float = 10.0
-    param_scheme: Optional[str] = None
     n_landmarks: Optional[int] = 5000
     landmarks: Optional[np.ndarray] = None
     use_empirical_variance: bool = False
@@ -123,6 +122,7 @@ class GPSettings:
     eps: float = 1e-8
     jit_compile: bool = False
     random_state: Optional[int] = None
+    param_scheme: Optional[str] = None
 
     def __post_init__(self):
         validate_positive_float(self.sigma, "sigma")

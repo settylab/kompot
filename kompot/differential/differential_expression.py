@@ -381,12 +381,12 @@ class DifferentialExpression:
         sigma: float = 1.0,
         ls: Optional[float] = None,
         ls_factor: float = 10.0,
-        param_scheme: Optional[str] = None,
         landmarks: Optional[np.ndarray] = None,
         sample_estimator_ls: Optional[float] = None,
         condition1_sample_indices: Optional[np.ndarray] = None,
         condition2_sample_indices: Optional[np.ndarray] = None,
         allow_single_condition_variance: bool = False,
+        param_scheme: Optional[str] = None,
         **function_kwargs,
     ):
         """
@@ -413,6 +413,18 @@ class DifferentialExpression:
         ls_factor : float, optional
             Multiplication factor to apply to length scale when it's automatically inferred,
             by default 10.0. Only used when ls is None.
+        landmarks : np.ndarray, optional
+            Pre-computed landmarks to use. If provided, n_landmarks will be ignored.
+            Shape (n_landmarks, n_features).
+        sample_estimator_ls : float, optional
+            Length scale for the sample-specific variance estimators. If None, will use
+            the same value as ls or it will be estimated, by default None.
+        condition1_sample_indices : np.ndarray, optional
+            Sample indices for first condition. Used for sample variance estimation.
+            Unique values in this array define different sample groups.
+        condition2_sample_indices : np.ndarray, optional
+            Sample indices for second condition. Used for sample variance estimation.
+            Unique values in this array define different sample groups.
         param_scheme : str, optional
             Which cells the shared length scale is estimated from when ``ls``
             is None. Both conditions are normally smoothed at the *same* scale
@@ -496,18 +508,6 @@ class DifferentialExpression:
             passed through ``function_kwargs``. Supplying a ``cov_func`` or
             ``cov_func_curry`` does *not* disable it: the resolved value is
             handed to the custom kernel, so both conditions keep a shared scale.
-        landmarks : np.ndarray, optional
-            Pre-computed landmarks to use. If provided, n_landmarks will be ignored.
-            Shape (n_landmarks, n_features).
-        sample_estimator_ls : float, optional
-            Length scale for the sample-specific variance estimators. If None, will use
-            the same value as ls or it will be estimated, by default None.
-        condition1_sample_indices : np.ndarray, optional
-            Sample indices for first condition. Used for sample variance estimation.
-            Unique values in this array define different sample groups.
-        condition2_sample_indices : np.ndarray, optional
-            Sample indices for second condition. Used for sample variance estimation.
-            Unique values in this array define different sample groups.
         **function_kwargs : dict
             Additional arguments to pass to the FunctionEstimator.
 

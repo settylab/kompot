@@ -857,3 +857,37 @@ def test_the_da_cli_routes_param_scheme_and_ls_into_gp_settings():
     fields = {f.name for f in dataclasses.fields(GPSettings)}
     assert {"param_scheme", "ls"} <= GP_CONFIG_KEYS <= fields
     assert fields - GP_CONFIG_KEYS == {"sigma", "eps", "use_empirical_variance"}
+
+
+# -- positional order is main's ----------------------------------------------
+
+
+def test_de_fit_keeps_the_positional_order_of_main():
+    """``param_scheme`` is appended, so ``landmarks`` is still the 8th argument.
+
+    Inserted ahead of ``landmarks`` it received the landmark array, and a call
+    that works on main died with "truth value of an array is ambiguous".
+    """
+    X1, y1, X2, y2 = _data()
+    L = np.vstack([X1, X2])[::8]
+
+    def fit(*args, **kwargs):
+        de = DifferentialExpression()
+        de.fit(*args, **kwargs)
+        return de.predict(np.vstack([X1, X2]), progress=False)
+
+    positional = fit(X1, y1, X2, y2, 1.0, None, 10.0, L)
+    keyword = fit(X1, y1, X2, y2, sigma=1.0, ls=None, ls_factor=10.0, landmarks=L)
+    for key in ("fold_change", "fold_change_zscores"):
+        np.testing.assert_array_equal(positional[key], keyword[key])
+
+
+def test_gpsettings_keeps_the_positional_order_of_main():
+    """``param_scheme`` is the LAST field, so main's positional order still binds."""
+    g = GPSettings(1.0, None, 10.0, 100)
+    assert g.n_landmarks == 100 and g.param_scheme is None
+    import dataclasses
+
+    main = ["sigma", "ls", "ls_factor", "n_landmarks", "landmarks",
+            "use_empirical_variance", "batch_size", "eps", "jit_compile", "random_state"]
+    assert [f.name for f in dataclasses.fields(GPSettings)][: len(main)] == main
