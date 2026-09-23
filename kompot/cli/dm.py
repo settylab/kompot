@@ -131,14 +131,6 @@ def run_dm(args):
     args
         Parsed arguments from argparse
     """
-    # Check if palantir is available
-    try:
-        import palantir
-    except ImportError:
-        logger.error("Palantir is not installed. Install it with: pip install palantir")
-        logger.error("Or install kompot with: pip install kompot[recommended]")
-        sys.exit(1)
-
     # Validate input file
     input_path = validate_anndata_path(args.input)
 
@@ -186,6 +178,15 @@ def run_dm(args):
     if pca_key not in adata.obsm:
         logger.error(f"PCA coordinates not found at adata.obsm['{pca_key}']")
         logger.error("Run PCA first using scanpy: sc.pp.pca(adata)")
+        sys.exit(1)
+
+    # Palantir is checked only now, so an input problem is reported whether or not
+    # the optional dependency is installed.
+    try:
+        import palantir
+    except ImportError:
+        logger.error("Palantir is not installed. Install it with: pip install palantir")
+        logger.error("Or install kompot with: pip install kompot[recommended]")
         sys.exit(1)
 
     logger.info("Computing diffusion maps")
