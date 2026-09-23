@@ -261,8 +261,11 @@ class DifferentialAbundance:
             X_condition2])``, whose **row order differs between the two
             orientations** of a contrast, so ``da(X, Y)`` and ``da(Y, X)`` select
             different landmark sets and their results stop being exact mirrors of
-            one another. Passing one array here to both runs removes that; so
-            does ``n_landmarks=None``, which builds no landmarks at all. With
+            one another. The uncertainty is hit hardest, because mellon's
+            Laplace uncertainty depends on the order of the landmark rows, not
+            only on the set. Passing one array here to both runs removes that; so
+            does ``n_landmarks=None``, or any ``n_landmarks`` at least the number
+            of cells, which build no landmarks at all. With
             ``random_state=None`` (the default) the selection is not even
             reproducible between two runs of the same orientation. This is
             independent of ``param_scheme``: see there for the other half.
