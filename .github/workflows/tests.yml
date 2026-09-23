@@ -9,7 +9,11 @@ on:
 jobs:
   test:
     runs-on: ubuntu-22.04
+    # A healthy job takes 20-31 min. Without this, a hung pytest holds the runner
+    # for GitHub's 360-min default and is reported as "cancelled".
+    timeout-minutes: 60
     strategy:
+      fail-fast: false
       matrix:
         python-version: ['3.10', '3.11', '3.12']
 
@@ -27,7 +31,7 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install pytest pytest-cov
+        pip install pytest pytest-cov pytest-timeout
         # Install JAX CPU version to avoid GPU dependencies in CI
         pip install --upgrade "jax[cpu]"
         # Install package in development mode with all dependencies including dask
@@ -35,7 +39,10 @@ jobs:
     
     - name: Test with pytest and generate coverage report
       run: |
-        pytest --cov=kompot --cov-report=xml --cov-report=term-missing:skip-covered
+        # The slowest test takes about 70 s. A test that exceeds 300 s is hung, so fail it
+        # and dump every thread's stack (thread method), so the log shows where it hung.
+        pytest --timeout=300 --timeout-method=thread --durations=25 \
+          --cov=kompot --cov-report=xml --cov-report=term-missing:skip-covered
     
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v5
