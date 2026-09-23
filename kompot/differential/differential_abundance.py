@@ -3,7 +3,6 @@
 import numpy as np
 from typing import Optional, Dict, Any
 import logging
-import warnings
 from scipy.stats import norm as normal
 
 import mellon
@@ -236,9 +235,8 @@ class DifferentialAbundance:
         condition1_sample_indices: Optional[np.ndarray] = None,
         condition2_sample_indices: Optional[np.ndarray] = None,
         sample_estimator_ls: Optional[float] = None,
-        sync_parameters: Optional[bool] = None,
-        allow_single_condition_variance: bool = False,
         param_scheme: Optional[str] = None,
+        allow_single_condition_variance: bool = False,
         **density_kwargs,
     ):
         """
@@ -278,31 +276,23 @@ class DifferentialAbundance:
         sample_estimator_ls : float, optional
             Length scale for the sample-specific variance estimators. If None, will use
             the same value as ls or it will be estimated, by default None.
-        sync_parameters : bool, optional
-            .. deprecated::
-                Use ``param_scheme``. ``True`` is ``param_scheme="pooled"`` and
-                ``False`` is ``param_scheme="separate"``; passing both raises.
-        allow_single_condition_variance : bool, optional
-            Allow sample-variance estimation when only one condition has
-            multiple samples, by default False.
         param_scheme : str, optional
             Where the density hyperparameters ``d``, ``mu`` and ``ls`` come from.
-            The same field drives :meth:`DifferentialExpression.fit`, where it
-            covers ``ls`` only. A value passed explicitly through
-            ``density_kwargs`` (``d=``, ``mu=``, ``ls=``) pins that parameter
-            and takes precedence. ``None`` (default) means ``"separate"``.
+            A value passed explicitly through ``density_kwargs`` (``d=``,
+            ``mu=``, ``ls=``) pins that parameter and takes precedence. ``None``
+            (default) means ``"separate"``.
 
             * ``"separate"`` (default) — each density estimator derives its own
               ``d``, ``mu`` and ``ls`` from its own condition; nothing is shared.
             * ``"pooled"`` — estimate all three once from both conditions' cells
-              taken together and share them (formerly ``sync_parameters=True``).
+              taken together and share them.
             * ``"condition1"`` / ``"condition2"`` — estimate all three from one
               condition's cells, exactly as that condition's own estimator
               would, and share them. As asymmetric as the names say.
             * ``"symmetric"`` — estimate from each condition separately and share
               the pooled estimate: ``ls`` is the size-weighted geometric mean of
-              the two (as in differential expression), ``d`` the mean local
-              dimensionality over both conditions' query cells, and ``mu`` the
+              the two, ``d`` the mean local dimensionality over both
+              conditions' query cells, and ``mu`` the
               1st-percentile rule over both conditions' within-condition
               nearest-neighbour distances at that ``d``. Bit-identical under
               swapping the conditions.
@@ -335,6 +325,9 @@ class DifferentialAbundance:
             half applies to them: ``da(X, Y, "condition1")`` and
             ``da(Y, X, "condition2")`` are the same computation with the labels
             exchanged when both runs use the same landmarks.
+        allow_single_condition_variance : bool, optional
+            Allow sample-variance estimation when only one condition has
+            multiple samples, by default False.
         **density_kwargs : dict
             Additional arguments to pass to the DensityEstimator.
 
@@ -344,20 +337,6 @@ class DifferentialAbundance:
             The fitted instance.
         """
 
-        if sync_parameters is not None:
-            if param_scheme is not None:
-                raise ValueError(
-                    "Pass either `param_scheme` or the deprecated "
-                    "`sync_parameters`, not both."
-                )
-            warnings.warn(
-                "`sync_parameters` is deprecated; use "
-                "`param_scheme='pooled'` (for True) or "
-                "`param_scheme='separate'` (for False).",
-                DeprecationWarning,
-                stacklevel=2,
-            )
-            param_scheme = "pooled" if sync_parameters else "separate"
         param_scheme = resolve_param_scheme(param_scheme, DEFAULT_PARAM_SCHEME)
 
         # Create or use density predictors
@@ -405,7 +384,6 @@ class DifferentialAbundance:
                 self.computed_landmarks = computed_landmarks
 
             # "pooled": estimate d / mu / ls from the stacked union and share.
-            # This block is the former `sync_parameters=True` path, unchanged.
             if param_scheme == "pooled":
                 # Combine data from both conditions for parameter estimation
                 X_combined = np.vstack([X_condition1, X_condition2])

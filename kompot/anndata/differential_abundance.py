@@ -50,7 +50,6 @@ def da(
     storage: "StorageSettings | None" = None,
     output: "OutputSettings | None" = None,
     model: "ModelSettings | None" = None,
-    sync_parameters: "bool | None" = None,
     **density_kwargs,
 ) -> "Union[Dict[str, np.ndarray], Any]":
     """Run differential abundance analysis on an AnnData object.
@@ -99,11 +98,6 @@ def da(
         Pre-fitted models or predictors to inject.  For DA, only
         ``density_predictor1/2`` and ``variance_predictor1/2`` are used.
         See :class:`~kompot.ModelSettings`.
-    sync_parameters : bool, optional
-        .. deprecated::
-            Use ``gp=GPSettings(param_scheme=...)``.  ``True`` is
-            ``"pooled"`` and ``False`` is ``"separate"``; passing both
-            raises.
     **density_kwargs
         Forwarded to :class:`~mellon.DensityEstimator`.  ``d``, ``mu`` and
         ``ls`` given here pin that parameter under any ``param_scheme``.
@@ -149,20 +143,6 @@ def da(
                 )
             density_kwargs["ls"] = gp.ls
 
-    if sync_parameters is not None:
-        if param_scheme is not None:
-            raise ValueError(
-                "Pass either GPSettings.param_scheme or the deprecated "
-                "`sync_parameters`, not both."
-            )
-        warnings.warn(
-            "`sync_parameters` is deprecated; use "
-            "gp=GPSettings(param_scheme='pooled') for True or "
-            "param_scheme='separate' for False.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        param_scheme = "pooled" if sync_parameters else "separate"
     param_scheme = resolve_param_scheme(param_scheme, DEFAULT_PARAM_SCHEME)
 
     _threshold = threshold if threshold is not None else DAThresholdSettings()

@@ -187,8 +187,7 @@ def add_da_parser(subparsers) -> argparse.ArgumentParser:
 #: Flat config keys the DA CLI routes into :class:`~kompot.settings.GPSettings`.
 #: Every other key -- including ``sigma``, which here means mellon's density
 #: noise rather than the expression model's -- is forwarded to ``da()`` and
-#: from there to :class:`mellon.DensityEstimator`.  The deprecated
-#: ``sync_parameters`` key reaches ``da()``'s named, deprecated parameter.
+#: from there to :class:`mellon.DensityEstimator`.
 GP_CONFIG_KEYS = {
     "ls",
     "ls_factor",

@@ -552,8 +552,6 @@ def test_the_other_schemes_do_not_warn_about_landmarks():
 # differential ABUNDANCE: the same field covers d, mu and ls
 # ==========================================================================
 
-import warnings  # noqa: E402
-
 import anndata  # noqa: E402
 
 import kompot  # noqa: E402
@@ -579,9 +577,7 @@ def _da_data(n1=90, n2=60, seed=0):
 def _da_fit(X1, X2, **fit_kwargs):
     """Fit with no landmarks, so the only orientation effect is the scheme's."""
     model = DifferentialAbundance(n_landmarks=None, random_state=0)
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", DeprecationWarning)
-        model.fit(X1, X2, **fit_kwargs)
+    model.fit(X1, X2, **fit_kwargs)
     return model
 
 
@@ -597,7 +593,7 @@ def _shared(model):
     )
 
 
-# -- defaults and the deprecated alias --------------------------------------
+# -- defaults --------------------------------------------------------------
 
 
 def test_da_default_is_separate():
@@ -609,38 +605,12 @@ def test_da_default_is_separate():
         np.testing.assert_array_equal(a[key], b[key])
 
 
-@pytest.mark.parametrize("sync, scheme", [(True, "pooled"), (False, "separate")])
-def test_sync_parameters_is_an_exact_alias(sync, scheme):
-    """The shipped spelling and the new one are the same computation, to the bit."""
-    X1, X2 = _da_data()
-    Xn = np.vstack([X1, X2])
-    model = DifferentialAbundance(n_landmarks=None, random_state=0)
-    with pytest.warns(DeprecationWarning, match="param_scheme"):
-        model.fit(X1, X2, sync_parameters=sync)
-    old = _da_predict(model, Xn)
-    new = _da_predict(_da_fit(X1, X2, param_scheme=scheme), Xn)
-    for key in (
-        "log_density_condition1",
-        "log_density_condition2",
-        "log_fold_change",
-        "log_fold_change_uncertainty",
-    ):
-        np.testing.assert_array_equal(old[key], new[key])
-
-
 def test_pooled_and_separate_differ():
-    """Positive control for the alias test: the two targets are distinguishable."""
     X1, X2 = _da_data()
     Xn = np.vstack([X1, X2])
     a = _da_predict(_da_fit(X1, X2, param_scheme="pooled"), Xn)
     b = _da_predict(_da_fit(X1, X2, param_scheme="separate"), Xn)
     assert np.abs(a["log_fold_change"] - b["log_fold_change"]).max() > 1e-2
-
-
-def test_sync_parameters_and_param_scheme_together_raise():
-    X1, X2 = _da_data()
-    with pytest.raises(ValueError, match="not both"):
-        DifferentialAbundance().fit(X1, X2, sync_parameters=True, param_scheme="pooled")
 
 
 def test_da_rejects_unknown_scheme():
@@ -853,17 +823,12 @@ def test_da_honours_gp_ls():
 def test_da_honours_gp_param_scheme():
     separate = _da_lfc(GPSettings(**_NO_LM))
     pooled = _da_lfc(GPSettings(param_scheme="pooled", **_NO_LM))
-    with pytest.warns(DeprecationWarning, match="param_scheme"):
-        legacy = _da_lfc(GPSettings(**_NO_LM), sync_parameters=True)
     assert np.abs(pooled - separate).max() > 1e-2
-    np.testing.assert_array_equal(pooled, legacy)
 
 
-def test_da_rejects_ls_given_twice_and_scheme_given_twice():
+def test_da_rejects_ls_given_twice():
     with pytest.raises(ValueError, match="pass it once"):
         _da_lfc(GPSettings(ls=0.05, **_NO_LM), ls=0.05)
-    with pytest.raises(ValueError, match="not both"):
-        _da_lfc(GPSettings(param_scheme="pooled", **_NO_LM), sync_parameters=True)
 
 
 def test_param_scheme_as_a_flat_keyword_is_refused_clearly():
