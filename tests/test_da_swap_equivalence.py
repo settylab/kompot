@@ -253,3 +253,59 @@ def test_shared_landmarks_restore_the_exact_swap():
     np.testing.assert_allclose(
         fwd["neg_log10_fold_change_ptp"], rev["neg_log10_fold_change_ptp"], **_TOL
     )
+
+
+# -- settylab/kompot#32: as many landmarks as cells ---------------------------
+
+_OUTPUTS = (
+    "log_density_condition1",
+    "log_density_condition2",
+    "log_fold_change",
+    "log_fold_change_uncertainty",
+    "log_fold_change_zscore",
+    "neg_log10_fold_change_ptp",
+)
+
+
+@pytest.mark.parametrize("n_landmarks", [5000, 800], ids=["above", "equal"])
+def test_landmarks_covering_every_cell_fit_the_full_gp(n_landmarks):
+    """``n_landmarks >= n_combined`` is the full GP, so it is swap-symmetric.
+
+    It used to make the stacked union the landmark array. mellon's Laplace
+    uncertainty depends on the landmarks' ROW ORDER, and that order is set by
+    which condition is passed first, so the two orientations disagreed on the
+    uncertainty by a median of 97% while the fold changes agreed to 1e-10.
+    ``any GPSettings`` routes ``da()`` here on data under 5000 cells.
+    """
+    X1, X2 = _data()
+    X_new = np.vstack([X1, X2])
+    assert n_landmarks >= len(X_new)
+
+    full = DifferentialAbundance(n_landmarks=None, random_state=0)
+    full.fit(X1, X2)
+    ref = full.predict(X_new, progress=False)
+
+    model = DifferentialAbundance(n_landmarks=n_landmarks, random_state=0)
+    model.fit(X1, X2)
+    assert getattr(model, "computed_landmarks", None) is None
+    got = model.predict(X_new, progress=False)
+    for key in _OUTPUTS:
+        np.testing.assert_array_equal(np.asarray(got[key]), np.asarray(ref[key]), err_msg=key)
+
+    fwd, rev = _swap_pair(n_landmarks=n_landmarks)
+    np.testing.assert_allclose(
+        fwd["log_fold_change_uncertainty"], rev["log_fold_change_uncertainty"], **_TOL
+    )
+    np.testing.assert_allclose(
+        np.asarray(fwd["log_fold_change_zscore"]),
+        -np.asarray(rev["log_fold_change_zscore"]),
+        **_TOL,
+    )
+
+
+def test_fewer_landmarks_than_cells_still_builds_landmarks():
+    """Control for the test above: one landmark short of every cell is unchanged."""
+    X1, X2 = _data()
+    model = DifferentialAbundance(n_landmarks=len(X1) + len(X2) - 1, random_state=0)
+    model.fit(X1, X2)
+    assert model.computed_landmarks.shape == (len(X1) + len(X2) - 1, 2)

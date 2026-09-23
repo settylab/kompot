@@ -154,6 +154,8 @@ class DifferentialAbundance:
             Threshold for considering a PTP significant, by default 1e-2.
         n_landmarks : int, optional
             Number of landmarks to use for approximation. If None, use all points, by default None.
+            At or above the number of cells in both conditions together, no landmarks
+            are built and each condition gets its full GP, as with None.
         use_sample_variance : bool, optional
             Whether to use sample variance for uncertainty estimation. By default None.
             - If None (recommended): Automatically determined based on variance_predictor1/2
@@ -366,11 +368,22 @@ class DifferentialAbundance:
                 estimator_defaults["gp_type"] = "fixed"
                 # Store provided landmarks for future use
                 self.computed_landmarks = landmarks
+            elif self.n_landmarks is not None and self.n_landmarks >= (
+                len(X_condition1) + len(X_condition2)
+            ):
+                # As many landmarks as cells would make the stacked union itself
+                # the landmark array, ordered by which condition was passed first.
+                # mellon's Laplace uncertainty depends on the landmarks' row order,
+                # so da(X, Y) and da(Y, X) then disagree on the uncertainty
+                # (settylab/kompot#32). No approximation was asked for: fit each
+                # condition's exact GP, on its own cells, as n_landmarks=None does.
+                logger.info(
+                    f"n_landmarks={self.n_landmarks:,} >= {len(X_condition1) + len(X_condition2):,} "
+                    "cells: fitting each condition's full GP instead of landmarks."
+                )
+                estimator_defaults.setdefault("n_landmarks", 0)
             elif self.n_landmarks is not None:
                 # Use mellon's compute_landmarks function to get properly distributed landmarks.
-                # gp_type="fixed" guarantees a populated landmark array even when
-                # n_landmarks >= n_combined, so both per-condition density estimators
-                # share the same inducing points.
                 X_combined = np.vstack([X_condition1, X_condition2])
                 computed_landmarks = compute_landmarks(
                     X_combined,
