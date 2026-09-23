@@ -414,11 +414,9 @@ class DifferentialExpression:
             Multiplication factor to apply to length scale when it's automatically inferred,
             by default 10.0. Only used when ls is None.
         param_scheme : str, optional
-            Where the hyperparameters estimated from cells come from. The same
-            field drives :meth:`DifferentialAbundance.fit`; here the only such
-            hyperparameter is the length scale, so the scheme decides which cells
-            the shared ``ls`` is estimated from when ``ls`` is None. Both
-            conditions are normally smoothed at the *same* scale so that their
+            Which cells the shared length scale is estimated from when ``ls``
+            is None. Both conditions are normally smoothed at the *same* scale
+            so that their
             fitted surfaces are comparable; the schemes differ in which cells the
             shared value is estimated from. ``None`` (default) means
             ``"condition1"``.

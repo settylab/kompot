@@ -65,12 +65,10 @@ class GPSettings:
     ls_factor : float
         Multiplier applied to the automatically inferred length scale.
     param_scheme : str, optional
-        Where the hyperparameters a model estimates from cells come from.
-        Read by both :func:`kompot.de` and :func:`kompot.da`; the model
-        decides which parameters it covers — ``ls`` in differential
-        expression, ``d``, ``mu`` and ``ls`` in differential abundance.  A
-        value given explicitly (``ls`` here, or ``d`` / ``mu`` passed to
-        ``da()``) pins that parameter and takes precedence.
+        Which cells the length scale is estimated from; in :func:`kompot.da`
+        it covers ``d`` and ``mu`` as well.  A value given explicitly (``ls``
+        here, or ``d`` / ``mu`` passed to ``da()``) pins that parameter and
+        takes precedence.
 
         ``None`` (default) keeps each entry point's own default:
         ``"condition1"`` for ``de()`` and ``"separate"`` for ``da()``.
@@ -80,8 +78,8 @@ class GPSettings:
           first.
         * ``"condition2"`` — the mirror: estimate from condition 2's cells and
           reuse for condition 1.  Equally asymmetric, by design; it exists so
-          that ``de(X, Y, "condition1")`` and ``de(Y, X, "condition2")`` (and
-          likewise ``da``) are the same computation with the labels exchanged
+          that ``de(X, Y, "condition1")`` and ``de(Y, X, "condition2")`` are
+          the same computation with the labels exchanged
           **provided both runs use the same landmarks**.  The defaults here
           (``n_landmarks=5000``, ``landmarks=None``) do *not* satisfy that and
           the equivalence then holds only approximately — see

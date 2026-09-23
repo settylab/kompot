@@ -6,44 +6,26 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
- - **`GPSettings.param_scheme`**: one field, read by both `kompot.de()` and `kompot.da()`, that
-   says where the hyperparameters estimated from cells come from — `"condition1"`,
-   `"condition2"`, `"symmetric"`, `"pooled"` or `"separate"`. It covers `ls` in differential
-   expression and `d`, `mu` and `ls` in differential abundance; an explicit value pins that
-   parameter. The default, `None`, keeps each entry point's existing behaviour: `"condition1"` for
-   `de()` and `"separate"` for `da()`.
- - **Abundance gains `"condition1"`, `"condition2"` and `"symmetric"`.** `"symmetric"` is
-   swap-invariant by construction. See `DifferentialAbundance.fit`.
+ - **`GPSettings.param_scheme`** chooses which cells the length scale is estimated from:
+   `"condition1"`, `"condition2"`, `"symmetric"`, `"pooled"` or `"separate"`. In `da()` it covers
+   `d` and `mu` as well. The default, `None`, keeps current behaviour: `"condition1"` in `de()`,
+   `"separate"` in `da()`. `"symmetric"` is swap-invariant. Both CLIs accept it as a config key.
 
-### Changed
+### Removed
 
- - `param_scheme` participates in run-parameter matching for both `de()` and `da()`.
-
-### Deprecated
-
- - **`sync_parameters`** on `DifferentialAbundance.fit` and `da()`: `True` is
-   `param_scheme="pooled"` and `False` is `"separate"`, with identical results. It previously
-   reached `da()` only through `**density_kwargs`.
+ - `sync_parameters` on `DifferentialAbundance.fit` and `da()`; use `param_scheme="pooled"`.
 
 ### Fixed
 
- - **`da()` now honours `GPSettings.ls`.** It read six `GPSettings` fields and silently ignored the
-   rest. The expression-only fields `sigma`, `eps` and `use_empirical_variance` now log a warning
-   when set, and the DA CLI routes `ls` and `param_scheme` config keys into `GPSettings`.
+ - `da()` now honours `GPSettings.ls`, and warns when the expression-only fields `sigma`, `eps` or
+   `use_empirical_variance` are set.
 
 ### Documentation
 
- - **Expression results depend on argument order at the default.** The shared length scale is
-   estimated from condition 1's cells only, so `de(condition1=X, condition2=Y)` is not equivalent
-   to `de(condition1=Y, condition2=X)`; on an exchangeable null the two orientations differ in
-   false-positive rate by 0.06–0.08 beyond 2:1. `"symmetric"` and `"pooled"` are swap-invariant,
-   `"separate"` is for diagnostics, and `"condition2"` mirrors the default so its order dependence
-   is visible from one call site. See `DifferentialExpression.fit`.
- - Abundance is swap-equivalent at `"separate"` without landmarks, and tested. `"pooled"` and
-   automatic landmarks each break that, and need different remedies that do not substitute for
-   one another: see `DifferentialAbundance.fit`. `da(adata, gp=GPSettings(...))` carries
-   `n_landmarks=5000`. A pre-existing instability at `n_landmarks >= n_combined` is tracked at
-   settylab/kompot#32.
+ - At the default, `de()` depends on argument order: the shared length scale comes from condition
+   1 alone. See `DifferentialExpression.fit`.
+ - Automatic landmarks and `"pooled"` make `da()` depend on argument order; see
+   `DifferentialAbundance.fit`. The instability at `n_landmarks >= n_combined` is settylab/kompot#32.
 
 ## [0.8.0] - 2026-07-28
 
