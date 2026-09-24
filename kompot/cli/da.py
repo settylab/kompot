@@ -184,6 +184,22 @@ def add_da_parser(subparsers) -> argparse.ArgumentParser:
     return parser
 
 
+#: Flat config keys the DA CLI routes into :class:`~kompot.settings.GPSettings`.
+#: Every other key -- including ``sigma``, which here means mellon's density
+#: noise rather than the expression model's -- is forwarded to ``da()`` and
+#: from there to :class:`mellon.DensityEstimator`.
+GP_CONFIG_KEYS = {
+    "ls",
+    "ls_factor",
+    "param_scheme",
+    "n_landmarks",
+    "landmarks",
+    "batch_size",
+    "jit_compile",
+    "random_state",
+}
+
+
 def run_da(args):
     """
     Run differential abundance analysis.
@@ -292,15 +308,7 @@ def run_da(args):
     sample_col = params.pop("sample_col", None)
 
     # Build Settings from remaining params
-    gp_keys = {
-        "n_landmarks",
-        "landmarks",
-        "ls_factor",
-        "batch_size",
-        "jit_compile",
-        "random_state",
-    }
-    gp_kwargs = {k: params.pop(k) for k in list(params) if k in gp_keys}
+    gp_kwargs = {k: params.pop(k) for k in list(params) if k in GP_CONFIG_KEYS}
     gp = GPSettings(**gp_kwargs) if gp_kwargs else None
 
     threshold_kwargs = {}

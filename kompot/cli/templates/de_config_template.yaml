@@ -43,6 +43,8 @@ jit_compile: false             # Use JAX JIT compilation
 sigma: 1.0                     # Noise level for function estimator
 ls: null                       # Length scale (null = auto-estimate)
 ls_factor: 10.0                # Length scale multiplication factor
+param_scheme: null             # Where the shared length scale is estimated from (null = condition1):
+                               # condition1 | condition2 | symmetric | pooled | separate
 eps: 1.0e-8                    # Numerical stability constant
 
 # Memory management:

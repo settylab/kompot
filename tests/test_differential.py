@@ -49,8 +49,8 @@ def test_differential_abundance_fit():
     # No longer checking for class attributes - they're not updated in the new version
 
 
-def test_differential_abundance_sync_parameters():
-    """Test synchronizing parameters between conditions with DifferentialAbundance."""
+def test_differential_abundance_pooled_parameters():
+    """Test sharing pooled parameters between conditions with DifferentialAbundance."""
     # Generate data with different distributions
     np.random.seed(42)  # Set seed for reproducibility
     X_condition1 = np.random.randn(100, 5)
@@ -58,11 +58,11 @@ def test_differential_abundance_sync_parameters():
 
     # First fit without parameter synchronization
     diff_abundance_nosync = DifferentialAbundance()
-    diff_abundance_nosync.fit(X_condition1, X_condition2, sync_parameters=False)
+    diff_abundance_nosync.fit(X_condition1, X_condition2, param_scheme="separate")
 
     # Then fit with parameter synchronization
     diff_abundance_sync = DifferentialAbundance()
-    diff_abundance_sync.fit(X_condition1, X_condition2, sync_parameters=True)
+    diff_abundance_sync.fit(X_condition1, X_condition2, param_scheme="pooled")
 
     # Both should have valid predictors
     assert diff_abundance_nosync.density_predictor1 is not None
@@ -114,7 +114,7 @@ def test_differential_abundance_sync_parameters():
     diff_abundance_custom.fit(
         X_condition1,
         X_condition2,
-        sync_parameters=True,  # Should sync but these values take precedence
+        param_scheme="pooled",  # Should share but these values take precedence
         d=custom_d,
         mu=custom_mu,
         ls=custom_ls,

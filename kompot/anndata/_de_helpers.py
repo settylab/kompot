@@ -13,6 +13,7 @@ import pandas as pd
 from typing import Optional, Dict, List, Tuple
 from scipy import sparse
 
+from ..differential.differential_expression import DEFAULT_PARAM_SCHEME
 from .utils import check_underrepresentation, apply_cell_filter
 
 logger = logging.getLogger("kompot")
@@ -41,6 +42,7 @@ def _check_overwrites(
     obsm_key: str,
     layer: Optional[str],
     ls_factor: float,
+    param_scheme: str,
 ):
     """Check for existing results and handle overwrite logic.
 
@@ -134,9 +136,15 @@ def _check_overwrites(
                 "obsm_key",
                 "layer",
                 "ls_factor",
+                "param_scheme",
             ]:
                 curr_val = locals().get(param_name)
-                prev_val = _pg(prev_params, param_name)
+                # A run recorded before `param_scheme` existed used the default.
+                prev_val = _pg(
+                    prev_params,
+                    param_name,
+                    DEFAULT_PARAM_SCHEME if param_name == "param_scheme" else None,
+                )
                 if curr_val != prev_val:
                     params_match = False
                     logger.debug(
@@ -189,9 +197,15 @@ def _check_overwrites(
                 "obsm_key",
                 "layer",
                 "ls_factor",
+                "param_scheme",
             ]:
                 curr_val = locals().get(param_name)
-                prev_val = _pg(prev_params, param_name)
+                # A run recorded before `param_scheme` existed used the default.
+                prev_val = _pg(
+                    prev_params,
+                    param_name,
+                    DEFAULT_PARAM_SCHEME if param_name == "param_scheme" else None,
+                )
                 if curr_val != prev_val:
                     params_match = False
 

@@ -763,6 +763,22 @@ class TestCLIDiffusionMaps:
             or "PCA coordinates not found" in result.stdout
         )
 
+    def test_dm_without_palantir_says_so(self, sample_adata, temp_dir):
+        """With valid input and no Palantir, the error names the missing package."""
+        try:
+            import palantir  # noqa: F401
+        except ImportError:
+            pass
+        else:
+            pytest.skip("palantir is installed")
+        input_file = Path(temp_dir) / "input.h5ad"
+        sample_adata.write_h5ad(input_file)
+        cmd = [sys.executable, "-m", "kompot.cli", "dm", str(input_file),
+               "-o", str(Path(temp_dir) / "output.h5ad")]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        assert result.returncode != 0
+        assert "Palantir is not installed" in result.stderr + result.stdout
+
 
 class TestCLIMainEntry:
     """Test main CLI entry point."""

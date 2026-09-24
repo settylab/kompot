@@ -205,6 +205,24 @@ def add_de_parser(subparsers) -> argparse.ArgumentParser:
     return parser
 
 
+#: Flat config keys the DE CLI routes into :class:`~kompot.settings.GPSettings`.
+#: Module level so a test can assert it against the dataclass's own fields --
+#: a key missing here is not rejected, it falls through to ``**function_kwargs``
+#: and is handed to mellon, so the omission is silent at the config surface.
+GP_CONFIG_KEYS = {
+    "sigma",
+    "ls",
+    "ls_factor",
+    "param_scheme",
+    "n_landmarks",
+    "use_empirical_variance",
+    "batch_size",
+    "eps",
+    "jit_compile",
+    "random_state",
+}
+
+
 def run_de(args):
     """
     Run differential expression analysis.
@@ -317,18 +335,7 @@ def run_de(args):
     sample_col = params.pop("sample_col", None)
 
     # Build Settings from remaining params
-    gp_keys = {
-        "sigma",
-        "ls",
-        "ls_factor",
-        "n_landmarks",
-        "use_empirical_variance",
-        "batch_size",
-        "eps",
-        "jit_compile",
-        "random_state",
-    }
-    gp_kwargs = {k: params.pop(k) for k in list(params) if k in gp_keys}
+    gp_kwargs = {k: params.pop(k) for k in list(params) if k in GP_CONFIG_KEYS}
     gp = GPSettings(**gp_kwargs) if gp_kwargs else None
 
     fdr_kwargs = {}

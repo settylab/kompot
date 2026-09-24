@@ -33,7 +33,10 @@ random_state: null             # Random seed for landmark selection
 jit_compile: false             # Use JAX JIT compilation
 
 # GP kernel parameters:
+ls: null                       # Length scale (null = auto-estimate)
 ls_factor: 10.0                # Length scale multiplication factor
+param_scheme: null             # Where d, mu and ls are estimated from (null = separate):
+                               # separate | pooled | condition1 | condition2 | symmetric
 
 # Memory management:
 store_arrays_on_disk: null     # Store large arrays on disk (null = auto)
@@ -57,7 +60,6 @@ return_full_results: false     # Return full results dict (not used in CLI)
 #
 # d_method: "fractal"          # Density estimation method
 # sigma: null                  # Noise level (null = auto)
-# ls: null                     # Length scale (null = auto)
 # gp_type: "vonkarman"         # GP kernel type
 # cov_func_curry: null         # Custom covariance function
 # rank: null                   # Rank for low-rank approximation

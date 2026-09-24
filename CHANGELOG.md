@@ -2,6 +2,40 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+
+ - **`GPSettings.param_scheme`** chooses which cells the length scale is estimated from:
+   `"condition1"`, `"condition2"`, `"symmetric"`, `"pooled"` or `"separate"`. In `da()` it covers
+   `d` and `mu` as well. The default, `None`, keeps current behaviour: `"condition1"` in `de()`,
+   `"separate"` in `da()`. `"symmetric"` is swap-invariant. Both CLIs accept it as a config key.
+
+### Removed
+
+ - `sync_parameters` on `DifferentialAbundance.fit` and `da()`; use `param_scheme="pooled"`.
+
+### Fixed
+
+ - `da()` now honours `GPSettings.ls`, and warns when the expression-only fields `sigma`, `eps` or
+   `use_empirical_variance` are set.
+ - **Abundance uncertainty no longer depends on argument order when `n_landmarks` is at least the
+   number of cells** (settylab/kompot#32). That is `da(gp=GPSettings(...))` on data under 5000
+   cells, and the CLI whenever a GP key is set without `n_landmarks`. Each condition now gets its
+   full GP (the same as `n_landmarks=None` up to 5000 cells per condition, where mellon's own
+   landmark default starts). **This changes results there**: z-scores and PTPs move to the
+   full-GP values (on 400 + 400 cells, z by a median of 34%; the two orientations now agree exactly,
+   where they differed by a median of 82%), and fold changes and densities by at most 6e-4.
+   `da()` without `gp`, `DifferentialAbundance()`, and every run with fewer landmarks than cells are
+   unchanged.
+
+### Documentation
+
+ - At the default, `de()` depends on argument order: the shared length scale comes from condition
+   1 alone. See `DifferentialExpression.fit`.
+ - Automatic landmarks and `"pooled"` make `da()` depend on argument order; see
+   `DifferentialAbundance.fit`.
+
 ## [0.8.0] - 2026-07-28
 
 ### Changed — statistics now match the manuscript

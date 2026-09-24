@@ -109,6 +109,7 @@ class TestCheckDaOverwrites:
                 condition2="B",
                 obsm_key="X_pca",
                 ls_factor=1.0,
+                param_scheme="separate",
             )
 
     def test_overwrite_none_with_sample_var_change_params_match(self):
@@ -131,6 +132,7 @@ class TestCheckDaOverwrites:
             condition2="B",
             obsm_key="X_pca",
             ls_factor=1.0,
+            param_scheme="separate",
         )
 
     def test_overwrite_none_with_sample_var_change_params_mismatch(self):
@@ -153,6 +155,7 @@ class TestCheckDaOverwrites:
             condition2="B",
             obsm_key="X_pca",
             ls_factor=1.0,
+            param_scheme="separate",
         )
 
     def test_overwrite_false_with_sample_var_fields_listed(self):
@@ -175,6 +178,7 @@ class TestCheckDaOverwrites:
                 condition2="B",
                 obsm_key="X_pca",
                 ls_factor=1.0,
+                param_scheme="separate",
             )
 
     def test_overwrite_false_prev_sample_var_true_current_false(self):
@@ -195,6 +199,7 @@ class TestCheckDaOverwrites:
                 condition2="B",
                 obsm_key="X_pca",
                 ls_factor=1.0,
+                param_scheme="separate",
             )
 
     def test_overwrite_none_no_sample_var_change(self):
@@ -214,6 +219,7 @@ class TestCheckDaOverwrites:
             condition2="B",
             obsm_key="X_pca",
             ls_factor=1.0,
+            param_scheme="separate",
         )
 
 

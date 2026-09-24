@@ -9,6 +9,8 @@ import pandas as pd
 from typing import Union, Dict, Any
 
 from ..differential import DifferentialExpression
+from ..differential.differential_expression import DEFAULT_PARAM_SCHEME
+from ..settings import resolve_param_scheme
 from ..settings import (
     GPSettings,
     FDRSettings,
@@ -97,6 +99,10 @@ def de(
         Column with biological-replicate labels.
     gp : GPSettings, optional
         GP model parameters (sigma, ls, n_landmarks, etc.).
+        ``param_scheme`` sets which cells the shared length scale is
+        estimated from; ``None`` means ``"condition1"``, which makes the
+        result depend on which condition is passed first.  See
+        :meth:`~kompot.differential.DifferentialExpression.fit`.
     fdr : FDRSettings, optional
         FDR / null-distribution parameters.
     filter : FilterSettings, optional
@@ -132,6 +138,12 @@ def de(
     sigma = _gp.sigma
     ls = _gp.ls
     ls_factor = _gp.ls_factor
+    if "param_scheme" in function_kwargs:
+        raise ValueError(
+            "`param_scheme` is a GPSettings field: pass "
+            "gp=GPSettings(param_scheme=...), not a keyword argument of de()."
+        )
+    param_scheme = resolve_param_scheme(_gp.param_scheme, DEFAULT_PARAM_SCHEME)
     n_landmarks = _gp.n_landmarks
     landmarks = _gp.landmarks
     use_empirical_variance = _gp.use_empirical_variance
@@ -305,6 +317,7 @@ def de(
         obsm_key=obsm_key,
         layer=layer,
         ls_factor=ls_factor,
+        param_scheme=param_scheme,
     )
 
     # ---- 2. Copy if requested ----
@@ -455,6 +468,7 @@ def de(
         sigma=sigma,
         ls=ls,
         ls_factor=ls_factor,
+        param_scheme=param_scheme,
         landmarks=landmarks,
         condition1_sample_indices=condition1_sample_indices,
         condition2_sample_indices=condition2_sample_indices,
@@ -635,6 +649,7 @@ def de(
                 sigma=sigma,
                 ls=ls,
                 ls_factor=ls_factor,
+                param_scheme=param_scheme,
                 n_landmarks=n_landmarks,
                 use_empirical_variance=use_empirical_variance,
                 batch_size=batch_size,
