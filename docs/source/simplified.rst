@@ -40,7 +40,7 @@ Differential Expression
    kompot.de(
        adata, "condition", "Young", "Old",
        sample_col="donor_id",
-       genes=top_genes,  # e.g. top 1 000 from a previous run
+       genes=top_genes,  # e.g. top 200 from a previous run
        fdr=kompot.FDRSettings(null_genes=0),
    )
 

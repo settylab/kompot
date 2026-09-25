@@ -89,7 +89,7 @@ So run it in two passes, and price the second one first:
 kompot.de(adata, "condition", "Young", "Old")
 
 mahal = "kompot_de_Young_to_Old_mahalanobis"
-top_genes = adata.var.sort_values(mahal, ascending=False).head(1000).index
+top_genes = adata.var.sort_values(mahal, ascending=False).head(200).index
 
 # Pass 2 — sample variance, restricted to the top genes
 plan = kompot.de(

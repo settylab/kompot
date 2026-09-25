@@ -261,7 +261,7 @@ Example: Complete Analysis
 
       # sample_variance.yaml
       sample_col: "Sample"
-      genes: ["GATA1", "KLF1", "..."]   # top ~1 000 from the first pass
+      genes: ["GATA1", "KLF1", "..."]   # top ~200 from the first pass
       n_landmarks: 2000                 # cost is QUADRATIC in this
       null_genes: 0                     # not calibrated for sample variance
       store_arrays_on_disk: true

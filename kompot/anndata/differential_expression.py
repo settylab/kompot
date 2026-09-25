@@ -103,7 +103,7 @@ def de(
            kompot.de(adata, "condition", "Young", "Old")     # pass 1, all genes
 
            mahal = "kompot_de_Young_to_Old_mahalanobis"
-           top = adata.var.sort_values(mahal, ascending=False).head(1000).index
+           top = adata.var.sort_values(mahal, ascending=False).head(200).index
 
            kompot.de(adata, "condition", "Young", "Old",     # pass 2
                      sample_col="donor_id", genes=top,

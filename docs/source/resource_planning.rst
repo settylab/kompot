@@ -22,7 +22,7 @@ instead:
 1. **Pass 1, all genes, no sample variance.** Cheap, and it gives you the
    Mahalanobis ranking.
 2. **Pass 2, top genes only, with sample variance.** Restrict to the genes that
-   survived pass 1 (on the order of 1 000; see :ref:`how-many-genes`), offload
+   survived pass 1 (on the order of 200; see :ref:`how-many-genes`), offload
    the covariance tensors to disk, and cut ``n_landmarks`` if the run is still
    too slow.
 
@@ -35,7 +35,7 @@ instead:
 
    # ---- Pick the genes worth refining ---------------------------------
    mahal = "kompot_de_Young_to_Old_mahalanobis"
-   top_genes = adata.var.sort_values(mahal, ascending=False).head(1000).index
+   top_genes = adata.var.sort_values(mahal, ascending=False).head(200).index
 
    # ---- Pass 2: sample variance, restricted and offloaded -------------
    kompot.de(
@@ -124,8 +124,8 @@ covariance matrix is ``5000^2 x 8 B = 190 MiB``, so:
    :class: warning
 
    At the default 5 000 landmarks, **every gene added to an in-memory
-   sample-variance run costs about 0.37 GiB**. One thousand genes is roughly
-   370 GiB; the whole transcriptome is over seven terabytes. Nothing else in a
+   sample-variance run costs about 0.37 GiB**. Two hundred genes is roughly
+   75 GiB; the whole transcriptome is over seven terabytes. Nothing else in a
    Kompot run behaves this way.
 
    :ref:`disk-offload` removes that term from memory entirely, which is what
@@ -159,23 +159,23 @@ Measured inside a real ``kompot.de`` sample-variance run, 20 genes, with
 
    * - ``n_landmarks``
      - per gene
-     - 1 000 genes
+     - 200 genes
      - 20 000 genes
    * - 500
      - 0.016 s
-     - 16 s
+     - 3 s
      - 5 min
    * - 1 000
      - 0.062 s
-     - 1 min
+     - 12 s
      - 21 min
    * - 2 000
      - 0.246 s
-     - 4 min
+     - 49 s
      - 1.4 h
    * - 5 000 (default)
      - 2.08 s
-     - 35 min
+     - 7 min
      - 11.6 h
 
 .. warning::
@@ -224,7 +224,7 @@ Two smaller terms also grow with the gene count under sample variance, and
 neither is affected by ``store_arrays_on_disk``:
 
 * **Per-sample imputations**, ``2 x n_samples x n_landmarks x n_genes x 8`` B.
-  At 5 000 landmarks, 1 000 genes and 6 donors this is 0.45 GiB.
+  At 5 000 landmarks, 200 genes and 6 donors this is 0.09 GiB.
 * **Two extra layers**, ``<result_key>_<condition>_std``, each
   ``n_cells x n_genes x 8`` B, written into ``adata.layers``.
 
@@ -269,12 +269,12 @@ not just the covariance term. (Kompot's report labels these binary magnitudes
 
 Three things to read off this.
 
-**The in-memory column is the one that explodes.** 1 000 genes asks for
-380 GiB, and the whole transcriptome for seven and a half terabytes, because
+**The in-memory column is the one that explodes.** 200 genes asks for
+78 GiB, and the whole transcriptome for seven and a half terabytes, because
 that column carries ``2 x n_landmarks^2 x n_genes x 8`` bytes of covariance.
 
-**Disk offload collapses it.** The same 1 000 genes plans at 7.7 GiB, barely
-above the 6.4 GiB of a run with no sample variance at all, because the tensors
+**Disk offload collapses it.** The same 200 genes plans at 3.8 GiB, barely
+above the 3.1 GiB of a run with no sample variance at all, because the tensors
 are never held whole. The disk column reads zero because ``dask`` is installed
 in the environment that produced the table, and on that path the tensors are
 evaluated lazily rather than written; see :ref:`disk-offload` for the
@@ -398,8 +398,9 @@ stderr, and exits non-zero when the plan is infeasible. See :doc:`cli`.
    run accounts for them: it resolves ``null_genes`` exactly as the run would,
    including the ``"auto"`` default, so the plan prices the run it describes.
    If you override the default and request FDR alongside sample variance, each
-   null gene gets its own landmark covariance matrix too — 1 000 real genes
-   plus 2 000 null genes is a 3 000-gene tensor.
+   null gene gets its own landmark covariance matrix too — 200 real genes
+   plus 2 000 null genes is a 2 200-gene tensor, eleven times the cost of the
+   genes you asked for.
 
    Before Kompot 0.9.0 the estimate was built before ``"auto"`` was resolved
    and silently counted zero null genes, so a default-settings plan without
@@ -586,7 +587,7 @@ Other levers
 ------------
 
 ``n_landmarks`` **is the strongest memory lever**, because the covariance term
-is quadratic in it. Same 1 000 genes, from the dry run:
+is quadratic in it. Same 200 genes, from the dry run:
 
 .. list-table::
    :header-rows: 1
@@ -596,17 +597,17 @@ is quadratic in it. Same 1 000 genes, from the dry run:
      - sample variance, in memory
      - with ``store_arrays_on_disk``
    * - 1 000
-     - 21.0 GiB
-     - 6.1 GiB
+     - 5.4 GiB
+     - 2.5 GiB
    * - 2 000
-     - 66.0 GiB
-     - 6.4 GiB
+     - 14.6 GiB
+     - 2.6 GiB
    * - 3 000
-     - 140.8 GiB
-     - 6.7 GiB
+     - 29.7 GiB
+     - 2.9 GiB
    * - 5 000 (default)
-     - 380.2 GiB
-     - 7.7 GiB
+     - 78.3 GiB
+     - 3.8 GiB
 
 Halving the landmark count quarters the covariance footprint, which is exact
 arithmetic rather than a measurement. It cuts the per-gene factorisation too:
@@ -658,7 +659,7 @@ Both costs are linear in the gene count, so this is a budget decision rather
 than a statistical one, and Kompot supplies no default: ``genes=None`` means
 *all of them*, which is the one setting to avoid here.
 
-**Roughly 1 000 genes is a recommendation chosen from the cost curves, not a
+**Roughly 200 genes is a recommendation chosen from the cost curves, not a
 tuned or validated parameter — and it is a budget, not a wall.** Be clear about
 which constraint you are actually under, because they differ by orders of
 magnitude:
@@ -671,14 +672,14 @@ magnitude:
   one: ~11.6 h at 5 000 landmarks, ~1.4 h at 2 000, single-threaded.
 
 So a whole-transcriptome sample-variance run is *feasible* once the tensors are
-offloaded. Restricting to ~1 000 genes is still the right default, for reasons
+offloaded. Restricting to ~200 genes is still the right default, for reasons
 that are about value rather than capacity:
 
 * pass 1 has to run over all genes anyway, and it is what ranks them;
-* 1 000 genes costs about a twentieth of the whole transcriptome on both axes,
+* 200 genes costs about a hundredth of the whole transcriptome on both axes,
   for the genes you were going to read;
 * FDR is not calibrated for sample variance (``null_genes`` resolves to ``0``
-  when ``sample_col`` is set), so the extra 19 000 genes buy no additional
+  when ``sample_col`` is set), so the extra 19 800 genes buy no additional
   testable calls.
 
 If you do want wider coverage, cut ``n_landmarks`` in the same breath: it
