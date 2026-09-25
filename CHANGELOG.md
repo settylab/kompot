@@ -114,8 +114,9 @@ Following the fix above, `estimate_differential_expression_resources`:
    the canonical explanation of what `sample_col` costs and how to run it, with
    plans produced by `dry_run=True` at realistic sizes. It prescribes the
    two-pass workflow — a cheap first pass over all genes, then sample variance
-   restricted to the top genes — ranks the levers, and shows how to price a run
-   before committing to it.
+   restricted to the top ~200 genes — ranks the levers, and shows how to price a run
+   before committing to it. The recommended budget for that second pass is on the order of
+   **200 genes**; every figure quoted beside it is priced for 200.
  - The same warning now appears where the decision is made: `kompot.de`'s
    docstring (so `help()` carries it), `GPSettings.n_landmarks`,
    `GPSettings.batch_size`, `StorageSettings`, `SampleVarianceEstimator`,
@@ -134,7 +135,7 @@ Following the fix above, `estimate_differential_expression_resources`:
 
 Fixes settylab/kompot#27.
 
-### Added
+### Added — `GPSettings.param_scheme`
 
  - **`GPSettings.param_scheme`** chooses which cells the length scale is estimated from:
    `"condition1"`, `"condition2"`, `"symmetric"`, `"pooled"` or `"separate"`. In `da()` it covers
@@ -145,7 +146,7 @@ Fixes settylab/kompot#27.
 
  - `sync_parameters` on `DifferentialAbundance.fit` and `da()`; use `param_scheme="pooled"`.
 
-### Fixed
+### Fixed — other
 
  - `da()` now honours `GPSettings.ls`, and warns when the expression-only fields `sigma`, `eps` or
    `use_empirical_variance` are set.
@@ -158,13 +159,40 @@ Fixes settylab/kompot#27.
    where they differed by a median of 82%), and fold changes and densities by at most 6e-4.
    `da()` without `gp`, `DifferentialAbundance()`, and every run with fewer landmarks than cells are
    unchanged.
+ - **The CLI can write its output under anndata 0.11 and 0.12** (settylab/kompot#23). Those
+   versions refuse to write a pandas nullable-string array unless
+   `anndata.settings.allow_write_nullable_strings` is set, and pandas 3 produces one for every
+   ordinary string column, so `kompot de`, `da`, `smooth` and `dm` failed at the final write. The
+   CLI now opts in for the duration of its own write only; library calls and your global anndata
+   settings are untouched.
+ - **The provenance sha resolves in a linked git worktree checked out on a branch**
+   (settylab/kompot#28, settylab/kompot#33). Branch refs and `packed-refs` live in the shared
+   repository directory named by the worktree's `commondir` file, and resolution looked only in
+   the per-worktree directory, so every run from such a checkout was stamped
+   `kompot_git_sha: null`. Refs are now looked up in both, and a sha that cannot be resolved
+   inside a git checkout is logged as a warning rather than recorded silently.
 
-### Documentation
+### Deprecated
+
+ - **`SampleVarianceEstimator(dask_num_workers=...)`** had no effect and said it did
+   (settylab/kompot#31). It wrote the Dask config key `pool.num-workers`, which no scheduler
+   reads, changed Dask's global config as a side effect, and logged "Configured Dask to use N
+   workers". The Dask covariance tensor is evaluated one gene at a time, so there is no worker
+   pool for it to bound. Passing it now emits a `FutureWarning` and touches no configuration.
+   To bound Dask yourself, use `with dask.config.set(num_workers=N): ...`.
+
+### Documentation — argument order and the docs build
 
  - At the default, `de()` depends on argument order: the shared length scale comes from condition
    1 alone. See `DifferentialExpression.fit`.
  - Automatic landmarks and `"pooled"` make `da()` depend on argument order; see
    `DifferentialAbundance.fit`.
+ - The docs build now fails when reStructuredText markup survives into the rendered HTML
+   (settylab/kompot#30). Nested inline markup such as a literal inside bold renders as literal
+   backticks and `sphinx-build` exits 0, so it was reaching published pages unnoticed. A
+   `build-finished` check scans every rendered page for unrendered literals, roles and directives.
+   Its first run found ten such constructs in the tutorial notebooks, where pandoc turns code inside
+   bold or inside link text into nested RST; they are rewritten.
 
 ## [0.8.0] - 2026-07-28
 
