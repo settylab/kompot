@@ -4,10 +4,46 @@ import yaml
 import json
 from pathlib import Path
 from typing import Dict, Any
+import contextlib
 import logging
+import sys
 
 
 logger = logging.getLogger("kompot.cli")
+
+
+def _nullable_strings_allowed():
+    """Opt in to writing pandas nullable-string arrays, where anndata gates it.
+
+    anndata 0.11 and 0.12 refuse to write a ``pd.arrays.StringArray`` (which
+    pandas 3 produces for ordinary string columns) unless
+    ``anndata.settings.allow_write_nullable_strings`` is set, so every CLI
+    write failed under their defaults (settylab/kompot#23). The opt-in is
+    scoped to the write rather than set at import, and is a no-op on anndata
+    versions without the setting.
+    """
+    import anndata
+
+    settings = getattr(anndata, "settings", None)
+    if settings is None or not hasattr(settings, "allow_write_nullable_strings"):
+        return contextlib.nullcontext()
+    return settings.override(allow_write_nullable_strings=True)
+
+
+def write_output(adata, output_path) -> None:
+    """Write *adata* to an ``.h5ad`` or ``.zarr`` path, exiting on any other suffix."""
+    output_path = Path(output_path)
+    if str(output_path).endswith(".h5ad"):
+        with _nullable_strings_allowed():
+            adata.write_h5ad(output_path)
+    elif str(output_path).endswith(".zarr"):
+        with _nullable_strings_allowed():
+            adata.write_zarr(output_path)
+    else:
+        logger.error(
+            f"Unsupported output format: {output_path.suffix}. Use .h5ad or .zarr"
+        )
+        sys.exit(1)
 
 
 def load_config(config_path: str) -> Dict[str, Any]:

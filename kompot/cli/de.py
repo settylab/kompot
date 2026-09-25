@@ -16,7 +16,12 @@ from ..settings import (
     StorageSettings,
     OutputSettings,
 )
-from .utils import load_config, merge_args_with_config, validate_anndata_path
+from .utils import (
+    load_config,
+    merge_args_with_config,
+    validate_anndata_path,
+    write_output,
+)
 from .compute_config import configure_compute
 
 
@@ -441,15 +446,7 @@ def run_de(args):
         output_path = Path(args.output)
         logger.info(f"Saving results to {output_path}")
 
-        if str(output_path).endswith(".h5ad"):
-            adata.write_h5ad(output_path)
-        elif str(output_path).endswith(".zarr"):
-            adata.write_zarr(output_path)
-        else:
-            logger.error(
-                f"Unsupported output format: {output_path.suffix}. Use .h5ad or .zarr"
-            )
-            sys.exit(1)
+        write_output(adata, output_path)
 
     # Save table output if specified
     if args.table_output:
