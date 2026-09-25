@@ -12,6 +12,10 @@ import pytest
 import yaml
 from anndata import AnnData
 
+# Fixtures write through the CLI's own writer: under anndata 0.11/0.12 and
+# pandas 3 a plain write_h5ad of any AnnData fails (settylab/kompot#23).
+from kompot.cli.utils import write_output
+
 
 @pytest.fixture
 def sample_adata():
@@ -42,7 +46,7 @@ class TestCLISmooth:
         """Test basic smooth with h5ad output."""
         input_file = Path(temp_dir) / "input.h5ad"
         output_file = Path(temp_dir) / "output.h5ad"
-        sample_adata.write_h5ad(input_file)
+        write_output(sample_adata, input_file)
 
         cmd = [
             sys.executable,
@@ -75,7 +79,7 @@ class TestCLISmooth:
         """Test smooth with condition selection."""
         input_file = Path(temp_dir) / "input.h5ad"
         output_file = Path(temp_dir) / "output.h5ad"
-        sample_adata.write_h5ad(input_file)
+        write_output(sample_adata, input_file)
 
         cmd = [
             sys.executable,
@@ -108,7 +112,7 @@ class TestCLISmooth:
         """Test smooth with table output."""
         input_file = Path(temp_dir) / "input.h5ad"
         table_file = Path(temp_dir) / "results.csv"
-        sample_adata.write_h5ad(input_file)
+        write_output(sample_adata, input_file)
 
         cmd = [
             sys.executable,
@@ -139,7 +143,7 @@ class TestCLISmooth:
         input_file = Path(temp_dir) / "input.h5ad"
         output_file = Path(temp_dir) / "output.h5ad"
         config_file = Path(temp_dir) / "config.yaml"
-        sample_adata.write_h5ad(input_file)
+        write_output(sample_adata, input_file)
 
         config = {
             "obsm_key": "X_pca",
@@ -169,7 +173,7 @@ class TestCLISmooth:
     def test_smooth_no_output_fails(self, sample_adata, temp_dir):
         """Test that missing output args fails."""
         input_file = Path(temp_dir) / "input.h5ad"
-        sample_adata.write_h5ad(input_file)
+        write_output(sample_adata, input_file)
 
         cmd = [
             sys.executable,
@@ -188,7 +192,7 @@ class TestCLISmooth:
         """Test smooth with --use-empirical-variance flag."""
         input_file = Path(temp_dir) / "input.h5ad"
         output_file = Path(temp_dir) / "output.h5ad"
-        sample_adata.write_h5ad(input_file)
+        write_output(sample_adata, input_file)
 
         cmd = [
             sys.executable,
@@ -218,7 +222,7 @@ class TestCLISmooth:
         """Test smooth with gene subsetting."""
         input_file = Path(temp_dir) / "input.h5ad"
         output_file = Path(temp_dir) / "output.h5ad"
-        sample_adata.write_h5ad(input_file)
+        write_output(sample_adata, input_file)
 
         cmd = [
             sys.executable,
