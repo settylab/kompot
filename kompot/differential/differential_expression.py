@@ -8,9 +8,80 @@ from mellon.parameters import compute_landmarks
 
 from ..utils import compute_mahalanobis_distances, LazyGeneCovariance
 from ..batch_utils import apply_batched, is_jax_memory_error  # noqa: F401
+from ..settings import PARAM_SCHEMES, resolve_param_scheme
 from .expression_model import ExpressionModel
 
 logger = logging.getLogger("kompot")
+
+#: The ``param_scheme`` an expression fit uses when none is given.
+DEFAULT_PARAM_SCHEME = "condition1"
+
+
+def _auto_ls(X: np.ndarray, ls_factor: float) -> float:
+    """Automatic length scale for one design matrix.
+
+    Identical to what :meth:`ExpressionModel.fit` derives internally when
+    ``ls`` is None, exposed here so a scheme can combine the two conditions'
+    values *before* either model is fitted.
+    """
+    from mellon.parameters import compute_ls, compute_nn_distances
+
+    return float(compute_ls(compute_nn_distances(np.asarray(X))) * ls_factor)
+
+
+def _resolve_scheme_ls(param_scheme, X_condition1, X_condition2, ls_factor):
+    """Return the ``(ls_model1, ls_model2)`` a ``param_scheme`` prescribes.
+
+    ``ls`` is the only hyperparameter a :class:`mellon.FunctionEstimator`
+    estimates from cells (it has no ``d``, and its ``mu`` is a constant prior
+    mean), so in differential expression the scheme covers ``ls`` alone.
+
+    ``None`` in a slot means "let that model estimate its own".  For
+    ``"condition1"`` both slots are None and the caller reproduces the
+    historical behaviour by copying model1's fitted value into model2.
+    """
+    if param_scheme == "condition1":
+        return None, None
+    if param_scheme == "condition2":
+        # The mirror of "condition1": estimate from condition 2's cells and give
+        # the value to condition 1.  Resolved eagerly rather than by inheritance
+        # because model1 is fitted first; `_auto_ls` reproduces what a model
+        # derives internally bit for bit, which is what makes
+        # de(X, Y, "condition1") and de(Y, X, "condition2") the same computation
+        # with the labels exchanged.  Pinned by
+        # test_auto_ls_is_bit_identical_to_the_models_internal_estimate.
+        shared = _auto_ls(X_condition2, ls_factor)
+        logger.info(f"param_scheme='condition2': shared length scale {shared:.4f}")
+        return shared, shared
+    if param_scheme == "separate":
+        return None, None
+    if param_scheme == "pooled":
+        shared = _auto_ls(
+            np.vstack([np.asarray(X_condition1), np.asarray(X_condition2)]),
+            ls_factor,
+        )
+        logger.info(f"param_scheme='pooled': shared length scale {shared:.4f}")
+        return shared, shared
+    if param_scheme == "symmetric":
+        n1 = np.asarray(X_condition1).shape[0]
+        n2 = np.asarray(X_condition2).shape[0]
+        ls1 = _auto_ls(X_condition1, ls_factor)
+        ls2 = _auto_ls(X_condition2, ls_factor)
+        # Size-weighted GEOMETRIC mean.  kompot's estimator is
+        # exp(mean(log nn_dist)) * const, so this is exactly that estimator
+        # applied to the two conditions' WITHIN-condition nearest-neighbour
+        # distances pooled together -- unlike 'pooled', which looks the
+        # neighbours up across the union and therefore shrinks purely because
+        # the union holds more cells.
+        shared = float(np.exp((n1 * np.log(ls1) + n2 * np.log(ls2)) / (n1 + n2)))
+        logger.info(
+            f"param_scheme='symmetric': condition length scales {ls1:.4f} / "
+            f"{ls2:.4f} -> shared {shared:.4f}"
+        )
+        return shared, shared
+    raise ValueError(
+        f"Unknown param_scheme {param_scheme!r}. Expected one of {PARAM_SCHEMES}."
+    )
 
 
 class DifferentialExpression:
@@ -313,6 +384,7 @@ class DifferentialExpression:
         condition1_sample_indices: Optional[np.ndarray] = None,
         condition2_sample_indices: Optional[np.ndarray] = None,
         allow_single_condition_variance: bool = False,
+        param_scheme: Optional[str] = None,
         **function_kwargs,
     ):
         """
@@ -334,7 +406,8 @@ class DifferentialExpression:
         sigma : float, optional
             Noise level for function estimator, by default 1.0.
         ls : float, optional
-            Length scale for the GP kernel. If None, it will be estimated, by default None.
+            Length scale for the GP kernel, shared by both conditions. If None it is
+            estimated from the data according to ``param_scheme``, by default None.
         ls_factor : float, optional
             Multiplication factor to apply to length scale when it's automatically inferred,
             by default 10.0. Only used when ls is None.
@@ -350,6 +423,89 @@ class DifferentialExpression:
         condition2_sample_indices : np.ndarray, optional
             Sample indices for second condition. Used for sample variance estimation.
             Unique values in this array define different sample groups.
+        param_scheme : str, optional
+            Which cells the shared length scale is estimated from when ``ls``
+            is None. Both conditions are normally smoothed at the *same* scale
+            so that their
+            fitted surfaces are comparable; the schemes differ in which cells the
+            shared value is estimated from. ``None`` (default) means
+            ``"condition1"``.
+
+            * ``"condition1"`` (default) — estimate from condition 1's cells and
+              reuse the value for condition 2. **Not symmetric**: the length
+              scale is a function of ``n_condition1`` alone, so swapping
+              ``condition1`` and ``condition2`` changes the result even when
+              nothing else does.
+            * ``"condition2"`` — the mirror of the default: estimate from
+              condition 2's cells and reuse the value for condition 1. Equally
+              asymmetric, and deliberately so. Its use is **diagnostic**:
+              ``de(X, Y, param_scheme="condition1")`` and
+              ``de(Y, X, param_scheme="condition2")`` are the same computation
+              with the labels exchanged, so running both orientations of a
+              contrast under the two schemes exposes the default's
+              swap-dependence from a single call site, without having to swap
+              ``condition1`` and ``condition2`` at the call site and re-derive
+              which sign is which.
+
+              .. warning::
+
+                 **That equivalence holds only if both runs use the same
+                 landmarks, and the library defaults do not.** Automatic
+                 landmarks are computed from
+                 ``np.vstack([X_condition1, X_condition2])``, whose row order
+                 differs between the two orientations, so the two runs select
+                 *different* landmark sets and evaluate at different points.
+                 With ``n_landmarks=5000`` and ``landmarks=None`` — the
+                 :class:`~kompot.settings.GPSettings` defaults — the mirror is
+                 therefore only approximate, and nothing downstream signals it:
+                 the numbers are silently close rather than equal.
+
+                 Measured at a small scale against
+                 ``assert_allclose(rtol=1e-6, atol=1e-8)`` — the tolerance this
+                 package's own tests use — **six of the nine mirrored
+                 comparisons miss in every draw**: both smoothed surfaces,
+                 ``fold_change``, ``fold_change_zscores``,
+                 ``mahalanobis_distances`` and ``neg_log10_ptp`` (12/12 draws
+                 each). The other three are intermittent — the two posterior
+                 standard-deviation comparisons missed 8/12 and 2/12 draws at
+                 the default ``random_state=None``, and ``mean_log_fold_change``
+                 1/12, since averaging over cells cancels most of the landmark
+                 noise. Totals ran 6 to 9 of 9. **Six is a floor, not a typical
+                 value**, and it is also what ``random_state=0`` gives, so a
+                 single run at the default can coincide with the seeded number
+                 while nothing about the seed is thereby established. At
+                 ``n_landmarks=0``, 0 of 9 miss.
+
+                 The gap also **grows as the landmark fraction falls**, so a
+                 default 5,000-landmark run on a large dataset sits at the worse
+                 end, not the better one.
+
+                 To rely on the equivalence, make the landmarks common to both
+                 runs: pass one ``landmarks`` array to both, or set
+                 ``n_landmarks=0``. Both are exact. ``fit()`` logs a warning
+                 when ``"condition2"`` is used with automatic landmarks.
+
+                 The order dependence is **pre-existing and independent of**
+                 ``param_scheme`` — no scheme removes it, and it affects any
+                 comparison of two orientations, not only this one.
+            * ``"symmetric"`` — estimate a length scale from each condition
+              separately and share their size-weighted geometric mean. Invariant
+              under swapping the two conditions, and it does not inherit the
+              cell-count artefact of ``"pooled"``.
+            * ``"pooled"`` — estimate from the two conditions' cells taken
+              together. Also swap-invariant, but the union is denser than either
+              condition, so nearest-neighbour distances — and hence the length
+              scale — shrink purely because there are more cells.
+            * ``"separate"`` — let each condition estimate its own length scale
+              and do not share. The two surfaces are then smoothed differently
+              and the mismatch itself produces apparent fold changes; measured on
+              an exchangeable null this is markedly worse than any shared value.
+              Provided for diagnostics, not recommended.
+
+            Ignored when ``ls`` is given explicitly, or when a length scale is
+            passed through ``function_kwargs``. Supplying a ``cov_func`` or
+            ``cov_func_curry`` does *not* disable it: the resolved value is
+            handed to the custom kernel, so both conditions keep a shared scale.
         **function_kwargs : dict
             Additional arguments to pass to the FunctionEstimator.
 
@@ -358,6 +514,8 @@ class DifferentialExpression:
         self
             The fitted instance.
         """
+
+        param_scheme = resolve_param_scheme(param_scheme, DEFAULT_PARAM_SCHEME)
 
         # Check if sample indices are provided
         have_sample_indices = (
@@ -392,6 +550,7 @@ class DifferentialExpression:
             )
 
         # Compute shared landmarks (needs both conditions)
+        landmarks_were_provided = landmarks is not None
         if self.function_predictor1 is None or self.function_predictor2 is None:
             if landmarks is not None:
                 logger.info(f"Using provided landmarks with shape {landmarks.shape}")
@@ -406,6 +565,32 @@ class DifferentialExpression:
                 )
                 self.computed_landmarks = landmarks
 
+        # `"condition2"` exists ONLY to be compared against `"condition1"` on the
+        # swapped orientation, and that comparison is exact only when both runs
+        # evaluate at the same landmarks.  Automatic landmarks are derived from
+        # `np.vstack([X_condition1, X_condition2])`, whose ROW ORDER differs
+        # between the two orientations, so the two runs pick different sets and
+        # the equivalence silently degrades to approximate -- no error, no
+        # downstream signal, just numbers that are close instead of equal.  The
+        # scheme's whole purpose is the comparison, so anyone who reaches here is
+        # relying on it; say so rather than leaving the boundary in the docs.
+        if (
+            param_scheme == "condition2"
+            and not landmarks_were_provided
+            and self.n_landmarks is not None
+            and self.n_landmarks > 0
+        ):
+            logger.warning(
+                "param_scheme='condition2' with automatic landmarks: the "
+                "condition1/condition2 equivalence is EXACT only when both "
+                "orientations use the same landmarks, and automatic landmarks "
+                "are order-dependent (they are computed from the two "
+                "conditions' cells stacked in the order given). Pass one "
+                "`landmarks` array to both runs, or use n_landmarks=0, if you "
+                "intend to compare the two orientations. The gap grows as the "
+                "landmark fraction falls."
+            )
+
         # -- Fit model1 --
         if self.model1 is None:
             self.model1 = ExpressionModel(
@@ -418,13 +603,33 @@ class DifferentialExpression:
                 disk_storage_dir=self.disk_storage_dir,
             )
 
+        # -- Resolve the length scale each condition will be fitted with --
+        # The gate is deliberately the historical one: `ls` left open and no
+        # length scale smuggled in through function_kwargs.  A supplied
+        # `cov_func`/`cov_func_curry` must NOT disable it -- the two conditions
+        # still need a shared scale, and gating on the kernel would drop the
+        # condition-1 inheritance for callers who never touched `param_scheme`,
+        # silently giving them "separate" behaviour.
+        ls_auto = ls is None and "ls" not in function_kwargs
+        if ls_auto:
+            ls_model1, ls_model2 = _resolve_scheme_ls(
+                param_scheme, X_condition1, X_condition2, ls_factor
+            )
+        else:
+            if param_scheme != "condition1":
+                logger.info(
+                    f"param_scheme={param_scheme!r} ignored: the length scale is "
+                    "already fixed by an explicit ls."
+                )
+            ls_model1 = ls_model2 = ls
+
         if self.model1.predictor is None:
             logger.info("Fitting expression estimator for condition 1...")
             self.model1.fit(
                 X_condition1,
                 y_condition1,
                 sigma=sigma,
-                ls=ls,
+                ls=ls_model1,
                 ls_factor=ls_factor,
                 landmarks=landmarks,
                 sample_indices=condition1_sample_indices
@@ -435,9 +640,15 @@ class DifferentialExpression:
                 **function_kwargs,
             )
 
-        # Extract ls from model1 for model2 consistency
-        ls_for_model2 = ls
-        if ls is None and "ls" not in function_kwargs and self.model1.ls is not None:
+        # Under the default scheme condition 2 inherits condition 1's fitted
+        # length scale, so the shared value is a function of n_condition1 alone.
+        # Every other scheme has already fixed both values above.
+        ls_for_model2 = ls_model2
+        if (
+            ls_auto
+            and param_scheme == "condition1"
+            and self.model1.ls is not None
+        ):
             ls_for_model2 = self.model1.ls
 
         # -- Fit model2 --
