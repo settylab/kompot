@@ -439,8 +439,10 @@ def test_source_checkout_resolves_sha_and_editable():
     resolve and the wheel-degradation contract applies instead.
     """
     package_dir = os.path.dirname(os.path.abspath(_provenance.__file__))
-    if _is_installed_tree(package_dir) or _find_git_dir(package_dir) is None:
-        pytest.skip("kompot is not running from a source checkout")
+    # Kompot's OWN checkout, not merely an enclosing work tree: a tree exported
+    # or vendored inside another repository must skip here, not borrow its sha.
+    if _is_installed_tree(package_dir) or _provenance._find_kompot_git_dir(package_dir) is None:
+        pytest.skip("kompot is not running from its own source checkout")
 
     p = get_provenance()
     assert p["kompot_version"]
