@@ -169,11 +169,12 @@ def test_resolve_sha_matches_git_rev_parse(tmp_path, shape, pack):
 
 @pytest.mark.parametrize("shape", ["clone", "branch-worktree"])
 def test_vendored_tree_does_not_borrow_an_unrelated_repo_sha(tmp_path, monkeypatch, shape):
-    """A kompot tree copied into another repository must not stamp that repository's HEAD.
+    """A kompot tree nested below another repository's root must not stamp its HEAD.
 
     The enclosing repo resolves perfectly well -- which is the danger: the
     stamp would be a confident, wrong sha. Only a `.git` at the package's
-    parent (Kompot's own repository root) counts.
+    parent counts. (A copy at another repository's root is not caught; by
+    position it looks like Kompot's own checkout.)
     """
     import shutil
 
@@ -439,8 +440,8 @@ def test_source_checkout_resolves_sha_and_editable():
     resolve and the wheel-degradation contract applies instead.
     """
     package_dir = os.path.dirname(os.path.abspath(_provenance.__file__))
-    # Kompot's OWN checkout, not merely an enclosing work tree: a tree exported
-    # or vendored inside another repository must skip here, not borrow its sha.
+    # A .git at the package's parent, not merely an enclosing work tree: a tree
+    # exported or vendored below another repository's root must skip here.
     if _is_installed_tree(package_dir) or _provenance._find_kompot_git_dir(package_dir) is None:
         pytest.skip("kompot is not running from its own source checkout")
 

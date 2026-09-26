@@ -66,14 +66,18 @@ def _find_git_dir(start: str) -> Optional[str]:
 
 
 def _find_kompot_git_dir(package_dir: str) -> Optional[str]:
-    """The git dir of *Kompot's own* checkout, or ``None``.
+    """The git dir whose work-tree root is the package's parent, or ``None``.
 
     ``_find_git_dir`` walks up to *any* enclosing ``.git``. A Kompot source
-    tree vendored or copied into an unrelated repository would then be
-    stamped with that repository's HEAD -- a wrong sha, which is worse than
-    none. Kompot's repository root is the parent of the package directory,
-    so the ``.git`` entry (a directory, or a file for a worktree or
-    submodule) must sit exactly there.
+    tree vendored into an unrelated repository, nested below its root, would
+    then be stamped with that repository's HEAD -- a wrong sha, which is
+    worse than none. In Kompot's own checkout the parent of the package
+    directory is the repository root, so the ``.git`` entry (a directory, or
+    a file for a worktree or submodule) must sit exactly there.
+
+    Residual: a ``kompot/`` package copied to the *root* of another
+    repository passes this check, since by position it is indistinguishable
+    from Kompot's own checkout.
     """
     repo_root = os.path.dirname(os.path.abspath(package_dir))
     if not os.path.exists(os.path.join(repo_root, ".git")):

@@ -171,8 +171,9 @@ Fixes settylab/kompot#27.
    the per-worktree directory, so every run from such a checkout was stamped
    `kompot_git_sha: null`. Refs are now looked up in both, and a sha that cannot be resolved
    inside a git checkout is logged as a warning rather than recorded silently.
-   Provenance also ignores a repository that is not Kompot's own: a Kompot source tree vendored
-   into another repository no longer stamps that repository's commit as `kompot_git_sha`.
+   A Kompot source tree vendored into another repository, nested below that repository's root,
+   no longer stamps that repository's commit as `kompot_git_sha`. A `kompot/` package copied to
+   the root of another repository still does: by position it cannot be told from Kompot's own.
 
 ### Deprecated
 
