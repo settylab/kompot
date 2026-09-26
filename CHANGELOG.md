@@ -171,6 +171,8 @@ Fixes settylab/kompot#27.
    the per-worktree directory, so every run from such a checkout was stamped
    `kompot_git_sha: null`. Refs are now looked up in both, and a sha that cannot be resolved
    inside a git checkout is logged as a warning rather than recorded silently.
+   Provenance also ignores a repository that is not Kompot's own: a Kompot source tree vendored
+   into another repository no longer stamps that repository's commit as `kompot_git_sha`.
 
 ### Deprecated
 
@@ -191,8 +193,10 @@ Fixes settylab/kompot#27.
    (settylab/kompot#30). Nested inline markup such as a literal inside bold renders as literal
    backticks and `sphinx-build` exits 0, so it was reaching published pages unnoticed. A
    `build-finished` check scans every rendered page for unrendered literals, roles and directives.
-   Its first run found ten such constructs in the tutorial notebooks, where pandoc turns code inside
-   bold or inside link text into nested RST; they are rewritten.
+   It found 25 such constructs in the tutorial notebooks, all rewritten: 9 literals nested in bold,
+   2 links whose text contained a literal, and 14 links whose whole text was a literal (Markdown
+   ``[`x`](url)``, which pandoc turns into nested RST that renders as ``x <url>`__``). An earlier revision of the check could not
+   see the second kind, because the leaked literal renders as a tag and is stripped before matching.
 
 ## [0.8.0] - 2026-07-28
 
