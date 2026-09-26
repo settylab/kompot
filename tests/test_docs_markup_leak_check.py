@@ -22,7 +22,7 @@ NESTED = [
 ]
 
 
-@pytest.mark.parametrize("html", NESTED)
+@pytest.mark.parametrize("html", NESTED, ids=["sample_col", "dask", "dask-less"])
 def test_nested_literal_in_bold_is_a_leak(html):
     assert [kind for kind, _ in find_leaks(html)] == ["double-backtick literal"]
 
