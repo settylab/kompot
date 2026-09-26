@@ -11,6 +11,10 @@ from anndata import AnnData
 import subprocess
 import sys
 
+# Fixtures write through the CLI's own writer: under anndata 0.11/0.12 and
+# pandas 3 a plain write_h5ad of any AnnData fails (settylab/kompot#23).
+from kompot.cli.utils import write_output
+
 
 @pytest.fixture
 def sample_adata():
@@ -115,7 +119,7 @@ class TestCLIUtils:
 
         # Test with existing file
         adata_file = Path(temp_dir) / "test.h5ad"
-        sample_adata.write_h5ad(adata_file)
+        write_output(sample_adata, adata_file)
 
         validated = validate_anndata_path(str(adata_file))
         assert validated.exists()
@@ -132,7 +136,7 @@ class TestCLIDifferentialExpression:
         """Test DE with basic CLI arguments."""
         input_file = Path(temp_dir) / "input.h5ad"
         output_file = Path(temp_dir) / "output.h5ad"
-        sample_adata.write_h5ad(input_file)
+        write_output(sample_adata, input_file)
 
         # Run CLI
         cmd = [
@@ -178,7 +182,7 @@ class TestCLIDifferentialExpression:
         output_file = Path(temp_dir) / "output.h5ad"
         config_file = Path(temp_dir) / "config.yaml"
 
-        sample_adata.write_h5ad(input_file)
+        write_output(sample_adata, input_file)
 
         # Create config
         config = {
@@ -219,7 +223,7 @@ class TestCLIDifferentialExpression:
         output_file = Path(temp_dir) / "output.h5ad"
         config_file = Path(temp_dir) / "config.yaml"
 
-        sample_adata.write_h5ad(input_file)
+        write_output(sample_adata, input_file)
 
         # Create config with different condition1
         config = {
@@ -260,7 +264,7 @@ class TestCLIDifferentialExpression:
         """Test error when required parameters are missing."""
         input_file = Path(temp_dir) / "input.h5ad"
         output_file = Path(temp_dir) / "output.h5ad"
-        sample_adata.write_h5ad(input_file)
+        write_output(sample_adata, input_file)
 
         # Run CLI without required params
         cmd = [
@@ -286,7 +290,7 @@ class TestCLIDifferentialExpression:
         """Test DE with table output to CSV."""
         input_file = Path(temp_dir) / "input.h5ad"
         table_file = Path(temp_dir) / "results.csv"
-        sample_adata.write_h5ad(input_file)
+        write_output(sample_adata, input_file)
 
         # Run CLI with table output only (no AnnData output)
         cmd = [
@@ -330,7 +334,7 @@ class TestCLIDifferentialExpression:
         """Test DE with table output to TSV."""
         input_file = Path(temp_dir) / "input.h5ad"
         table_file = Path(temp_dir) / "results.tsv"
-        sample_adata.write_h5ad(input_file)
+        write_output(sample_adata, input_file)
 
         cmd = [
             sys.executable,
@@ -372,7 +376,7 @@ class TestCLIDifferentialExpression:
         input_file = Path(temp_dir) / "input.h5ad"
         output_file = Path(temp_dir) / "output.h5ad"
         table_file = Path(temp_dir) / "results.csv"
-        sample_adata.write_h5ad(input_file)
+        write_output(sample_adata, input_file)
 
         cmd = [
             sys.executable,
@@ -409,7 +413,7 @@ class TestCLIDifferentialExpression:
     def test_de_no_output_error(self, sample_adata, temp_dir):
         """Test error when neither output nor table-output is specified."""
         input_file = Path(temp_dir) / "input.h5ad"
-        sample_adata.write_h5ad(input_file)
+        write_output(sample_adata, input_file)
 
         cmd = [
             sys.executable,
@@ -442,7 +446,7 @@ class TestCLIDifferentialAbundance:
         """Test DA with basic CLI arguments."""
         input_file = Path(temp_dir) / "input.h5ad"
         output_file = Path(temp_dir) / "output.h5ad"
-        sample_adata.write_h5ad(input_file)
+        write_output(sample_adata, input_file)
 
         # Run CLI
         cmd = [
@@ -482,7 +486,7 @@ class TestCLIDifferentialAbundance:
         output_file = Path(temp_dir) / "output.h5ad"
         config_file = Path(temp_dir) / "config.yaml"
 
-        sample_adata.write_h5ad(input_file)
+        write_output(sample_adata, input_file)
 
         # Create config
         config = {
@@ -518,7 +522,7 @@ class TestCLIDifferentialAbundance:
         """Test DA with custom thresholds."""
         input_file = Path(temp_dir) / "input.h5ad"
         output_file = Path(temp_dir) / "output.h5ad"
-        sample_adata.write_h5ad(input_file)
+        write_output(sample_adata, input_file)
 
         # Run CLI with custom thresholds
         cmd = [
@@ -551,7 +555,7 @@ class TestCLIDifferentialAbundance:
         """Test DA with table output to CSV."""
         input_file = Path(temp_dir) / "input.h5ad"
         table_file = Path(temp_dir) / "results.csv"
-        sample_adata.write_h5ad(input_file)
+        write_output(sample_adata, input_file)
 
         # Run CLI with table output only (no AnnData output)
         cmd = [
@@ -589,7 +593,7 @@ class TestCLIDifferentialAbundance:
         """Test DA with table output to TSV."""
         input_file = Path(temp_dir) / "input.h5ad"
         table_file = Path(temp_dir) / "results.tsv"
-        sample_adata.write_h5ad(input_file)
+        write_output(sample_adata, input_file)
 
         cmd = [
             sys.executable,
@@ -623,7 +627,7 @@ class TestCLIDifferentialAbundance:
     def test_da_no_output_error(self, sample_adata, temp_dir):
         """Test error when neither output nor table-output is specified."""
         input_file = Path(temp_dir) / "input.h5ad"
-        sample_adata.write_h5ad(input_file)
+        write_output(sample_adata, input_file)
 
         cmd = [
             sys.executable,
@@ -663,7 +667,7 @@ class TestCLIDiffusionMaps:
 
         input_file = Path(temp_dir) / "input.h5ad"
         output_file = Path(temp_dir) / "output.h5ad"
-        sample_adata.write_h5ad(input_file)
+        write_output(sample_adata, input_file)
 
         # Run CLI
         cmd = [
@@ -708,7 +712,7 @@ class TestCLIDiffusionMaps:
         output_file = Path(temp_dir) / "output.h5ad"
         config_file = Path(temp_dir) / "config.yaml"
 
-        sample_adata.write_h5ad(input_file)
+        write_output(sample_adata, input_file)
 
         # Create config
         config = {"pca_key": "X_pca", "n_components": 10, "knn": 30}
@@ -741,7 +745,7 @@ class TestCLIDiffusionMaps:
 
         # Remove PCA from sample data
         del sample_adata.obsm["X_pca"]
-        sample_adata.write_h5ad(input_file)
+        write_output(sample_adata, input_file)
 
         # Run CLI without PCA in data
         cmd = [
@@ -772,7 +776,7 @@ class TestCLIDiffusionMaps:
         else:
             pytest.skip("palantir is installed")
         input_file = Path(temp_dir) / "input.h5ad"
-        sample_adata.write_h5ad(input_file)
+        write_output(sample_adata, input_file)
         cmd = [sys.executable, "-m", "kompot.cli", "dm", str(input_file),
                "-o", str(Path(temp_dir) / "output.h5ad")]
         result = subprocess.run(cmd, capture_output=True, text=True)

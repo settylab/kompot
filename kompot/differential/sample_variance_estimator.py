@@ -4,6 +4,7 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 import logging
+import warnings
 from typing import Dict, Optional
 from mellon import FunctionEstimator, DensityEstimator
 from tqdm.auto import tqdm
@@ -31,6 +32,21 @@ class SampleVarianceEstimator:
     or density estimators for each group in the data and computing the variance between their
     predictions. Bessel's correction is applied to the variance calculation to ensure
     unbiased estimation, especially important when the number of samples is small.
+
+    .. warning::
+
+       For gene expression (``estimator_type='function'``) with more than one
+       gene, ``predict(..., diag=False)`` returns a **covariance matrix per
+       gene**, of shape ``(n_points, n_points, n_genes)`` and dtype float64.
+       In :func:`kompot.de` the evaluation points are the landmarks, so the
+       array is ``n_landmarks**2 * n_genes * 8`` bytes per condition: about
+       190 MiB per gene at the default 5 000 landmarks.  These are never
+       summed into a dense array -- :class:`kompot.utils.LazyGeneCovariance`
+       assembles one gene at a time -- and ``store_arrays_on_disk`` keeps them
+       out of memory altogether.  What no storage mode removes is the Cholesky
+       factorisation per gene, which is why sample variance is prescribed as a
+       second pass over a restricted gene list.  See
+       https://kompot.readthedocs.io/en/latest/resource_planning.html
 
     Attributes
     ----------
@@ -74,16 +90,26 @@ class SampleVarianceEstimator:
             store_arrays_on_disk will be set to True. If store_arrays_on_disk is False and
             this is provided, a warning will be logged and disk storage will not be used.
         dask_num_workers : int, optional
-            Number of parallel Dask workers to use for covariance computation. If None (default),
-            Dask uses all available CPU cores for maximum speed. Set to a smaller number (e.g., 2-4)
-            to limit CPU utilization at the cost of slower computation. Only applies when Dask is
-            available and disk storage is enabled. Note: This primarily controls CPU usage, not memory,
-            since the main memory footprint comes from the shared centered data array rather than
-            per-worker allocations.
+            Deprecated and ignored; passing a value emits a ``FutureWarning``.
+            The Dask covariance tensor is returned lazily and, since 0.9.0,
+            materialised one gene at a time, so there is no worker pool for
+            this setting to bound. It previously wrote a Dask config key the
+            scheduler never reads (settylab/kompot#31). To bound Dask's
+            threaded scheduler for your own computations, use
+            ``with dask.config.set(num_workers=N): ...``.
         """
         self.eps = eps
         self.jit_compile = jit_compile
         self.estimator_type = estimator_type
+        if dask_num_workers is not None:
+            warnings.warn(
+                "SampleVarianceEstimator(dask_num_workers=...) has no effect and is "
+                "deprecated: the Dask covariance tensor is evaluated one gene at a "
+                "time, so there is no worker pool to bound. To bound Dask's threaded "
+                "scheduler, use `with dask.config.set(num_workers=N): ...`.",
+                FutureWarning,
+                stacklevel=2,
+            )
         self.dask_num_workers = dask_num_workers
 
         # Determine store_arrays_on_disk based on disk_storage_dir if not explicitly set
@@ -456,13 +482,8 @@ class SampleVarianceEstimator:
         if use_disk_storage:
             # Disk-backed version - use parallel computation with Dask if available
             if DASK_AVAILABLE:
-                worker_info = (
-                    f" with {self.dask_num_workers} workers"
-                    if self.dask_num_workers
-                    else " (all cores)"
-                )
                 logger.info(
-                    f"Using Dask for parallel disk-backed covariance computation{worker_info} (shape={covariance_shape})"
+                    f"Using Dask for lazy disk-backed covariance computation (shape={covariance_shape})"
                 )
 
                 # Convert JAX to numpy once to avoid repeated conversions
@@ -491,17 +512,11 @@ class SampleVarianceEstimator:
                     )
                     gene_arrays.append(gene_array)
 
-                # Stack along gene axis
-                # Note: Dask uses lazy evaluation - actual computation happens when array values are accessed
-                # Set global pool size if num_workers is specified
-                # This affects the threaded scheduler used by Dask delayed/array operations
-                if self.dask_num_workers is not None:
-                    dask.config.set(pool=dask.config.get("pool", {}).copy())
-                    dask.config.set({"pool.num-workers": self.dask_num_workers})
-                    logger.info(
-                        f"Configured Dask to use {self.dask_num_workers} workers (limits parallelism and memory)"
-                    )
-
+                # Stack along gene axis. Dask evaluates lazily: nothing is
+                # computed until a consumer indexes a gene slice. No scheduler
+                # configuration is set here -- it would not govern that later
+                # evaluation, and a global dask.config.set would leak into the
+                # caller's process (settylab/kompot#31).
                 dask_covariance = da.stack(gene_arrays, axis=2)
 
                 # Clean up

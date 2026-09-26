@@ -2,9 +2,140 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [0.9.0] - 2026-09-15
 
-### Added
+### Fixed — sample variance no longer costs more memory than it needs to
+
+Supplying `sample_col` gives every gene its own `(n_landmarks, n_landmarks)`
+covariance matrix per condition. Kompot summed those two tensors into a **third**
+dense tensor before use, and then added the shared posterior covariance into it
+gene by gene with `__setitem__`. Three consequences, all silent:
+
+ - `StorageSettings(store_arrays_on_disk=True)` did not keep the tensors out of
+   memory. With `np.memmap` inputs the sum materialised a full
+   `(n_landmarks, n_landmarks, n_genes)` array in RAM — precisely the array the
+   flag exists to avoid.
+ - `compute_mahalanobis_distances` then ran `cov = jnp.array(covariance)` inside
+   its gene-specific branch and never read `cov`: a second full-size copy of the
+   tensor, for nothing.
+ - Under Dask the per-gene `__setitem__` rebuilt the task graph once per gene,
+   and the delayed per-gene tasks nested with the lazy slices they materialised,
+   so peak memory scaled with concurrency rather than with one gene.
+
+The sum is now assembled one gene at a time by `kompot.utils.LazyGeneCovariance`,
+which holds references to the terms and materialises a single
+`(n_landmarks, n_landmarks)` matrix when the Mahalanobis step asks for a gene.
+
+Measured on 1 500 cells / 150 genes / 600 landmarks (412 MiB per tensor), same
+machine and same synthetic input on both trees, peak **anonymous** memory from
+`/proc/self/smaps_rollup`. Every figure in this table comes from one paired
+before/after run, so the columns are comparable to each other:
+
+| run | 0.8.0 | 0.9.0 | written | wall, 0.8.0 → 0.9.0 |
+|---|---|---|---|---|
+| no sample variance | 949 MiB | 972 MiB | 0 → 0 | 33.0 s → 32.6 s |
+| sample variance, in memory | 2 401 MiB | 1 973 MiB | 0 → 0 | 45.7 s → 46.0 s |
+| `store_arrays_on_disk`, with `dask` | 2 782 MiB | **1 153 MiB** | 0 → 0 | 231.8 s → 47.8 s |
+| `store_arrays_on_disk`, no `dask` | 2 284 MiB | 1 170 MiB | 824 → 824 MiB | 48.2 s → 49.2 s |
+
+**With `dask` — the recommended path — offloading is now cheaper than holding
+the tensors in memory**, where on 0.8.0 it was dearer, and that path is also
+~4.8x faster than 0.8.0 at matched thread counts.
+
+**Anonymous memory alone does not describe the `dask`-less path, and this table
+should not be read as if it did.** That path memory-maps the tensors, so their
+pages become resident *file-backed* memory rather than private heap: the
+improvement above is real on `Anonymous` and largely absent on `Rss`, where the
+run costs about as much as holding the tensors in memory. What changes is the
+*kind* of page — reclaimable rather than anonymous, which helps you survive a
+memory squeeze — not the resident total. Under a cgroup (Slurm `--mem`, a
+container) page cache is charged against the same budget anyway, so if you are
+under a hard cap, install `dask`.
+
+The two-instrument treatment, with `Rss` and file-backed residency measured
+side by side, is in
+[Planning Memory and Disk](https://kompot.readthedocs.io/en/latest/resource_planning.html#disk-offload).
+It is deliberately not duplicated here: mixing instruments from separate runs
+in one table is how the numbers stop being comparable.
+
+One cost moved the other way, on that same non-recommended path. A gene slice
+of a C-contiguous `(n_points, n_points, n_genes)` memory map is strided, so
+reading one gene at a time touches the whole file where the old code did one
+sequential read into RAM: measured 74 s against 66 s on a clean 900-landmark
+pair, about 12% slower. Wall-clock figures here come from a shared machine
+under load and should be read as orders of magnitude.
+
+**Results are unchanged.** Distances differ only by floating-point summation
+order: measured maximum relative difference 1.7e-12 across the in-memory,
+Dask and memmap paths, which is the same order as the pre-existing difference
+*between* those paths on 0.8.0 alone.
+
+In-memory cost per gene therefore drops from `3 x n_landmarks^2 x 8` to
+`2 x n_landmarks^2 x 8` bytes — about 0.37 GiB rather than 0.56 GiB per gene at
+the default `n_landmarks=5000`.
+
+Fixes settylab/kompot#26.
+
+### Fixed — the dry run now prices the run it is pricing
+
+`kompot.de(..., dry_run=True)` built its plan *before* `null_genes="auto"` was
+resolved, so the estimator received the literal string. That matched neither its
+integer nor its list branch and fell through to zero, omitting the 2 000 null
+genes the run would add. Measured on a 4 000 x 500 input: the default dry run
+reported 0.485 GiB for a run the explicit `null_genes=2000` plan priced at
+2.156 GiB — **4.44x optimistic**, and the gap grows with `n_cells`.
+
+Resolution now happens above the dry-run branch, and
+`estimate_differential_expression_resources` raises on a `null_genes` it cannot
+interpret rather than counting zero.
+
+Fixes settylab/kompot#25.
+
+### Changed — the resource plan describes the code that runs
+
+Following the fix above, `estimate_differential_expression_resources`:
+
+ - no longer charges a third `(n_landmarks, n_landmarks, n_genes)` tensor that
+   is never built;
+ - charges the covariance tensors to **disk** only on the path that writes
+   them. With `dask` installed nothing reaches `disk_storage_dir`, and the plan
+   now reports that instead of demanding scratch the run does not use;
+ - charges the per-gene working set that replaced the dense sum
+   (`3 x n_landmarks^2 x 8` bytes, one gene at a time);
+ - reworded the in-memory warning to name the levers that shrink the tensors
+   (`genes`, linear; `n_landmarks`, quadratic) rather than only pointing at disk
+   storage.
+
+`store_arrays_on_disk` semantics are unchanged; only the accounting moved.
+
+### Documentation
+
+ - **New guide: [Planning Memory and Disk](https://kompot.readthedocs.io/en/latest/resource_planning.html)**,
+   the canonical explanation of what `sample_col` costs and how to run it, with
+   plans produced by `dry_run=True` at realistic sizes. It prescribes the
+   two-pass workflow — a cheap first pass over all genes, then sample variance
+   restricted to the top ~200 genes — ranks the levers, and shows how to price a run
+   before committing to it. The recommended budget for that second pass is on the order of
+   **200 genes**; every figure quoted beside it is priced for 200.
+ - The same warning now appears where the decision is made: `kompot.de`'s
+   docstring (so `help()` carries it), `GPSettings.n_landmarks`,
+   `GPSettings.batch_size`, `StorageSettings`, `SampleVarianceEstimator`,
+   `kompot de --sample-col`, the DE config template, the README and the tutorial
+   notebooks.
+ - The CLI "Complete Analysis" example no longer pairs `--sample-col` with
+   `--n-landmarks 5000` over every gene, which was the most expensive
+   configuration the package can express; it now shows the restricted second
+   pass through a config file.
+ - Corrected `StorageSettings.max_memory_ratio`, documented as "Fraction of RAM
+   before triggering disk storage". It triggers nothing: `store_arrays_on_disk`
+   defaults to `None`, which resolves to `disk_storage_dir is not None`, and the
+   ratio only sets the threshold at which the estimator escalates warnings. The
+   DE config template's `store_arrays_on_disk: null # (null = auto)` was
+   misleading for the same reason.
+
+Fixes settylab/kompot#27.
+
+### Added — `GPSettings.param_scheme`
 
  - **`GPSettings.param_scheme`** chooses which cells the length scale is estimated from:
    `"condition1"`, `"condition2"`, `"symmetric"`, `"pooled"` or `"separate"`. In `da()` it covers
@@ -15,7 +146,7 @@ All notable changes to this project will be documented in this file.
 
  - `sync_parameters` on `DifferentialAbundance.fit` and `da()`; use `param_scheme="pooled"`.
 
-### Fixed
+### Fixed — other
 
  - `da()` now honours `GPSettings.ls`, and warns when the expression-only fields `sigma`, `eps` or
    `use_empirical_variance` are set.
@@ -28,13 +159,45 @@ All notable changes to this project will be documented in this file.
    where they differed by a median of 82%), and fold changes and densities by at most 6e-4.
    `da()` without `gp`, `DifferentialAbundance()`, and every run with fewer landmarks than cells are
    unchanged.
+ - **The CLI can write its output under anndata 0.11 and 0.12** (settylab/kompot#23). Those
+   versions refuse to write a pandas nullable-string array unless
+   `anndata.settings.allow_write_nullable_strings` is set, and pandas 3 produces one for every
+   ordinary string column, so `kompot de`, `da`, `smooth` and `dm` failed at the final write. The
+   CLI now opts in for the duration of its own write only; library calls and your global anndata
+   settings are untouched.
+ - **The provenance sha resolves in a linked git worktree checked out on a branch**
+   (settylab/kompot#28, settylab/kompot#33). Branch refs and `packed-refs` live in the shared
+   repository directory named by the worktree's `commondir` file, and resolution looked only in
+   the per-worktree directory, so every run from such a checkout was stamped
+   `kompot_git_sha: null`. Refs are now looked up in both, and a sha that cannot be resolved
+   inside a git checkout is logged as a warning rather than recorded silently.
+   A Kompot source tree vendored into another repository, nested below that repository's root,
+   no longer stamps that repository's commit as `kompot_git_sha`. A `kompot/` package copied to
+   the root of another repository still does: by position it cannot be told from Kompot's own.
 
-### Documentation
+### Deprecated
+
+ - **`SampleVarianceEstimator(dask_num_workers=...)`** had no effect and said it did
+   (settylab/kompot#31). It wrote the Dask config key `pool.num-workers`, which no scheduler
+   reads, changed Dask's global config as a side effect, and logged "Configured Dask to use N
+   workers". The Dask covariance tensor is evaluated one gene at a time, so there is no worker
+   pool for it to bound. Passing it now emits a `FutureWarning` and touches no configuration.
+   To bound Dask yourself, use `with dask.config.set(num_workers=N): ...`.
+
+### Documentation — argument order and the docs build
 
  - At the default, `de()` depends on argument order: the shared length scale comes from condition
    1 alone. See `DifferentialExpression.fit`.
  - Automatic landmarks and `"pooled"` make `da()` depend on argument order; see
    `DifferentialAbundance.fit`.
+ - The docs build now fails when reStructuredText markup survives into the rendered HTML
+   (settylab/kompot#30). Nested inline markup such as a literal inside bold renders as literal
+   backticks and `sphinx-build` exits 0, so it was reaching published pages unnoticed. A
+   `build-finished` check scans every rendered page for unrendered literals, roles and directives.
+   It found 25 such constructs in the tutorial notebooks, all rewritten: 9 literals nested in bold,
+   2 links whose text contained a literal, and 14 links whose whole text was a literal (Markdown
+   ``[`x`](url)``, which pandoc turns into nested RST that renders as ``x <url>`__``). An earlier revision of the check could not
+   see the second kind, because the leaked literal renders as a tag and is stripped before matching.
 
 ## [0.8.0] - 2026-07-28
 

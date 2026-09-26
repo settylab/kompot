@@ -41,6 +41,95 @@ if DASK_AVAILABLE:
 
 logger = logging.getLogger("kompot")
 
+
+class LazyGeneCovariance:
+    """Per-gene covariance tensor assembled one gene at a time.
+
+    Sample variance produces a ``(n_points, n_points, n_genes)`` covariance
+    tensor per condition, and the Mahalanobis step needs their sum plus the
+    shared posterior covariance.  Adding those up eagerly materialises a dense
+    tensor of that shape in memory, which defeats ``store_arrays_on_disk`` and
+    costs ``n_points**2 * n_genes * 8`` bytes even when every input is
+    disk-backed (settylab/kompot#26).
+
+    This view holds references to the terms and materialises a single
+    ``(n_points, n_points)`` matrix only when a gene slice is requested, so
+    peak memory is bounded by one gene rather than by the whole tensor.  It is
+    deliberately minimal: :func:`compute_mahalanobis_distances` only ever asks
+    for ``view[:, :, g]``.
+
+    Parameters
+    ----------
+    terms : sequence
+        3-D array-likes of identical shape ``(n_points, n_points, n_genes)``.
+        NumPy arrays, ``np.memmap``, Dask arrays and JAX arrays all work.
+    base : np.ndarray, optional
+        2-D ``(n_points, n_points)`` matrix added to every gene slice, i.e.
+        the shared posterior covariance.
+    """
+
+    def __init__(self, terms, base=None):
+        terms = [t for t in terms if t is not None]
+        if not terms:
+            raise ValueError("LazyGeneCovariance needs at least one term.")
+        shapes = {tuple(t.shape) for t in terms}
+        if len(shapes) != 1:
+            raise ValueError(
+                f"LazyGeneCovariance terms must share a shape (got {sorted(shapes)})."
+            )
+        self._terms = terms
+        self._base = None if base is None else np.asarray(base)
+        self.shape = tuple(terms[0].shape)
+        if len(self.shape) != 3:
+            raise ValueError(
+                f"LazyGeneCovariance expects 3-D terms (got shape {self.shape})."
+            )
+        if self._base is not None and self._base.shape != self.shape[:2]:
+            raise ValueError(
+                f"base has shape {self._base.shape}, expected {self.shape[:2]}."
+            )
+        self.ndim = 3
+        self.dtype = np.result_type(*[t.dtype for t in terms])
+
+    @property
+    def dask_backed(self) -> bool:
+        """True when any term is a Dask array, so slices are computed lazily."""
+        from .memory_utils import DASK_AVAILABLE
+
+        if not DASK_AVAILABLE:
+            return False
+        try:
+            import dask.array as da
+        except ImportError:  # pragma: no cover - guarded by DASK_AVAILABLE
+            return False
+        return any(isinstance(t, da.Array) for t in self._terms)
+
+    def gene(self, g: int) -> np.ndarray:
+        """Materialise the ``(n_points, n_points)`` covariance for gene ``g``."""
+        out = np.asarray(self._terms[0][:, :, g], dtype=np.float64)
+        # Copy once so the accumulation below never writes into a caller's
+        # array (a NumPy basic slice is a view).
+        out = out.copy()
+        for term in self._terms[1:]:
+            out += np.asarray(term[:, :, g], dtype=np.float64)
+        if self._base is not None:
+            out += self._base
+        return out
+
+    def __getitem__(self, key):
+        if (
+            isinstance(key, tuple)
+            and len(key) == 3
+            and key[0] == slice(None)
+            and key[1] == slice(None)
+            and isinstance(key[2], (int, np.integer))
+        ):
+            return self.gene(int(key[2]))
+        raise TypeError(
+            "LazyGeneCovariance supports only [:, :, gene_index] indexing; "
+            f"got {key!r}."
+        )
+
 # Define standard colors for consistent use throughout the package
 KOMPOT_COLORS = {
     # Direction colors for differential abundance
@@ -148,7 +237,32 @@ def compute_mahalanobis_distances(
     from tqdm.auto import tqdm
     from .memory_utils import DASK_AVAILABLE
 
-    # Check if covariance is a Dask array
+    # Check if covariance is a Dask array.
+    #
+    # REACHABILITY: since 0.9.0 nothing inside Kompot reaches this branch in
+    # production. Enumerating every in-repo caller: utils.py's singular
+    # `compute_mahalanobis_distance` passes a 2-D covariance;
+    # differential_expression.py passes a LazyGeneCovariance (3-D, but not a
+    # da.Array, and it deliberately does not take this branch -- see below) or
+    # a 2-D `combined_cov`. The differential-abundance path does not call this
+    # function at all.
+    #
+    # It is TESTED but production-unreachable, not dead:
+    # tests/test_mahalanobis_approaches.py builds a bare 3-D dask array with
+    # DiskStorage.as_dask_array and passes it straight in, asserting it agrees
+    # with the gene-specific path. An external caller can do the same. Deleting
+    # a covered path on a reading of the call graph needs more evidence than
+    # the call graph provides, and the cost of keeping it is this comment.
+    #
+    # A LazyGeneCovariance deliberately does NOT take this branch even when its
+    # terms are Dask-backed. The Dask branch below submits every gene as a
+    # delayed task at once, and a lazy view materialises its own slices inside
+    # each task, so the two nest: peak memory becomes (concurrent tasks) x
+    # (per-gene matrices) instead of one gene's worth. The sequential loop
+    # still gets Dask parallelism inside each slice computation. Measured at
+    # 600 landmarks x 150 genes: 1 886 MiB peak anonymous through the delayed
+    # path against 1 202 MiB sequential, for the same wall clock
+    # (settylab/kompot#26).
     is_dask = False
     if DASK_AVAILABLE:
         import dask.array as da
@@ -188,13 +302,16 @@ def compute_mahalanobis_distances(
 
         # Create a custom function that can be mapped over gene dimensions
         def compute_gene_mahalanobis(g):
-            # Extract the difference vector and covariance matrix for this gene
+            # Extract the difference vector and covariance matrix for this gene.
+            # Only this gene's (n_points, n_points) matrix is ever materialized;
+            # a LazyGeneCovariance sums its terms here rather than up front.
             gene_diff = diffs[g]
-            gene_cov = covariance[:, :, g]
-
-            # Convert to numpy (materializes Dask slices when using disk-backed storage)
             gene_diff_np = np.array(gene_diff)
-            gene_cov_np = np.array(gene_cov)
+            if isinstance(covariance, LazyGeneCovariance):
+                gene_cov_np = covariance.gene(g)
+            else:
+                # np.array materializes a Dask or memmap slice
+                gene_cov_np = np.array(covariance[:, :, g])
 
             # Add per-gene empirical (diagonal) variance if provided
             if diagonal_variance is not None:
@@ -260,8 +377,11 @@ def compute_mahalanobis_distances(
 
             return mahalanobis_distances
 
-        # For JAX arrays, proceed with the original approach
-        cov = jnp.array(covariance)
+        # Sequential per-gene path. Note there is deliberately no
+        # `jnp.array(covariance)` here: compute_gene_mahalanobis reads
+        # `covariance` directly, so materializing the whole tensor was a dead
+        # full-size copy of the array we are trying not to hold in memory
+        # (settylab/kompot#26).
         mahalanobis_distances = np.zeros(n_genes)
 
         # Process each gene separately to save memory, with progress bar
