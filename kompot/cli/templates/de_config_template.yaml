@@ -72,7 +72,7 @@ overwrite: null                # Overwrite existing results (null = warn)
 # Advanced filtering:
 genes: null                    # List of gene names to analyze (null = all).
                                # The lever for a sample_col run: restrict to
-                               # the top ~200 genes of a first pass. 
+                               # the top ~200 genes of a first pass.
 min_cells: 2                   # Minimum cells per gene
 min_percentage: null           # Minimum percentage of cells expressing
 

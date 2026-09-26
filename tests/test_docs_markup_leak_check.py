@@ -27,6 +27,21 @@ def test_nested_literal_in_bold_is_a_leak(html):
     assert [kind for kind, _ in find_leaks(html)] == ["double-backtick literal"]
 
 
+def test_code_in_link_text_is_a_leak():
+    """Markdown [`x`](url) through pandoc: the literal is a tag, only `...<url>`__ is text."""
+    html = (
+        '<p>See <code class="docutils literal notranslate"><span class="pre">`kompot.de'
+        '</span></code> &lt;<a class="reference external" href="https://example.org/x">'
+        "https://example.org/x</a>&gt;`__.</p>"
+    )
+    assert [kind for kind, _ in find_leaks(html)] == ["hyperlink"]
+
+
+def test_a_rendered_link_is_not_a_hyperlink_leak():
+    html = '<p>See <a class="reference external" href="https://example.org/x">kompot.de</a>.</p>'
+    assert find_leaks(html) == []
+
+
 def test_role_in_a_code_block_comment_is_a_leak():
     html = '<pre><span class="c1"># see :ref:`dry-run` for the plan</span></pre>'
     assert [kind for kind, _ in find_leaks(html)] == ["role"]
@@ -71,3 +86,5 @@ def test_sphinx_build_fails_on_nested_markup(tmp_path):
 
     assert build("**The dask path wins** with ``dask``.", "clean") == 0
     assert build("**The ``dask`` path wins on every instrument**", "nested") != 0
+    # What pandoc emits for Markdown [`kompot.de`](url).
+    assert build("See ```kompot.de`` <https://example.org/x>`__.", "code_in_link") != 0

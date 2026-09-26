@@ -4,8 +4,9 @@ settylab/kompot#23: anndata 0.11 and 0.12 refuse to write a pandas
 ``StringArray`` unless ``anndata.settings.allow_write_nullable_strings`` is
 set, and pandas 3 produces one for every ordinary string column, so every
 ``kompot de/da/smooth/dm`` write failed under those defaults. An explicit
-``dtype="string"`` column produces the same array under pandas 2 as well, which
-is what makes this test meaningful on every pandas the package supports.
+``dtype="string"`` column produces the same array under pandas 2 as well, so the
+test does not depend on pandas 3 to build its input. (It has been run on anndata
+0.12 only with pandas 3, and on anndata 0.10 with pandas 2, where it skips.)
 """
 
 import anndata

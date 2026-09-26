@@ -167,6 +167,48 @@ def test_resolve_sha_matches_git_rev_parse(tmp_path, shape, pack):
     assert _resolve_sha(git_dir) == _git(checkout, "rev-parse", "HEAD")
 
 
+@pytest.mark.parametrize("shape", ["clone", "branch-worktree"])
+def test_vendored_tree_does_not_borrow_an_unrelated_repo_sha(tmp_path, monkeypatch, shape):
+    """A kompot tree copied into another repository must not stamp that repository's HEAD.
+
+    The enclosing repo resolves perfectly well -- which is the danger: the
+    stamp would be a confident, wrong sha. Only a `.git` at the package's
+    parent (Kompot's own repository root) counts.
+    """
+    import shutil
+
+    if shutil.which("git") is None:
+        pytest.skip("git binary not available")
+    repo = tmp_path / "other"
+    repo.mkdir()
+    _git(repo, "init", "-q")
+    (repo / "f.txt").write_text("x\n")
+    _git(repo, "add", "f.txt")
+    _git(repo, "commit", "-q", "-m", "init")
+    checkout = repo
+    if shape == "branch-worktree":
+        checkout = tmp_path / "wt"
+        _git(repo, "worktree", "add", "-b", "some/branch", str(checkout))
+    pkg = checkout / "vendor" / "lib" / "kompot"
+    pkg.mkdir(parents=True)
+    monkeypatch.setattr(_provenance, "__file__", str(pkg / "_provenance.py"))
+    monkeypatch.setattr(_provenance, "_pep610_editable", lambda: None)
+
+    # The walk-up alone would find and resolve the unrelated repo...
+    assert _resolve_sha(_find_git_dir(str(pkg))) == _git(checkout, "rev-parse", "HEAD")
+    # ...and provenance must refuse it.
+    assert _provenance._resolve()["kompot_git_sha"] is None
+
+
+def test_own_checkout_root_is_accepted(tmp_path, monkeypatch):
+    _make_git_dir(tmp_path)
+    pkg = tmp_path / "kompot"
+    pkg.mkdir()
+    monkeypatch.setattr(_provenance, "__file__", str(pkg / "_provenance.py"))
+    monkeypatch.setattr(_provenance, "_pep610_editable", lambda: True)
+    assert _provenance._resolve()["kompot_git_sha"] == SHA
+
+
 def test_unresolvable_sha_in_a_work_tree_is_logged(tmp_path, monkeypatch, caplog):
     """A None sha inside a checkout is a resolution failure and must be visible."""
     _make_git_dir(tmp_path, loose=None)

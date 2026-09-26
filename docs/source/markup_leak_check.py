@@ -10,6 +10,10 @@ Rather than a rule per construct, this asserts the one property all of them
 violate: nothing that is supposed to be markup appears as text in the output.
 Run automatically from ``conf.py`` at ``build-finished``; also usable
 standalone as ``python markup_leak_check.py <html-build-dir>``.
+
+What it cannot see is markup whose leaked form contains no marker, for
+example a single ``*`` of italic nested in bold: a bare asterisk is too
+common in real text to flag.
 """
 
 import html as _html
@@ -21,6 +25,10 @@ from pathlib import Path
 LEAK_PATTERNS = {
     # One hit per literal: a closed ``pair`` on one line, or a stray opener.
     "double-backtick literal": re.compile(r"``(?:[^`\n]*``)?"),
+    # A hyperlink whose text was a literal: pandoc turns Markdown [`x`](url)
+    # into nested RST, which renders as <code>`x</code> <url>`__. The inner
+    # literal becomes a tag and is stripped, so only this tail is left as text.
+    "hyperlink": re.compile(r"<[^<>\s]+>`__?"),
     "role": re.compile(r":(?:doc|ref|func|class|meth|mod|attr|obj|data|exc|term):`"),
     "directive": re.compile(
         r"^\s*\.\. (?:warning|note|admonition|code-block|list-table|toctree|"

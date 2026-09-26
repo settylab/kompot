@@ -65,6 +65,22 @@ def _find_git_dir(start: str) -> Optional[str]:
         current = parent
 
 
+def _find_kompot_git_dir(package_dir: str) -> Optional[str]:
+    """The git dir of *Kompot's own* checkout, or ``None``.
+
+    ``_find_git_dir`` walks up to *any* enclosing ``.git``. A Kompot source
+    tree vendored or copied into an unrelated repository would then be
+    stamped with that repository's HEAD -- a wrong sha, which is worse than
+    none. Kompot's repository root is the parent of the package directory,
+    so the ``.git`` entry (a directory, or a file for a worktree or
+    submodule) must sit exactly there.
+    """
+    repo_root = os.path.dirname(os.path.abspath(package_dir))
+    if not os.path.exists(os.path.join(repo_root, ".git")):
+        return None
+    return _find_git_dir(repo_root)
+
+
 def _common_dir(git_dir: str) -> str:
     """The directory holding the refs shared by every work tree of a repository.
 
@@ -177,7 +193,7 @@ def _resolve() -> Dict[str, Any]:
         provenance["kompot_editable"] = False if editable is None else editable
         return provenance
 
-    git_dir = _find_git_dir(package_dir)
+    git_dir = _find_kompot_git_dir(package_dir)
     if git_dir is not None:
         provenance["kompot_git_sha"] = _resolve_sha(git_dir)
         if provenance["kompot_git_sha"] is None:
