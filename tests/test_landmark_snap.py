@@ -162,6 +162,39 @@ class TestExactNearestIndices:
         result = kutils._exact_nearest_indices(X, queries, chunk_size=128)
         np.testing.assert_array_equal(result, _brute_force_nearest(X, queries))
 
+    def test_near_duplicate_cells(self):
+        """Cells closer together than the matrix-product score can resolve.
+
+        The fast score ranks these copies by rounding noise alone, so the result
+        matches brute force only if the shortlist keeps every near-tie and the
+        shortlist is then ranked by the direct sum.
+        """
+        rng = np.random.default_rng(0)
+        base = rng.normal(size=(500, 20)) * 50
+        X = np.concatenate(
+            [base, base + 1e-12 * rng.normal(size=base.shape), base * (1 + 1e-15)]
+        )
+        X = X[rng.permutation(len(X))]
+        queries = base[:40] + 1e-10 * rng.normal(size=(40, 20))
+        result = kutils._exact_nearest_indices(X, queries, chunk_size=97)
+        np.testing.assert_array_equal(result, _brute_force_nearest(X, queries))
+
+    def test_query_at_the_midpoint_of_two_cells(self):
+        rng = np.random.default_rng(7)
+        X = rng.normal(size=(300, 10))
+        pairs = rng.choice(300, (40, 2), replace=False)
+        queries = (X[pairs[:, 0]] + X[pairs[:, 1]]) / 2
+        result = kutils._exact_nearest_indices(X, queries, chunk_size=11)
+        np.testing.assert_array_equal(result, _brute_force_nearest(X, queries))
+
+    def test_tiny_spread_far_from_origin(self):
+        """Score cancellation: a spread of 1e-3 at an offset of 1e7."""
+        rng = np.random.default_rng(8)
+        X = 1e7 + 1e-3 * rng.normal(size=(3_000, 64))
+        queries = X[:20] + 1e-5 * rng.normal(size=(20, 64))
+        result = kutils._exact_nearest_indices(X, queries, chunk_size=500)
+        np.testing.assert_array_equal(result, _brute_force_nearest(X, queries))
+
     def test_rejects_bad_input(self):
         X = np.zeros((10, 3))
         with pytest.raises(ValueError):

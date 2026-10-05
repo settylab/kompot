@@ -876,8 +876,8 @@ def find_landmarks(
         memory is bounded. With False the snap uses the approximate
         nearest-neighbor index built for the graph, as kompot 0.8.0 and earlier
         did; on large, high-dimensional data that index can return a nearby
-        cell instead of the nearest one (at ~1M cells in 100 dimensions, 27% of
-        centroids). Set False only to reproduce landmarks from earlier versions.
+        cell instead of the nearest one (24% of centroids on a synthetic
+        1M-cell, 100-dimensional mixture). Set False only to reproduce landmarks from earlier versions.
 
     Returns
     -------

@@ -146,13 +146,17 @@ Fixes settylab/kompot#27.
 
 `find_landmarks` snaps each cluster centroid to a cell. It used the approximate
 pynndescent index built for the graph, and a centroid usually sits off the data,
-where that search is least reliable: at ~1M cells in 100 dimensions, 27% of
-centroids snapped to a cell that was not the nearest (median distance ratio
-1.04, max 1.40). On ~75k cells in 19 dimensions it was at most one centroid in
-~130.
+where that search is least reliable. On synthetic data with 1M cells in 100
+dimensions (a Gaussian mixture with 150 clusters), 36 of 150 centroids (24%)
+snapped to a cell that was not the nearest; the snapped cell was a median 1.3%
+(max 11%) farther from the centroid than the nearest one. On one real dataset
+of similar size the share was 27%. On real datasets of ~75k cells in 19
+dimensions it was at most one centroid in ~130.
 
 The snap is now an exact Euclidean search, chunked over the cells so that
-memory stays bounded (about 64 MiB per working array). Exact ties, such as
+memory stays bounded (about 64 MiB per working array, plus a shortlist of
+near-tied cells that stays small unless the data sit far from the origin
+relative to their spread). Exact ties, such as
 duplicate cells, go to the lowest cell index, so the result is deterministic.
 It costs about 1.2 s on 8 cores for 150 centroids against 1M cells in 100
 dimensions, against ~30 s to build the nearest-neighbor index on the same data.
