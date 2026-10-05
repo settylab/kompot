@@ -82,6 +82,160 @@ def test_resolve_sha_returns_none_when_unresolvable(tmp_path):
     assert _resolve_sha(str(git_dir)) is None
 
 
+# --------------------------------------------------------------------------
+# linked worktrees (settylab/kompot#28, #33)
+# --------------------------------------------------------------------------
+
+
+def _make_linked_worktree_git_dir(root, commondir="../..", loose=SHA, packed=None):
+    """Mirror git's layout: the worktree's git dir holds HEAD, the main one holds refs."""
+    main = _make_git_dir(root, loose=None, packed=packed)
+    if loose is not None:
+        (main / "refs" / "heads" / "feature").write_text(loose + "\n")
+    wt = main / "worktrees" / "wt"
+    wt.mkdir(parents=True)
+    (wt / "HEAD").write_text("ref: refs/heads/feature\n")
+    (wt / "commondir").write_text((str(main) if commondir is None else commondir) + "\n")
+    return wt
+
+
+def test_resolve_sha_linked_worktree_on_a_branch(tmp_path):
+    """Branch refs live in the common dir, not in the per-worktree git dir."""
+    wt = _make_linked_worktree_git_dir(tmp_path)
+    assert _resolve_sha(str(wt)) == SHA
+
+
+def test_resolve_sha_linked_worktree_absolute_commondir(tmp_path):
+    wt = _make_linked_worktree_git_dir(tmp_path, commondir=None)
+    assert _resolve_sha(str(wt)) == SHA
+
+
+def test_resolve_sha_linked_worktree_packed_refs_in_commondir(tmp_path):
+    """After `git gc` the branch ref is packed, and packed-refs is shared too."""
+    wt = _make_linked_worktree_git_dir(
+        tmp_path, loose=None, packed=f"{SHA} refs/heads/feature\n"
+    )
+    assert _resolve_sha(str(wt)) == SHA
+
+
+def _git(cwd, *args):
+    import subprocess
+
+    return subprocess.run(
+        ["git", "-c", "user.name=kompot-test", "-c", "user.email=test@example.invalid",
+         "-c", "commit.gpgsign=false", *args],
+        cwd=str(cwd), check=True, capture_output=True, text=True,
+    ).stdout.strip()
+
+
+@pytest.mark.parametrize("pack", [False, True], ids=["loose", "packed"])
+@pytest.mark.parametrize("shape", ["clone", "branch-worktree", "detached-worktree"])
+def test_resolve_sha_matches_git_rev_parse(tmp_path, shape, pack):
+    """End to end against real git: every checkout shape resolves, loose or packed.
+
+    `branch-worktree` is the shape that returned None before #28/#33 were fixed;
+    `detached-worktree` passed all along because its HEAD holds the sha.
+    """
+    import shutil
+
+    if shutil.which("git") is None:
+        pytest.skip("git binary not available")
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-q")
+    (repo / "f.txt").write_text("x\n")
+    _git(repo, "add", "f.txt")
+    _git(repo, "commit", "-q", "-m", "init")
+
+    checkout = repo
+    if shape == "branch-worktree":
+        checkout = tmp_path / "wt"
+        _git(repo, "worktree", "add", "-b", "some/branch", str(checkout))
+        (checkout / "g.txt").write_text("y\n")
+        _git(checkout, "add", "g.txt")
+        _git(checkout, "commit", "-q", "-m", "on the branch")
+    elif shape == "detached-worktree":
+        checkout = tmp_path / "wt"
+        _git(repo, "worktree", "add", "--detach", str(checkout))
+    if pack:
+        _git(repo, "pack-refs", "--all", "--prune")
+
+    pkg = checkout / "kompot"
+    pkg.mkdir()
+    git_dir = _find_git_dir(str(pkg))
+    assert git_dir is not None
+    assert _resolve_sha(git_dir) == _git(checkout, "rev-parse", "HEAD")
+
+
+@pytest.mark.parametrize("shape", ["clone", "branch-worktree"])
+def test_vendored_tree_does_not_borrow_an_unrelated_repo_sha(tmp_path, monkeypatch, shape):
+    """A kompot tree nested below another repository's root must not stamp its HEAD.
+
+    The enclosing repo resolves perfectly well -- which is the danger: the
+    stamp would be a confident, wrong sha. Only a `.git` at the package's
+    parent counts. (A copy at another repository's root is not caught; by
+    position it looks like Kompot's own checkout.)
+    """
+    import shutil
+
+    if shutil.which("git") is None:
+        pytest.skip("git binary not available")
+    repo = tmp_path / "other"
+    repo.mkdir()
+    _git(repo, "init", "-q")
+    (repo / "f.txt").write_text("x\n")
+    _git(repo, "add", "f.txt")
+    _git(repo, "commit", "-q", "-m", "init")
+    checkout = repo
+    if shape == "branch-worktree":
+        checkout = tmp_path / "wt"
+        _git(repo, "worktree", "add", "-b", "some/branch", str(checkout))
+    pkg = checkout / "vendor" / "lib" / "kompot"
+    pkg.mkdir(parents=True)
+    monkeypatch.setattr(_provenance, "__file__", str(pkg / "_provenance.py"))
+    monkeypatch.setattr(_provenance, "_pep610_editable", lambda: None)
+
+    # The walk-up alone would find and resolve the unrelated repo...
+    assert _resolve_sha(_find_git_dir(str(pkg))) == _git(checkout, "rev-parse", "HEAD")
+    # ...and provenance must refuse it.
+    assert _provenance._resolve()["kompot_git_sha"] is None
+
+
+def test_own_checkout_root_is_accepted(tmp_path, monkeypatch):
+    _make_git_dir(tmp_path)
+    pkg = tmp_path / "kompot"
+    pkg.mkdir()
+    monkeypatch.setattr(_provenance, "__file__", str(pkg / "_provenance.py"))
+    monkeypatch.setattr(_provenance, "_pep610_editable", lambda: True)
+    assert _provenance._resolve()["kompot_git_sha"] == SHA
+
+
+def test_unresolvable_sha_in_a_work_tree_is_logged(tmp_path, monkeypatch, caplog):
+    """A None sha inside a checkout is a resolution failure and must be visible."""
+    _make_git_dir(tmp_path, loose=None)
+    pkg = tmp_path / "kompot"
+    pkg.mkdir()
+    monkeypatch.setattr(_provenance, "__file__", str(pkg / "_provenance.py"))
+    monkeypatch.setattr(_provenance, "_pep610_editable", lambda: True)
+
+    with caplog.at_level("WARNING", logger="kompot"):
+        result = _provenance._resolve()
+    assert result["kompot_git_sha"] is None
+    assert any("could not be resolved" in r.getMessage() for r in caplog.records)
+
+
+def test_resolved_sha_logs_nothing(tmp_path, monkeypatch, caplog):
+    _make_git_dir(tmp_path)
+    pkg = tmp_path / "kompot"
+    pkg.mkdir()
+    monkeypatch.setattr(_provenance, "__file__", str(pkg / "_provenance.py"))
+    monkeypatch.setattr(_provenance, "_pep610_editable", lambda: True)
+
+    with caplog.at_level("WARNING", logger="kompot"):
+        assert _provenance._resolve()["kompot_git_sha"] == SHA
+    assert not caplog.records
+
+
 def test_looks_like_sha_rejects_abbreviations():
     assert _looks_like_sha(SHA)
     assert not _looks_like_sha(SHA[:7])
@@ -286,8 +440,10 @@ def test_source_checkout_resolves_sha_and_editable():
     resolve and the wheel-degradation contract applies instead.
     """
     package_dir = os.path.dirname(os.path.abspath(_provenance.__file__))
-    if _is_installed_tree(package_dir) or _find_git_dir(package_dir) is None:
-        pytest.skip("kompot is not running from a source checkout")
+    # A .git at the package's parent, not merely an enclosing work tree: a tree
+    # exported or vendored below another repository's root must skip here.
+    if _is_installed_tree(package_dir) or _provenance._find_kompot_git_dir(package_dir) is None:
+        pytest.skip("kompot is not running from its own source checkout")
 
     p = get_provenance()
     assert p["kompot_version"]

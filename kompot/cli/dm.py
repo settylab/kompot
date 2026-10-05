@@ -7,7 +7,12 @@ import logging
 
 import anndata as ad
 
-from .utils import load_config, merge_args_with_config, validate_anndata_path
+from .utils import (
+    load_config,
+    merge_args_with_config,
+    validate_anndata_path,
+    write_output,
+)
 
 
 logger = logging.getLogger("kompot.cli")
@@ -214,14 +219,6 @@ def run_dm(args):
     output_path = Path(args.output)
     logger.info(f"Saving results to {output_path}")
 
-    if str(output_path).endswith(".h5ad"):
-        adata.write_h5ad(output_path)
-    elif str(output_path).endswith(".zarr"):
-        adata.write_zarr(output_path)
-    else:
-        logger.error(
-            f"Unsupported output format: {output_path.suffix}. Use .h5ad or .zarr"
-        )
-        sys.exit(1)
+    write_output(adata, output_path)
 
     logger.info("Diffusion maps computation completed successfully")

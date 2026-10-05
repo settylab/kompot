@@ -65,32 +65,80 @@ def _find_git_dir(start: str) -> Optional[str]:
         current = parent
 
 
-def _resolve_sha(git_dir: str) -> Optional[str]:
-    """Resolve HEAD to a full sha by reading git's on-disk refs."""
-    head = _read_text(os.path.join(git_dir, "HEAD"))
-    if not head:
+def _find_kompot_git_dir(package_dir: str) -> Optional[str]:
+    """The git dir whose work-tree root is the package's parent, or ``None``.
+
+    ``_find_git_dir`` walks up to *any* enclosing ``.git``. A Kompot source
+    tree vendored into an unrelated repository, nested below its root, would
+    then be stamped with that repository's HEAD -- a wrong sha, which is
+    worse than none. In Kompot's own checkout the parent of the package
+    directory is the repository root, so the ``.git`` entry (a directory, or
+    a file for a worktree or submodule) must sit exactly there.
+
+    Residual: a ``kompot/`` package copied to the *root* of another
+    repository passes this check, since by position it is indistinguishable
+    from Kompot's own checkout.
+    """
+    repo_root = os.path.dirname(os.path.abspath(package_dir))
+    if not os.path.exists(os.path.join(repo_root, ".git")):
         return None
+    return _find_git_dir(repo_root)
 
-    if not head.startswith("ref:"):
-        # Detached HEAD already holds the sha.
-        return head if _looks_like_sha(head) else None
 
-    ref = head[len("ref:") :].strip()
+def _common_dir(git_dir: str) -> str:
+    """The directory holding the refs shared by every work tree of a repository.
 
-    # Loose ref.
-    loose = _read_text(os.path.join(git_dir, *ref.split("/")))
-    if loose and _looks_like_sha(loose):
-        return loose
+    A linked worktree's git dir (``<main>/.git/worktrees/<name>``) holds only
+    per-worktree state such as ``HEAD``; branch refs and ``packed-refs`` live
+    in the main repository's git dir, which a ``commondir`` file names,
+    usually relatively (settylab/kompot#28, #33). A plain repository has no
+    ``commondir`` and is its own common dir.
+    """
+    common = _read_text(os.path.join(git_dir, "commondir"))
+    if not common:
+        return git_dir
+    if not os.path.isabs(common):
+        common = os.path.join(git_dir, common)
+    return os.path.normpath(common)
 
-    # Packed ref.
-    packed = _read_text(os.path.join(git_dir, "packed-refs"))
-    if packed:
+
+def _lookup_ref(ref: str, search_dirs) -> Optional[str]:
+    """Resolve *ref* to a sha or a further ``ref:`` target, loose before packed."""
+    for directory in search_dirs:
+        loose = _read_text(os.path.join(directory, *ref.split("/")))
+        if loose:
+            return loose
+    for directory in search_dirs:
+        packed = _read_text(os.path.join(directory, "packed-refs"))
+        if not packed:
+            continue
         for line in packed.splitlines():
             if not line or line.startswith(("#", "^")):
                 continue
             sha, _, name = line.partition(" ")
-            if name.strip() == ref and _looks_like_sha(sha):
+            if name.strip() == ref:
                 return sha
+    return None
+
+
+def _resolve_sha(git_dir: str) -> Optional[str]:
+    """Resolve HEAD to a full sha by reading git's on-disk refs.
+
+    ``HEAD`` is read from *git_dir*, which is per-worktree, while refs are
+    looked up there and then in the common dir, where a linked worktree's
+    branch refs actually live.
+    """
+    value = _read_text(os.path.join(git_dir, "HEAD"))
+    common = _common_dir(git_dir)
+    search_dirs = [git_dir] if common == git_dir else [git_dir, common]
+
+    # A symbolic ref may point at another symbolic ref; bound the chain.
+    for _ in range(5):
+        if not value:
+            return None
+        if not value.startswith("ref:"):
+            return value if _looks_like_sha(value) else None
+        value = _lookup_ref(value[len("ref:") :].strip(), search_dirs)
     return None
 
 
@@ -149,9 +197,19 @@ def _resolve() -> Dict[str, Any]:
         provenance["kompot_editable"] = False if editable is None else editable
         return provenance
 
-    git_dir = _find_git_dir(package_dir)
+    git_dir = _find_kompot_git_dir(package_dir)
     if git_dir is not None:
         provenance["kompot_git_sha"] = _resolve_sha(git_dir)
+        if provenance["kompot_git_sha"] is None:
+            # Inside a work tree a missing sha is a defect in resolution, not
+            # an expected absence, and every run stamped from here on carries
+            # it; say so once, at resolution time, rather than months later.
+            logger.warning(
+                "Kompot is running from a git checkout (%s) but its commit sha "
+                "could not be resolved; run history will record "
+                "kompot_git_sha=None.",
+                git_dir,
+            )
 
     if editable is not None:
         provenance["kompot_editable"] = editable

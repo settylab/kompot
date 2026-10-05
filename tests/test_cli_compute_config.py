@@ -13,6 +13,10 @@ import numpy as np
 import pandas as pd
 from anndata import AnnData
 
+# Fixtures write through the CLI's own writer: under anndata 0.11/0.12 and
+# pandas 3 a plain write_h5ad of any AnnData fails (settylab/kompot#23).
+from kompot.cli.utils import write_output
+
 
 @pytest.fixture
 def sample_adata_for_cli():
@@ -223,7 +227,7 @@ class TestCLIDEUnitTests:
 
         # Save sample data
         input_file = tmp_path / "input.h5ad"
-        sample_adata_for_cli.write_h5ad(input_file)
+        write_output(sample_adata_for_cli, input_file)
 
         # Create args without output
         args = argparse.Namespace(
@@ -307,7 +311,7 @@ class TestCLIDEUnitTests:
 
         # Save sample data
         input_file = tmp_path / "input.h5ad"
-        sample_adata_for_cli.write_h5ad(input_file)
+        write_output(sample_adata_for_cli, input_file)
 
         # Create args without required parameters
         args = argparse.Namespace(
@@ -361,7 +365,7 @@ n_landmarks: 15
 
         # Save sample data
         input_file = tmp_path / "input.h5ad"
-        sample_adata_for_cli.write_h5ad(input_file)
+        write_output(sample_adata_for_cli, input_file)
 
         # Create args
         args = argparse.Namespace(
@@ -414,7 +418,7 @@ n_landmarks: 15
 
         # Save sample data
         input_file = tmp_path / "input.h5ad"
-        sample_adata_for_cli.write_h5ad(input_file)
+        write_output(sample_adata_for_cli, input_file)
 
         # Create args
         args = argparse.Namespace(
@@ -478,7 +482,7 @@ n_landmarks: 15
 
         # Save sample data
         input_file = tmp_path / "input.h5ad"
-        sample_adata_for_cli.write_h5ad(input_file)
+        write_output(sample_adata_for_cli, input_file)
 
         # Create args
         args = argparse.Namespace(
@@ -534,7 +538,7 @@ n_landmarks: 15
 
         # Save sample data
         input_file = tmp_path / "input.h5ad"
-        sample_adata_for_cli.write_h5ad(input_file)
+        write_output(sample_adata_for_cli, input_file)
 
         # Create args with unsupported output format
         args = argparse.Namespace(
@@ -588,7 +592,7 @@ n_landmarks: 15
 
         # Save sample data
         input_file = tmp_path / "input.h5ad"
-        sample_adata_for_cli.write_h5ad(input_file)
+        write_output(sample_adata_for_cli, input_file)
 
         # Create args with unsupported table format
         args = argparse.Namespace(
@@ -645,7 +649,7 @@ class TestCLIDryRun:
         import argparse
 
         input_file = tmp_path / "input.h5ad"
-        sample_adata_for_cli.write_h5ad(input_file)
+        write_output(sample_adata_for_cli, input_file)
 
         args = argparse.Namespace(
             input=str(input_file),
@@ -706,7 +710,7 @@ class TestCLIDryRun:
         import argparse
 
         input_file = tmp_path / "input.h5ad"
-        sample_adata_for_cli.write_h5ad(input_file)
+        write_output(sample_adata_for_cli, input_file)
 
         args = argparse.Namespace(
             input=str(input_file),
@@ -762,7 +766,7 @@ class TestCLIDryRun:
         import argparse
 
         input_file = tmp_path / "input.h5ad"
-        sample_adata_for_cli.write_h5ad(input_file)
+        write_output(sample_adata_for_cli, input_file)
 
         args = argparse.Namespace(
             input=str(input_file),
@@ -867,7 +871,7 @@ class TestCLIDAUnitTests:
 
         # Save sample data
         input_file = tmp_path / "input.h5ad"
-        sample_adata_for_cli.write_h5ad(input_file)
+        write_output(sample_adata_for_cli, input_file)
 
         # Create args without output
         args = argparse.Namespace(
@@ -945,7 +949,7 @@ class TestCLIDAUnitTests:
 
         # Save sample data
         input_file = tmp_path / "input.h5ad"
-        sample_adata_for_cli.write_h5ad(input_file)
+        write_output(sample_adata_for_cli, input_file)
 
         # Create args without required parameters
         args = argparse.Namespace(
@@ -996,7 +1000,7 @@ n_landmarks: 15
 
         # Save sample data
         input_file = tmp_path / "input.h5ad"
-        sample_adata_for_cli.write_h5ad(input_file)
+        write_output(sample_adata_for_cli, input_file)
 
         # Create args
         args = argparse.Namespace(
@@ -1046,7 +1050,7 @@ n_landmarks: 15
 
         # Save sample data
         input_file = tmp_path / "input.h5ad"
-        sample_adata_for_cli.write_h5ad(input_file)
+        write_output(sample_adata_for_cli, input_file)
 
         # Create args
         args = argparse.Namespace(
@@ -1107,7 +1111,7 @@ n_landmarks: 15
 
         # Save sample data
         input_file = tmp_path / "input.h5ad"
-        sample_adata_for_cli.write_h5ad(input_file)
+        write_output(sample_adata_for_cli, input_file)
 
         # Create args
         args = argparse.Namespace(
@@ -1160,7 +1164,7 @@ n_landmarks: 15
 
         # Save sample data
         input_file = tmp_path / "input.h5ad"
-        sample_adata_for_cli.write_h5ad(input_file)
+        write_output(sample_adata_for_cli, input_file)
 
         # Create args with unsupported output format
         args = argparse.Namespace(
@@ -1211,7 +1215,7 @@ n_landmarks: 15
 
         # Save sample data
         input_file = tmp_path / "input.h5ad"
-        sample_adata_for_cli.write_h5ad(input_file)
+        write_output(sample_adata_for_cli, input_file)
 
         # Create args with unsupported table format
         args = argparse.Namespace(

@@ -6,6 +6,7 @@
    :caption: User Guide:
 
    Installation <installation>
+   Planning Memory and Disk <resource_planning>
    Command-Line Interface <cli>
 
 .. toctree::
@@ -78,6 +79,7 @@ Key features:
 - Empirical variance estimation
 - **Resource estimation and dry run** for planning large analyses
 - Disk-backed covariance storage for sample variance estimation
+  (see :doc:`Planning Memory and Disk <resource_planning>`)
 - Visualization tools (volcano plots, heatmaps, expression plots)
 - **Full scverse compatibility with direct AnnData integration**
 - **Command-line interface for pipeline integration** and batch processing
@@ -126,12 +128,21 @@ Quick Start
    # Customize GP and FDR settings
    kompot.de(
        adata, "condition", "Young", "Old",
-       sample_col="donor_id",
        gp=kompot.GPSettings(sigma=0.5, use_empirical_variance=True),
        fdr=kompot.FDRSettings(threshold=0.01),
    )
 
 See :doc:`simplified` for the full API and all available settings.
+
+.. warning::
+
+   Adding ``sample_col`` turns on sample variance, which gives every gene its
+   own landmark covariance matrix and its own Cholesky factorisation. At
+   default settings that is roughly **0.37 GiB and ~2 s per gene**, so it
+   belongs in a second pass over a restricted gene list rather than a
+   whole-transcriptome run. Read
+   :doc:`Planning Memory and Disk <resource_planning>` before your first
+   sample-variance run.
 
 **New to Kompot?** Start with the :doc:`Getting Started <notebooks/01_getting_started>` tutorial: differential expression, end to end, with rich visualizations.
 
@@ -141,6 +152,7 @@ See :doc:`simplified` for the full API and all available settings.
 - :doc:`DE with Sample Variance <notebooks/03_sample_variance>` - Replicate-aware significance in multi-sample studies
 - :doc:`Differential Abundance <notebooks/04_differential_abundance>` - Cell-state frequency changes, including its sample-variance treatment
 - :doc:`Smoothing Expression <notebooks/05_smooth_expression>` - The expression function underneath DE: reading its two uncertainties, and fitting on some cells to predict on others
+- :doc:`Planning Memory and Disk <resource_planning>` - What sample variance costs, the two-pass workflow, and pricing a run with ``dry_run=True``
 
 Command-Line Interface
 ^^^^^^^^^^^^^^^^^^^^^^^

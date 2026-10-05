@@ -21,6 +21,7 @@ Key features:
 - Mahalanobis distance calculation for differential expression significance
 - JAX-accelerated computations with optional GPU support
 - Disk-backed covariance storage for sample variance estimation
+- **Resource estimation and dry run** for planning large analyses
 - **Full scverse compatibility** with direct AnnData integration
 - **Visualization tools** for volcano plots, heatmaps, and embeddings
 - **Command-line interface** for pipeline integration
@@ -66,6 +67,45 @@ kompot.de(
 )
 ```
 
+### Sample variance: run it as a second pass
+
+Passing `sample_col` turns on **sample variance**, which replaces the single
+shared posterior covariance with **one `(n_landmarks, n_landmarks)` covariance
+matrix per gene, per condition**. Two costs follow, and they respond to
+different levers:
+
+- **Memory**, `2 x n_landmarks^2 x n_genes x 8` bytes — about **0.37 GiB per
+  gene** at the default 5 000 landmarks. `StorageSettings(store_arrays_on_disk=True)`
+  removes this almost entirely, and `n_landmarks` shrinks it quadratically.
+- **Compute**, one Cholesky factorisation **per gene** instead of one in total.
+  `store_arrays_on_disk` does not help here, but lowering `n_landmarks` does
+  (~0.016 s/gene at 500 against ~2.1 s at 5 000, single-threaded), as does
+  analysing fewer genes.
+
+So run it in two passes, and price the second one first:
+
+```python
+# Pass 1 — all genes, no sample variance
+kompot.de(adata, "condition", "Young", "Old")
+
+mahal = "kompot_de_Young_to_Old_mahalanobis"
+top_genes = adata.var.sort_values(mahal, ascending=False).head(200).index
+
+# Pass 2 — sample variance, restricted to the top genes
+plan = kompot.de(
+    adata, "condition", "Young", "Old",
+    sample_col="donor_id",
+    genes=top_genes,
+    gp=kompot.GPSettings(n_landmarks=2000),   # cost is quadratic in this
+    dry_run=True,                             # drop once the plan fits
+)
+```
+
+`dry_run=True` returns a full resource plan (per-array memory, disk, output
+fields, feasibility) without running anything; `kompot de --dry-run` does the
+same from the CLI. Details, measured plans, and the remaining levers:
+[Planning Memory and Disk](https://kompot.readthedocs.io/en/latest/resource_planning.html).
+
 ### Command-Line Interface
 
 ```bash
@@ -79,6 +119,7 @@ kompot de input.h5ad -o output.h5ad \
 ## Documentation
 
 - [Full Documentation](https://kompot.readthedocs.io)
+- [Planning Memory and Disk](https://kompot.readthedocs.io/en/latest/resource_planning.html) — what sample variance costs and the two-pass workflow
 - [Tutorial Notebooks](https://github.com/settylab/kompot/tree/main/examples)
   - [Getting Started](https://github.com/settylab/kompot/blob/main/examples/01_getting_started.ipynb) — differential expression, end to end
   - [Advanced Differential Expression](https://github.com/settylab/kompot/blob/main/examples/02_differential_expression_detailed.ipynb) — tuning, multiple comparisons, run tracking, resource planning

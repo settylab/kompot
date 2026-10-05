@@ -11,6 +11,10 @@ import numpy as np
 import pandas as pd
 from anndata import AnnData
 
+# Fixtures write through the CLI's own writer: under anndata 0.11/0.12 and
+# pandas 3 a plain write_h5ad of any AnnData fails (settylab/kompot#23).
+from kompot.cli.utils import write_output
+
 
 @pytest.fixture
 def sample_adata_with_pca():
@@ -160,7 +164,7 @@ class TestDMRunMissingDependency:
 
         # Save sample data
         input_file = tmp_path / "input.h5ad"
-        sample_adata_with_pca.write_h5ad(input_file)
+        write_output(sample_adata_with_pca, input_file)
 
         # Mock palantir import to raise ImportError
         import builtins
@@ -210,7 +214,7 @@ class TestDMRunMissingPCA:
 
         # Save sample data (no PCA)
         input_file = tmp_path / "input.h5ad"
-        sample_adata_no_pca.write_h5ad(input_file)
+        write_output(sample_adata_no_pca, input_file)
 
         # Create args
         args = argparse.Namespace(
@@ -290,7 +294,7 @@ class TestDMRunOutputFormat:
 
         # Save sample data
         input_file = tmp_path / "input.h5ad"
-        sample_adata_with_pca.write_h5ad(input_file)
+        write_output(sample_adata_with_pca, input_file)
 
         # Mock palantir.utils.run_diffusion_maps
         try:
@@ -329,7 +333,7 @@ alpha: 0.5
 
         # Save sample data
         input_file = tmp_path / "input.h5ad"
-        sample_adata_with_pca.write_h5ad(input_file)
+        write_output(sample_adata_with_pca, input_file)
 
         # Create args
         args = argparse.Namespace(
@@ -380,7 +384,7 @@ class TestDMRunSuccessPath:
 
         # Save sample data
         input_file = tmp_path / "input.h5ad"
-        sample_adata_with_pca.write_h5ad(input_file)
+        write_output(sample_adata_with_pca, input_file)
         output_file = tmp_path / "output.h5ad"
 
         # Create args
@@ -440,7 +444,7 @@ class TestDMRunSuccessPath:
 
         # Save sample data
         input_file = tmp_path / "input.h5ad"
-        sample_adata_with_pca.write_h5ad(input_file)
+        write_output(sample_adata_with_pca, input_file)
         output_file = tmp_path / "output.zarr"
 
         # Create args
@@ -498,7 +502,7 @@ class TestDMArgumentMapping:
 
         # Save sample data
         input_file = tmp_path / "input.h5ad"
-        sample_adata_with_pca.write_h5ad(input_file)
+        write_output(sample_adata_with_pca, input_file)
 
         # Create args with hyphenated names (as they come from CLI)
         args = argparse.Namespace(

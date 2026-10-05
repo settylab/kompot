@@ -114,6 +114,12 @@ def copy_nbsphinx_images_and_fix_paths(app, exception):
 def setup(app):
     """Setup function to register Sphinx event handlers."""
     app.connect("build-finished", copy_nbsphinx_images_and_fix_paths)
+    # Fail the build if any markup survived into the HTML as text: sphinx
+    # itself exits 0 on nested inline markup (settylab/kompot#30).
+    sys.path.insert(0, str(this_directory))
+    from markup_leak_check import check_after_build
+
+    app.connect("build-finished", check_after_build)
 
 
 # Add a prolog to control figure rendering

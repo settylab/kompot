@@ -242,12 +242,38 @@ Example: Complete Analysis
      --condition2 Old \
      --obsm-key DM_EigenVectors \
      --layer logged_counts \
-     --sample-col Sample \
      --n-landmarks 5000 \
      --batch-size 100 \
      --fdr-threshold 0.05 \
      --null-genes 2000 \
      --store-additional-stats
+
+.. warning::
+
+   ``--sample-col`` is deliberately absent above. It turns on sample variance,
+   which gives every gene its own ``(n_landmarks, n_landmarks)`` covariance
+   matrix and its own Cholesky factorisation: about 0.37 GiB and ~2 s per gene
+   at ``--n-landmarks 5000``. Run it as a **second pass** over
+   a restricted gene list, which the CLI takes through the ``genes:`` key of a
+   config file:
+
+   .. code-block:: yaml
+
+      # sample_variance.yaml
+      sample_col: "Sample"
+      genes: ["GATA1", "KLF1", "..."]   # top ~200 from the first pass
+      n_landmarks: 2000                 # cost is QUADRATIC in this
+      null_genes: 0                     # not calibrated for sample variance
+      store_arrays_on_disk: true
+      disk_storage_dir: "/scratch/kompot"
+
+   .. code-block:: bash
+
+      kompot de bone_marrow.h5ad -o results_sv.h5ad -c sample_variance.yaml \
+        --groupby Age --condition1 Young --condition2 Old \
+        --result-key kompot_de_sv --dry-run     # drop --dry-run once it fits
+
+   See :doc:`Planning Memory and Disk <resource_planning>`.
 
 Example: Dry Run (Resource Estimation)
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -272,7 +298,13 @@ goes to stderr. Use the same arguments as the real run (``-o`` is ignored).
    kompot de input.h5ad --dry-run --groupby cond --condition1 A --condition2 B \
      2>/dev/null | jq '.memory.total_human'
 
-The exit code is ``0`` if the plan is feasible, ``1`` if not.
+The exit code is ``0`` if the plan is feasible, ``1`` if not, which makes
+``--dry-run`` usable as a gate in a pipeline.
+
+Always dry-run before a ``--sample-col`` run: that is the configuration whose
+cost is multiplied by the gene count. See
+:doc:`Planning Memory and Disk <resource_planning>` for how to read the plan
+and what the levers are.
 
 Differential Abundance Command
 -------------------------------
@@ -689,16 +721,26 @@ For large datasets:
 
 .. code-block:: bash
 
-   # Reduce batch size
+   # Reduce batch size (bounds prediction temporaries)
    kompot de input.h5ad -o output.h5ad ... --batch-size 50
 
-   # Use fewer landmarks
+   # Use fewer landmarks (cost of sample variance is QUADRATIC in this)
    kompot de input.h5ad -o output.h5ad ... --n-landmarks 3000
 
    # Enable disk storage (requires config file)
    # In config.yaml:
    #   store_arrays_on_disk: true
-   #   disk_storage_dir: "/tmp/kompot_cache"
+   #   disk_storage_dir: "/scratch/kompot"   # real scratch, not tmpfs
+
+With ``--sample-col`` the dominant allocation is
+``2 x n_landmarks^2 x n_genes x 8`` bytes, so the memory levers are the
+**gene list** (linear) and ``--n-landmarks`` (quadratic); setting
+``store_arrays_on_disk: true`` in a config file keeps it out of memory
+altogether. ``--batch-size`` does not bound that term, and
+``store_arrays_on_disk`` does not touch the per-gene factorisation at all --
+but lowering ``--n-landmarks`` reduces it as well as the memory, and a shorter
+gene list reduces both linearly. Full treatment:
+:doc:`Planning Memory and Disk <resource_planning>`.
 
 Speed Optimization
 ^^^^^^^^^^^^^^^^^^
@@ -750,7 +792,10 @@ Common Issues
 
    MemoryError or JAX out of memory
 
-*Solution:* Reduce ``--batch-size`` and ``--n-landmarks``
+*Solution:* Reduce ``--batch-size`` and ``--n-landmarks``.  If the run uses
+``--sample-col``, that is almost certainly the cause: restrict the analysis to
+a top-gene list and cut ``--n-landmarks``, then re-check with ``--dry-run``
+(:doc:`Planning Memory and Disk <resource_planning>`).
 
 Getting Help
 ^^^^^^^^^^^^
@@ -811,5 +856,6 @@ See Also
 
 - :doc:`Python API Documentation <simplified>`
 - :doc:`Getting Started Tutorial <notebooks/01_getting_started>`
+- :doc:`Planning Memory and Disk <resource_planning>`
 - :doc:`Sample Variance Guide <notebooks/03_sample_variance>`
 - `GitHub Repository <https://github.com/settylab/kompot>`_
