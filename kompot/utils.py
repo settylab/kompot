@@ -721,6 +721,119 @@ def find_optimal_resolution(
     return resolution, best_partition
 
 
+# Byte budget for one float64 working array in ``_exact_nearest_indices``.
+_EXACT_NN_CHUNK_BYTES = 64 * 1024 * 1024
+
+
+def _exact_nearest_indices(
+    X: np.ndarray, queries: np.ndarray, chunk_size: Optional[int] = None
+) -> np.ndarray:
+    """
+    Exact Euclidean nearest row of ``X`` for each row of ``queries``.
+
+    A brute-force search, chunked over the rows of ``X`` so that memory stays
+    bounded: no array larger than ``chunk_size x max(n_features, n_queries)``
+    float64 values is formed. It is meant for few queries against many points,
+    such as snapping a few hundred cluster centroids to the nearest cell.
+
+    The nearest row is defined by the squared distance ``((X[i] - q) ** 2).sum()``
+    computed in float64. Exact ties, for example duplicate rows, go to the
+    lowest row index, so the result is deterministic.
+
+    Parameters
+    ----------
+    X : np.ndarray
+        Points of shape (n_samples, n_features).
+    queries : np.ndarray
+        Query points of shape (n_queries, n_features).
+    chunk_size : int or None, optional
+        Rows of ``X`` processed per step. By default about 64 MiB per working
+        array.
+
+    Returns
+    -------
+    np.ndarray
+        Integer array of shape (n_queries,) with the index of the nearest row
+        of ``X`` for each query.
+    """
+    queries = np.asarray(queries, dtype=np.float64)
+    if queries.ndim != 2:
+        raise ValueError(f"queries must be 2-D, got shape {queries.shape}")
+    n_samples = X.shape[0]
+    n_queries, n_features = queries.shape
+    if X.ndim != 2 or X.shape[1] != n_features:
+        raise ValueError(
+            f"X has shape {X.shape}, incompatible with queries of shape {queries.shape}"
+        )
+    if n_samples == 0:
+        raise ValueError("X has no rows to search")
+    if n_queries == 0:
+        return np.zeros(0, dtype=np.intp)
+    if chunk_size is None:
+        chunk_size = _EXACT_NN_CHUNK_BYTES // (8 * max(n_features, n_queries, 1))
+    chunk_size = max(1, int(chunk_size))
+
+    # The search ranks rows by |x|^2 - 2 x.q, which differs from the squared
+    # distance by the per-query constant |q|^2. It is a matrix product and so
+    # fast, but it rounds differently from the direct sum, so it only
+    # shortlists candidates: every row whose score is within twice the rounding
+    # bound of the running minimum. The final minimum is never above the
+    # running one, so every row that can tie or beat it is on the shortlist.
+    q_sq = np.einsum("ij,ij->i", queries, queries)
+    q_norm = np.sqrt(q_sq)
+    eps = np.finfo(np.float64).eps
+    queries_t = np.ascontiguousarray(queries.T)
+    running_min = np.full(n_queries, np.inf)
+    max_x_norm = 0.0
+    cand_rows, cand_cols, cand_scores = [], [], []
+    for start in range(0, n_samples, chunk_size):
+        chunk = np.asarray(X[start : start + chunk_size], dtype=np.float64)
+        x_sq = np.einsum("ij,ij->i", chunk, chunk)
+        max_x_norm = max(max_x_norm, float(np.sqrt(x_sq.max())))
+        score = chunk @ queries_t
+        score *= -2.0
+        score += x_sq[:, None]
+        np.minimum(running_min, score.min(axis=0), out=running_min)
+        # Rounding bound on the score and on the direct sum it stands in for,
+        # with a 4x margin: (d + 3) eps (|x| + |q|)^2 each. The largest |x| seen
+        # so far only grows, so the bound applied later is never smaller.
+        bound = 4.0 * (n_features + 3) * eps * (max_x_norm + q_norm) ** 2
+        rows, cols = np.nonzero(score <= (running_min + 2.0 * bound)[None, :])
+        cand_rows.append(rows + start)
+        cand_cols.append(cols)
+        cand_scores.append(score[rows, cols])
+
+    bound = 4.0 * (n_features + 3) * eps * (max_x_norm + q_norm) ** 2
+    rows = np.concatenate(cand_rows)
+    cols = np.concatenate(cand_cols)
+    scores = np.concatenate(cand_scores)
+    keep = scores <= (running_min + 2.0 * bound)[cols]
+    rows, cols = rows[keep], cols[keep]
+
+    # Rank the shortlist by the direct sum; np.argmin returns the first of
+    # equal values and the rows are in ascending order, so exact ties go to
+    # the lowest index.
+    best_idx = np.full(n_queries, -1, dtype=np.intp)
+    order = np.lexsort((rows, cols))
+    rows, cols = rows[order], cols[order]
+    bounds = np.searchsorted(cols, np.arange(n_queries + 1))
+    for j in range(n_queries):
+        cand = rows[bounds[j] : bounds[j + 1]]
+        if cand.size == 0:
+            continue
+        points = np.asarray(X[cand], dtype=np.float64)
+        exact = ((points - queries[j]) ** 2).sum(axis=1)
+        best_idx[j] = cand[int(np.argmin(exact))]
+
+    if np.any(best_idx < 0):
+        # Unreachable unless the input holds NaN or inf.
+        raise ValueError(
+            "Could not find a nearest point for every query; check X and the "
+            "queries for NaN or infinite values."
+        )
+    return best_idx
+
+
 def find_landmarks(
     X: np.ndarray,
     n_clusters: int = 200,
@@ -728,6 +841,7 @@ def find_landmarks(
     tol: float = 0.1,
     max_iter: int = 10,
     random_state: Optional[int] = None,
+    exact_snap: bool = True,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     Identify landmark points representing clusters in the dataset.
@@ -755,6 +869,15 @@ def find_landmarks(
         landmark indices and coordinates). The default (``None``) preserves the
         historical non-deterministic behavior, so existing callers are
         unaffected.
+    exact_snap : bool, optional
+        How each cluster centroid is snapped to a cell, by default True. With
+        True the landmark is the cell exactly nearest the centroid (Euclidean,
+        ties to the lowest index), found by a chunked brute-force search whose
+        memory is bounded. With False the snap uses the approximate
+        nearest-neighbor index built for the graph, as kompot 0.8.0 and earlier
+        did; on large, high-dimensional data that index can return a nearby
+        cell instead of the nearest one (at ~1M cells in 100 dimensions, 27% of
+        centroids). Set False only to reproduce landmarks from earlier versions.
 
     Returns
     -------
@@ -785,9 +908,12 @@ def find_landmarks(
     # Compute centroids
     centroids = np.array([X[clusters == c].mean(axis=0) for c in cluster_ids])
 
-    # Find the nearest data point to each centroid
-    landmark_indices, _ = index.query(centroids, k=1)
-    landmark_indices = landmark_indices.flatten()
+    # Snap each centroid to a data point
+    if exact_snap:
+        landmark_indices = _exact_nearest_indices(X, centroids)
+    else:
+        landmark_indices, _ = index.query(centroids, k=1)
+        landmark_indices = landmark_indices.flatten()
     landmarks = X[landmark_indices]
 
     logger.info(

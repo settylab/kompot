@@ -142,6 +142,30 @@ Fixes settylab/kompot#27.
    `d` and `mu` as well. The default, `None`, keeps current behaviour: `"condition1"` in `de()`,
    `"separate"` in `da()`. `"symmetric"` is swap-invariant. Both CLIs accept it as a config key.
 
+### Fixed — the landmark snap is now exact
+
+`find_landmarks` snaps each cluster centroid to a cell. It used the approximate
+pynndescent index built for the graph, and a centroid usually sits off the data,
+where that search is least reliable: at ~1M cells in 100 dimensions, 27% of
+centroids snapped to a cell that was not the nearest (median distance ratio
+1.04, max 1.40). On ~75k cells in 19 dimensions it was at most one centroid in
+~130.
+
+The snap is now an exact Euclidean search, chunked over the cells so that
+memory stays bounded (about 64 MiB per working array). Exact ties, such as
+duplicate cells, go to the lowest cell index, so the result is deterministic.
+It costs about 2–4 s for 150 centroids against 1M cells in 100 dimensions.
+
+**This can change landmarks relative to 0.8.0**, and with them, at the
+margin, any result you computed from them: a changed landmark is a nearby cell
+that is closer to its cluster's centroid than the old one. Landmarks that were
+already the nearest cell do not change, and the clustering is untouched. Kompot's
+own `da()`, `de()` and the differential classes choose landmarks with mellon,
+not `find_landmarks`, and are not affected. To reproduce landmarks from 0.8.0,
+pass `find_landmarks(..., exact_snap=False)`.
+
+Fixes settylab/kompot#34.
+
 ### Removed
 
  - `sync_parameters` on `DifferentialAbundance.fit` and `da()`; use `param_scheme="pooled"`.
