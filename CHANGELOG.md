@@ -154,7 +154,8 @@ centroids snapped to a cell that was not the nearest (median distance ratio
 The snap is now an exact Euclidean search, chunked over the cells so that
 memory stays bounded (about 64 MiB per working array). Exact ties, such as
 duplicate cells, go to the lowest cell index, so the result is deterministic.
-It costs about 2–4 s for 150 centroids against 1M cells in 100 dimensions.
+It costs about 1.2 s on 8 cores for 150 centroids against 1M cells in 100
+dimensions, against ~30 s to build the nearest-neighbor index on the same data.
 
 **This can change landmarks relative to 0.8.0**, and with them, at the
 margin, any result you computed from them: a changed landmark is a nearby cell
