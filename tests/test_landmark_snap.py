@@ -91,7 +91,11 @@ class TestFindLandmarksExactSnap:
         rng = np.random.default_rng(0)
         X = rng.normal(size=(300, 5))
         landmarks, indices = find_landmarks(
-            X, n_clusters=10, random_state=0, exact_snap=False
+            X,
+            n_clusters=10,
+            random_state=0,
+            exact_snap=False,
+            knn_method="nndescent_query",
         )
         assert len(indices) == landmarks.shape[0]
         np.testing.assert_array_equal(landmarks, X[indices])
