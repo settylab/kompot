@@ -1,5 +1,7 @@
 """Utility functions for Kompot package."""
 
+import os
+
 import numpy as np
 import jax
 import jax.numpy as jnp
@@ -144,47 +146,143 @@ KOMPOT_COLORS = {
 # The functions validate_field_run_id and get_run_from_history have been moved to anndata.utils
 
 
-def build_graph(
-    X: np.ndarray, n_neighbors: int = 15, random_state: Optional[int] = 42
-) -> Tuple[List[Tuple[int, int]], pynndescent.NNDescent]:
+_KNN_METHODS = ("nndescent", "exact", "nndescent_query")
+
+
+def _available_cpus() -> int:
+    """Number of CPUs this process may run on (its affinity mask, not the machine)."""
+    try:
+        return max(1, len(os.sched_getaffinity(0)))
+    except (AttributeError, OSError):
+        return max(1, os.cpu_count() or 1)
+
+
+def _knn_edges(indices: np.ndarray) -> np.ndarray:
     """
-    Build a graph from a dataset using approximate nearest neighbors.
+    Directed kNN edges ``(i, j)`` for every ``j`` in row ``i`` of ``indices``, without self-loops.
+
+    Negative entries, which ``pynndescent`` uses to pad a row when it found
+    fewer neighbors than requested, are dropped.
+
+    The edges come out in row-major order, the order a loop over the rows and
+    then over each row's neighbors would produce.
+
+    Parameters
+    ----------
+    indices : np.ndarray
+        Integer array of shape (n_samples, k); row ``i`` lists the neighbors of
+        sample ``i``.
+
+    Returns
+    -------
+    np.ndarray
+        Integer array of shape (n_edges, 2).
+    """
+    indices = np.asarray(indices)
+    n_obs, k = indices.shape
+    sources = np.repeat(np.arange(n_obs, dtype=np.int64), k)
+    targets = indices.reshape(-1).astype(np.int64, copy=False)
+    keep = (sources != targets) & (targets >= 0)
+    return np.column_stack((sources[keep], targets[keep]))
+
+
+def _exact_knn(X: np.ndarray, n_neighbors: int) -> np.ndarray:
+    """
+    Exact Euclidean ``n_neighbors`` nearest rows of ``X`` for every row of ``X``, itself included.
+
+    A kd-tree search (``scipy.spatial.cKDTree``). The result depends only on
+    ``X``: it does not depend on a seed or on the number of threads, because
+    each row's query is answered independently.
+
+    Returns
+    -------
+    np.ndarray
+        Integer array of shape (n_samples, n_neighbors).
+    """
+    from scipy.spatial import cKDTree
+
+    X = np.asarray(X, dtype=np.float64)
+    tree = cKDTree(X)
+    _, indices = tree.query(X, k=n_neighbors, workers=_available_cpus())
+    return np.asarray(indices).reshape(X.shape[0], n_neighbors)
+
+
+def build_graph(
+    X: np.ndarray,
+    n_neighbors: int = 15,
+    random_state: Optional[int] = 42,
+    knn_method: str = "nndescent",
+) -> Tuple[np.ndarray, Optional[pynndescent.NNDescent]]:
+    """
+    Build a k-nearest-neighbor graph from a dataset.
 
     Parameters
     ----------
     X : np.ndarray
         Data matrix of shape (n_samples, n_features).
     n_neighbors : int, optional
-        Number of neighbors for graph construction, by default 15.
+        Number of neighbors per sample, the sample itself included, by default 15.
+        The exact search uses at most ``n_samples``.
     random_state : int or None, optional
-        Seed passed to ``pynndescent.NNDescent`` for the approximate
-        nearest-neighbor construction, by default 42. Passing ``None`` lets
-        pynndescent draw its own entropy (non-reproducible).
+        Seed passed to ``pynndescent.NNDescent``, by default 42. Not used by
+        ``knn_method="exact"``, which has no randomness. With ``None``
+        pynndescent draws its own entropy (non-reproducible).
+    knn_method : {"nndescent", "exact", "nndescent_query"}, optional
+        How the neighbors are found, by default ``"nndescent"``.
+
+        - ``"nndescent"``: the approximate graph that ``pynndescent.NNDescent``
+          builds (its ``neighbor_graph``). Fast on all data we measured. It
+          depends on the row order and on the number of numba threads.
+        - ``"exact"``: an exact Euclidean kd-tree search
+          (``scipy.spatial.cKDTree``). Deterministic, and independent of row
+          order and thread count. Fast when the data have low intrinsic
+          dimension; much slower than ``"nndescent"`` when they do not (on a
+          synthetic isotropic Gaussian mixture of 1.1M points in 19
+          dimensions, 8 CPUs: 837 s against 11.5 s).
+        - ``"nndescent_query"``: what kompot 0.9.0 and earlier did: build the
+          ``pynndescent`` index, then query it for every training point. The
+          query can be orders of magnitude slower than the build, on data
+          with low intrinsic dimension and strongly varying density. Use it
+          only to reproduce landmarks from earlier versions.
 
     Returns
     -------
-    Tuple[List[Tuple[int, int]], pynndescent.NNDescent]
+    Tuple[np.ndarray, pynndescent.NNDescent or None]
         A tuple containing:
-        - edges: List of (source, target) tuples defining the graph
-        - index: The nearest neighbor index for future queries
+        - edges: integer array of shape (n_edges, 2) of directed
+          (source, target) pairs, self-loops removed
+        - index: the ``pynndescent`` index, or None with ``knn_method="exact"``
     """
-    # Build the nearest neighbor index
-    index = pynndescent.NNDescent(
-        X, n_neighbors=n_neighbors, random_state=random_state
+    if knn_method not in _KNN_METHODS:
+        raise ValueError(
+            f"knn_method must be one of {_KNN_METHODS}, got {knn_method!r}"
+        )
+    if n_neighbors < 1:
+        raise ValueError(f"n_neighbors must be at least 1, got {n_neighbors}")
+    logger.info(
+        f"Building the {n_neighbors}-nearest-neighbor graph (knn_method={knn_method!r})"
     )
 
-    # Query for nearest neighbors
-    indices, _ = index.query(X, k=n_neighbors)
+    index = None
+    if knn_method == "exact":
+        n_obs = X.shape[0]
+        if n_neighbors > n_obs:
+            logger.warning(
+                f"n_neighbors={n_neighbors} exceeds the number of samples "
+                f"({n_obs}); using {n_obs}."
+            )
+            n_neighbors = n_obs
+        indices = _exact_knn(X, n_neighbors)
+    else:
+        index = pynndescent.NNDescent(
+            X, n_neighbors=n_neighbors, random_state=random_state
+        )
+        if knn_method == "nndescent":
+            indices = index.neighbor_graph[0]
+        else:
+            indices, _ = index.query(X, k=n_neighbors)
 
-    # Convert to edges
-    n_obs = X.shape[0]
-    edges = []
-    for i in range(n_obs):
-        for j in indices[i]:
-            if i != j:  # Avoid self-loops
-                edges.append((i, j))
-
-    return edges, index
+    return _knn_edges(indices), index
 
 
 def compute_mahalanobis_distances(
@@ -627,7 +725,7 @@ def compute_mahalanobis_distance(
 
 
 def find_optimal_resolution(
-    edges: List[Tuple[int, int]],
+    edges: Union[np.ndarray, List[Tuple[int, int]]],
     n_obs: int,
     n_clusters: int,
     tol: float = 0.1,
@@ -639,8 +737,9 @@ def find_optimal_resolution(
 
     Parameters
     ----------
-    edges : List[Tuple[int, int]]
-        List of edges defining the graph.
+    edges : np.ndarray or List[Tuple[int, int]]
+        Edges defining the graph: an integer array of shape (n_edges, 2), as
+        ``build_graph`` returns, or a list of (source, target) pairs.
     n_obs : int
         Number of observations (nodes) in the graph.
     n_clusters : int
@@ -842,9 +941,15 @@ def find_landmarks(
     max_iter: int = 10,
     random_state: Optional[int] = None,
     exact_snap: bool = True,
+    knn_method: Optional[str] = None,
+    order_invariant: bool = False,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     Identify landmark points representing clusters in the dataset.
+
+    The cells are joined into a k-nearest-neighbor graph, the graph is
+    clustered with Leiden at a resolution searched to give about
+    ``n_clusters`` clusters, and each cluster centroid is snapped to a cell.
 
     Parameters
     ----------
@@ -863,12 +968,13 @@ def find_landmarks(
         community detection underlying landmark discovery draws from igraph's
         global random number generator, which is otherwise left unseeded, so
         the returned landmarks vary run-to-run even for identical input.
-        Passing an int seeds both the nearest-neighbor construction and the
-        Leiden step, making ``find_landmarks`` fully reproducible through the
-        public API (same ``X`` + same ``random_state`` yields identical
-        landmark indices and coordinates). The default (``None``) preserves the
-        historical non-deterministic behavior, so existing callers are
-        unaffected.
+        Passing an int seeds the Leiden step and the ``pynndescent``
+        nearest-neighbor construction, making ``find_landmarks`` reproducible
+        through the public API: the same ``X`` and the same ``random_state``
+        yield identical landmark indices and coordinates, on the same machine
+        with the same number of threads (with ``knn_method="exact"`` on any
+        machine), given the same library versions. The default (``None``) preserves the historical
+        non-deterministic behavior. Required when ``order_invariant=True``.
     exact_snap : bool, optional
         How each cluster centroid is snapped to a cell, by default True. With
         True the landmark is the cell exactly nearest the centroid (Euclidean,
@@ -877,7 +983,38 @@ def find_landmarks(
         nearest-neighbor index built for the graph, as kompot 0.8.0 and earlier
         did; on large, high-dimensional data that index can return a nearby
         cell instead of the nearest one (24% of centroids on a synthetic
-        1M-cell, 100-dimensional mixture). Set False only to reproduce landmarks from earlier versions.
+        1M-cell, 100-dimensional mixture). Set False only to reproduce
+        landmarks from earlier versions (with ``knn_method="nndescent_query"``);
+        it cannot be combined with ``knn_method="exact"``, which builds no
+        index.
+    knn_method : {"nndescent", "exact", "nndescent_query"} or None, optional
+        How the nearest-neighbor graph is built. By default (None),
+        ``"exact"`` when ``order_invariant=True`` and ``"nndescent"``
+        otherwise. ``"nndescent"`` is the approximate graph ``pynndescent`` builds, which is fast on all data
+        we measured. ``"exact"`` is an exact kd-tree search: deterministic and
+        independent of row order and thread count, but much slower on data
+        with high intrinsic dimension. ``"nndescent_query"`` is the graph of
+        kompot 0.9.0 and earlier, which can be orders of magnitude slower on
+        large data with low intrinsic dimension; pass it only to reproduce
+        landmarks from earlier versions. See :func:`build_graph` for timings.
+    order_invariant : bool, optional
+        Make the landmarks independent of the order of the rows of ``X``, by
+        default False. The rows are put into a canonical order (sorted
+        lexicographically by their coordinates) before the graph and the
+        clustering are computed, and the landmark indices are mapped back to
+        the original row order. The same rows in any order, with the same
+        ``random_state``, then give the same landmarks on any machine and
+        with any number of threads, given the same versions of numpy, scipy
+        and python-igraph. Requires an int ``random_state`` and uses
+        the exact graph; a ``ValueError`` is raised without a seed or with
+        another ``knn_method``. Costs one sort and one copy of ``X``.
+
+        This buys reproducibility, not stability. The landmark set is one draw
+        from a procedure that is sensitive to every arbitrary choice: changing
+        ``random_state`` moves the landmarks about as much as permuting the rows
+        does. Exact duplicate rows are interchangeable under the sort, so a
+        landmark that falls on a duplicated row has the same coordinates in
+        every order but may point at a different copy.
 
     Returns
     -------
@@ -886,15 +1023,54 @@ def find_landmarks(
         - landmarks: Matrix of shape (n_clusters, n_features) containing landmark coordinates
         - landmark_indices: Indices of landmarks in the original dataset
     """
+    if knn_method is None:
+        knn_method = "exact" if order_invariant else "nndescent"
+    if knn_method not in _KNN_METHODS:
+        raise ValueError(
+            f"knn_method must be one of {_KNN_METHODS}, got {knn_method!r}"
+        )
+    if not exact_snap and knn_method == "exact":
+        raise ValueError(
+            "exact_snap=False snaps with the pynndescent index, which "
+            "knn_method='exact' does not build. To reproduce landmarks from "
+            "kompot 0.8.0, pass exact_snap=False together with "
+            "knn_method='nndescent_query'."
+        )
+    if order_invariant:
+        if random_state is None:
+            raise ValueError(
+                "order_invariant=True requires an int random_state: without a "
+                "seed the Leiden step is unseeded and the landmarks change from "
+                "run to run whatever the row order."
+            )
+        if knn_method != "exact":
+            raise ValueError(
+                "order_invariant=True requires knn_method='exact': the "
+                "pynndescent graph depends on the number of threads, so the "
+                "landmarks would not be reproducible across machines."
+            )
+
+    order = None
+    if order_invariant:
+        X_input = X
+        # Canonical row order: sort by the first column, ties by the second,
+        # and so on. np.lexsort treats its LAST key as the primary one.
+        X = np.asarray(X)
+        order = np.lexsort(X.T[::-1])
+        X = X[order]
+
     # When no seed is requested, keep the historical nearest-neighbor seed (42)
-    # so unseeded callers observe unchanged NN behavior; the run-to-run variation
-    # comes solely from the unseeded Leiden step below. A supplied seed threads
-    # into both stages for end-to-end reproducibility.
+    # so unseeded callers observe unchanged pynndescent behavior; the
+    # run-to-run variation comes solely from the unseeded Leiden step below.
+    # The exact search ignores the seed.
     nn_random_state = 42 if random_state is None else random_state
 
     # Build graph
     edges, index = build_graph(
-        X, n_neighbors=n_neighbors, random_state=nn_random_state
+        X,
+        n_neighbors=n_neighbors,
+        random_state=nn_random_state,
+        knn_method=knn_method,
     )
     n_obs = X.shape[0]
 
@@ -902,6 +1078,7 @@ def find_landmarks(
     optimal_resolution, partition = find_optimal_resolution(
         edges, n_obs, n_clusters, tol=tol, max_iter=max_iter, random_state=random_state
     )
+    del edges
     clusters = np.array(partition.membership)
     cluster_ids = np.unique(clusters)
 
@@ -914,6 +1091,10 @@ def find_landmarks(
     else:
         landmark_indices, _ = index.query(centroids, k=1)
         landmark_indices = landmark_indices.flatten()
+
+    if order is not None:
+        landmark_indices = order[landmark_indices]
+        X = X_input
     landmarks = X[landmark_indices]
 
     logger.info(

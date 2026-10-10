@@ -2,6 +2,93 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Fixed — `find_landmarks` no longer stalls on large data with low intrinsic dimension
+
+`find_landmarks` joins the cells into a k-nearest-neighbor graph before
+clustering. Through 0.9.0, `build_graph` built a pynndescent index and then
+queried that index for every training point, although the build had already
+produced a neighbor graph. On data with low intrinsic dimension and strongly
+varying density, the kind of geometry diffusion components and other
+trajectory-like embeddings have, that query takes orders of magnitude longer
+than the build, and its cost grows much faster than the number of cells.
+
+The default graph is now the one the pynndescent build produces
+(`knn_method="nndescent"`), with no re-query. Measured on synthetic data, 19
+dimensions, 8 CPUs, k = 15, one run per cell:
+
+| data | cells | build only (new default) | build + query (0.9.0) | exact kd-tree |
+|---|---|---|---|---|
+| branched curve, varying density | 200 000 | 1.5 s | 217 s | 5.9 s |
+| branched curve, varying density | 500 000 | 4.7 s | 1 133 s | 20 s |
+| branched curve, varying density | 1 100 000 | 10 s | > 44 min (stopped at a 45-min cap) | 130 s |
+| isotropic Gaussian mixture | 200 000 | 3.2 s | 6.6 s | 32 s |
+| isotropic Gaussian mixture | 500 000 | 5.1 s | 22 s | 102 s |
+| isotropic Gaussian mixture | 1 100 000 | 12 s | 89 s | 837 s |
+
+The curve data are five 1-d curves embedded nonlinearly in 19 dimensions, with
+the cells concentrated toward one end of each (`t = u**4`) and little noise:
+low intrinsic dimension with strongly varying density. The mixture has 30
+isotropic Gaussian components. Duplicate rows (2% or 20%) and 100x tighter
+clusters did not slow the query; varying density on a low-dimensional curve
+did. The 0.9.0 column times the pynndescent build and query directly, except
+at 1 100 000 mixture cells, where it is the 0.9.0 `build_graph` end to end
+(including its Python edge loop). The runs used several cluster nodes and one run per cell, so treat the
+figures as orders of magnitude (the same exact search took 18 s and 32 s at
+200 000 mixture cells on two nodes). The default graph is also slightly more
+accurate than the 0.9.0 query: recall against the exact neighbors at 200 000
+cells was 0.956 against 0.940 on the mixture and 0.992 against 0.990 on the
+curve.
+
+**This changes which landmarks are selected relative to 0.9.0.** Leiden is
+sensitive to small perturbations of its graph, so a graph that differs in a
+minority of its edges gives a largely different landmark set. On the
+200 000-cell mixture above with `n_clusters=200` and `random_state=0`, the new
+default and the 0.9.0 graph shared 65 landmarks (of 178 and 175); for scale,
+changing the seed to 1 under the new default left 61 shared (of 178 and 192),
+while rerunning with the same seed reproduced the landmarks exactly. Every
+landmark is still the cell nearest its cluster's centroid; only the choice
+among comparably good landmark sets moves. Unseeded
+calls (`random_state=None`, the default) were not reproducible before and are
+not now. Kompot's own `da()`, `de()` and the differential classes choose
+landmarks with mellon, not `find_landmarks`, and are not affected.
+
+**To reproduce landmarks from 0.9.0**, pass
+`find_landmarks(..., knn_method="nndescent_query")` with the same
+`random_state`. To reproduce landmarks from 0.8.0, also pass
+`exact_snap=False`.
+
+`build_graph` now returns its edges as an integer array of shape
+`(n_edges, 2)` instead of a list of tuples, built without a Python loop.
+
+### Added — `knn_method="exact"` and `find_landmarks(..., order_invariant=True)`
+
+`knn_method="exact"` builds the graph with an exact Euclidean kd-tree search
+(`scipy.spatial.cKDTree`). Unlike the pynndescent graph, which changes with the
+number of numba threads, it depends only on the data. It is fast on data with
+low intrinsic dimension and slow on data without it (see the table above); it
+is not the default for that reason. `exact_snap=False` cannot be combined with
+it, because it builds no index to snap with.
+
+The landmarks also depended on the order of the rows of `X`, through the
+graph and through Leiden, which visits vertices in index order; an exact graph
+alone does not remove the second. With `order_invariant=True` the rows are
+sorted into a canonical (lexicographic) order before the graph and the
+clustering, the exact graph is used, and the landmark indices are mapped back
+to the caller's order. The same cells in any order, with the same seed, then
+give the same landmarks on any machine, given the same versions of numpy,
+scipy and python-igraph. It requires an int `random_state`
+(without one Leiden is unseeded and the landmarks change from run to run
+anyway) and raises a `ValueError` without one, or with a `knn_method` other
+than `"exact"`. The sort and the copy of `X` it needs cost seconds, against the
+exact search's minutes.
+
+This buys reproducibility, not stability: changing `random_state` moves the
+landmarks about as much as permuting the rows does. Exact duplicate rows are
+interchangeable under the sort, so a landmark on a duplicated row keeps its
+coordinates in every order but may point at a different copy.
+
 ## [0.9.0] - 2026-09-15
 
 ### Fixed — sample variance no longer costs more memory than it needs to
