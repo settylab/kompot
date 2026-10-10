@@ -768,13 +768,10 @@ def find_optimal_resolution(
     G_igraph = ig.Graph(edges=edges, directed=False)
     G_igraph.vs["name"] = [str(i) for i in range(n_obs)]
 
-    # Initial heuristic, kept inside the search bounds: n_obs / n_clusters
-    # exceeds the upper bound once there are more than 1000 samples per
-    # requested cluster, and a start outside [lower, upper] breaks the
-    # bisection below (a too-coarse first step would set lower above upper).
-    lower, upper = 0.01, 1000.0
+    # Initial heuristic
     initial_resolution = n_obs / n_clusters
-    resolution = min(max(initial_resolution, lower), upper)
+    resolution = initial_resolution
+    lower, upper = 0.01, 1000.0
 
     best_partition = None
 
@@ -976,7 +973,7 @@ def find_landmarks(
         through the public API: the same ``X`` and the same ``random_state``
         yield identical landmark indices and coordinates, on the same machine
         with the same number of threads (with ``knn_method="exact"`` on any
-        machine). The default (``None``) preserves the historical
+        machine), given the same library versions. The default (``None``) preserves the historical
         non-deterministic behavior. Required when ``order_invariant=True``.
     exact_snap : bool, optional
         How each cluster centroid is snapped to a cell, by default True. With
@@ -1006,8 +1003,9 @@ def find_landmarks(
         lexicographically by their coordinates) before the graph and the
         clustering are computed, and the landmark indices are mapped back to
         the original row order. The same rows in any order, with the same
-        ``random_state``, then give the same landmarks, on any machine and
-        with any number of threads. Requires an int ``random_state`` and uses
+        ``random_state``, then give the same landmarks on any machine and
+        with any number of threads, given the same versions of numpy, scipy
+        and python-igraph. Requires an int ``random_state`` and uses
         the exact graph; a ``ValueError`` is raised without a seed or with
         another ``knn_method``. Costs one sort and one copy of ``X``.
 

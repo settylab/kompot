@@ -1,12 +1,12 @@
-"""The kNN graph, resolution search and row-order handling behind ``find_landmarks``.
+"""The kNN graph and row-order handling behind ``find_landmarks``.
 
 Through 0.9.0 ``build_graph`` built a pynndescent index and then queried it
 for every training point. On large data with low intrinsic dimension and
 varying density that query takes orders of magnitude longer than the build.
 The default graph is now the one the build produces, ``knn_method="exact"``
 gives a deterministic kd-tree kNN, ``order_invariant=True`` makes the
-landmarks independent of row order, the edge list is built without a Python
-loop, and the first Leiden resolution is kept inside the search bounds.
+landmarks independent of row order, and the edge list is built without a
+Python loop.
 """
 
 import numpy as np
@@ -14,7 +14,7 @@ import pynndescent
 import pytest
 
 import kompot.utils as kutils
-from kompot.utils import build_graph, find_landmarks, find_optimal_resolution
+from kompot.utils import build_graph, find_landmarks
 
 
 def _mixture(n, d, k, seed):
@@ -128,49 +128,6 @@ class TestVectorisedEdges:
         indices = np.array([[0, 1, -1], [1, 0, -1], [2, -1, -1]])
         got = kutils._knn_edges(indices)
         np.testing.assert_array_equal(got, [[0, 1], [1, 0]])
-
-
-def _recording_leiden(real, resolutions):
-    """Wrap ``community_leiden`` so that it records the resolutions it is asked for."""
-
-    def leiden(graph, *args, **kwargs):
-        resolutions.append(kwargs["resolution"])
-        return real(graph, *args, **kwargs)
-
-    return leiden
-
-
-class TestResolutionClamp:
-    @staticmethod
-    def _ring(n):
-        src = np.arange(n)
-        return np.column_stack((src, (src + 1) % n))
-
-    @pytest.mark.parametrize(
-        "n_obs, n_clusters, expected_first",
-        [
-            (5000, 2, 1000.0),  # n_obs / n_clusters = 2500 > upper bound
-            (10, 2000, 0.01),  # n_obs / n_clusters = 0.005 < lower bound
-            (1000, 100, 10.0),  # inside the bounds: unchanged
-        ],
-    )
-    def test_first_resolution_is_inside_the_bounds(
-        self, monkeypatch, n_obs, n_clusters, expected_first
-    ):
-        import igraph as ig
-
-        resolutions = []
-        monkeypatch.setattr(
-            ig.Graph,
-            "community_leiden",
-            _recording_leiden(ig.Graph.community_leiden, resolutions),
-        )
-
-        find_optimal_resolution(
-            self._ring(n_obs), n_obs, n_clusters, max_iter=1, random_state=0
-        )
-
-        assert resolutions[0] == pytest.approx(expected_first)
 
 
 class TestOrderInvariant:

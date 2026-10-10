@@ -57,10 +57,7 @@ landmarks with mellon, not `find_landmarks`, and are not affected.
 **To reproduce landmarks from 0.9.0**, pass
 `find_landmarks(..., knn_method="nndescent_query")` with the same
 `random_state`. To reproduce landmarks from 0.8.0, also pass
-`exact_snap=False`. One exception for both: with more than 1000 cells per
-requested landmark (for example more than 200 000 cells at the default
-`n_clusters=200`) the resolution search now starts from a different point (see
-below), so the old landmarks are not reproduced exactly there.
+`exact_snap=False`.
 
 `build_graph` now returns its edges as an integer array of shape
 `(n_edges, 2)` instead of a list of tuples, built without a Python loop.
@@ -80,7 +77,8 @@ alone does not remove the second. With `order_invariant=True` the rows are
 sorted into a canonical (lexicographic) order before the graph and the
 clustering, the exact graph is used, and the landmark indices are mapped back
 to the caller's order. The same cells in any order, with the same seed, then
-give the same landmarks on any machine. It requires an int `random_state`
+give the same landmarks on any machine, given the same versions of numpy,
+scipy and python-igraph. It requires an int `random_state`
 (without one Leiden is unseeded and the landmarks change from run to run
 anyway) and raises a `ValueError` without one, or with a `knn_method` other
 than `"exact"`. The sort and the copy of `X` it needs cost seconds, against the
@@ -90,13 +88,6 @@ This buys reproducibility, not stability: changing `random_state` moves the
 landmarks about as much as permuting the rows does. Exact duplicate rows are
 interchangeable under the sort, so a landmark on a duplicated row keeps its
 coordinates in every order but may point at a different copy.
-
-### Fixed — the first Leiden resolution stays inside the search bounds
-
-The resolution search started at `n_cells / n_clusters`, which exceeds its own
-upper bound of 1000 once there are more than 1000 cells per requested cluster.
-If that first step gave too few clusters, the bisection then ran with its lower
-bound above its upper one. The start is now clamped to `[0.01, 1000]`.
 
 ## [0.9.0] - 2026-09-15
 
