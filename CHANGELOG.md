@@ -4,33 +4,24 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
-### Added — `smooth_expression(..., cell_mask=...)`: mask cells out instead of extrapolating to them
+### Fixed — `smooth_expression` with non-finite cell-state coordinates
 
-`smooth_expression` fits on the selected cells and evaluates the model on **every**
-cell. That is right for conditions, but wrong for cells that have no place in the
-cell-state representation at all: cells removed by a quality gate before the
-diffusion map was computed typically carry NaN coordinates, and a smoothed value
-for them is either NaN by accident or an extrapolation nobody asked for.
+Cells removed by a quality gate before the diffusion map was computed often carry
+NaN coordinates in `adata.obsm`. `smooth_expression` used them for fitting, and
+the fit failed: landmark selection (KMeans) refuses NaN input.
 
-`cell_mask` (the name of a boolean `adata.obs` column without missing values; `True`
-keeps a cell; CLI: `kompot smooth --cell-mask COLUMN`) makes the exclusion explicit:
+Now cells whose coordinates are not all finite (NaN or inf) are excluded from
+fitting. They are still evaluated, and they come out NaN in every output layer
+(smoothed values, standard deviation, and the variance layers when requested).
+No argument is needed: prediction is per cell (`K(x, landmarks) @ weights`; the
+variance is solved against the fixed landmark Cholesky factor), so a NaN row stays
+NaN and no other cell's value changes. Measured: with NaN rows planted, every
+other row of `predict` and `std` is bitwise equal to evaluating without those
+rows, at batch sizes 7, 50 and 1000.
 
- - masked-out cells are excluded from fitting and are **never evaluated**, so their
-   `obsm` coordinates are never read and may be NaN;
- - every per-cell output (smoothed values, standard deviations, and the empirical
-   and sample variance layers when requested) is **NaN** for them;
- - with `groupby`/`condition`, the model is fitted on cells in the condition *and*
-   in the mask, and evaluated on every kept cell;
- - kept cells with non-finite coordinates raise a `ValueError` instead of
-   propagating NaN silently;
- - the run info records the column (`params["cell_mask"]`), the number of cells
-   masked out (`params["n_cells_masked_out"]`) and that they are NaN
-   (`params["masked_cells"]`, and the description of every output layer);
- - a missing, non-boolean or partly missing column, or one that keeps no cell, is
-   refused with a clear error.
-
-The default, `cell_mask=None`, is unchanged. On kept cells the result equals
-smoothing the kept subset on its own (tested).
+The run info records `params["n_cells_nonfinite"]` and `params["nonfinite_cells"]`,
+and each output layer's description gives the number of NaN cells. With all
+coordinates finite, nothing changes.
 
 ## [0.9.0] - 2026-09-15
 

@@ -45,7 +45,6 @@ def smooth_expression(
     storage: "StorageSettings | None" = None,
     output: "OutputSettings | None" = None,
     model: "ModelSettings | None" = None,
-    cell_mask: Optional[str] = None,
     **function_kwargs,
 ) -> Optional[Union[Dict[str, Any], Any]]:
     """Smooth gene expression for a single condition using GP regression.
@@ -77,7 +76,11 @@ def smooth_expression(
         Which group in ``groupby`` to smooth. If *None* and ``groupby`` is
         *None*, all cells are used.
     obsm_key : str
-        Key in ``adata.obsm`` for cell-state coordinates.
+        Key in ``adata.obsm`` for cell-state coordinates. Cells whose
+        coordinates are not all finite (NaN or inf, e.g. cells left out of
+        the diffusion map) are excluded from fitting and get NaN in every
+        output layer. Prediction is per cell, so no other cell's value
+        changes. The run info records how many (``params["n_cells_nonfinite"]``).
     layer : str, optional
         Layer to use as expression input. *None* means ``adata.X``.
     genes : list of str, optional
@@ -93,19 +96,6 @@ def smooth_expression(
     model : ModelSettings, optional
         Pre-fitted :class:`~kompot.ExpressionModel` to inject via
         ``model1``. When provided, skips internal fitting.
-    cell_mask : str, optional
-        Name of a **boolean** column in ``adata.obs`` (no missing values);
-        ``True`` keeps a cell. Cells with ``False`` are **masked out**: they
-        are excluded from fitting, they are never evaluated, their ``obsm``
-        coordinates are never read (so they may be NaN, e.g. cells left out
-        of a diffusion map), and every per-cell output (smoothed values,
-        standard deviations and, when requested, the variance layers) is
-        NaN for them. Combined with ``groupby``/``condition``, the model is
-        fitted on cells in the condition *and* in the mask, and evaluated on
-        every cell in the mask. The run info records the column, the number
-        of masked cells and that they are NaN (``params["cell_mask"]``,
-        ``params["n_cells_masked_out"]``, ``params["masked_cells"]``).
-        *None* (default) keeps every cell, as before.
     **function_kwargs
         Forwarded to :class:`mellon.FunctionEstimator`.
 
@@ -157,8 +147,6 @@ def smooth_expression(
     if groupby is not None:
         validate_groupby(adata, groupby)
 
-    keep = _resolve_cell_mask(adata, cell_mask)
-
     # --- Build cell mask ---
     if groupby is not None and condition is not None:
         mask = (adata.obs[groupby] == condition).values
@@ -170,15 +158,6 @@ def smooth_expression(
     else:
         mask = np.ones(adata.n_obs, dtype=bool)
         logger.info(f"Smoothing all {mask.sum():,} cells")
-
-    if keep is not None:
-        mask = mask & keep
-        if mask.sum() == 0:
-            raise ValueError("No cell is both in the selected condition and kept by cell_mask.")
-        logger.info(
-            f"cell_mask: {int((~keep).sum()):,} cells masked out (NaN in every output); "
-            f"fitting on {mask.sum():,} cells"
-        )
 
     # --- Build field names ---
     cond_label = _sanitize_name(condition) if condition else "all"
@@ -213,14 +192,24 @@ def smooth_expression(
 
     # --- Extract data ---
     X_all = adata.obsm[obsm_key]
-    X_train = X_all[mask]
-    # Masked-out cells are never evaluated, so their coordinates are never read.
-    X_eval = X_all if keep is None else X_all[keep]
-    if keep is not None and not np.all(np.isfinite(np.asarray(X_eval))):
-        raise ValueError(
-            f"adata.obsm['{obsm_key}'] has non-finite values in cells kept by "
-            "cell_mask; mask those cells out or fix the representation."
+    # Cells with non-finite coordinates have no place in the representation:
+    # exclude them from fitting (landmark KMeans and the GP refuse NaN). They
+    # are still evaluated below; prediction is per cell (K(x, landmarks)
+    # @ weights; the variance solves against the fixed landmark Cholesky), so
+    # their rows come out NaN and no other cell's value changes.
+    finite = np.isfinite(np.asarray(X_all, dtype=float)).all(axis=1)
+    n_nonfinite = int((~finite).sum())
+    if n_nonfinite:
+        mask = mask & finite
+        if mask.sum() == 0:
+            raise ValueError(
+                f"No selected cell has finite coordinates in adata.obsm['{obsm_key}']."
+            )
+        logger.info(
+            f"{n_nonfinite:,} cells have non-finite coordinates in adata.obsm['{obsm_key}']: "
+            f"excluded from fitting, NaN in every output; fitting on {mask.sum():,} cells"
         )
+    X_train = X_all[mask]
 
     if layer is not None:
         if layer not in adata.layers:
@@ -280,22 +269,12 @@ def smooth_expression(
 
     # --- Predict on all cells ---
     # The model is trained on the condition cells but evaluated everywhere,
-    # so every cell gets a smoothed value and uncertainty estimate. With a
-    # cell_mask, "everywhere" means every kept cell; masked-out rows are NaN.
-    def _expand_cells(values):
-        """Place kept-cell rows into a full (n_obs, ...) array, NaN elsewhere."""
-        values = np.asarray(values)
-        if keep is None:
-            return values
-        out = np.full((adata.n_obs,) + values.shape[1:], np.nan, dtype=np.result_type(values, np.float32))
-        out[keep] = values
-        return out
-
-    imputed = _expand_cells(
-        expr_model.predict(X_eval, batch_size=batch_size, progress=progress)
+    # so every cell gets a smoothed value and uncertainty estimate.
+    imputed = np.asarray(
+        expr_model.predict(X_all, batch_size=batch_size, progress=progress)
     )
-    std_vals = _expand_cells(
-        expr_model.std(X_eval, batch_size=batch_size, progress=progress)
+    std_vals = np.asarray(
+        expr_model.std(X_all, batch_size=batch_size, progress=progress)
     )
     # Broadcast (n, 1) to (n, n_genes) when only GP covariance is present
     n_genes_fitted = imputed.shape[1]
@@ -330,8 +309,8 @@ def smooth_expression(
             adata.layers[field_names["std_key"]] = std_vals
 
         if use_empirical_variance:
-            obs_var = _expand_cells(
-                expr_model.obs_variance(X_eval, batch_size=batch_size, progress=progress)
+            obs_var = np.asarray(
+                expr_model.obs_variance(X_all, batch_size=batch_size, progress=progress)
             )
             if genes is not None:
                 adata.layers[field_names["obs_variance_key"]] = _expand_genes(
@@ -341,9 +320,9 @@ def smooth_expression(
                 adata.layers[field_names["obs_variance_key"]] = obs_var
 
         if sample_col is not None and expr_model.has_sample_variance:
-            sam_var = _expand_cells(
+            sam_var = np.asarray(
                 expr_model.sample_variance(
-                    X_eval, diag=True, batch_size=batch_size, progress=progress
+                    X_all, diag=True, batch_size=batch_size, progress=progress
                 )
             )
             if isinstance(sam_var, np.ndarray):
@@ -355,33 +334,33 @@ def smooth_expression(
                     adata.layers[field_names["sample_variance_key"]] = sam_var
 
         # --- Metadata ---
-        _mask_note = (
-            "" if keep is None else
-            f"; NaN for the {int((~keep).sum()):,} cells masked out by obs['{cell_mask}']"
+        _nan_note = (
+            "" if not n_nonfinite else
+            f"; NaN for the {n_nonfinite:,} cells with non-finite coordinates in obsm['{obsm_key}']"
         )
         field_mapping = {
             field_names["smoothed_key"]: {
                 "location": "layers",
                 "type": "smoothed",
-                "description": f"GP-smoothed expression for {cond_label}" + _mask_note,
+                "description": f"GP-smoothed expression for {cond_label}" + _nan_note,
             },
             field_names["std_key"]: {
                 "location": "layers",
                 "type": "std",
-                "description": f"Total posterior standard deviation for {cond_label}" + _mask_note,
+                "description": f"Total posterior standard deviation for {cond_label}" + _nan_note,
             },
         }
         if use_empirical_variance:
             field_mapping[field_names["obs_variance_key"]] = {
                 "location": "layers",
                 "type": "obs_variance",
-                "description": f"Per-gene empirical (aleatoric) variance for {cond_label}" + _mask_note,
+                "description": f"Per-gene empirical (aleatoric) variance for {cond_label}" + _nan_note,
             }
         if sample_col is not None and expr_model.has_sample_variance:
             field_mapping[field_names["sample_variance_key"]] = {
                 "location": "layers",
                 "type": "sample_variance",
-                "description": f"Biological-replicate variance for {cond_label}" + _mask_note,
+                "description": f"Biological-replicate variance for {cond_label}" + _nan_note,
             }
 
         run_info = {
@@ -399,12 +378,11 @@ def smooth_expression(
                 "sample_col": sample_col,
                 "n_genes": len(selected_genes),
                 "n_cells": int(mask.sum()),
-                "cell_mask": cell_mask,
-                "n_cells_masked_out": 0 if keep is None else int((~keep).sum()),
-                "masked_cells": (
-                    None if keep is None else
-                    f"cells with adata.obs['{cell_mask}'] == False are excluded from "
-                    "fitting, never evaluated, and NaN in every output layer of this run"
+                "n_cells_nonfinite": n_nonfinite,
+                "nonfinite_cells": (
+                    None if not n_nonfinite else
+                    f"cells with non-finite coordinates in adata.obsm['{obsm_key}'] are excluded "
+                    "from fitting and NaN in every output layer of this run"
                 ),
                 "batch_size": batch_size,
                 "result_key": result_key,
@@ -432,32 +410,6 @@ def smooth_expression(
             "field_names": field_names,
         }
     return None
-
-
-def _resolve_cell_mask(adata, cell_mask):
-    """Boolean array of kept cells from a boolean ``adata.obs`` column, or None when no mask is given."""
-    if cell_mask is None:
-        return None
-    if not isinstance(cell_mask, str):
-        raise TypeError(
-            "cell_mask must be the name of a boolean column in adata.obs "
-            f"(got {type(cell_mask).__name__})."
-        )
-    if cell_mask not in adata.obs:
-        raise ValueError(
-            f"cell_mask column '{cell_mask}' not found in adata.obs. "
-            f"Available columns: {list(adata.obs.columns)}"
-        )
-    col = adata.obs[cell_mask]
-    if not pd.api.types.is_bool_dtype(col) or col.isna().any():
-        raise ValueError(
-            f"cell_mask column '{cell_mask}' must be boolean (True = keep) without missing "
-            f"values; got dtype '{col.dtype}'."
-        )
-    keep = col.to_numpy(dtype=bool)
-    if not keep.any():
-        raise ValueError(f"cell_mask column '{cell_mask}' keeps no cell (all False).")
-    return keep
 
 
 def compute_smoothed_expression(

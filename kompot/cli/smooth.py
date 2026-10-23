@@ -79,18 +79,6 @@ def add_smooth_parser(subparsers) -> argparse.ArgumentParser:
         help="Which condition to smooth (requires --groupby). If omitted, all cells are used.",
     )
 
-    parser.add_argument(
-        "--cell-mask",
-        type=str,
-        metavar="COLUMN",
-        help=(
-            "Boolean column in adata.obs; True keeps a cell. Cells with False are "
-            "masked out: excluded from fitting, never evaluated (their obsm "
-            "coordinates may be NaN), and NaN in every output layer. The run info "
-            "records the column and the number of masked cells. Default: keep all cells."
-        ),
-    )
-
     # Common optional parameters
     parser.add_argument(
         "--obsm-key",
@@ -273,8 +261,6 @@ def run_smooth(args):
         logger.info(f"  Condition: {params['condition']}")
     else:
         logger.info("  Using all cells")
-    if params.get("cell_mask"):
-        logger.info(f"  Cell mask: obs['{params['cell_mask']}'] (False = masked out, NaN in outputs)")
     logger.info(f"  ObsM key: {params.get('obsm_key', 'DM_EigenVectors')}")
     if params.get("layer"):
         logger.info(f"  Layer: {params['layer']}")
@@ -296,7 +282,6 @@ def run_smooth(args):
     layer = params.pop("layer", None)
     genes = params.pop("genes", None)
     sample_col = params.pop("sample_col", None)
-    cell_mask = params.pop("cell_mask", None)
 
     # Build Settings from remaining params
     gp_keys = {
@@ -334,7 +319,6 @@ def run_smooth(args):
             layer=layer,
             genes=genes,
             sample_col=sample_col,
-            cell_mask=cell_mask,
             gp=gp,
             storage=storage,
             output=output,

@@ -7,9 +7,6 @@
 groupby: null                  # Column in adata.obs with condition labels
 condition: null                # Which condition to smooth (requires groupby)
 
-# Cell mask (optional):
-cell_mask: null                # Boolean column in adata.obs; False = masked out (excluded, NaN in outputs)
-
 # Cell state representation:
 obsm_key: "DM_EigenVectors"   # Key in adata.obsm (e.g., X_pca, DM_EigenVectors)
 

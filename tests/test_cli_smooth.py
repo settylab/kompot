@@ -254,67 +254,32 @@ class TestCLISmooth:
         assert np.all(np.isnan(smoothed[:, 2]))
 
 
-class TestCLISmoothCellMask:
-    """--cell-mask COLUMN: documented in --help; round-trip equals the Python API bitwise; bad columns refused."""
+class TestCLISmoothNonFinite:
+    """CLI round trip with NaN coordinates in obsm: those rows are NaN, recorded in the run info, and the result is
+    bitwise equal to the Python API."""
 
-    @staticmethod
-    def _write(sample_adata, temp_dir):
-        keep = np.ones(sample_adata.n_obs, dtype=bool)
-        keep[[1, 30, 60]] = False
-        sample_adata.obs["in_state_space"] = keep
-        input_file = Path(temp_dir) / "input.h5ad"
-        write_output(sample_adata, input_file)
-        return input_file, keep
-
-    @staticmethod
-    def _cmd(input_file, output_file, *extra):
-        return [
-            sys.executable, "-m", "kompot.cli", "smooth", str(input_file), "-o", str(output_file),
-            "--obsm-key", "X_pca", "--n-landmarks", "20", "--random-state", "0", "--no-progress", *extra,
-        ]
-
-    def test_help_documents_cell_mask(self):
-        r = subprocess.run([sys.executable, "-m", "kompot.cli", "smooth", "--help"], capture_output=True, text=True)
-        assert r.returncode == 0
-        assert "--cell-mask" in r.stdout and "NaN" in r.stdout
-
-    def test_cell_mask_round_trip(self, sample_adata, temp_dir):
+    def test_round_trip(self, sample_adata, temp_dir):
         import anndata as ad
         import kompot
         from kompot import GPSettings, OutputSettings
         from kompot.anndata.utils.json_utils import get_json_metadata
 
-        input_file, keep = self._write(sample_adata, temp_dir)
+        bad = [1, 30, 60]
+        sample_adata.obsm["X_pca"][bad] = np.nan
+        input_file = Path(temp_dir) / "input.h5ad"
         output_file = Path(temp_dir) / "output.h5ad"
-        r = subprocess.run(self._cmd(input_file, output_file, "--cell-mask", "in_state_space"),
-                           capture_output=True, text=True)
+        write_output(sample_adata, input_file)
+        cmd = [sys.executable, "-m", "kompot.cli", "smooth", str(input_file), "-o", str(output_file),
+               "--obsm-key", "X_pca", "--n-landmarks", "20", "--random-state", "0", "--no-progress"]
+        r = subprocess.run(cmd, capture_output=True, text=True)
         assert r.returncode == 0, f"CLI failed: {r.stderr}"
         out = ad.read_h5ad(output_file)
         cli = np.asarray(out.layers["kompot_smooth_all_smoothed"])
-        assert np.all(np.isnan(cli[~keep])) and np.all(np.isfinite(cli[keep]))
-        p = get_json_metadata(out, "kompot_smooth.last_run_info")["params"]
-        assert p["cell_mask"] == "in_state_space" and p["n_cells_masked_out"] == 3
-
-        # the same call through the Python API, in-process: bitwise equal
+        ok = np.ones(out.n_obs, dtype=bool)
+        ok[bad] = False
+        assert np.all(np.isnan(cli[~ok])) and np.all(np.isfinite(cli[ok]))
+        assert get_json_metadata(out, "kompot_smooth.last_run_info")["params"]["n_cells_nonfinite"] == 3
         api = ad.read_h5ad(input_file)
-        kompot.smooth_expression(
-            api, obsm_key="X_pca", cell_mask="in_state_space",
-            gp=GPSettings(n_landmarks=20, random_state=0), output=OutputSettings(progress=False),
-        )
+        kompot.smooth_expression(api, obsm_key="X_pca", gp=GPSettings(n_landmarks=20, random_state=0),
+                                 output=OutputSettings(progress=False))
         np.testing.assert_array_equal(cli, np.asarray(api.layers["kompot_smooth_all_smoothed"]))
-
-    def test_cell_mask_missing_column_fails(self, sample_adata, temp_dir):
-        input_file, _ = self._write(sample_adata, temp_dir)
-        output_file = Path(temp_dir) / "output.h5ad"
-        r = subprocess.run(self._cmd(input_file, output_file, "--cell-mask", "no_such_column"),
-                           capture_output=True, text=True)
-        assert r.returncode != 0 and "not found in adata.obs" in r.stderr
-        assert not output_file.exists()
-
-    def test_cell_mask_non_boolean_column_fails(self, sample_adata, temp_dir):
-        input_file, _ = self._write(sample_adata, temp_dir)
-        output_file = Path(temp_dir) / "output.h5ad"
-        r = subprocess.run(self._cmd(input_file, output_file, "--cell-mask", "condition"),
-                           capture_output=True, text=True)
-        assert r.returncode != 0 and "must be boolean" in r.stderr
-        assert not output_file.exists()
