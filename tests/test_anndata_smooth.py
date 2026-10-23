@@ -171,21 +171,24 @@ class TestSmoothExpression:
 
 
 GP_SEEDED = GPSettings(n_landmarks=30, random_state=0)
+MASKED = [0, 7, 41, 79]
+
+
+def _with_mask(adata, col="in_state_space"):
+    keep = np.ones(adata.n_obs, dtype=bool)
+    keep[MASKED] = False
+    adata.obs[col] = keep
+    return keep
 
 
 class TestCellMask:
-    """cell_mask: masked-out cells are excluded from fitting, never evaluated, and NaN in every output."""
-
-    @staticmethod
-    def _keep(adata):
-        keep = np.ones(adata.n_obs, dtype=bool)
-        keep[[0, 7, 41, 79]] = False
-        return keep
+    """cell_mask (a boolean adata.obs column): masked-out cells are excluded from fitting, never evaluated, and NaN in
+    every output; the run info records the column, the count and that they are NaN."""
 
     def test_masked_rows_nan_kept_rows_finite(self, adata):
-        keep = self._keep(adata)
+        keep = _with_mask(adata)
         kompot.smooth_expression(
-            adata, gp=GP_SEEDED, cell_mask=keep, output=OutputSettings(progress=False)
+            adata, gp=GP_SEEDED, cell_mask="in_state_space", output=OutputSettings(progress=False)
         )
         for key in ("kompot_smooth_all_smoothed", "kompot_smooth_all_std"):
             layer = adata.layers[key]
@@ -193,27 +196,53 @@ class TestCellMask:
             assert np.all(np.isfinite(layer[keep]))
 
     def test_masked_coordinates_are_never_read(self, adata):
-        keep = self._keep(adata)
+        keep = _with_mask(adata)
         adata.obsm["DM_EigenVectors"][~keep] = np.nan  # e.g. cells left out of the diffusion map
         kompot.smooth_expression(
-            adata, gp=GP_SEEDED, cell_mask=keep, output=OutputSettings(progress=False)
+            adata, gp=GP_SEEDED, cell_mask="in_state_space", output=OutputSettings(progress=False)
         )
         layer = adata.layers["kompot_smooth_all_smoothed"]
         assert np.all(np.isnan(layer[~keep])) and np.all(np.isfinite(layer[keep]))
 
+    def test_kept_rows_bitwise_equal_same_fit_via_groupby(self, adata):
+        """the mask selects the SAME training cells as groupby=<column>, condition=True; on kept cells the results are
+        bitwise identical, and only the masked rows differ (NaN instead of an extrapolation)"""
+        keep = _with_mask(adata)
+        ref = adata.copy()
+        kompot.smooth_expression(
+            ref, groupby="in_state_space", condition=True, gp=GP_SEEDED, output=OutputSettings(progress=False)
+        )
+        kompot.smooth_expression(
+            adata, gp=GP_SEEDED, cell_mask="in_state_space", output=OutputSettings(progress=False)
+        )
+        r = ref.layers["kompot_smooth_True_smoothed"]
+        m = adata.layers["kompot_smooth_all_smoothed"]
+        np.testing.assert_array_equal(m[keep], r[keep])
+        assert np.all(np.isfinite(r[~keep])) and np.all(np.isnan(m[~keep]))
+
+    def test_nullable_boolean_column_bitwise_equal(self, adata):
+        """a pandas nullable 'boolean' column without missing values gives bitwise the same result as a numpy bool one"""
+        _with_mask(adata)
+        a2 = adata.copy()
+        a2.obs["in_state_space"] = a2.obs["in_state_space"].astype("boolean")
+        kompot.smooth_expression(adata, gp=GP_SEEDED, cell_mask="in_state_space", output=OutputSettings(progress=False))
+        kompot.smooth_expression(a2, gp=GP_SEEDED, cell_mask="in_state_space", output=OutputSettings(progress=False))
+        np.testing.assert_array_equal(
+            adata.layers["kompot_smooth_all_smoothed"], a2.layers["kompot_smooth_all_smoothed"]
+        )
+
     def test_equals_smoothing_the_kept_subset(self, adata):
-        keep = self._keep(adata)
+        keep = _with_mask(adata)
         sub = adata[keep].copy()
         kompot.smooth_expression(sub, gp=GP_SEEDED, output=OutputSettings(progress=False))
         kompot.smooth_expression(
-            adata, gp=GP_SEEDED, cell_mask=keep, output=OutputSettings(progress=False)
+            adata, gp=GP_SEEDED, cell_mask="in_state_space", output=OutputSettings(progress=False)
         )
         for key in ("kompot_smooth_all_smoothed", "kompot_smooth_all_std"):
             np.testing.assert_allclose(adata.layers[key][keep], sub.layers[key], rtol=1e-6, atol=1e-8)
 
-    def test_obs_column_and_condition(self, adata):
-        keep = self._keep(adata)
-        adata.obs["in_state_space"] = keep
+    def test_with_condition(self, adata):
+        keep = _with_mask(adata)
         kompot.smooth_expression(
             adata,
             groupby="condition",
@@ -227,29 +256,49 @@ class TestCellMask:
         assert np.all(np.isnan(layer[~keep]))
         # kept cells outside the condition are still evaluated, as without a mask
         assert np.all(np.isfinite(layer[keep & ~in_a]))
-        info = adata.uns["kompot_smooth"]["last_run_info"]
-        assert "in_state_space" in str(info)
+
+    def test_run_info_records_the_mask(self, adata):
+        from kompot.anndata.utils.json_utils import get_json_metadata
+
+        _with_mask(adata)
+        kompot.smooth_expression(
+            adata, gp=GP_SEEDED, cell_mask="in_state_space", output=OutputSettings(progress=False)
+        )
+        info = get_json_metadata(adata, "kompot_smooth.last_run_info")
+        p = info["params"]
+        assert p["cell_mask"] == "in_state_space"
+        assert p["n_cells_masked_out"] == len(MASKED)
+        assert "NaN" in p["masked_cells"] and "in_state_space" in p["masked_cells"]
+        desc = info["field_mapping"]["kompot_smooth_all_smoothed"]["description"]
+        assert f"NaN for the {len(MASKED)} cells masked out by obs['in_state_space']" in desc
+
+    def test_run_info_without_mask(self, adata):
+        from kompot.anndata.utils.json_utils import get_json_metadata
+
+        kompot.smooth_expression(adata, gp=GP_SEEDED, output=OutputSettings(progress=False))
+        p = get_json_metadata(adata, "kompot_smooth.last_run_info")["params"]
+        assert p["cell_mask"] is None and p["n_cells_masked_out"] == 0 and p["masked_cells"] is None
 
     def test_variance_layers_masked(self, adata):
-        keep = self._keep(adata)
+        keep = _with_mask(adata)
         kompot.smooth_expression(
             adata,
             groupby="condition",
             condition="A",
             sample_col="sample",
-            cell_mask=keep,
+            cell_mask="in_state_space",
             gp=GPSettings(n_landmarks=30, random_state=0, use_empirical_variance=True),
             output=OutputSettings(progress=False),
         )
+        assert "kompot_smooth_A_obs_variance" in adata.layers
         for key in ("kompot_smooth_A_obs_variance", "kompot_smooth_A_sample_variance"):
             if key in adata.layers:
                 assert np.all(np.isnan(adata.layers[key][~keep]))
-        assert "kompot_smooth_A_obs_variance" in adata.layers
 
     def test_genes_subset_with_mask(self, adata):
-        keep = self._keep(adata)
+        keep = _with_mask(adata)
         kompot.smooth_expression(
-            adata, genes=["gene_0", "gene_1"], gp=GP_SEEDED, cell_mask=keep,
+            adata, genes=["gene_0", "gene_1"], gp=GP_SEEDED, cell_mask="in_state_space",
             output=OutputSettings(progress=False),
         )
         layer = adata.layers["kompot_smooth_all_smoothed"]
@@ -257,33 +306,41 @@ class TestCellMask:
         assert np.all(np.isnan(layer[:, 2:]))
 
     def test_no_mask_unchanged(self, adata):
-        """cell_mask=None (default) must give the same result as before the option existed"""
+        """cell_mask=None (default) gives the same result as before the option existed"""
         a2 = adata.copy()
         kompot.smooth_expression(adata, gp=GP_SEEDED, output=OutputSettings(progress=False))
         kompot.smooth_expression(a2, gp=GP_SEEDED, cell_mask=None, output=OutputSettings(progress=False))
         np.testing.assert_array_equal(adata.layers["kompot_smooth_all_smoothed"], a2.layers["kompot_smooth_all_smoothed"])
         assert np.all(np.isfinite(adata.layers["kompot_smooth_all_smoothed"]))
 
-    @pytest.mark.parametrize(
-        "bad, match",
-        [
-            ("no_such_column", "not found"),
-            (np.ones(5, dtype=bool), "entries"),
-            (np.zeros(80, dtype=bool), "keeps no cell"),
-            (np.ones(80, dtype=int), "boolean"),
-        ],
-    )
-    def test_invalid_masks_raise(self, adata, bad, match):
-        with pytest.raises(ValueError, match=match):
-            kompot.smooth_expression(adata, gp=GP_SEEDED, cell_mask=bad, output=OutputSettings(progress=False))
+    def test_missing_column_refused(self, adata):
+        with pytest.raises(ValueError, match="not found in adata.obs"):
+            kompot.smooth_expression(adata, gp=GP_SEEDED, cell_mask="no_such_column", output=OutputSettings(progress=False))
 
-    def test_non_bool_obs_column_raises(self, adata):
-        adata.obs["flag"] = ["yes"] * 80
-        with pytest.raises(ValueError, match="boolean"):
+    @pytest.mark.parametrize(
+        "values",
+        [["yes"] * 80, list(range(80)), [True] * 79 + [None]],
+        ids=["strings", "integers", "missing-value"],
+    )
+    def test_non_boolean_column_refused(self, adata, values):
+        adata.obs["flag"] = pd.Series(values, index=adata.obs_names, dtype=object if None in values else None)
+        with pytest.raises(ValueError, match="must be boolean"):
             kompot.smooth_expression(adata, gp=GP_SEEDED, cell_mask="flag", output=OutputSettings(progress=False))
 
+    def test_all_false_refused(self, adata):
+        adata.obs["none_kept"] = np.zeros(adata.n_obs, dtype=bool)
+        with pytest.raises(ValueError, match="keeps no cell"):
+            kompot.smooth_expression(adata, gp=GP_SEEDED, cell_mask="none_kept", output=OutputSettings(progress=False))
+
+    def test_array_form_refused(self, adata):
+        """the anndata interface takes an obs column only"""
+        with pytest.raises(TypeError, match="name of a boolean column"):
+            kompot.smooth_expression(
+                adata, gp=GP_SEEDED, cell_mask=np.ones(adata.n_obs, dtype=bool), output=OutputSettings(progress=False)
+            )
+
     def test_nan_coordinates_inside_mask_raise(self, adata):
-        keep = self._keep(adata)
+        _with_mask(adata)
         adata.obsm["DM_EigenVectors"][3] = np.nan  # cell 3 is kept
         with pytest.raises(ValueError, match="non-finite"):
-            kompot.smooth_expression(adata, gp=GP_SEEDED, cell_mask=keep, output=OutputSettings(progress=False))
+            kompot.smooth_expression(adata, gp=GP_SEEDED, cell_mask="in_state_space", output=OutputSettings(progress=False))

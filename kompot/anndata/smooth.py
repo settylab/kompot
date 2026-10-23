@@ -45,7 +45,7 @@ def smooth_expression(
     storage: "StorageSettings | None" = None,
     output: "OutputSettings | None" = None,
     model: "ModelSettings | None" = None,
-    cell_mask: Optional[Union[str, np.ndarray, pd.Series]] = None,
+    cell_mask: Optional[str] = None,
     **function_kwargs,
 ) -> Optional[Union[Dict[str, Any], Any]]:
     """Smooth gene expression for a single condition using GP regression.
@@ -93,17 +93,19 @@ def smooth_expression(
     model : ModelSettings, optional
         Pre-fitted :class:`~kompot.ExpressionModel` to inject via
         ``model1``. When provided, skips internal fitting.
-    cell_mask : str or array-like of bool, optional
-        Cells to keep. Either the name of a boolean column in ``adata.obs``
-        or a boolean array of length ``adata.n_obs``; ``True`` keeps a cell.
-        Cells with ``False`` are **masked out**: they are excluded from
-        fitting, they are never evaluated, their ``obsm`` coordinates are
-        never read (so they may be NaN, e.g. cells left out of a diffusion
-        map), and every per-cell output (smoothed values, standard
-        deviations and, when requested, the variance layers) is NaN for
-        them. Combined with ``groupby``/``condition``, the model is fitted
-        on cells in the condition *and* in the mask, and evaluated on every
-        cell in the mask. *None* (default) keeps every cell, as before.
+    cell_mask : str, optional
+        Name of a **boolean** column in ``adata.obs`` (no missing values);
+        ``True`` keeps a cell. Cells with ``False`` are **masked out**: they
+        are excluded from fitting, they are never evaluated, their ``obsm``
+        coordinates are never read (so they may be NaN, e.g. cells left out
+        of a diffusion map), and every per-cell output (smoothed values,
+        standard deviations and, when requested, the variance layers) is
+        NaN for them. Combined with ``groupby``/``condition``, the model is
+        fitted on cells in the condition *and* in the mask, and evaluated on
+        every cell in the mask. The run info records the column, the number
+        of masked cells and that they are NaN (``params["cell_mask"]``,
+        ``params["n_cells_masked_out"]``, ``params["masked_cells"]``).
+        *None* (default) keeps every cell, as before.
     **function_kwargs
         Forwarded to :class:`mellon.FunctionEstimator`.
 
@@ -353,29 +355,33 @@ def smooth_expression(
                     adata.layers[field_names["sample_variance_key"]] = sam_var
 
         # --- Metadata ---
+        _mask_note = (
+            "" if keep is None else
+            f"; NaN for the {int((~keep).sum()):,} cells masked out by obs['{cell_mask}']"
+        )
         field_mapping = {
             field_names["smoothed_key"]: {
                 "location": "layers",
                 "type": "smoothed",
-                "description": f"GP-smoothed expression for {cond_label}",
+                "description": f"GP-smoothed expression for {cond_label}" + _mask_note,
             },
             field_names["std_key"]: {
                 "location": "layers",
                 "type": "std",
-                "description": f"Total posterior standard deviation for {cond_label}",
+                "description": f"Total posterior standard deviation for {cond_label}" + _mask_note,
             },
         }
         if use_empirical_variance:
             field_mapping[field_names["obs_variance_key"]] = {
                 "location": "layers",
                 "type": "obs_variance",
-                "description": f"Per-gene empirical (aleatoric) variance for {cond_label}",
+                "description": f"Per-gene empirical (aleatoric) variance for {cond_label}" + _mask_note,
             }
         if sample_col is not None and expr_model.has_sample_variance:
             field_mapping[field_names["sample_variance_key"]] = {
                 "location": "layers",
                 "type": "sample_variance",
-                "description": f"Biological-replicate variance for {cond_label}",
+                "description": f"Biological-replicate variance for {cond_label}" + _mask_note,
             }
 
         run_info = {
@@ -393,9 +399,13 @@ def smooth_expression(
                 "sample_col": sample_col,
                 "n_genes": len(selected_genes),
                 "n_cells": int(mask.sum()),
-                "cell_mask": (None if cell_mask is None else
-                              cell_mask if isinstance(cell_mask, str) else "array"),
+                "cell_mask": cell_mask,
                 "n_cells_masked_out": 0 if keep is None else int((~keep).sum()),
+                "masked_cells": (
+                    None if keep is None else
+                    f"cells with adata.obs['{cell_mask}'] == False are excluded from "
+                    "fitting, never evaluated, and NaN in every output layer of this run"
+                ),
                 "batch_size": batch_size,
                 "result_key": result_key,
             },
@@ -425,30 +435,28 @@ def smooth_expression(
 
 
 def _resolve_cell_mask(adata, cell_mask):
-    """Return a boolean array of kept cells, or None when no mask is given."""
+    """Boolean array of kept cells from a boolean ``adata.obs`` column, or None when no mask is given."""
     if cell_mask is None:
         return None
-    if isinstance(cell_mask, str):
-        if cell_mask not in adata.obs:
-            raise ValueError(f"cell_mask column '{cell_mask}' not found in adata.obs.")
-        col = adata.obs[cell_mask]
-        if not pd.api.types.is_bool_dtype(col) or col.isna().any():
-            raise ValueError(
-                f"cell_mask column '{cell_mask}' must be boolean without missing values "
-                f"(got dtype {col.dtype})."
-            )
-        keep = col.to_numpy(dtype=bool)
-    else:
-        arr = np.asarray(cell_mask)
-        if arr.dtype != bool:
-            raise ValueError(f"cell_mask must be a boolean array (got dtype {arr.dtype}).")
-        keep = arr.reshape(-1)
-    if keep.shape != (adata.n_obs,):
-        raise ValueError(
-            f"cell_mask has {keep.shape[0]} entries but adata has {adata.n_obs} observations."
+    if not isinstance(cell_mask, str):
+        raise TypeError(
+            "cell_mask must be the name of a boolean column in adata.obs "
+            f"(got {type(cell_mask).__name__})."
         )
+    if cell_mask not in adata.obs:
+        raise ValueError(
+            f"cell_mask column '{cell_mask}' not found in adata.obs. "
+            f"Available columns: {list(adata.obs.columns)}"
+        )
+    col = adata.obs[cell_mask]
+    if not pd.api.types.is_bool_dtype(col) or col.isna().any():
+        raise ValueError(
+            f"cell_mask column '{cell_mask}' must be boolean (True = keep) without missing "
+            f"values; got dtype '{col.dtype}'."
+        )
+    keep = col.to_numpy(dtype=bool)
     if not keep.any():
-        raise ValueError("cell_mask keeps no cell.")
+        raise ValueError(f"cell_mask column '{cell_mask}' keeps no cell (all False).")
     return keep
 
 
