@@ -76,7 +76,11 @@ def smooth_expression(
         Which group in ``groupby`` to smooth. If *None* and ``groupby`` is
         *None*, all cells are used.
     obsm_key : str
-        Key in ``adata.obsm`` for cell-state coordinates.
+        Key in ``adata.obsm`` for cell-state coordinates. Cells whose
+        coordinates are not all finite (NaN or inf, e.g. cells left out of
+        the diffusion map) are excluded from fitting and get NaN in every
+        output layer. Prediction is per cell, so no other cell's value
+        changes. The run info records how many (``params["n_cells_nonfinite"]``).
     layer : str, optional
         Layer to use as expression input. *None* means ``adata.X``.
     genes : list of str, optional
@@ -188,6 +192,23 @@ def smooth_expression(
 
     # --- Extract data ---
     X_all = adata.obsm[obsm_key]
+    # Cells with non-finite coordinates have no place in the representation:
+    # exclude them from fitting (landmark KMeans and the GP refuse NaN). They
+    # are still evaluated below; prediction is per cell (K(x, landmarks)
+    # @ weights; the variance solves against the fixed landmark Cholesky), so
+    # their rows come out NaN and no other cell's value changes.
+    finite = np.isfinite(np.asarray(X_all, dtype=float)).all(axis=1)
+    n_nonfinite = int((~finite).sum())
+    if n_nonfinite:
+        mask = mask & finite
+        if mask.sum() == 0:
+            raise ValueError(
+                f"No selected cell has finite coordinates in adata.obsm['{obsm_key}']."
+            )
+        logger.info(
+            f"{n_nonfinite:,} cells have non-finite coordinates in adata.obsm['{obsm_key}']: "
+            f"excluded from fitting, NaN in every output; fitting on {mask.sum():,} cells"
+        )
     X_train = X_all[mask]
 
     if layer is not None:
@@ -313,29 +334,33 @@ def smooth_expression(
                     adata.layers[field_names["sample_variance_key"]] = sam_var
 
         # --- Metadata ---
+        _nan_note = (
+            "" if not n_nonfinite else
+            f"; NaN for the {n_nonfinite:,} cells with non-finite coordinates in obsm['{obsm_key}']"
+        )
         field_mapping = {
             field_names["smoothed_key"]: {
                 "location": "layers",
                 "type": "smoothed",
-                "description": f"GP-smoothed expression for {cond_label}",
+                "description": f"GP-smoothed expression for {cond_label}" + _nan_note,
             },
             field_names["std_key"]: {
                 "location": "layers",
                 "type": "std",
-                "description": f"Total posterior standard deviation for {cond_label}",
+                "description": f"Total posterior standard deviation for {cond_label}" + _nan_note,
             },
         }
         if use_empirical_variance:
             field_mapping[field_names["obs_variance_key"]] = {
                 "location": "layers",
                 "type": "obs_variance",
-                "description": f"Per-gene empirical (aleatoric) variance for {cond_label}",
+                "description": f"Per-gene empirical (aleatoric) variance for {cond_label}" + _nan_note,
             }
         if sample_col is not None and expr_model.has_sample_variance:
             field_mapping[field_names["sample_variance_key"]] = {
                 "location": "layers",
                 "type": "sample_variance",
-                "description": f"Biological-replicate variance for {cond_label}",
+                "description": f"Biological-replicate variance for {cond_label}" + _nan_note,
             }
 
         run_info = {
@@ -353,6 +378,12 @@ def smooth_expression(
                 "sample_col": sample_col,
                 "n_genes": len(selected_genes),
                 "n_cells": int(mask.sum()),
+                "n_cells_nonfinite": n_nonfinite,
+                "nonfinite_cells": (
+                    None if not n_nonfinite else
+                    f"cells with non-finite coordinates in adata.obsm['{obsm_key}'] are excluded "
+                    "from fitting and NaN in every output layer of this run"
+                ),
                 "batch_size": batch_size,
                 "result_key": result_key,
             },

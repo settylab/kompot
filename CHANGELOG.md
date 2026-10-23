@@ -2,6 +2,27 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Fixed — `smooth_expression` with non-finite cell-state coordinates
+
+Cells removed by a quality gate before the diffusion map was computed often carry
+NaN coordinates in `adata.obsm`. `smooth_expression` used them for fitting, and
+the fit failed: landmark selection (KMeans) refuses NaN input.
+
+Now cells whose coordinates are not all finite (NaN or inf) are excluded from
+fitting. They are still evaluated, and they come out NaN in every output layer
+(smoothed values, standard deviation, and the variance layers when requested).
+No argument is needed: prediction is per cell (`K(x, landmarks) @ weights`; the
+variance is solved against the fixed landmark Cholesky factor), so a NaN row stays
+NaN and no other cell's value changes. Measured: with NaN rows planted, every
+other row of `predict` and `std` is bitwise equal to evaluating without those
+rows, at batch sizes 7, 50 and 1000.
+
+The run info records `params["n_cells_nonfinite"]` and `params["nonfinite_cells"]`,
+and each output layer's description gives the number of NaN cells. With all
+coordinates finite, nothing changes.
+
 ## [0.9.0] - 2026-09-15
 
 ### Fixed — sample variance no longer costs more memory than it needs to

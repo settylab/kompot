@@ -168,3 +168,118 @@ class TestSmoothExpression:
                 progress=False,
             )
         assert "kompot_smooth_all_smoothed" in adata.layers
+
+
+GP_SEEDED = GPSettings(n_landmarks=30, random_state=0)
+BAD = [0, 7, 41, 79]
+
+
+def _invalidate(adata, rows=BAD):
+    """set the coordinates of `rows` to NaN; return the boolean array of cells with finite coordinates"""
+    adata.obsm["DM_EigenVectors"][rows] = np.nan
+    ok = np.ones(adata.n_obs, dtype=bool)
+    ok[rows] = False
+    return ok
+
+
+class TestNonFiniteCoordinates:
+    """Cells whose obsm coordinates are not all finite are excluded from fitting and NaN in every output; prediction
+    is per cell, so every other cell's values are unchanged. No mask argument is needed."""
+
+    def test_nan_rows_nan_other_rows_finite(self, adata):
+        ok = _invalidate(adata)
+        kompot.smooth_expression(adata, gp=GP_SEEDED, output=OutputSettings(progress=False))
+        for key in ("kompot_smooth_all_smoothed", "kompot_smooth_all_std"):
+            layer = adata.layers[key]
+            assert np.all(np.isnan(layer[~ok]))
+            assert np.all(np.isfinite(layer[ok]))
+
+    def test_other_rows_bitwise_equal_same_fit(self, adata):
+        """reference: the SAME training cells (groupby on a finiteness column) with the invalid cells given arbitrary
+        finite coordinates. Valid cells are bitwise equal; only the invalid rows differ (NaN instead of a value)."""
+        ref = adata.copy()
+        ok = _invalidate(adata)
+        ref.obs["finite"] = ok
+        ref.obsm["DM_EigenVectors"][~ok] = 5.0
+        kompot.smooth_expression(ref, groupby="finite", condition=True, gp=GP_SEEDED,
+                                 output=OutputSettings(progress=False))
+        kompot.smooth_expression(adata, gp=GP_SEEDED, output=OutputSettings(progress=False))
+        for a, b in (("all_smoothed", "True_smoothed"), ("all_std", "True_std")):
+            m = adata.layers[f"kompot_smooth_{a}"]
+            r = ref.layers[f"kompot_smooth_{b}"]
+            np.testing.assert_array_equal(m[ok], r[ok])
+            assert np.all(np.isnan(m[~ok])) and np.all(np.isfinite(r[~ok]))
+
+    def test_equals_smoothing_the_valid_subset(self, adata):
+        ok = _invalidate(adata)
+        sub = adata[ok].copy()
+        kompot.smooth_expression(sub, gp=GP_SEEDED, output=OutputSettings(progress=False))
+        kompot.smooth_expression(adata, gp=GP_SEEDED, output=OutputSettings(progress=False))
+        for key in ("kompot_smooth_all_smoothed", "kompot_smooth_all_std"):
+            np.testing.assert_allclose(adata.layers[key][ok], sub.layers[key], rtol=1e-6, atol=1e-8)
+
+    def test_partial_nan_and_inf_rows(self, adata):
+        X = adata.obsm["DM_EigenVectors"]
+        X[3, 2] = np.nan        # one coordinate
+        X[11, 0] = np.inf
+        X[12, :] = -np.inf
+        kompot.smooth_expression(adata, gp=GP_SEEDED, output=OutputSettings(progress=False))
+        layer = adata.layers["kompot_smooth_all_smoothed"]
+        bad = [3, 11, 12]
+        assert np.all(np.isnan(layer[bad]))
+        assert np.all(np.isfinite(np.delete(layer, bad, axis=0)))
+
+    def test_all_finite_control(self, adata):
+        from kompot.anndata.utils.json_utils import get_json_metadata
+
+        kompot.smooth_expression(adata, gp=GP_SEEDED, output=OutputSettings(progress=False))
+        assert np.all(np.isfinite(adata.layers["kompot_smooth_all_smoothed"]))
+        p = get_json_metadata(adata, "kompot_smooth.last_run_info")["params"]
+        assert p["n_cells_nonfinite"] == 0 and p["nonfinite_cells"] is None
+
+    def test_run_info_records_the_cells(self, adata):
+        from kompot.anndata.utils.json_utils import get_json_metadata
+
+        _invalidate(adata)
+        kompot.smooth_expression(adata, gp=GP_SEEDED, output=OutputSettings(progress=False))
+        info = get_json_metadata(adata, "kompot_smooth.last_run_info")
+        p = info["params"]
+        assert p["n_cells_nonfinite"] == len(BAD) and p["n_cells"] == adata.n_obs - len(BAD)
+        assert "NaN" in p["nonfinite_cells"] and "DM_EigenVectors" in p["nonfinite_cells"]
+        desc = info["field_mapping"]["kompot_smooth_all_smoothed"]["description"]
+        assert f"NaN for the {len(BAD)} cells with non-finite coordinates in obsm['DM_EigenVectors']" in desc
+
+    def test_with_condition(self, adata):
+        ok = _invalidate(adata)
+        kompot.smooth_expression(
+            adata, groupby="condition", condition="A", gp=GP_SEEDED, output=OutputSettings(progress=False)
+        )
+        layer = adata.layers["kompot_smooth_A_smoothed"]
+        in_a = (adata.obs["condition"] == "A").values
+        assert np.all(np.isnan(layer[~ok]))
+        assert np.all(np.isfinite(layer[ok & ~in_a]))   # valid cells outside the condition are still evaluated
+
+    def test_variance_layers(self, adata):
+        ok = _invalidate(adata)
+        kompot.smooth_expression(
+            adata, groupby="condition", condition="A", sample_col="sample",
+            gp=GPSettings(n_landmarks=30, random_state=0, use_empirical_variance=True),
+            output=OutputSettings(progress=False),
+        )
+        assert "kompot_smooth_A_obs_variance" in adata.layers
+        for key in ("kompot_smooth_A_obs_variance", "kompot_smooth_A_sample_variance"):
+            if key in adata.layers:
+                assert np.all(np.isnan(adata.layers[key][~ok]))
+                assert np.all(np.isfinite(adata.layers[key][ok]))
+
+    def test_genes_subset(self, adata):
+        ok = _invalidate(adata)
+        kompot.smooth_expression(adata, genes=["gene_0", "gene_1"], gp=GP_SEEDED, output=OutputSettings(progress=False))
+        layer = adata.layers["kompot_smooth_all_smoothed"]
+        assert np.all(np.isnan(layer[~ok])) and np.all(np.isfinite(layer[ok][:, :2]))
+        assert np.all(np.isnan(layer[:, 2:]))
+
+    def test_no_valid_cell_raises(self, adata):
+        adata.obsm["DM_EigenVectors"][:] = np.nan
+        with pytest.raises(ValueError, match="finite coordinates"):
+            kompot.smooth_expression(adata, gp=GP_SEEDED, output=OutputSettings(progress=False))

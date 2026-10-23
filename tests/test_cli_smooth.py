@@ -252,3 +252,34 @@ class TestCLISmooth:
         # Gene_0 and Gene_1 should have values, others NaN
         assert not np.all(np.isnan(smoothed[:, 0]))
         assert np.all(np.isnan(smoothed[:, 2]))
+
+
+class TestCLISmoothNonFinite:
+    """CLI round trip with NaN coordinates in obsm: those rows are NaN, recorded in the run info, and the result is
+    bitwise equal to the Python API."""
+
+    def test_round_trip(self, sample_adata, temp_dir):
+        import anndata as ad
+        import kompot
+        from kompot import GPSettings, OutputSettings
+        from kompot.anndata.utils.json_utils import get_json_metadata
+
+        bad = [1, 30, 60]
+        sample_adata.obsm["X_pca"][bad] = np.nan
+        input_file = Path(temp_dir) / "input.h5ad"
+        output_file = Path(temp_dir) / "output.h5ad"
+        write_output(sample_adata, input_file)
+        cmd = [sys.executable, "-m", "kompot.cli", "smooth", str(input_file), "-o", str(output_file),
+               "--obsm-key", "X_pca", "--n-landmarks", "20", "--random-state", "0", "--no-progress"]
+        r = subprocess.run(cmd, capture_output=True, text=True)
+        assert r.returncode == 0, f"CLI failed: {r.stderr}"
+        out = ad.read_h5ad(output_file)
+        cli = np.asarray(out.layers["kompot_smooth_all_smoothed"])
+        ok = np.ones(out.n_obs, dtype=bool)
+        ok[bad] = False
+        assert np.all(np.isnan(cli[~ok])) and np.all(np.isfinite(cli[ok]))
+        assert get_json_metadata(out, "kompot_smooth.last_run_info")["params"]["n_cells_nonfinite"] == 3
+        api = ad.read_h5ad(input_file)
+        kompot.smooth_expression(api, obsm_key="X_pca", gp=GPSettings(n_landmarks=20, random_state=0),
+                                 output=OutputSettings(progress=False))
+        np.testing.assert_array_equal(cli, np.asarray(api.layers["kompot_smooth_all_smoothed"]))
