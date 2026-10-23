@@ -2,6 +2,33 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added — `smooth_expression(..., cell_mask=...)`: mask cells out instead of extrapolating to them
+
+`smooth_expression` fits on the selected cells and evaluates the model on **every**
+cell. That is right for conditions, but wrong for cells that have no place in the
+cell-state representation at all: cells removed by a quality gate before the
+diffusion map was computed typically carry NaN coordinates, and a smoothed value
+for them is either NaN by accident or an extrapolation nobody asked for.
+
+`cell_mask` (a boolean `adata.obs` column name, or a boolean array; `True` keeps a
+cell) makes the exclusion explicit:
+
+ - masked-out cells are excluded from fitting and are **never evaluated**, so their
+   `obsm` coordinates are never read and may be NaN;
+ - every per-cell output (smoothed values, standard deviations, and the empirical
+   and sample variance layers when requested) is **NaN** for them;
+ - with `groupby`/`condition`, the model is fitted on cells in the condition *and*
+   in the mask, and evaluated on every kept cell;
+ - kept cells with non-finite coordinates raise a `ValueError` instead of
+   propagating NaN silently;
+ - the run record stores the mask (column name, or `"array"`) and the number of
+   cells masked out.
+
+The default, `cell_mask=None`, is unchanged. On kept cells the result equals
+smoothing the kept subset on its own (tested).
+
 ## [0.9.0] - 2026-09-15
 
 ### Fixed — sample variance no longer costs more memory than it needs to
