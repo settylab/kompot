@@ -12,8 +12,8 @@ cell-state representation at all: cells removed by a quality gate before the
 diffusion map was computed typically carry NaN coordinates, and a smoothed value
 for them is either NaN by accident or an extrapolation nobody asked for.
 
-`cell_mask` (a boolean `adata.obs` column name, or a boolean array; `True` keeps a
-cell) makes the exclusion explicit:
+`cell_mask` (the name of a boolean `adata.obs` column without missing values; `True`
+keeps a cell; CLI: `kompot smooth --cell-mask COLUMN`) makes the exclusion explicit:
 
  - masked-out cells are excluded from fitting and are **never evaluated**, so their
    `obsm` coordinates are never read and may be NaN;
@@ -23,8 +23,11 @@ cell) makes the exclusion explicit:
    in the mask, and evaluated on every kept cell;
  - kept cells with non-finite coordinates raise a `ValueError` instead of
    propagating NaN silently;
- - the run record stores the mask (column name, or `"array"`) and the number of
-   cells masked out.
+ - the run info records the column (`params["cell_mask"]`), the number of cells
+   masked out (`params["n_cells_masked_out"]`) and that they are NaN
+   (`params["masked_cells"]`, and the description of every output layer);
+ - a missing, non-boolean or partly missing column, or one that keeps no cell, is
+   refused with a clear error.
 
 The default, `cell_mask=None`, is unchanged. On kept cells the result equals
 smoothing the kept subset on its own (tested).
