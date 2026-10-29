@@ -91,7 +91,7 @@ class TestDifferentialAbundanceCore:
             mock_estimator.predict = mock_predictor
             mock_mellon.DensityEstimator.return_value = mock_estimator
 
-            result = da.fit(X1, X2)
+            result = da.fit(X1, X2, param_scheme="separate")  # mellon is mocked; the default scheme estimates from it before fitting
 
             assert result is da
             assert da.density_predictor1 is not None
@@ -115,7 +115,7 @@ class TestDifferentialAbundanceCore:
             mock_estimator.predict = mock_predictor
             mock_mellon.DensityEstimator.return_value = mock_estimator
 
-            da.fit(X1, X2, landmarks=landmarks)
+            da.fit(X1, X2, landmarks=landmarks, param_scheme="separate")  # mellon is mocked; the default scheme estimates from it before fitting
 
             assert hasattr(da, "computed_landmarks")
             np.testing.assert_array_equal(da.computed_landmarks, landmarks)
@@ -194,6 +194,7 @@ class TestDifferentialAbundanceVariance:
                     X2,
                     condition1_sample_indices=indices1,
                     condition2_sample_indices=indices2,
+                    param_scheme="separate",  # mellon is mocked; see fit_basic
                 )
 
                 assert da.use_sample_variance == True
@@ -248,6 +249,7 @@ class TestDifferentialAbundanceVariance:
                     condition1_sample_indices=indices1,
                     condition2_sample_indices=indices2,
                     allow_single_condition_variance=True,
+                    param_scheme="separate",  # mellon is mocked; see fit_basic
                 )
 
                 # Should use condition 1 variance for both conditions

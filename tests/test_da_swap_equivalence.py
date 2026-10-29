@@ -232,7 +232,8 @@ def test_shared_landmarks_restore_the_exact_swap():
     """Share the landmarks, and the automatic-landmark half is exact again.
 
     Scope: this covers the LANDMARK half only -- ``param_scheme`` is left at
-    its default ``"separate"`` here. The same remedy does not reach the
+    its default (``"symmetric"``; ``"separate"`` up to 0.9.0), both of which
+    are swap-exact on their own. The same remedy does not reach the
     ``pooled`` half, and no test asserts that it does. Nor does the
     parameter remedy reach THIS half: the two compose, and a run with
     ``param_scheme="pooled"`` needs both a shared landmark array and explicit

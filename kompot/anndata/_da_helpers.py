@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 from typing import Optional
 
-from ..differential.differential_abundance import DEFAULT_PARAM_SCHEME
+from ..differential.differential_abundance import LEGACY_PARAM_SCHEME
 
 logger = logging.getLogger("kompot")
 
@@ -110,7 +110,7 @@ def _check_da_overwrites(
                     prev_val = _pg(prev_params, param_name)
                     if param_name == "param_scheme" and prev_val is None:
                         # Recorded before `param_scheme` existed.
-                        prev_val = DEFAULT_PARAM_SCHEME
+                        prev_val = LEGACY_PARAM_SCHEME
                     if curr_val != prev_val:
                         params_match = False
                         logger.debug(

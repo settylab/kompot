@@ -83,7 +83,7 @@ def da(
         ``jit_compile`` and ``random_state``.  ``param_scheme`` decides
         whether the two density estimators share ``d``, ``mu`` and ``ls``
         and where the shared values come from; ``None`` means
-        ``"separate"``.  See
+        ``"symmetric"`` (``"separate"`` up to 0.9.0).  See
         :meth:`~kompot.differential.DifferentialAbundance.fit`.
         ``sigma``, ``eps`` and ``use_empirical_variance`` are
         expression-only and are ignored with a warning when set to
