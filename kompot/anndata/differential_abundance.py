@@ -6,7 +6,7 @@ import logging
 import warnings
 import numpy as np
 import pandas as pd
-from typing import Union, Dict, Any
+from typing import Union, Dict, Any, Optional
 
 from ..differential import DifferentialAbundance
 from ..differential.differential_abundance import DEFAULT_PARAM_SCHEME
@@ -50,6 +50,8 @@ def da(
     storage: "StorageSettings | None" = None,
     output: "OutputSettings | None" = None,
     model: "ModelSettings | None" = None,
+    density_normalization: Optional[str] = None,
+    reference_d: Optional[float] = None,
     **density_kwargs,
 ) -> "Union[Dict[str, np.ndarray], Any]":
     """Run differential abundance analysis on an AnnData object.
@@ -98,6 +100,15 @@ def da(
         Pre-fitted models or predictors to inject.  For DA, only
         ``density_predictor1/2`` and ``variance_predictor1/2`` are used.
         See :class:`~kompot.ModelSettings`.
+    density_normalization : str, optional
+        ``"standard"`` (default, kompot 0.9.0) or ``"common_d"``: compare the
+        two conditions' own density fits at one reference dimension, which
+        makes the log-fold change unit-free and removes the size-ratio offset
+        while each condition keeps its own ``d``, ``mu`` and ``ls``.  See
+        :meth:`~kompot.differential.DifferentialAbundance.fit`.
+    reference_d : float, optional
+        The reference dimension for ``"common_d"``; ``None`` measures the
+        nn-scaling dimension from the pooled cells.
     **density_kwargs
         Forwarded to :class:`~mellon.DensityEstimator`.  ``d``, ``mu`` and
         ``ls`` given here pin that parameter under any ``param_scheme``.
@@ -195,6 +206,7 @@ def da(
         obsm_key=obsm_key,
         ls_factor=ls_factor,
         param_scheme=param_scheme,
+        density_normalization=density_normalization or "standard",
     )
 
     # ---- 1. Copy if requested ----
@@ -238,6 +250,8 @@ def da(
         condition2_sample_indices=data["condition2_sample_indices"],
         allow_single_condition_variance=allow_single_condition_variance,
         param_scheme=param_scheme,
+        density_normalization=density_normalization,
+        reference_d=reference_d,
         **density_kwargs,
     )
 
@@ -265,14 +279,24 @@ def da(
     # ---- 8. Record run info ----
     from .utils.params import build_params_dict
 
+    top_level = dict(
+        groupby=groupby,
+        condition1=condition1,
+        condition2=condition2,
+        obsm_key=obsm_key,
+        sample_col=sample_col,
+    )
+    if diff_abundance.normalization_info is not None:
+        # Recorded only when not "standard", so 0.9.0-equivalent runs keep
+        # 0.9.0's run info; a missing key reads as "standard".
+        _ni = diff_abundance.normalization_info
+        top_level["density_normalization"] = diff_abundance.density_normalization
+        top_level["reference_d"] = _ni["reference_d"]
+        top_level["reference_d_source"] = _ni["reference_d_source"]
+        top_level["d_condition1"] = _ni["d_condition1"]
+        top_level["d_condition2"] = _ni["d_condition2"]
     params_dict = build_params_dict(
-        top_level=dict(
-            groupby=groupby,
-            condition1=condition1,
-            condition2=condition2,
-            obsm_key=obsm_key,
-            sample_col=sample_col,
-        ),
+        top_level=top_level,
         gp=GPSettings(
             ls=gp.ls if gp is not None else None,
             ls_factor=ls_factor,

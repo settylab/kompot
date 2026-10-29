@@ -28,6 +28,7 @@ def _check_da_overwrites(
     obsm_key: str,
     ls_factor: float,
     param_scheme: str,
+    density_normalization: str = "standard",
 ):
     """Check for existing DA results and handle overwrite logic."""
     from .utils import detect_output_field_overwrite
@@ -105,12 +106,16 @@ def _check_da_overwrites(
                     "obsm_key",
                     "ls_factor",
                     "param_scheme",
+                    "density_normalization",
                 ]:
                     curr_val = locals().get(param_name)
                     prev_val = _pg(prev_params, param_name)
                     if param_name == "param_scheme" and prev_val is None:
                         # Recorded before `param_scheme` existed.
                         prev_val = DEFAULT_PARAM_SCHEME
+                    if param_name == "density_normalization" and prev_val is None:
+                        # Recorded only when not "standard".
+                        prev_val = "standard"
                     if curr_val != prev_val:
                         params_match = False
                         logger.debug(
