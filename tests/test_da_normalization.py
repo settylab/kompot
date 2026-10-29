@@ -10,7 +10,11 @@ scale with cell count, ``- ln n`` leaves ``(d/d_n - 1) ln(n2/n1)`` at no true ch
 
 ``"common_d"`` maps each condition's own fit to one reference dimension ``d*`` before
 subtracting ``ln n``. Both conditions then shift by ``-d* ln k`` (unit-free for any
-``d*``), and with ``d* = d_n`` (the default) the size term vanishes.
+``d*``), and with ``d* = d_n`` (the default) the d size term vanishes. A second size
+term remains: per-condition ``ls`` smooths the smaller condition more (measured -0.25
+at 600/200 with d pinned at 2; 0.9.0's ``"separate"`` hides half of it behind the d term).
+``"calibrated"`` subtracts the size bias measured on size-matched relabellings of the
+pooled cells.
 
 Known-answer data: one 2-D Gaussian (``d0 = 2``) linearly embedded in 5-D; both
 conditions drawn from ONE distribution, so the true lfc is 0 everywhere.
@@ -20,6 +24,7 @@ import numpy as np
 import pytest
 
 from kompot.differential.differential_abundance import (
+    DEFAULT_NULL_RELABELLINGS,
     DENSITY_NORMALIZATIONS,
     DifferentialAbundance,
     _log_unit_ball_volume,
@@ -103,7 +108,8 @@ def test_common_d_lfc_is_unit_free_with_per_condition_d(no_da):
     base = np.asarray(r["log_fold_change"])
     for k in (0.01, 1000.0):
         mk, rk = _fit(X1, X2, k=k, norm="common_d")
-        assert mk.normalization_info["reference_d"] == pytest.approx(info["reference_d"], rel=1e-9)
+        # approximate NN search on a rescaled copy: measured 1.5e-7 relative (job 11346164)
+        assert mk.normalization_info["reference_d"] == pytest.approx(info["reference_d"], rel=1e-6)
         np.testing.assert_allclose(np.asarray(rk["log_fold_change"]), base, atol=1e-3)
 
 
@@ -112,7 +118,7 @@ def test_nn_scaling_dimension_is_scale_invariant_and_near_d0():
     X = np.vstack([X1, X2])
     a = nn_scaling_dimension(X, 500, 2000, seed=0)
     b = nn_scaling_dimension(1000.0 * X, 500, 2000, seed=0)
-    assert a["d"] == pytest.approx(b["d"], rel=1e-9)
+    assert a["d"] == pytest.approx(b["d"], rel=1e-6)  # approximate NN; see above
     # a 2-D Gaussian: E ln r_nn scales as -(1/2) ln n
     assert a["d"] == pytest.approx(2.0, abs=0.3)
 
@@ -120,24 +126,49 @@ def test_nn_scaling_dimension_is_scale_invariant_and_near_d0():
 # ---- the size term: no-DA known answer at the original tolerance -------------
 
 
-@pytest.mark.parametrize("n1,n2", [(600, 200), (200, 600), (400, 400)])
-def test_common_d_no_da_offset_is_zero(n1, n2):
-    """Per-condition d, mu, ls (separate); true lfc 0; |median lfc| < 0.15 (seed mean)."""
+def _seed_mean_no_da(n1, n2, **kw):
     meds = []
     for seed in KNOWN_ANSWER_SEEDS:
         X1, X2 = _no_da_data(seed, n1, n2)
-        meds.append(float(np.median(_lfc(X1, X2, norm="common_d"))))
-    assert abs(np.mean(meds)) < NO_DA_TOL, meds
+        meds.append(float(np.median(_lfc(X1, X2, **kw))))
+    return float(np.mean(meds)), meds
 
 
-def test_a_low_reference_d_reintroduces_the_size_term():
-    """Potency control for the known-answer test: d* = 1.5 < d0 = 2 leaves
-    (d*/d0 - 1) ln(n2/n1) = +0.27 at 600/200, which the tolerance must catch."""
-    meds = []
-    for seed in KNOWN_ANSWER_SEEDS:
-        X1, X2 = _no_da_data(seed, 600, 200)
-        meds.append(float(np.median(_lfc(X1, X2, norm="common_d", reference_d=1.5))))
-    assert np.mean(meds) > NO_DA_TOL, meds
+@pytest.mark.parametrize("n1,n2", [(600, 200), (200, 600), (400, 400)])
+def test_calibrated_no_da_offset_is_zero(n1, n2):
+    """Per-condition d, mu, ls (separate); true lfc 0; |median lfc| < 0.15 (seed mean)."""
+    m, meds = _seed_mean_no_da(n1, n2, norm="calibrated")
+    assert abs(m) < NO_DA_TOL, meds
+
+
+def test_uncalibrated_common_d_fails_the_known_answer():
+    """Potency control: the known-answer test must be able to fail. common_d alone
+    leaves the per-condition ls term (measured seed mean -0.27 at 600/200)."""
+    m, meds = _seed_mean_no_da(600, 200, norm="common_d")
+    assert m < -NO_DA_TOL, meds
+
+
+def test_calibrated_lfc_is_unit_free(no_da):
+    X1, X2 = no_da
+    _, r = _fit(X1, X2, norm="calibrated")
+    _, rk = _fit(X1, X2, k=1000.0, norm="calibrated")
+    np.testing.assert_allclose(
+        np.asarray(rk["log_fold_change"]), np.asarray(r["log_fold_change"]), atol=1e-3
+    )
+
+
+def test_calibrated_is_swap_antisymmetric(no_da):
+    X1, X2 = no_da
+    m, r = _fit(X1, X2, norm="calibrated")
+    ms, rs = _fit(X2, X1, norm="calibrated")
+    c, cs = (x.normalization_info["null_calibration"]["offset"] for x in (m, ms))
+    assert cs == pytest.approx(-c, abs=1e-6)
+    # predict() is on vstack([X1, X2]) in both calls; reorder the swapped one
+    n1 = len(X1)
+    l, ls = np.asarray(r["log_fold_change"]), np.asarray(rs["log_fold_change"])
+    ls = np.concatenate([ls[len(X2):], ls[: len(X2)]])
+    np.testing.assert_allclose(ls, -l, atol=1e-6)
+    assert n1 == 600
 
 
 # ---- off means off -----------------------------------------------------------
@@ -186,7 +217,7 @@ def test_common_d_scales_the_variance(no_da):
 
 def test_invalid_options_raise(no_da):
     X1, X2 = no_da
-    assert DENSITY_NORMALIZATIONS == ("standard", "common_d")
+    assert DENSITY_NORMALIZATIONS == ("standard", "common_d", "calibrated")
     with pytest.raises(ValueError, match="density_normalization"):
         DifferentialAbundance(n_landmarks=None).fit(X1, X2, density_normalization="bogus")
     with pytest.raises(ValueError, match="reference_d is only used"):
@@ -195,6 +226,36 @@ def test_invalid_options_raise(no_da):
         DifferentialAbundance(n_landmarks=None).fit(
             X1, X2, density_normalization="common_d", reference_d=-1.0
         )
+    with pytest.raises(ValueError, match="null_relabellings is only used"):
+        DifferentialAbundance(n_landmarks=None).fit(
+            X1, X2, density_normalization="common_d", null_relabellings=2
+        )
+    with pytest.raises(ValueError, match="positive integer"):
+        DifferentialAbundance(n_landmarks=None).fit(
+            X1, X2, density_normalization="calibrated", null_relabellings=0
+        )
+
+
+def test_calibrated_refuses_prefitted_predictors(no_da):
+    X1, X2 = no_da
+    m, _ = _fit(X1, X2)
+    m2 = DifferentialAbundance(
+        n_landmarks=None,
+        density_predictor1=m.density_predictor1,
+        density_predictor2=m.density_predictor2,
+    )
+    with pytest.raises(ValueError, match="pre-fitted"):
+        m2.fit(X1, X2, density_normalization="calibrated")
+
+
+def test_calibration_info_is_recorded(no_da):
+    X1, X2 = no_da
+    m, _ = _fit(X1, X2, norm="calibrated")
+    nc = m.normalization_info["null_calibration"]
+    assert m.normalization_info["method"] == "calibrated"
+    assert nc["n_relabellings"] == DEFAULT_NULL_RELABELLINGS == 3
+    assert len(nc["offsets"]) == 3
+    assert nc["offset"] == pytest.approx(np.mean(nc["offsets"]))
 
 
 def test_normalization_info_records_the_measurement(no_da):
@@ -243,10 +304,10 @@ def test_da_wrapper_records_common_d_only_when_on():
         return a, res
 
     a_std, res_std = run()
-    a_cd, res_cd = run(density_normalization="common_d")
-    assert res_cd["model"].normalization_info["method"] == "common_d"
+    a_cd, res_cd = run(density_normalization="calibrated", null_relabellings=1)
+    assert res_cd["model"].normalization_info["method"] == "calibrated"
     assert res_std["model"].normalization_info is None
     s_std = str(a_std.uns["kompot_da"])
     s_cd = str(a_cd.uns["kompot_da"])
     assert "density_normalization" not in s_std
-    assert "common_d" in s_cd and "reference_d" in s_cd
+    assert "calibrated" in s_cd and "reference_d" in s_cd and "null_offset" in s_cd

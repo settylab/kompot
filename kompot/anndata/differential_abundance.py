@@ -52,6 +52,7 @@ def da(
     model: "ModelSettings | None" = None,
     density_normalization: Optional[str] = None,
     reference_d: Optional[float] = None,
+    null_relabellings: Optional[int] = None,
     **density_kwargs,
 ) -> "Union[Dict[str, np.ndarray], Any]":
     """Run differential abundance analysis on an AnnData object.
@@ -101,14 +102,19 @@ def da(
         ``density_predictor1/2`` and ``variance_predictor1/2`` are used.
         See :class:`~kompot.ModelSettings`.
     density_normalization : str, optional
-        ``"standard"`` (default, kompot 0.9.0) or ``"common_d"``: compare the
-        two conditions' own density fits at one reference dimension, which
-        makes the log-fold change unit-free and removes the size-ratio offset
-        while each condition keeps its own ``d``, ``mu`` and ``ls``.  See
+        ``"standard"`` (default, kompot 0.9.0), ``"common_d"`` or
+        ``"calibrated"``.  Both new values keep each condition's own ``d``,
+        ``mu`` and ``ls`` and compare the two fits at one reference dimension,
+        which makes the log-fold change unit-free; ``"calibrated"`` also
+        subtracts the size bias measured on size-matched relabellings of the
+        pooled cells.  See
         :meth:`~kompot.differential.DifferentialAbundance.fit`.
     reference_d : float, optional
-        The reference dimension for ``"common_d"``; ``None`` measures the
+        The reference dimension for the new values; ``None`` measures the
         nn-scaling dimension from the pooled cells.
+    null_relabellings : int, optional
+        Relabellings for ``"calibrated"`` (default 3); each costs one extra
+        pair of density fits.
     **density_kwargs
         Forwarded to :class:`~mellon.DensityEstimator`.  ``d``, ``mu`` and
         ``ls`` given here pin that parameter under any ``param_scheme``.
@@ -252,6 +258,7 @@ def da(
         param_scheme=param_scheme,
         density_normalization=density_normalization,
         reference_d=reference_d,
+        null_relabellings=null_relabellings,
         **density_kwargs,
     )
 
@@ -295,6 +302,9 @@ def da(
         top_level["reference_d_source"] = _ni["reference_d_source"]
         top_level["d_condition1"] = _ni["d_condition1"]
         top_level["d_condition2"] = _ni["d_condition2"]
+        if "null_calibration" in _ni:
+            top_level["null_offset"] = _ni["null_calibration"]["offset"]
+            top_level["null_relabellings"] = _ni["null_calibration"]["n_relabellings"]
     params_dict = build_params_dict(
         top_level=top_level,
         gp=GPSettings(
