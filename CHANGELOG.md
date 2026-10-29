@@ -2,6 +2,36 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added — DA normalization that corrects the size bias while keeping per-condition parameters
+
+`da()` and `DifferentialAbundance.fit()` take `density_normalization`:
+
+- `"standard"` (default): kompot 0.9.0, unchanged. With the opt-in values unused,
+  results are bitwise identical to 0.9.0 on the exact-GP and sample-variance paths.
+  The landmark path is not bitwise reproducible even on 0.9.0 itself (run to run
+  ≤ 1.2e-9); against 0.9.0 it stays within 1.9e-9, with identical directions.
+- `"common_d"`: each condition keeps its own `d`, `mu` and `ls`. The two fits are
+  compared at one reference dimension `d*`: each log-density goes from its own `d`
+  to `d*`, and variances scale by `(d*/d)**2`. The log-fold change is then
+  independent of the embedding's length unit. Under `"separate"` it used to shift
+  by `-(d2 - d1) ln k` when coordinates were rescaled by `k`. `d*` defaults to the
+  nn-scaling dimension (`nn_scaling_dimension`), which removes the size term
+  `(d/d_n - 1) ln(n2/n1)` left by the fractal estimator's low `d`. A second size
+  term remains: per-condition `ls` smooths the smaller condition more.
+- `"calibrated"` (recommended of the two new values): `"common_d"`, plus a
+  normalization constant calibrated on a size-matched null. `null_relabellings`
+  (default 3) random relabellings of the pooled cells into the two condition sizes
+  are fitted exactly as the real conditions are. The mean of their median
+  log-fold change is subtracted. This removes the global size bias whatever its
+  source. Each relabelling costs one extra pair of density fits. Seeded by
+  `random_state` (None means 0); a fixed seed reproduces bitwise.
+
+New `reference_d` pins `d*`. `model.normalization_info` records `d*`, each
+condition's `d`, and the null offsets; the run info in `uns` records them only
+when a non-default value is used.
+
 ## [0.9.0] - 2026-09-15
 
 ### Fixed — sample variance no longer costs more memory than it needs to

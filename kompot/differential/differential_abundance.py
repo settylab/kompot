@@ -25,6 +25,115 @@ _DENSITY_PARAMS = ("d", "mu", "ls")
 # each condition's ``d`` by the number of cells it actually averaged over.
 _D_FACTAL_QUERY_CELLS = 500
 
+#: Recognised values for ``density_normalization`` in :meth:`DifferentialAbundance.fit`.
+DENSITY_NORMALIZATIONS = ("standard", "common_d", "calibrated")
+
+#: The ``density_normalization`` an abundance fit uses when none is given.
+DEFAULT_DENSITY_NORMALIZATION = "standard"
+
+# The ``"common_d"`` reference dimension is measured between two subsample sizes
+# at least this far apart (chosen); closer sizes make the ratio ill-conditioned.
+_NN_SCALING_MIN_SIZE_RATIO = 2.0
+# Subsample draws averaged per size for the nn-scaling dimension (chosen).
+_NN_SCALING_REPEATS = 10
+
+#: Size-matched null relabellings ``"calibrated"`` averages over by default (chosen:
+#: on the known-answer synthetic the offset's spread across seeds is 0.30 at 1 and
+#: 0.12 at 3). Each costs one extra pair of density fits on the pooled cells.
+DEFAULT_NULL_RELABELLINGS = 3
+
+
+def _canonical_order(X):
+    """Row order that depends on the rows' values only, not on which condition came first."""
+    X = np.asarray(X)
+    return np.lexsort(X.T[::-1])
+
+
+def _log_unit_ball_volume(d):
+    """``ln`` of the volume of the ``d``-dimensional unit ball, ``ln c_d``.
+
+    The constant in mellon's nearest-neighbour likelihood
+    (``mellon.inference._nearest_neighbors``): ``ln rho_hat = -d ln r - ln c_d``.
+    """
+    from scipy.special import gammaln
+
+    return (d / 2.0) * np.log(np.pi) - gammaln(d / 2.0 + 1.0)
+
+
+def nn_scaling_dimension(
+    X, n_small, n_large, n_repeats=_NN_SCALING_REPEATS, seed=0
+) -> Dict[str, Any]:
+    """The exponent with which nearest-neighbour distances shrink with sample size.
+
+    Draws subsamples of ``n_small`` and ``n_large`` cells from ``X`` (without
+    replacement, ``n_repeats`` each) and returns
+
+        d_n = ln(n_large / n_small) / (E ln r(n_small) - E ln r(n_large)),
+
+    with ``r`` each cell's nearest-neighbour distance within its subsample
+    (``mellon.parameters.compute_nn_distances``). Both sizes sample one
+    distribution, so the change in ``E ln r`` is due to size alone. ``d_n`` is
+    the dimension at which ``normalize=True`` (subtracting ``ln n``) puts two
+    samples of these sizes on the same scale; see :meth:`DifferentialAbundance.fit`.
+
+    Returns
+    -------
+    dict
+        ``d`` (the estimate), ``n_small``, ``n_large``, ``mean_log_nn_small``,
+        ``mean_log_nn_large``, ``n_repeats``.
+    """
+    X = np.asarray(X)
+    N = len(X)
+    n_small, n_large = int(n_small), int(n_large)
+    if not (2 <= n_small < n_large <= N):
+        raise ValueError(
+            f"nn_scaling_dimension needs 2 <= n_small < n_large <= {N:,} cells "
+            f"(got n_small={n_small:,}, n_large={n_large:,})."
+        )
+    rng = np.random.default_rng(seed)
+
+    def mean_log_nn(n):
+        draws = 1 if n == N else n_repeats
+        vals = []
+        for _ in range(draws):
+            idx = rng.choice(N, n, replace=False) if n < N else np.arange(N)
+            r = np.asarray(mellon.parameters.compute_nn_distances(X[idx]))
+            r = r[r > 0]
+            if len(r) == 0:
+                raise ValueError("All nearest-neighbour distances are zero.")
+            vals.append(float(np.mean(np.log(r))))
+        return float(np.mean(vals))
+
+    m_small, m_large = mean_log_nn(n_small), mean_log_nn(n_large)
+    gap = m_small - m_large
+    d = np.log(n_large / n_small) / gap if gap > 0 else np.nan
+    if not np.isfinite(d) or d <= 0:
+        raise ValueError(
+            f"Nearest-neighbour distances do not shrink between {n_small:,} and "
+            f"{n_large:,} cells (E ln r {m_small:.4f} -> {m_large:.4f}), so no "
+            "nn-scaling dimension exists. Pass reference_d explicitly."
+        )
+    return {
+        "d": float(d),
+        "n_small": n_small,
+        "n_large": n_large,
+        "mean_log_nn_small": m_small,
+        "mean_log_nn_large": m_large,
+        "n_repeats": int(n_repeats),
+    }
+
+
+def to_reference_dimension(log_density, d_own, d_ref):
+    """Re-express a mellon log-density fitted at ``d_own`` at dimension ``d_ref``.
+
+    mellon's data term is ``ln rho_hat = -d ln r - ln c_d``. This maps it to
+    ``-d_ref ln r - ln c_{d_ref}`` (the same ``r``) by
+    ``(d_ref / d_own) * (log_density + ln c_{d_own}) - ln c_{d_ref}``.
+    Unnormalized in, unnormalized out. Variances scale by ``(d_ref / d_own)**2``.
+    """
+    s = d_ref / d_own
+    return s * (log_density + _log_unit_ball_volume(d_own)) - _log_unit_ball_volume(d_ref)
+
 
 def _condition_density_params(X, ls_factor, seed, d=None):
     """``d``, ``mu`` and ``ls`` exactly as a ``mellon.DensityEstimator`` derives them.
@@ -221,6 +330,10 @@ class DifferentialAbundance:
         self.log_fold_change_ptp = None
         self.log_fold_change_direction = None
 
+        # How predict() normalizes the two log-densities; set by fit().
+        self.density_normalization = DEFAULT_DENSITY_NORMALIZATION
+        self.normalization_info = None
+
         # Density estimators or predictors
         self.density_predictor1 = density_predictor1
         self.density_predictor2 = density_predictor2
@@ -240,6 +353,9 @@ class DifferentialAbundance:
         sample_estimator_ls: Optional[float] = None,
         param_scheme: Optional[str] = None,
         allow_single_condition_variance: bool = False,
+        density_normalization: Optional[str] = None,
+        reference_d: Optional[float] = None,
+        null_relabellings: Optional[int] = None,
         **density_kwargs,
     ):
         """
@@ -334,6 +450,53 @@ class DifferentialAbundance:
         allow_single_condition_variance : bool, optional
             Allow sample-variance estimation when only one condition has
             multiple samples, by default False.
+        density_normalization : str, optional
+            How :meth:`predict` puts the two conditions' log-densities on one
+            scale before taking their difference. ``None`` means ``"standard"``.
+
+            * ``"standard"`` (default; kompot 0.9.0) -- each condition's
+              log-density minus ``ln n`` (mellon ``normalize=True``). This is
+              exact only if both conditions' ``d`` equal the exponent with which
+              nearest-neighbour distances scale with cell count. With
+              per-condition ``d`` (``param_scheme="separate"``), the log-fold
+              change then shifts by ``-(d2 - d1) ln k`` when the embedding is
+              rescaled by ``k``; with a ``d`` below that exponent, it carries
+              ``(d/d_n - 1) ln(n2/n1)`` at no true change.
+            * ``"common_d"`` -- each condition keeps its own fit (its own ``d``,
+              ``mu``, ``ls`` under ``"separate"``); only the comparison is made
+              at one reference dimension ``d*``. Each log-density is mapped with
+              :func:`to_reference_dimension` from its own ``d`` to ``d*``, then
+              ``ln n`` is subtracted; variances scale by ``(d*/d)**2``. The
+              log-fold change is unit-free for any ``d*``, and free of the
+              size term ``(d/d_n - 1) ln(n2/n1)`` when ``d*`` is the nn-scaling
+              dimension (the default). It does not remove the second size term:
+              per-condition ``ls`` smooths the smaller condition more, which on
+              a known-answer synthetic leaves about -0.25 nat at 600/200 cells.
+            * ``"calibrated"`` (recommended over ``"common_d"``) -- ``"common_d"``,
+              then the normalization constant is calibrated on a size-matched
+              null: the pooled cells are randomly relabelled into two groups of
+              the two condition sizes, which share one distribution, and fitted
+              exactly as the real conditions are (same ``param_scheme``,
+              landmarks, ``d*``). The mean over ``null_relabellings`` of their
+              median log-fold change is the size bias at these sizes, whatever
+              its source (``d``, ``ls``, ``mu``, finite-sample shrinkage), and is
+              subtracted from every cell's log-fold change, half from each
+              condition's log-density. At equal condition sizes the offset is 0
+              by symmetry and no relabelling is fitted. Each condition keeps its own fit; costs
+              ``null_relabellings`` extra pairs of fits. Corrects the global
+              offset, not position-dependent bias. The relabellings and the
+              nn-scaling subsamples are drawn from
+              ``np.random.default_rng(random_state)`` (``random_state=None``
+              means 0) over a value-defined row order, so a call is
+              deterministic, and a fixed ``random_state`` reproduces it.
+        reference_d : float, optional
+            ``d*`` for ``"common_d"`` and ``"calibrated"``. ``None`` (default)
+            measures it with :func:`nn_scaling_dimension` on subsamples of both
+            conditions' pooled cells at the two condition sizes (spread to at
+            least a factor 2 apart). Ignored under ``"standard"``.
+        null_relabellings : int, optional
+            Relabellings for ``"calibrated"``; ``None`` means
+            ``DEFAULT_NULL_RELABELLINGS`` (3).
         **density_kwargs : dict
             Additional arguments to pass to the DensityEstimator.
 
@@ -344,6 +507,41 @@ class DifferentialAbundance:
         """
 
         param_scheme = resolve_param_scheme(param_scheme, DEFAULT_PARAM_SCHEME)
+        if density_normalization is None:
+            density_normalization = DEFAULT_DENSITY_NORMALIZATION
+        if density_normalization not in DENSITY_NORMALIZATIONS:
+            raise ValueError(
+                f"'density_normalization' must be one of {DENSITY_NORMALIZATIONS} "
+                f"(got {density_normalization!r})."
+            )
+        if reference_d is not None and density_normalization == "standard":
+            raise ValueError(
+                "reference_d is only used with density_normalization='common_d' "
+                "or 'calibrated'."
+            )
+        if null_relabellings is not None and density_normalization != "calibrated":
+            raise ValueError(
+                "null_relabellings is only used with density_normalization='calibrated'."
+            )
+        if null_relabellings is None:
+            null_relabellings = DEFAULT_NULL_RELABELLINGS
+        if int(null_relabellings) != null_relabellings or null_relabellings < 1:
+            raise ValueError(
+                f"null_relabellings must be a positive integer (got {null_relabellings!r})."
+            )
+        # The calibration refits the way the real conditions are fitted, which it
+        # can only do when this call fits them.
+        fits_here = self.density_predictor1 is None or self.density_predictor2 is None
+        if density_normalization == "calibrated" and not fits_here:
+            raise ValueError(
+                "density_normalization='calibrated' refits size-matched null "
+                "conditions the way fit() fits the real ones, so it cannot be used "
+                "with pre-fitted density predictors; use 'common_d'."
+            )
+        if reference_d is not None and not (
+            np.isscalar(reference_d) and np.isfinite(reference_d) and reference_d > 0
+        ):
+            raise ValueError(f"reference_d must be a positive number (got {reference_d!r}).")
 
         # Create or use density predictors
         if self.density_predictor1 is None or self.density_predictor2 is None:
@@ -477,6 +675,24 @@ class DifferentialAbundance:
         else:
             logger.info(
                 "Density estimators have already been fitted. Call predict() to compute fold changes."
+            )
+
+        self.density_normalization = density_normalization
+        self.normalization_info = None
+        if density_normalization in ("common_d", "calibrated"):
+            self.normalization_info = self._resolve_common_d(
+                X_condition1, X_condition2, reference_d
+            )
+            self.normalization_info["method"] = density_normalization
+        if density_normalization == "calibrated":
+            self.normalization_info["null_calibration"] = self._null_calibration(
+                X_condition1,
+                X_condition2,
+                landmarks=landmarks if landmarks is not None else getattr(self, "computed_landmarks", None),
+                ls_factor=ls_factor,
+                param_scheme=param_scheme,
+                n_relabellings=int(null_relabellings),
+                density_kwargs=density_kwargs,
             )
 
         # Check if sample indices are provided
@@ -630,6 +846,113 @@ class DifferentialAbundance:
 
         return self
 
+    def _resolve_common_d(self, X_condition1, X_condition2, reference_d):
+        """Each condition's own ``d`` and the shared reference ``d*`` (``common_d``)."""
+        info = {"method": "common_d"}
+        for j, (pred, X) in enumerate(
+            ((self.density_predictor1, X_condition1), (self.density_predictor2, X_condition2)),
+            start=1,
+        ):
+            d_own = getattr(pred, "d", None)
+            if d_own is None or np.ndim(d_own) != 0:
+                raise ValueError(
+                    "density_normalization='common_d' needs each density predictor "
+                    f"to carry one scalar d (condition {j} has d={d_own!r})."
+                )
+            n_obs = getattr(pred, "n_obs", None)
+            info[f"d_condition{j}"] = float(d_own)
+            info[f"n_condition{j}"] = int(n_obs) if n_obs else int(len(X))
+        if reference_d is not None:
+            info["reference_d"] = float(reference_d)
+            info["reference_d_source"] = "given"
+        else:
+            n1, n2 = info["n_condition1"], info["n_condition2"]
+            n_large = max(n1, n2)
+            n_small = min(n1, n2)
+            if n_large / n_small < _NN_SCALING_MIN_SIZE_RATIO:
+                n_small = int(n_large // _NN_SCALING_MIN_SIZE_RATIO)
+            seed = self.random_state if self.random_state is not None else 0
+            pooled = np.vstack([X_condition1, X_condition2])
+            scaling = nn_scaling_dimension(
+                pooled[_canonical_order(pooled)], n_small, n_large, seed=seed
+            )
+            info["reference_d"] = scaling["d"]
+            info["reference_d_source"] = "nn_scaling"
+            info["nn_scaling"] = scaling
+        logger.info(
+            "density_normalization='common_d': comparing at d*={:.4f} ({}); "
+            "condition d = {:.4f} / {:.4f}".format(
+                info["reference_d"],
+                info["reference_d_source"],
+                info["d_condition1"],
+                info["d_condition2"],
+            )
+        )
+        return info
+
+    def _null_calibration(
+        self, X_condition1, X_condition2, landmarks, ls_factor, param_scheme,
+        n_relabellings, density_kwargs,
+    ):
+        """Mean median lfc of size-matched relabellings of the pooled cells.
+
+        The pooled cells are put in a value-defined order and each draw assigns a
+        random block of the smaller condition's size to the smaller condition, so
+        ``da(X, Y)`` and ``da(Y, X)`` use the same partitions with the roles
+        exchanged and get offsets of opposite sign.
+
+        Equal sizes: two equal-size samples of one distribution have no size bias
+        by symmetry, so the offset is 0 and no relabelling is fitted. (A block
+        rule cannot tell the conditions apart there, so a fitted offset would be
+        noise, and the same for ``da(X, Y)`` and ``da(Y, X)``.)
+        """
+        info = self.normalization_info
+        n1, n2 = len(X_condition1), len(X_condition2)
+        if n1 == n2:
+            logger.info(
+                "density_normalization='calibrated': equal condition sizes, so the "
+                "size-matched null offset is 0 by symmetry (no relabelling fitted)."
+            )
+            return {"offset": 0.0, "offsets": [], "n_relabellings": 0,
+                    "reason": "equal condition sizes"}
+        P = np.vstack([X_condition1, X_condition2])
+        P = P[_canonical_order(P)]
+        n_small = min(n1, n2)
+        seed = self.random_state if self.random_state is not None else 0
+        rng = np.random.default_rng(seed)
+        offsets = []
+        for i in range(n_relabellings):
+            perm = rng.permutation(len(P))
+            small, large = P[perm[:n_small]], P[perm[n_small:]]
+            A, B = (small, large) if n1 <= n2 else (large, small)
+            null = DifferentialAbundance(
+                n_landmarks=self.n_landmarks,
+                jit_compile=self.jit_compile,
+                random_state=self.random_state,
+                batch_size=self.batch_size,
+            )
+            null.fit(
+                A,
+                B,
+                landmarks=landmarks,
+                ls_factor=ls_factor,
+                param_scheme=param_scheme,
+                density_normalization="common_d",
+                reference_d=info["reference_d"],
+                **density_kwargs,
+            )
+            lfc = np.asarray(null.predict(P, progress=False)["log_fold_change"])
+            offsets.append(float(np.median(lfc)))
+            logger.info(
+                f"null relabelling {i + 1}/{n_relabellings}: median lfc {offsets[-1]:+.4f}"
+            )
+        offset = float(np.mean(offsets))
+        logger.info(
+            f"density_normalization='calibrated': size-matched null offset {offset:+.4f} "
+            f"(mean of {n_relabellings}) subtracted from the log-fold change"
+        )
+        return {"offset": offset, "offsets": offsets, "n_relabellings": n_relabellings}
+
     def predict(
         self,
         X_new: np.ndarray,
@@ -681,11 +1004,33 @@ class DifferentialAbundance:
         batch_size = getattr(self, "batch_size", None)
 
         # Define functions for batched processing
-        def compute_density1(X_batch):
-            return self.density_predictor1(X_batch, normalize=True)
+        common_d = self.density_normalization in ("common_d", "calibrated")
+        if common_d:
+            info = self.normalization_info
+            if info is None:
+                raise ValueError(
+                    f"density_normalization={self.density_normalization!r} was not "
+                    "resolved; call fit() first."
+                )
+            d_ref = info["reference_d"]
+            d_own1, d_own2 = info["d_condition1"], info["d_condition2"]
+            ln_n1, ln_n2 = np.log(info["n_condition1"]), np.log(info["n_condition2"])
 
-        def compute_density2(X_batch):
-            return self.density_predictor2(X_batch, normalize=True)
+            def compute_density1(X_batch):
+                raw = np.asarray(self.density_predictor1(X_batch, normalize=False))
+                return to_reference_dimension(raw, d_own1, d_ref) - ln_n1
+
+            def compute_density2(X_batch):
+                raw = np.asarray(self.density_predictor2(X_batch, normalize=False))
+                return to_reference_dimension(raw, d_own2, d_ref) - ln_n2
+
+        else:
+
+            def compute_density1(X_batch):
+                return self.density_predictor1(X_batch, normalize=True)
+
+            def compute_density2(X_batch):
+                return self.density_predictor2(X_batch, normalize=True)
 
         def compute_uncertainty1(X_batch):
             return self.density_predictor1.uncertainty(X_batch)
@@ -774,6 +1119,20 @@ class DifferentialAbundance:
                 # Add sample variance to uncertainty
                 sample_variance2 = sample_variance2.flatten()
                 log_density_uncertainty_condition2 += sample_variance2
+
+        if common_d:
+            # Var(s * f) = s**2 Var(f), for the GP and the sample variance alike.
+            log_density_uncertainty_condition1 = log_density_uncertainty_condition1 * (
+                d_ref / d_own1
+            ) ** 2
+            log_density_uncertainty_condition2 = log_density_uncertainty_condition2 * (
+                d_ref / d_own2
+            ) ** 2
+
+        if self.density_normalization == "calibrated":
+            half = 0.5 * self.normalization_info["null_calibration"]["offset"]
+            log_density_condition1 = log_density_condition1 + half
+            log_density_condition2 = log_density_condition2 - half
 
         # The rest of the computation is lightweight and can be done all at once
         # Compute log fold change and uncertainty
