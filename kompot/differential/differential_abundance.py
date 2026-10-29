@@ -14,8 +14,15 @@ from .sample_variance_estimator import SampleVarianceEstimator
 
 logger = logging.getLogger("kompot")
 
-#: The ``param_scheme`` an abundance fit uses when none is given.
-DEFAULT_PARAM_SCHEME = "separate"
+#: The ``param_scheme`` an abundance fit uses when none is given.  Shared
+#: ``d``, ``mu`` and ``ls`` make the log-fold change independent of the length
+#: unit of the embedding (see :func:`units_term`); it was ``"separate"`` up to
+#: 0.9.0.
+DEFAULT_PARAM_SCHEME = "symmetric"
+
+#: The scheme every DA run used before ``param_scheme`` existed; runs recorded
+#: without the field are compared as this.
+LEGACY_PARAM_SCHEME = "separate"
 
 #: The density hyperparameters a ``param_scheme`` covers.
 _DENSITY_PARAMS = ("d", "mu", "ls")
@@ -330,16 +337,29 @@ class DifferentialAbundance:
             Where the density hyperparameters ``d``, ``mu`` and ``ls`` come from.
             A value passed explicitly through ``density_kwargs`` (``d=``,
             ``mu=``, ``ls=``) pins that parameter and takes precedence. ``None``
-            (default) means ``"separate"``.
+            (default) means ``"symmetric"`` (``"separate"`` up to 0.9.0).
 
-            * ``"separate"`` (default) — each density estimator derives its own
+            **Why the default shares.** mellon's density is ``-d ln r + ...`` in
+            the units of the embedding, and ``normalize=True`` removes the cell
+            count but not the unit. With a different ``d`` per condition the
+            log-fold change carries ``-(d2 - d1) ln(unit)``: rescaling every
+            coordinate by ``k`` shifts it by ``-(d2 - d1) ln k``. The fractal
+            ``d`` of a condition often grows with its cell count, so under
+            ``"separate"`` this term tracks the condition-size ratio and calls
+            direction on cells with no change (settylab/dotto-nexus#455). A
+            shared ``d`` cancels the unit exactly; sharing ``mu`` and ``ls`` as
+            well removes the remaining, smaller, size-dependent prior and
+            smoothing mismatch. ``"separate"`` warns when its predicted units
+            term exceeds ``UNITS_TERM_WARN_NATS``.
+
+            * ``"separate"`` — each density estimator derives its own
               ``d``, ``mu`` and ``ls`` from its own condition; nothing is shared.
             * ``"pooled"`` — estimate all three once from both conditions' cells
               taken together and share them.
             * ``"condition1"`` / ``"condition2"`` — estimate all three from one
               condition's cells, exactly as that condition's own estimator
               would, and share them. As asymmetric as the names say.
-            * ``"symmetric"`` — estimate from each condition separately and share
+            * ``"symmetric"`` (default) — estimate from each condition separately and share
               the pooled estimate: ``ls`` is the size-weighted geometric mean of
               the two, ``d`` the mean local dimensionality over both
               conditions' query cells, and ``mu`` the

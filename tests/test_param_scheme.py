@@ -596,11 +596,12 @@ def _shared(model):
 # -- defaults --------------------------------------------------------------
 
 
-def test_da_default_is_separate():
+def test_da_default_is_symmetric():
+    """Changed from ``"separate"`` after 0.9.0 (settylab/dotto-nexus#455)."""
     X1, X2 = _da_data()
     Xn = np.vstack([X1, X2])
     a = _da_predict(_da_fit(X1, X2), Xn)
-    b = _da_predict(_da_fit(X1, X2, param_scheme="separate"), Xn)
+    b = _da_predict(_da_fit(X1, X2, param_scheme="symmetric"), Xn)
     for key in ("log_density_condition1", "log_density_condition2", "log_fold_change"):
         np.testing.assert_array_equal(a[key], b[key])
 
@@ -821,7 +822,7 @@ def test_da_honours_gp_ls():
 
 
 def test_da_honours_gp_param_scheme():
-    separate = _da_lfc(GPSettings(**_NO_LM))
+    separate = _da_lfc(GPSettings(param_scheme="separate", **_NO_LM))
     pooled = _da_lfc(GPSettings(param_scheme="pooled", **_NO_LM))
     assert np.abs(pooled - separate).max() > 1e-2
 

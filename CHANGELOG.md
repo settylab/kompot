@@ -2,6 +2,33 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Changed — `da()` shares `d`, `mu` and `ls` between conditions by default
+
+The default `GPSettings.param_scheme` for differential abundance is now
+`"symmetric"` (it was `"separate"`). Pass `gp=GPSettings(param_scheme="separate")`
+for the 0.9.0 behaviour; runs recorded in `adata.uns` before `param_scheme`
+existed are still compared as `"separate"`.
+
+Why. mellon's log density is `-d ln r + ...` in the units of the embedding, and
+`normalize=True` removes the cell count, not the unit. With a separate `d` per
+condition the log-fold change carries `-(d2 - d1) ln(unit)`: multiplying every
+coordinate by `k` shifts it by `-(d2 - d1) ln k` (measured to 4 decimals). On
+embeddings whose apparent dimension grows with the number of cells (a diffusion
+map, in the case that found it), each condition's fractal `d` tracks its size,
+so the offset tracks the condition-size ratio and flags cells with no change
+(settylab/dotto-nexus#455). A shared `d` cancels the unit exactly; sharing `mu`
+and `ls` as well removes a smaller residual. `"symmetric"` is bit-identical
+under swapping the conditions.
+
+### Added
+
+- `DifferentialAbundance.density_params`: `d`, `mu`, `ls` and cell count per
+  condition, the scheme, and the predicted units term.
+- A warning under `"separate"` when the predicted units term exceeds
+  `UNITS_TERM_WARN_NATS` (0.1 nat).
+
 ## [0.9.0] - 2026-09-15
 
 ### Fixed — sample variance no longer costs more memory than it needs to

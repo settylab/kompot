@@ -94,7 +94,8 @@ class GPSettings:
         takes precedence.
 
         ``None`` (default) keeps each entry point's own default:
-        ``"condition1"`` for ``de()`` and ``"separate"`` for ``da()``.
+        ``"condition1"`` for ``de()`` and ``"symmetric"`` for ``da()``
+        (``"separate"`` up to 0.9.0).
 
         * ``"condition1"`` — estimate from condition 1's cells and reuse for
           condition 2.  Makes the result depend on which condition is passed
