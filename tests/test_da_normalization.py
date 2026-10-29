@@ -311,3 +311,22 @@ def test_da_wrapper_records_common_d_only_when_on():
     s_cd = str(a_cd.uns["kompot_da"])
     assert "density_normalization" not in s_std
     assert "calibrated" in s_cd and "reference_d" in s_cd and "null_offset" in s_cd
+
+
+def test_calibrated_fixed_seed_reproduces_bitwise_and_the_seed_is_used(no_da):
+    X1, X2 = no_da
+
+    def run(seed):
+        m = DifferentialAbundance(n_landmarks=None, random_state=seed)
+        m.fit(X1, X2, density_normalization="calibrated")
+        r = m.predict(np.vstack([X1, X2]), progress=False)
+        return m.normalization_info, r
+
+    (i_a, r_a), (i_b, r_b), (i_c, _) = run(7), run(7), run(8)
+    assert i_a["null_calibration"]["offsets"] == i_b["null_calibration"]["offsets"]
+    assert i_a["reference_d"] == i_b["reference_d"]
+    for key in ("log_fold_change", "log_fold_change_zscore", "log_fold_change_uncertainty"):
+        a, b = np.asarray(r_a[key]), np.asarray(r_b[key])
+        assert a.tobytes() == b.tobytes(), key
+    # potency: another seed draws other relabellings
+    assert i_c["null_calibration"]["offsets"] != i_a["null_calibration"]["offsets"]

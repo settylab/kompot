@@ -483,7 +483,11 @@ class DifferentialAbundance:
               subtracted from every cell's log-fold change, half from each
               condition's log-density. Each condition keeps its own fit; costs
               ``null_relabellings`` extra pairs of fits. Corrects the global
-              offset, not position-dependent bias.
+              offset, not position-dependent bias. The relabellings and the
+              nn-scaling subsamples are drawn from
+              ``np.random.default_rng(random_state)`` (``random_state=None``
+              means 0) over a value-defined row order, so a call is
+              deterministic, and a fixed ``random_state`` reproduces it.
         reference_d : float, optional
             ``d*`` for ``"common_d"`` and ``"calibrated"``. ``None`` (default)
             measures it with :func:`nn_scaling_dimension` on subsamples of both
