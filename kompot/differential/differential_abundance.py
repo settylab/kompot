@@ -481,7 +481,8 @@ class DifferentialAbundance:
               median log-fold change is the size bias at these sizes, whatever
               its source (``d``, ``ls``, ``mu``, finite-sample shrinkage), and is
               subtracted from every cell's log-fold change, half from each
-              condition's log-density. Each condition keeps its own fit; costs
+              condition's log-density. At equal condition sizes the offset is 0
+              by symmetry and no relabelling is fitted. Each condition keeps its own fit; costs
               ``null_relabellings`` extra pairs of fits. Corrects the global
               offset, not position-dependent bias. The relabellings and the
               nn-scaling subsamples are drawn from
@@ -898,12 +899,24 @@ class DifferentialAbundance:
         The pooled cells are put in a value-defined order and each draw assigns a
         random block of the smaller condition's size to the smaller condition, so
         ``da(X, Y)`` and ``da(Y, X)`` use the same partitions with the roles
-        exchanged and get offsets of opposite sign (equal sizes: not exchanged).
+        exchanged and get offsets of opposite sign.
+
+        Equal sizes: two equal-size samples of one distribution have no size bias
+        by symmetry, so the offset is 0 and no relabelling is fitted. (A block
+        rule cannot tell the conditions apart there, so a fitted offset would be
+        noise, and the same for ``da(X, Y)`` and ``da(Y, X)``.)
         """
         info = self.normalization_info
+        n1, n2 = len(X_condition1), len(X_condition2)
+        if n1 == n2:
+            logger.info(
+                "density_normalization='calibrated': equal condition sizes, so the "
+                "size-matched null offset is 0 by symmetry (no relabelling fitted)."
+            )
+            return {"offset": 0.0, "offsets": [], "n_relabellings": 0,
+                    "reason": "equal condition sizes"}
         P = np.vstack([X_condition1, X_condition2])
         P = P[_canonical_order(P)]
-        n1, n2 = len(X_condition1), len(X_condition2)
         n_small = min(n1, n2)
         seed = self.random_state if self.random_state is not None else 0
         rng = np.random.default_rng(seed)

@@ -248,6 +248,37 @@ def test_calibrated_refuses_prefitted_predictors(no_da):
         m2.fit(X1, X2, density_normalization="calibrated")
 
 
+def test_calibrated_equal_sizes_offset_is_zero_and_swap_antisymmetric():
+    """Skeptic kompot-normfix2-sk F1: at n1 == n2 the block rule gave da(X, Y) and
+    da(Y, X) the SAME offset. Equal sizes have no size bias: offset 0, lfc flips."""
+    X1, X2 = _no_da_data(seed=3, n1=400, n2=400)
+    m, r = _fit(X1, X2, norm="calibrated")
+    ms, rs = _fit(X2, X1, norm="calibrated")
+    for x in (m, ms):
+        nc = x.normalization_info["null_calibration"]
+        assert nc["offset"] == 0.0 and nc["n_relabellings"] == 0 and nc["offsets"] == []
+    l, ls = np.asarray(r["log_fold_change"]), np.asarray(rs["log_fold_change"])
+    ls = np.concatenate([ls[len(X2):], ls[: len(X2)]])
+    np.testing.assert_allclose(ls, -l, atol=1e-6)
+    # and equals common_d exactly there
+    _, rc = _fit(X1, X2, norm="common_d")
+    np.testing.assert_array_equal(l, np.asarray(rc["log_fold_change"]))
+
+
+def test_new_normalizations_run_with_landmarks():
+    """Smoke test only (skeptic F5): the AnnData default builds landmarks above 5000
+    cells. Not a known-answer test with landmarks."""
+    X1, X2 = _no_da_data(seed=0, n1=600, n2=200)
+    for norm in ("common_d", "calibrated"):
+        m = DifferentialAbundance(n_landmarks=64, random_state=0)
+        m.fit(X1, X2, density_normalization=norm)
+        r = m.predict(np.vstack([X1, X2]), progress=False)
+        assert np.isfinite(np.asarray(r["log_fold_change"])).all()
+        assert np.isfinite(np.asarray(r["log_fold_change_zscore"])).all()
+        if norm == "calibrated":
+            assert len(m.normalization_info["null_calibration"]["offsets"]) == 3
+
+
 def test_calibration_info_is_recorded(no_da):
     X1, X2 = no_da
     m, _ = _fit(X1, X2, norm="calibrated")
