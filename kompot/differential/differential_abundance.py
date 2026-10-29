@@ -20,6 +20,11 @@ DEFAULT_PARAM_SCHEME = "separate"
 #: The density hyperparameters a ``param_scheme`` covers.
 _DENSITY_PARAMS = ("d", "mu", "ls")
 
+#: Above this predicted size (nats) of the units term, ``"separate"`` warns.
+#: Chosen: well under the 0.5-1 nat offsets measured on real embeddings and well
+#: above the term at a common d (exactly 0).
+UNITS_TERM_WARN_NATS = 0.1
+
 # ``compute_d_factal`` averages local dimensionality over at most this many
 # query cells (mellon ``parameters.py``); the ``"symmetric"`` scheme weights
 # each condition's ``d`` by the number of cells it actually averaged over.
@@ -90,6 +95,41 @@ def _resolve_scheme_density_params(
     raise ValueError(
         f"Unknown param_scheme {param_scheme!r}. Expected one of {PARAM_SCHEMES}."
     )
+
+
+def _fitted_density_params(estimator, n_cells):
+    """``d``, ``mu``, ``ls`` and the cell count a fitted ``DensityEstimator`` used."""
+    d = np.asarray(estimator.d, dtype=float)
+    return {
+        "d": float(d.mean()) if d.ndim else float(d),
+        "mu": float(estimator.mu),
+        "ls": float(estimator.ls),
+        "n_cells": int(n_cells),
+    }
+
+
+def units_term(estimator1, estimator2):
+    """Predicted units term of a two-condition lfc: ``-(d2 - d1) * mean log nn distance``.
+
+    With ``normalize=True`` each log density is ``-d_i * ln r + ...`` in the
+    units of the embedding.  Rescaling every coordinate by ``k`` moves condition
+    i's log density by ``-d_i * ln k``, so the lfc moves by ``-(d2 - d1) * ln k``:
+    unless both conditions share ``d``, the fold change depends on the length
+    unit.  At the embedding's own units that term is about ``-(d2 - d1)`` times
+    the mean log nearest-neighbour distance.  It is a plug-in prediction: on
+    real embeddings the measured offset tracked it with slope about 0.56
+    (settylab/dotto-nexus#455), and its cell-to-cell variation follows local
+    density.  Returns ``(delta_d, mean_log_nn, term)``.
+    """
+    d1 = float(np.mean(estimator1.d))
+    d2 = float(np.mean(estimator2.d))
+    log_nn = np.log(
+        np.concatenate(
+            [np.asarray(estimator1.nn_distances), np.asarray(estimator2.nn_distances)]
+        )
+    )
+    mean_log_nn = float(np.mean(log_nn))
+    return d2 - d1, mean_log_nn, -(d2 - d1) * mean_log_nn
 
 
 class DifferentialAbundance:
@@ -220,6 +260,10 @@ class DifferentialAbundance:
         self.log_fold_change_zscore = None
         self.log_fold_change_ptp = None
         self.log_fold_change_direction = None
+
+        # d / mu / ls / n_cells per condition, the scheme, and the predicted
+        # units term -- set by fit() when it fits the estimators itself.
+        self.density_params = None
 
         # Density estimators or predictors
         self.density_predictor1 = density_predictor1
@@ -471,6 +515,44 @@ class DifferentialAbundance:
             density_estimator_condition2 = mellon.DensityEstimator(**estimator_defaults)
             density_estimator_condition2.fit(X_condition2)
             self.density_predictor2 = density_estimator_condition2.predict
+
+            self.density_params = {
+                "param_scheme": param_scheme,
+                "condition1": _fitted_density_params(
+                    density_estimator_condition1, len(X_condition1)
+                ),
+                "condition2": _fitted_density_params(
+                    density_estimator_condition2, len(X_condition2)
+                ),
+            }
+            delta_d, mean_log_nn, term = units_term(
+                density_estimator_condition1, density_estimator_condition2
+            )
+            self.density_params["units_term"] = term
+            logger.info(
+                "Density parameters: "
+                + "; ".join(
+                    f"{c}: d={p['d']:.4f}, mu={p['mu']:.4f}, ls={p['ls']:.4g}, n={p['n_cells']}"
+                    for c, p in (
+                        ("condition1", self.density_params["condition1"]),
+                        ("condition2", self.density_params["condition2"]),
+                    )
+                )
+            )
+            if abs(term) > UNITS_TERM_WARN_NATS:
+                logger.warning(
+                    f"The two conditions' density estimators use different d "
+                    f"(d2 - d1 = {delta_d:+.3f}, param_scheme={param_scheme!r}). "
+                    f"The log-fold change then depends on the units of the "
+                    f"embedding: multiplying every coordinate by k shifts it by "
+                    f"{-delta_d:+.3f} * ln(k). At these coordinates (mean log "
+                    f"nearest-neighbour distance {mean_log_nn:.2f}) the predicted "
+                    f"offset is about {term:+.2f} nats, which can call direction "
+                    f"on cells with no change. The fractal d of a condition grows "
+                    f"with its cell count on many embeddings, so this tracks the "
+                    f"condition-size ratio. Use gp=GPSettings(param_scheme="
+                    f"'symmetric') to share d, mu and ls, or pin d."
+                )
             logger.debug(
                 "Density estimators fitted. Call predict() to compute fold changes."
             )
