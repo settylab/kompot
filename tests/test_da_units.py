@@ -75,21 +75,50 @@ def test_symmetric_lfc_is_unit_free(no_da):
     _, base = _fit_lfc(X1, X2, "symmetric")
     for k in (0.01, 1000.0):
         _, scaled = _fit_lfc(X1, X2, "symmetric", k=k)
-        np.testing.assert_allclose(scaled, base, atol=1e-3)
+        # measured max 0.0011 over 10 seeds; separate shifts by ~0.6 here
+        np.testing.assert_allclose(scaled, base, atol=5e-3)
 
 
-def test_known_answer_no_da_offset_near_zero_when_shared(no_da):
-    """No true DA, sizes 600 vs 200, DM-like units (nn distances near 1e-2).
+# Known answer, averaged over seeds: one seed's median lfc scatters by about
+# 0.15 (measured over 10 seeds, settylab/dotto-nexus#455), so a single draw
+# cannot carry an "offset ~ 0" claim.
+_SEEDS = range(5)
 
-    The shared scheme's offset is the size term (d/d0 - 1) ln(n2/n1) only; the
-    separate scheme adds the units term on top.
+
+def _median_lfcs(n1, n2, **kw):
+    out = []
+    for seed in _SEEDS:
+        X1, X2 = _no_da_data(seed=seed, n1=n1, n2=n2)
+        out.append(float(np.median(_fit_lfc(X1, X2, "symmetric", **kw)[1])))
+    return np.array(out)
+
+
+def test_known_answer_no_da_offset_near_zero_at_the_true_dimension():
+    """No true DA, 600 vs 200 cells, shared d = the manifold's true dimension (2).
+
+    normalize=True subtracts ln n, which is exact when d equals the exponent d0
+    with which nearest-neighbour distances scale with n. Measured mean over
+    seeds 0-4: +0.021 (10 seeds: -0.057, sd 0.14).
     """
-    X1, X2 = no_da
-    k = 0.01
-    _, sym = _fit_lfc(X1, X2, "symmetric", k=k)
-    m_sep, sep = _fit_lfc(X1, X2, "separate", k=k)
-    assert abs(np.median(sym)) < 0.15
-    assert abs(np.median(sep)) > abs(np.median(sym)) + 0.1
+    pinned = _median_lfcs(600, 200, d=2.0)
+    assert abs(pinned.mean()) < 0.15
+
+
+def test_shared_fractal_d_leaves_the_size_term():
+    """Known limitation, pinned so a change to it is seen: the shared FRACTAL d.
+
+    The fractal estimator reads below d0 (here about 1.47 for d0 = 2), so the
+    shared-d lfc keeps the constant (d/d0 - 1) ln(n2/n1): about +0.28 at
+    600/200 under the plug-in, +0.22 measured, zero at equal sizes. It is
+    unit-free and one constant per comparison, unlike the units term of
+    "separate". Measured seeds 0-4: +0.271 at 600/200, -0.005 at 400/400.
+    """
+    fractal = _median_lfcs(600, 200)
+    pinned = _median_lfcs(600, 200, d=2.0)
+    balanced = _median_lfcs(400, 400)
+    assert (fractal > 0.05).all() and fractal.mean() > 0.15
+    assert abs(pinned.mean()) < fractal.mean() / 2
+    assert abs(balanced.mean()) < 0.1
 
 
 class _Capture(logging.Handler):

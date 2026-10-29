@@ -352,6 +352,15 @@ class DifferentialAbundance:
             smoothing mismatch. ``"separate"`` warns when its predicted units
             term exceeds ``UNITS_TERM_WARN_NATS``.
 
+            **What sharing does not fix.** Subtracting ``ln n`` is exact only
+            when ``d`` equals the exponent ``d0`` with which nearest-neighbour
+            distances scale with cell count. mellon's fractal estimate reads
+            below ``d0`` on clean manifolds, so a shared fractal ``d`` leaves
+            one constant per comparison, about ``(d/d0 - 1) ln(n2/n1)``:
+            +0.22 measured (+0.28 predicted) for 600 vs 200 cells on a 2-D
+            manifold, zero at equal sizes and with ``d=d0`` pinned. It is
+            unit-free and does not vary between cells.
+
             * ``"separate"`` — each density estimator derives its own
               ``d``, ``mu`` and ``ls`` from its own condition; nothing is shared.
             * ``"pooled"`` — estimate all three once from both conditions' cells

@@ -22,6 +22,13 @@ so the offset tracks the condition-size ratio and flags cells with no change
 and `ls` as well removes a smaller residual. `"symmetric"` is bit-identical
 under swapping the conditions.
 
+Not fixed by this change: `normalize=True` subtracts `ln n`, which is exact only
+when `d` equals the exponent with which nearest-neighbour distances scale with
+the cell count. The fractal `d` reads low, so a shared fractal `d` still leaves
+one constant per comparison of about `(d/d0 - 1) ln(n2/n1)` (+0.22 measured for
+600 vs 200 cells on a 2-D manifold; zero at equal sizes, and zero within noise
+with `d` pinned at the true dimension).
+
 ### Added
 
 - `DifferentialAbundance.density_params`: `d`, `mu`, `ls` and cell count per
